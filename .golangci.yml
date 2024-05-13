@@ -1,0 +1,85 @@
+goVersion: &goVersion "1.22"
+
+run:
+  go: *goVersion
+  timeout: 30m
+
+linters:
+  disable-all: true
+  # Enable specific linter
+  # https://golangci-lint.run/usage/linters/#enabled-by-default-linters
+  enable:
+    - errorlint
+    - exportloopref
+    - forbidigo
+    - forcetypeassert
+    - goconst
+    - gocritic
+    - gofumpt
+    - gosec
+    - gosimple
+    - govet
+    - ineffassign
+    - makezero
+    - misspell
+    - nakedret
+    - nolintlint
+    - prealloc
+    - staticcheck
+    - stylecheck
+    - unused
+    - gochecksumtype
+
+linters-settings:
+  errorlint:
+    errorf: true
+
+  forbidigo:
+    forbid:
+      - log.With\(\) # do not use global logger, use log.Ctx(ctx) instead
+      - fmt.Print*
+  gomodguard:
+    blocked:
+      # List of blocked modules.
+      modules:
+        # Blocked module.
+        - github.com/pkg/errors:
+            # Recommended modules that should be used instead. (Optional)
+            recommendations:
+              - errors
+              - fmt
+            reason: "This package is deprecated, use `fmt.Errorf` with `%w` instead"
+
+  goconst:
+    ignore-tests: true
+    numbers: true
+
+  gocritic:
+    disabled-checks:
+      - exitAfterDefer
+      - ifElseChain
+      - commentFormatting
+
+  gofumpt:
+    run.go: *goVersion
+    module-path: "pgstream"
+    extra-rules: false
+
+  staticcheck:
+    run.go: *goVersion
+    checks: ["all", "-SA1019"]
+
+  stylecheck:
+    run.go: *goVersion
+    checks: ["all", "-ST1000", "-ST1005"]
+
+  unused:
+    go: *goVersion
+
+  makezero:
+    always: false
+
+  gosec:
+    exclude-generated: true
+    severity: low
+    includes: []
