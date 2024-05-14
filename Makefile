@@ -7,3 +7,8 @@ lint: ## Lint source code
 .PHONY: test
 test:
 	@go test -timeout 1m -race -failfast -v ./...
+
+.PHONY: license-check
+license-check:
+	@curl -s https://raw.githubusercontent.com/lluissm/license-header-checker/master/install.sh | bash 
+	@./bin/license-header-checker -a -r .github/license-header.txt . go && [[ -z `git status -s` ]]
