@@ -1,0 +1,14 @@
+package schemalog
+
+import (
+	"context"
+	"errors"
+)
+
+type Store interface {
+	Fetch(ctx context.Context, schemaName string, ackedOnly bool) (*LogEntry, error)
+	Ack(ctx context.Context, le *LogEntry) error
+	Close() error
+}
+
+var ErrNoRows = errors.New("no rows")
