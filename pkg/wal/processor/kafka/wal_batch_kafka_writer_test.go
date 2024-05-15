@@ -161,7 +161,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			writer := &batchKafkaWriter{
+			writer := &BatchKafkaWriter{
 				msgChan:         make(chan *kafkaMsg),
 				maxBatchBytes:   100,
 				queueBytesSema:  semaphore.NewWeighted(defaultMaxQueueBytes),
@@ -337,7 +337,7 @@ func TestBatchKafkaWriter_SendThread(t *testing.T) {
 				},
 			}
 
-			writer := &batchKafkaWriter{
+			writer := &BatchKafkaWriter{
 				writer:         mockWriter,
 				msgChan:        make(chan *kafkaMsg),
 				maxBatchBytes:  100,
@@ -476,7 +476,7 @@ func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			writer := &batchKafkaWriter{
+			writer := &BatchKafkaWriter{
 				writer:       tc.writer,
 				checkpointer: tc.checkpoint,
 			}

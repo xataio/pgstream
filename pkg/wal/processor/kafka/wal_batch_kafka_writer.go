@@ -21,7 +21,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type batchKafkaWriter struct {
+type BatchKafkaWriter struct {
 	writer kafkaWriter
 
 	// queueBytesSema is used to limit the amount of memory used by the
@@ -63,8 +63,8 @@ type commitPosition struct {
 
 const defaultMaxQueueBytes = 100 * 1024 * 1024 // 100MiB
 
-func NewBatchKafkaWriter(config kafka.WriterConfig) (*batchKafkaWriter, error) {
-	w := &batchKafkaWriter{
+func NewBatchKafkaWriter(config kafka.WriterConfig) (*BatchKafkaWriter, error) {
+	w := &BatchKafkaWriter{
 		sendFrequency:   config.BatchTimeout,
 		maxBatchBytes:   config.BatchBytes,
 		maxBatchSize:    config.BatchSize,
@@ -103,7 +103,7 @@ func NewBatchKafkaWriter(config kafka.WriterConfig) (*batchKafkaWriter, error) {
 }
 
 // ProcessWalEvent is called on every new message from the wal
-func (w *batchKafkaWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Data, pos commitPosition) (retErr error) {
+func (w *BatchKafkaWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Data, pos commitPosition) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Ctx(ctx).WithLevel(zerolog.PanicLevel).
@@ -155,7 +155,7 @@ func (w *batchKafkaWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Da
 	return nil
 }
 
-func (w *batchKafkaWriter) SendThread(ctx context.Context) error {
+func (w *BatchKafkaWriter) SendThread(ctx context.Context) error {
 	// make sure we send to kafka on a separate go routine to isolate the IO
 	// operations, ensuring the kafka goroutine is always sending, and minimise
 	// the wait time between batch sending
@@ -203,16 +203,16 @@ func (w *batchKafkaWriter) SendThread(ctx context.Context) error {
 	}
 }
 
-func (w *batchKafkaWriter) Close() error {
+func (w *BatchKafkaWriter) Close() error {
 	close(w.msgChan)
 	return w.writer.Close()
 }
 
-func (w *batchKafkaWriter) SetCheckpoint(checkpoint checkpoint) {
+func (w *BatchKafkaWriter) SetCheckpoint(checkpoint checkpoint) {
 	w.checkpointer = checkpoint
 }
 
-func (w *batchKafkaWriter) sendBatch(ctx context.Context, batch *kafkaMsgBatch) error {
+func (w *BatchKafkaWriter) sendBatch(ctx context.Context, batch *kafkaMsgBatch) error {
 	if len(batch.msgs) == 0 {
 		return nil
 	}
@@ -248,7 +248,7 @@ func (w *batchKafkaWriter) sendBatch(ctx context.Context, batch *kafkaMsgBatch) 
 // the event schema is that of the pgstream schema, so we extract the underlying
 // user schema they're linked to, to make sure they're routed to the same
 // partition as their writes. This gives us ordering per schema.
-func (w batchKafkaWriter) getMessageKey(walEvent *wal.Data) []byte {
+func (w BatchKafkaWriter) getMessageKey(walEvent *wal.Data) []byte {
 	eventKey := walEvent.Schema
 	if isSchemaLogEvent(walEvent) {
 		var schemaName string
