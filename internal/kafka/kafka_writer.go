@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package kafka
 
 import (
@@ -58,7 +60,8 @@ func NewWriter(config WriterConfig) (*Writer, error) {
 			BatchTimeout: config.BatchTimeout,
 			BatchBytes:   config.BatchBytes,
 			BatchSize:    config.BatchSize,
-		}}, nil
+		},
+	}, nil
 }
 
 func (w *Writer) WriteMessages(ctx context.Context, msgs ...Message) error {
