@@ -7,28 +7,28 @@ import (
 	"github.com/xataio/pgstream/internal/replication"
 )
 
-type kafkaMsg struct {
+type msg struct {
 	msg kafka.Message
 	pos replication.LSN
 }
 
-type kafkaMsgBatch struct {
+type msgBatch struct {
 	msgs       []kafka.Message
 	lastPos    replication.LSN
 	totalBytes int
 }
 
-func (mb *kafkaMsgBatch) add(msg *kafkaMsg) {
-	mb.msgs = append(mb.msgs, msg.msg)
-	mb.totalBytes += msg.size()
+func (mb *msgBatch) add(m *msg) {
+	mb.msgs = append(mb.msgs, m.msg)
+	mb.totalBytes += m.size()
 
-	if msg.pos > mb.lastPos {
-		mb.lastPos = msg.pos
+	if m.pos > mb.lastPos {
+		mb.lastPos = m.pos
 	}
 }
 
-func (mb *kafkaMsgBatch) drain() *kafkaMsgBatch {
-	batch := &kafkaMsgBatch{
+func (mb *msgBatch) drain() *msgBatch {
+	batch := &msgBatch{
 		msgs:       mb.msgs,
 		lastPos:    mb.lastPos,
 		totalBytes: mb.totalBytes,
@@ -41,6 +41,6 @@ func (mb *kafkaMsgBatch) drain() *kafkaMsgBatch {
 
 // size returns the size of the kafka message value (does not include headers or
 // other fields)
-func (m *kafkaMsg) size() int {
+func (m *msg) size() int {
 	return len(m.msg.Value)
 }
