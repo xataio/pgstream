@@ -14,11 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-const (
-	schema         = "pgstream"
-	schemaLogTable = "schema_log"
-)
-
 // Store is a postgres implementation of the schemalog.Store interface
 type Store struct {
 	querier querier
@@ -53,7 +48,7 @@ func (s *Store) Fetch(ctx context.Context, schemaName string, ackedOnly bool) (*
 	if ackedOnly {
 		ackCondition = "and acked"
 	}
-	sql := fmt.Sprintf(`select id, version, schema_name, schema, created_at, acked from %s.%s where schema_name = $1 %s order by version desc limit 1`, schema, schemaLogTable, ackCondition)
+	sql := fmt.Sprintf(`select id, version, schema_name, schema, created_at, acked from %s.%s where schema_name = $1 %s order by version desc limit 1`, schemalog.SchemaName, schemalog.TableName, ackCondition)
 
 	l := &schemalog.LogEntry{}
 	if err := s.querier.QueryRow(ctx, sql, schemaName).Scan(&l.ID, &l.Version, &l.SchemaName, &l.Schema, &l.CreatedAt, &l.Acked); err != nil {
@@ -65,7 +60,7 @@ func (s *Store) Fetch(ctx context.Context, schemaName string, ackedOnly bool) (*
 }
 
 func (s *Store) Ack(ctx context.Context, logEntry *schemalog.LogEntry) error {
-	sql := fmt.Sprintf(`update %s.%s set acked = true where id = $1 and schema_name = $2`, schema, schemaLogTable)
+	sql := fmt.Sprintf(`update %s.%s set acked = true where id = $1 and schema_name = $2`, schemalog.SchemaName, schemalog.TableName)
 	_, err := s.querier.Exec(ctx, sql, logEntry.ID.String(), logEntry.SchemaName)
 	if err != nil {
 		return mapError(fmt.Errorf("failed to ack schema log (%s) for schema (%s) version (%d): %w", logEntry.ID, logEntry.SchemaName, logEntry.Version, err))

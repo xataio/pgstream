@@ -14,3 +14,8 @@ type Store interface {
 }
 
 var ErrNoRows = errors.New("no rows")
+
+const (
+	SchemaName = "pgstream"
+	TableName  = "schema_log"
+)

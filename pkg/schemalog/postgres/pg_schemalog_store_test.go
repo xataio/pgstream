@@ -40,7 +40,7 @@ func TestStore_Fetch(t *testing.T) {
 					require.Len(t, args, 1)
 					require.Equal(t, args[0], testSchema)
 					require.Equal(t,
-						fmt.Sprintf("select id, version, schema_name, schema, created_at, acked from %s.%s where schema_name = $1  order by version desc limit 1", schema, schemaLogTable),
+						fmt.Sprintf("select id, version, schema_name, schema, created_at, acked from %s.%s where schema_name = $1  order by version desc limit 1", schemalog.SchemaName, schemalog.TableName),
 						query)
 					return &mockRow{logEntry: testLogEntry}
 				},
@@ -56,7 +56,7 @@ func TestStore_Fetch(t *testing.T) {
 					require.Len(t, args, 1)
 					require.Equal(t, args[0], testSchema)
 					require.Equal(t,
-						fmt.Sprintf("select id, version, schema_name, schema, created_at, acked from %s.%s where schema_name = $1 and acked order by version desc limit 1", schema, schemaLogTable),
+						fmt.Sprintf("select id, version, schema_name, schema, created_at, acked from %s.%s where schema_name = $1 and acked order by version desc limit 1", schemalog.SchemaName, schemalog.TableName),
 						query)
 					return &mockRow{logEntry: testLogEntry}
 				},
@@ -119,7 +119,7 @@ func TestStore_Ack(t *testing.T) {
 					require.Equal(t, args[0], testID.String())
 					require.Equal(t, args[1], testSchema)
 					require.Equal(t,
-						fmt.Sprintf(`update %s.%s set acked = true where id = $1 and schema_name = $2`, schema, schemaLogTable),
+						fmt.Sprintf(`update %s.%s set acked = true where id = $1 and schema_name = $2`, schemalog.SchemaName, schemalog.TableName),
 						query)
 					return pgconn.NewCommandTag("1"), nil
 				},
