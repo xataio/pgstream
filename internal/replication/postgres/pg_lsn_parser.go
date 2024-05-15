@@ -5,7 +5,7 @@ package postgres
 import (
 	"github.com/jackc/pglogrepl"
 
-	"github.com/xataio/pgstream/pkg/replication"
+	"github.com/xataio/pgstream/internal/replication"
 )
 
 type LSNParser struct{}

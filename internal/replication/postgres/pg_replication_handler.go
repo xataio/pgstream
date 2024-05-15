@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/rs/zerolog/log"
 
-	"github.com/xataio/pgstream/pkg/replication"
+	"github.com/xataio/pgstream/internal/replication"
 )
 
 type ReplicationHandler struct {

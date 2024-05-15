@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/xataio/pgstream/pkg/replication"
+	"github.com/xataio/pgstream/internal/replication"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"

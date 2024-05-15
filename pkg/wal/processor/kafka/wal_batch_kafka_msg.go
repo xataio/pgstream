@@ -4,7 +4,7 @@ package kafka
 
 import (
 	"github.com/xataio/pgstream/internal/kafka"
-	"github.com/xataio/pgstream/pkg/replication"
+	"github.com/xataio/pgstream/internal/replication"
 )
 
 type kafkaMsg struct {

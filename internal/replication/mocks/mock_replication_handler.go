@@ -5,7 +5,7 @@ package mocks
 import (
 	"context"
 
-	"github.com/xataio/pgstream/pkg/replication"
+	"github.com/xataio/pgstream/internal/replication"
 )
 
 type ReplicationHandler struct {

@@ -13,7 +13,7 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	"github.com/xataio/pgstream/internal/kafka"
-	"github.com/xataio/pgstream/pkg/replication"
+	"github.com/xataio/pgstream/internal/replication"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 
