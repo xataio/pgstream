@@ -6,7 +6,7 @@ lint: ## Lint source code
 
 .PHONY: test
 test:
-	@go test -timeout 1m -race -failfast -v ./...
+	@go test -timeout 10m -race -cover -failfast ./...
 
 .PHONY: license-check
 license-check:
