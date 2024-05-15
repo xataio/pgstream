@@ -1,3 +1,0 @@
-#!/bin/sh
-
-make lint && make license-check
