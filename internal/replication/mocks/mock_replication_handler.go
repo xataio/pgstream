@@ -4,44 +4,57 @@ package mocks
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/xataio/pgstream/internal/replication"
 )
 
-type ReplicationHandler struct {
+type Handler struct {
 	StartReplicationFn    func(context.Context) error
-	ReceiveMessageFn      func(context.Context) (replication.Message, error)
+	ReceiveMessageFn      func(context.Context, uint64) (replication.Message, error)
 	UpdateLSNPositionFn   func(lsn replication.LSN)
 	SyncLSNFn             func(context.Context) error
 	DropReplicationSlotFn func(ctx context.Context) error
 	GetLSNParserFn        func() replication.LSNParser
 	CloseFn               func() error
+	SyncLSNCalls          uint64
+	ReceiveMessageCalls   uint64
 }
 
-func (m *ReplicationHandler) StartReplication(ctx context.Context) error {
+func (m *Handler) StartReplication(ctx context.Context) error {
 	return m.StartReplicationFn(ctx)
 }
 
-func (m *ReplicationHandler) ReceiveMessage(ctx context.Context) (replication.Message, error) {
-	return m.ReceiveMessageFn(ctx)
+func (m *Handler) ReceiveMessage(ctx context.Context) (replication.Message, error) {
+	atomic.AddUint64(&m.ReceiveMessageCalls, 1)
+	return m.ReceiveMessageFn(ctx, m.GetReceiveMessageCalls())
 }
 
-func (m *ReplicationHandler) UpdateLSNPosition(lsn replication.LSN) {
+func (m *Handler) UpdateLSNPosition(lsn replication.LSN) {
 	m.UpdateLSNPositionFn(lsn)
 }
 
-func (m *ReplicationHandler) SyncLSN(ctx context.Context) error {
+func (m *Handler) SyncLSN(ctx context.Context) error {
+	atomic.AddUint64(&m.SyncLSNCalls, 1)
 	return m.SyncLSNFn(ctx)
 }
 
-func (m *ReplicationHandler) DropReplicationSlot(ctx context.Context) error {
+func (m *Handler) DropReplicationSlot(ctx context.Context) error {
 	return m.DropReplicationSlotFn(ctx)
 }
 
-func (m *ReplicationHandler) GetLSNParser() replication.LSNParser {
+func (m *Handler) GetLSNParser() replication.LSNParser {
 	return m.GetLSNParserFn()
 }
 
-func (m *ReplicationHandler) Close() error {
+func (m *Handler) Close() error {
 	return m.CloseFn()
+}
+
+func (m *Handler) GetSyncLSNCalls() uint64 {
+	return atomic.LoadUint64(&m.SyncLSNCalls)
+}
+
+func (m *Handler) GetReceiveMessageCalls() uint64 {
+	return atomic.LoadUint64(&m.ReceiveMessageCalls)
 }

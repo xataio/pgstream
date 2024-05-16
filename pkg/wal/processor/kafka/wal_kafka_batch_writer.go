@@ -10,8 +10,6 @@ import (
 	"runtime/debug"
 	"time"
 
-	"golang.org/x/sync/semaphore"
-
 	"github.com/xataio/pgstream/internal/kafka"
 	"github.com/xataio/pgstream/internal/replication"
 	"github.com/xataio/pgstream/pkg/schemalog"
@@ -19,6 +17,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/semaphore"
 )
 
 type BatchWriter struct {

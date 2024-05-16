@@ -84,7 +84,7 @@ func TestStore_Fetch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			s := NewSchemalogStoreWithQuerier(tc.querier)
+			s := NewStoreWithQuerier(tc.querier)
 
 			logEntry, err := s.Fetch(context.Background(), testSchema, tc.ackedOnly)
 			require.ErrorIs(t, err, tc.wantErr)
@@ -146,7 +146,7 @@ func TestStore_Ack(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			s := NewSchemalogStoreWithQuerier(tc.querier)
+			s := NewStoreWithQuerier(tc.querier)
 
 			err := s.Ack(context.Background(), tc.logEntry)
 			require.ErrorIs(t, err, tc.wantErr)
