@@ -331,6 +331,7 @@ func TestBatchKafkaWriter_SendThread(t *testing.T) {
 			t.Parallel()
 
 			doneChan := make(chan struct{})
+			defer close(doneChan)
 			mockWriter := &kafkamocks.Writer{
 				WriteMessagesFn: func(ctx context.Context, i uint64, msgs ...kafka.Message) error {
 					return tc.writerValidation(i, doneChan, msgs...)

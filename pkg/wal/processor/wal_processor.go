@@ -10,4 +10,5 @@ import (
 
 type Processor interface {
 	ProcessWALEvent(ctx context.Context, walEvent *wal.Data) error
+	Close() error
 }

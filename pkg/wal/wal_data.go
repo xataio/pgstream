@@ -4,6 +4,8 @@ package wal
 
 import (
 	"github.com/rs/xid"
+	"github.com/xataio/pgstream/internal/kafka"
+	"github.com/xataio/pgstream/internal/replication"
 )
 
 type Data struct {
@@ -41,4 +43,10 @@ func (m Metadata) IsEmpty() bool {
 		return true
 	}
 	return false
+}
+
+// CommitPosition represents a position in the input stream, which can be either postgres or kafka
+type CommitPosition struct {
+	PGPos    replication.LSN
+	KafkaPos kafka.Message
 }
