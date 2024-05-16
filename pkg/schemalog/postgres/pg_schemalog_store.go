@@ -25,7 +25,7 @@ type querier interface {
 	Close(ctx context.Context)
 }
 
-func NewSchemalogStore(ctx context.Context, cfg *pgx.ConnConfig) (*Store, error) {
+func NewStore(ctx context.Context, cfg *pgx.ConnConfig) (*Store, error) {
 	pgConn, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("create postgres client: %w", err)
@@ -35,7 +35,7 @@ func NewSchemalogStore(ctx context.Context, cfg *pgx.ConnConfig) (*Store, error)
 	}, nil
 }
 
-func NewSchemalogStoreWithQuerier(querier querier) *Store {
+func NewStoreWithQuerier(querier querier) *Store {
 	return &Store{
 		querier: querier,
 	}
