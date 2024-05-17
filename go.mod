@@ -3,6 +3,7 @@ module github.com/xataio/pgstream
 go 1.22.2
 
 require (
+	github.com/cenkalti/backoff v2.2.1+incompatible
 	github.com/jackc/pglogrepl v0.0.0-20240307033717-828fbfe908e9
 	github.com/jackc/pgx/v5 v5.5.5
 	github.com/rs/xid v1.5.0

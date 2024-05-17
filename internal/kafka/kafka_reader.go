@@ -62,8 +62,12 @@ func NewReader(config ReaderConfig) (*Reader, error) {
 	}, nil
 }
 
-func (r *Reader) ReadMessage(ctx context.Context) (*Message, error) {
-	kafkaMsg, err := r.reader.ReadMessage(ctx)
+// FetchMessage returns the next message from the reader. This call will block
+// until a message is available, or an error occurs. It can be stopped by
+// canceling the context.
+// The message offset needs to be explicitly committed by using CommitMessages.
+func (r *Reader) FetchMessage(ctx context.Context) (*Message, error) {
+	kafkaMsg, err := r.reader.FetchMessage(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -72,10 +76,14 @@ func (r *Reader) ReadMessage(ctx context.Context) (*Message, error) {
 	return &msg, nil
 }
 
-func (r *Reader) CommitMessages(ctx context.Context, msgs ...Message) error {
+func (r *Reader) CommitMessages(ctx context.Context, msgs ...*Message) error {
 	kafkaMsgs := make([]kafka.Message, 0, len(msgs))
 	for _, msg := range msgs {
-		kafkaMsgs = append(kafkaMsgs, kafka.Message(msg))
+		kafkaMsgs = append(kafkaMsgs, kafka.Message(*msg))
 	}
 	return r.reader.CommitMessages(ctx, kafkaMsgs...)
+}
+
+func (r *Reader) Close() error {
+	return r.reader.Close()
 }

@@ -48,5 +48,5 @@ func (m Metadata) IsEmpty() bool {
 // CommitPosition represents a position in the input stream, which can be either postgres or kafka
 type CommitPosition struct {
 	PGPos    replication.LSN
-	KafkaPos kafka.Message
+	KafkaPos *kafka.Message
 }
