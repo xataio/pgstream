@@ -12,3 +12,8 @@ test:
 license-check:
 	@curl -s https://raw.githubusercontent.com/lluissm/license-header-checker/master/install.sh | bash
 	@./bin/license-header-checker -a -r ./license-header.txt . go
+
+.PHONY: gen-migrations
+gen-migrations:
+	@go install github.com/go-bindata/go-bindata/...
+	@go-bindata -o migrations/postgres/migrations.go -pkg pgmigrations -ignore migrations.go -prefix "migrations/postgres/" migrations/postgres/
