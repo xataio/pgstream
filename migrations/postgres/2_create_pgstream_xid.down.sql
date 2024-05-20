@@ -1,0 +1,10 @@
+DROP FUNCTION IF EXISTS pgstream.xid_counter;
+DROP FUNCTION IF EXISTS pgstream.xid_pid;
+DROP FUNCTION IF EXISTS pgstream.xid_machine;
+DROP FUNCTION IF EXISTS pgstream.xid_time;
+DROP FUNCTION IF EXISTS pgstream.xid;
+DROP FUNCTION IF EXISTS pgstream.xid_decode;
+DROP FUNCTION IF EXISTS pgstream.xid_encode;
+DROP FUNCTION IF EXISTS pgstream._xid_machine_id;
+DROP SEQUENCE IF EXISTS pgstream.xid_serial ;
+DROP DOMAIN IF EXISTS pgstream.xid;
