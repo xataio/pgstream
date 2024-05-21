@@ -64,6 +64,154 @@ type BulkResponseItem struct {
 	} `json:"delete"`
 }
 
+type Highlight struct {
+	Fields   map[string]any `json:"fields"`
+	Encoder  string         `json:"encoder"`
+	PreTags  []string       `json:"pre_tags,omitempty"`
+	PostTags []string       `json:"post_tags,omitempty"`
+}
+
+type BoolFilter struct {
+	Filter             []Condition `json:"filter,omitempty"`
+	Should             []Condition `json:"should,omitempty"`
+	Must               []Condition `json:"must,omitempty"`
+	MustNot            []Condition `json:"must_not,omitempty"`
+	MinimumShouldMatch int         `json:"minimum_should_match,omitempty"`
+}
+
+type ExistsFilter struct {
+	Field string `json:"field"`
+}
+
+type Condition struct {
+	Term       map[string]any `json:"term,omitempty"`
+	Terms      map[string]any `json:"terms,omitempty"`
+	Prefix     map[string]any `json:"prefix,omitempty"`
+	Wildcard   map[string]any `json:"wildcard,omitempty"`
+	IDs        map[string]any `json:"ids,omitempty"`
+	Range      map[string]any `json:"range,omitempty"`
+	Exists     *ExistsFilter  `json:"exists,omitempty"`
+	Bool       *BoolFilter    `json:"bool,omitempty"`
+	MultiMatch *MultiMatch    `json:"multi_match,omitempty"`
+}
+
+type QueryBody struct {
+	Query      *Query                  `json:"query,omitempty"`
+	Sort       *Sort                   `json:"sort,omitempty"`
+	Highlight  *Highlight              `json:"highlight,omitempty"`
+	Aggs       *map[string]Aggregation `json:"aggs,omitempty"`
+	Size       int                     `json:"size,omitempty"`
+	PostFilter *Condition              `json:"post_filter,omitempty"`
+}
+
+type Query struct {
+	Bool          *BoolFilter          `json:"bool,omitempty"`
+	FunctionScore *FunctionScore       `json:"function_score,omitempty"`
+	ScriptScore   *ScriptScore         `json:"script_score,omitempty"`
+	KNN           *map[string]KNNQuery `json:"knn,omitempty"`
+}
+
+type KNNQuery struct {
+	Vector []float32 `json:"vector"`
+	K      int       `json:"k"`
+}
+
+type FunctionScore struct {
+	Query     *Query     `json:"query,omitempty"`
+	ScoreMode string     `json:"score_mode,omitempty"`
+	BoostMode string     `json:"boost_mode,omitempty"`
+	Boost     float64    `json:"boost,omitempty"`
+	Functions []Function `json:"functions,omitempty"`
+}
+
+type Function struct {
+	Filter           *Condition             `json:"filter,omitempty"`
+	FieldValueFactor *FieldValueFactor      `json:"field_value_factor,omitempty"`
+	Weight           *float64               `json:"weight,omitempty"`
+	Exp              map[string]ExpFunction `json:"exp,omitempty"`
+}
+
+type ExpFunction struct {
+	Origin *string `json:"origin,omitempty"`
+	Scale  string  `json:"scale"`
+	Decay  float64 `json:"decay"`
+}
+
+type FieldValueFactor struct {
+	Field    string  `json:"field"`
+	Factor   float32 `json:"factor"`
+	Modifier int     `json:"modifier"`
+}
+
+type ScriptScore struct {
+	Query  json.RawMessage `json:"query,omitempty"`
+	Script *Script         `json:"script,omitempty"`
+}
+
+type Script struct {
+	Source string         `json:"source"`
+	Lang   string         `json:"lang"`
+	Params map[string]any `json:"params,omitempty"`
+}
+
+type Sort []map[string]any
+
+type MultiMatch struct {
+	Query         string   `json:"query"`
+	Type          string   `json:"type"`
+	Fuzziness     int      `json:"fuzziness,omitempty"`
+	Fields        []string `json:"fields,omitempty"`
+	Lenient       bool     `json:"lenient,omitempty"`
+	MaxExpansions int      `json:"max_expansions,omitempty"`
+}
+
+type Aggregation struct {
+	Filter        *Condition             `json:"filter,omitempty"`
+	Cardinality   *CardinalityAgg        `json:"cardinality,omitempty"`
+	DateHistogram *DateHistogramAgg      `json:"date_histogram,omitempty"`
+	Sum           *SumMinMaxAgg          `json:"sum,omitempty"`
+	Min           *SumMinMaxAgg          `json:"min,omitempty"`
+	Max           *SumMinMaxAgg          `json:"max,omitempty"`
+	Avg           *SumMinMaxAgg          `json:"avg,omitempty"`
+	Percentiles   *ESPercentilesAgg      `json:"percentiles,omitempty"`
+	Terms         *TermsAgg              `json:"terms,omitempty"`
+	Histogram     *HistogramAgg          `json:"histogram,omitempty"`
+	Aggs          map[string]Aggregation `json:"aggs,omitempty"`
+}
+
+type CardinalityAgg struct {
+	Field              string `json:"field"`
+	PrecisionThreshold int    `json:"precision_threshold"`
+}
+
+type DateHistogramAgg struct {
+	Field            string  `json:"field"`
+	FixedInterval    *string `json:"fixed_interval,omitempty"`
+	CalendarInterval *string `json:"calendar_interval,omitempty"`
+	TimeZone         *string `json:"time_zone,omitempty"`
+	Format           string  `json:"format,omitempty"`
+}
+
+type SumMinMaxAgg struct {
+	Field string `json:"field"`
+}
+
+type ESPercentilesAgg struct {
+	Field    string    `json:"field"`
+	Percents []float32 `json:"percents"`
+}
+
+type TermsAgg struct {
+	Field string `json:"field"`
+	Size  int    `json:"size"`
+}
+
+type HistogramAgg struct {
+	Field    string   `json:"field"`
+	Interval float64  `json:"interval"`
+	Offset   *float64 `json:"offset,omitempty"`
+}
+
 type Hit struct {
 	ID        string         `json:"_id"`
 	Index     string         `json:"_index"`
@@ -148,35 +296,4 @@ func encodeBulkItems(buffer *bytes.Buffer, items []BulkItem) error {
 	}
 
 	return nil
-}
-
-func verifyResponse(bodyBytes []byte, items []BulkItem) (failed []BulkItem, err error) {
-	var esResponse BulkResponse
-
-	if err := json.Unmarshal(bodyBytes, &esResponse); err != nil {
-		return nil, fmt.Errorf("error unmarshaling response from es: %w (%s)", err, bodyBytes)
-	}
-
-	if !esResponse.Errors {
-		return []BulkItem{}, nil
-	}
-
-	failed = []BulkItem{}
-	for i, respItem := range esResponse.Items {
-		if items[i].Index != nil {
-			if respItem.Index.Status > 299 {
-				items[i].Status = respItem.Index.Status
-				items[i].Error = respItem.Index.Error
-				failed = append(failed, items[i])
-			}
-		} else if items[i].Delete != nil {
-			if respItem.Delete.Status > 299 {
-				items[i].Status = respItem.Delete.Status
-				items[i].Error = respItem.Delete.Error
-				failed = append(failed, items[i])
-			}
-		}
-	}
-
-	return failed, nil
 }
