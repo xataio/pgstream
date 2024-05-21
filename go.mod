@@ -4,6 +4,7 @@ go 1.22.2
 
 require (
 	github.com/cenkalti/backoff v2.2.1+incompatible
+	github.com/cenkalti/backoff/v4 v4.1.2
 	github.com/elastic/go-elasticsearch/v8 v8.13.1
 	github.com/golang-migrate/migrate/v4 v4.17.1
 	github.com/jackc/pglogrepl v0.0.0-20240307033717-828fbfe908e9
