@@ -9,7 +9,7 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/cenkalti/backoff"
+	"github.com/xataio/pgstream/internal/backoff"
 	"github.com/xataio/pgstream/internal/kafka"
 	"github.com/xataio/pgstream/pkg/wal"
 
@@ -18,8 +18,6 @@ import (
 )
 
 const (
-	backoffMaxElapsedTime = 2 * time.Minute
-
 	// if we go over this limit the log will likely be truncated and it will not
 	// be very readable
 	logMaxBytes = 10000
@@ -31,7 +29,12 @@ type Reader struct {
 	// processRecord is called for a new record.
 	processRecord payloadProcessor
 
-	backoffMaxElapsedTime time.Duration
+	backoffProvider backoff.Provider
+}
+
+type ReaderConfig struct {
+	Kafka         kafka.ReaderConfig
+	CommitBackoff backoff.Config
 }
 
 type kafkaReader interface {
@@ -42,18 +45,20 @@ type kafkaReader interface {
 
 type payloadProcessor func(context.Context, []byte, wal.CommitPosition) error
 
-func NewReader(config kafka.ReaderConfig,
+func NewReader(config ReaderConfig,
 	processRecord payloadProcessor,
 ) (*Reader, error) {
-	reader, err := kafka.NewReader(config)
+	reader, err := kafka.NewReader(config.Kafka)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Reader{
-		reader:                reader,
-		processRecord:         processRecord,
-		backoffMaxElapsedTime: backoffMaxElapsedTime,
+		reader:        reader,
+		processRecord: processRecord,
+		backoffProvider: func(ctx context.Context) backoff.Backoff {
+			return backoff.NewExponentialBackoff(ctx, &config.CommitBackoff)
+		},
 	}, nil
 }
 
@@ -124,14 +129,11 @@ func (r *Reader) checkpoint(ctx context.Context, positions []wal.CommitPosition)
 }
 
 func (r *Reader) commitMessagesWithRetry(ctx context.Context, msgs []*kafka.Message) error {
-	backoffCfg := backoff.NewExponentialBackOff()
-	backoffCfg.MaxElapsedTime = r.backoffMaxElapsedTime
-
-	return backoff.RetryNotify(
+	bo := r.backoffProvider(ctx)
+	return bo.RetryNotify(
 		func() error {
 			return r.reader.CommitMessages(ctx, msgs...)
 		},
-		backoffCfg,
 		func(err error, d time.Duration) {
 			log.Ctx(ctx).Warn().Err(err).Msgf("failed to commit messages. Retrying in %v", d)
 		})

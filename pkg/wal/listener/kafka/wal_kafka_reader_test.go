@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/xataio/pgstream/internal/backoff"
+	backoffmocks "github.com/xataio/pgstream/internal/backoff/mocks"
 	"github.com/xataio/pgstream/internal/kafka"
 	kafkamocks "github.com/xataio/pgstream/internal/kafka/mocks"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -164,8 +166,9 @@ func TestReader_checkpoint(t *testing.T) {
 	errTest := errors.New("oh noes")
 
 	tests := []struct {
-		name   string
-		reader *kafkamocks.Reader
+		name            string
+		reader          *kafkamocks.Reader
+		backoffProvider backoff.Provider
 
 		wantErr error
 	}{
@@ -177,6 +180,13 @@ func TestReader_checkpoint(t *testing.T) {
 					return nil
 				},
 			},
+			backoffProvider: func(ctx context.Context) backoff.Backoff {
+				return &backoffmocks.Backoff{
+					RetryNotifyFn: func(o backoff.Operation, n backoff.Notify) error {
+						return o()
+					},
+				}
+			},
 
 			wantErr: nil,
 		},
@@ -186,6 +196,17 @@ func TestReader_checkpoint(t *testing.T) {
 				CommitMessagesFn: func(ctx context.Context, msgs ...*kafka.Message) error {
 					return errTest
 				},
+			},
+			backoffProvider: func(ctx context.Context) backoff.Backoff {
+				return &backoffmocks.Backoff{
+					RetryNotifyFn: func(o backoff.Operation, n backoff.Notify) error {
+						err := o()
+						if err != nil {
+							n(err, 50*time.Millisecond)
+						}
+						return err
+					},
+				}
 			},
 
 			wantErr: errTest,
@@ -198,8 +219,8 @@ func TestReader_checkpoint(t *testing.T) {
 			t.Parallel()
 
 			r := Reader{
-				reader:                tc.reader,
-				backoffMaxElapsedTime: 5 * time.Millisecond,
+				reader:          tc.reader,
+				backoffProvider: tc.backoffProvider,
 			}
 
 			err := r.checkpoint(context.Background(), testPositions)
