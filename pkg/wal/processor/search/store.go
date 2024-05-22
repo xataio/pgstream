@@ -4,15 +4,15 @@ package search
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"github.com/xataio/pgstream/pkg/schemalog"
 )
 
 type Store interface {
+	GetMapper() Mapper
 	// schema operations
-	GetLatestSchema(ctx context.Context, schemaName string) (*schemalog.LogEntry, error)
+	GetLastSchemaLogEntry(ctx context.Context, schemaName string) (*schemalog.LogEntry, error)
+	SchemaExists(ctx context.Context, schemaName string) (bool, error)
 	CreateSchema(ctx context.Context, schemaName string) error
 	DeleteSchema(ctx context.Context, schemaName string) error
 	UpdateSchemaMapping(ctx context.Context, schemaName string, m *schemalog.LogEntry, d *schemalog.SchemaDiff) error
@@ -31,30 +31,11 @@ type Document struct {
 	Schema  string
 	Data    map[string]any
 	Version *int
-	Deleted bool
+	Delete  bool
 }
 
 type DocumentError struct {
-	ID     string
-	Schema string
-	Status int
-	Error  []byte
+	Document Document
+	Status   int
+	Error    string
 }
-
-type ErrTypeInvalid struct {
-	Input string
-}
-
-func (e ErrTypeInvalid) Error() string {
-	return fmt.Sprintf("unsupported type: %s", e.Input)
-}
-
-type ErrSchemaNotFound struct {
-	SchemaName string
-}
-
-func (e ErrSchemaNotFound) Error() string {
-	return fmt.Sprintf("schema [%s] not found", e.SchemaName)
-}
-
-var ErrRetriable = errors.New("retriable error")

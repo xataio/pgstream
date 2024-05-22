@@ -18,7 +18,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 )
 
-func TestStore_GetLatestSchema(t *testing.T) {
+func TestStore_GetLastSchemaLogEntry(t *testing.T) {
 	t.Parallel()
 
 	testSchemaName := "test_schema"
@@ -201,7 +201,7 @@ func TestStore_GetLatestSchema(t *testing.T) {
 				s.marshaler = tc.marshaler
 			}
 
-			logEntry, err := s.GetLatestSchema(context.Background(), testSchemaName)
+			logEntry, err := s.GetLastSchemaLogEntry(context.Background(), testSchemaName)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantLogEntry, logEntry)
 		})
@@ -505,10 +505,12 @@ func TestStore_SendDocuments(t *testing.T) {
 
 			wantErrDocs: []search.DocumentError{
 				{
-					ID:     "doc-1",
-					Schema: testSchemaName,
+					Document: search.Document{
+						ID:     "doc-1",
+						Schema: testSchemaName,
+					},
 					Status: http.StatusUnauthorized,
-					Error:  []byte("oh noes"),
+					Error:  "oh noes",
 				},
 			},
 			wantErr: nil,

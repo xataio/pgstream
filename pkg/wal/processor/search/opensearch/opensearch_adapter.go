@@ -10,6 +10,8 @@ import (
 	"github.com/xataio/pgstream/internal/es"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
+
+	"github.com/rs/zerolog/log"
 )
 
 type Adapter interface {
@@ -24,6 +26,12 @@ type adapter struct {
 	marshaler   func(any) ([]byte, error)
 	unmarshaler func([]byte, any) error
 }
+
+const (
+	// OpenSearch has a limit of 512 bytes for the ID field. see here:
+	// https://www.elastic.co/guide/en/elasticsearch/reference/7.10/mapping-id-field.html
+	osIDFieldLengthLimit = 512
+)
 
 func newDefaultAdapter() *adapter {
 	return &adapter{
@@ -43,6 +51,14 @@ func (a *adapter) IndexToSchemaName(index string) string {
 func (a *adapter) SearchDocsToBulkItems(docs []search.Document) []es.BulkItem {
 	items := make([]es.BulkItem, 0, len(docs))
 	for _, doc := range docs {
+		if len(doc.ID) > osIDFieldLengthLimit {
+			log.Error().
+				Str("severity", "DATALOSS").
+				Str("error", "ID is longer than 512 bytes").
+				Str("id", doc.ID).
+				Msg("opensearch store adapter: error processing document, skipping")
+			continue
+		}
 		items = append(items, a.searchDocToBulkItem(doc))
 	}
 	return items
@@ -78,36 +94,38 @@ func (a *adapter) searchDocToBulkItem(doc search.Document) es.BulkItem {
 	item := es.BulkItem{
 		Doc: doc.Data,
 	}
-	if doc.Deleted {
-		item.Delete = &es.BulkIndex{
-			Index:       indexName.Name(),
-			ID:          doc.ID,
-			Version:     doc.Version,
-			VersionType: "external",
-		}
+	bulkIndex := &es.BulkIndex{
+		Index:       indexName.Name(),
+		ID:          doc.ID,
+		Version:     doc.Version,
+		VersionType: "external",
+	}
+	if doc.Delete {
+		item.Delete = bulkIndex
 	} else {
-		item.Index = &es.BulkIndex{
-			Index:       indexName.Name(),
-			ID:          doc.ID,
-			Version:     doc.Version,
-			VersionType: "external",
-		}
+		item.Index = bulkIndex
 	}
 	return item
 }
 
 func (a *adapter) bulkItemToSearchDocErr(item es.BulkItem) search.DocumentError {
 	doc := search.DocumentError{
-		Error:  item.Error,
+		Document: search.Document{
+			Data: item.Doc,
+		},
+		Error:  string(item.Error),
 		Status: item.Status,
 	}
 	switch {
 	case item.Index != nil:
-		doc.Schema = a.IndexToSchemaName(item.Index.Index)
-		doc.ID = item.Index.ID
+		doc.Document.Schema = a.IndexToSchemaName(item.Index.Index)
+		doc.Document.ID = item.Index.ID
+		doc.Document.Version = item.Index.Version
 	case item.Delete != nil:
-		doc.Schema = a.IndexToSchemaName(item.Delete.Index)
-		doc.ID = item.Delete.ID
+		doc.Document.Schema = a.IndexToSchemaName(item.Delete.Index)
+		doc.Document.ID = item.Delete.ID
+		doc.Document.Version = item.Delete.Version
+		doc.Document.Delete = true
 	}
 	return doc
 }
