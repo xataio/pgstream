@@ -354,7 +354,7 @@ func TestBatchKafkaWriter_SendThread(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				err := writer.SendThread(ctx)
+				err := writer.Send(ctx)
 				require.ErrorIs(t, err, tc.wantErr)
 				require.Equal(t, tc.wantWriteCalls, mockWriter.GetWriteCalls())
 				require.Equal(t, tc.wantReleaseCalls, tc.semaphore.getReleaseCalls())

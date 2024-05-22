@@ -12,8 +12,8 @@ import (
 
 	"github.com/xataio/pgstream/internal/kafka"
 	"github.com/xataio/pgstream/internal/replication"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
+	"github.com/xataio/pgstream/pkg/wal/processor"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -154,7 +154,7 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Data, p
 	return nil
 }
 
-func (w *BatchWriter) SendThread(ctx context.Context) error {
+func (w *BatchWriter) Send(ctx context.Context) error {
 	// make sure we send to kafka on a separate go routine to isolate the IO
 	// operations, ensuring the kafka goroutine is always sending, and minimise
 	// the wait time between batch sending
@@ -249,7 +249,7 @@ func (w *BatchWriter) sendBatch(ctx context.Context, batch *msgBatch) error {
 // partition as their writes. This gives us ordering per schema.
 func (w BatchWriter) getMessageKey(walEvent *wal.Data) []byte {
 	eventKey := walEvent.Schema
-	if isSchemaLogEvent(walEvent) {
+	if processor.IsSchemaLogEvent(walEvent) {
 		var schemaName string
 		var found bool
 		for _, col := range walEvent.Columns {
@@ -274,8 +274,4 @@ func (w BatchWriter) getMessageKey(walEvent *wal.Data) []byte {
 	}
 
 	return []byte(eventKey)
-}
-
-func isSchemaLogEvent(e *wal.Data) bool {
-	return e.Schema == schemalog.SchemaName && e.Table == schemalog.TableName
 }
