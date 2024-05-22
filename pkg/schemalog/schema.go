@@ -28,30 +28,40 @@ type Column struct {
 	PgstreamID string  `json:"pgstream_id"`
 }
 
-func (s Schema) MarshalJSON() ([]byte, error) {
+func (s *Schema) MarshalJSON() ([]byte, error) {
+	if s == nil {
+		return nil, nil
+	}
 	type schemaAlias Schema
-	schemaJSON, err := json.Marshal(schemaAlias(s))
+	schemaJSON, err := json.Marshal(schemaAlias(*s))
 	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(string(schemaJSON))
 }
 
-func (s Schema) IsEqual(other Schema) bool {
-	if len(s.Tables) != len(other.Tables) {
+func (s *Schema) IsEqual(other *Schema) bool {
+	switch {
+	case s == nil && other == nil:
+		return true
+	case s != nil && other == nil, s == nil && other != nil:
 		return false
-	}
-
-	for i := range s.Tables {
-		if !s.Tables[i].IsEqual(other.Tables[i]) {
+	default:
+		if len(s.Tables) != len(other.Tables) {
 			return false
 		}
-	}
 
-	return true
+		for i := range s.Tables {
+			if !s.Tables[i].IsEqual(&other.Tables[i]) {
+				return false
+			}
+		}
+
+		return true
+	}
 }
 
-func (s Schema) Diff(previous Schema) SchemaDiff {
+func (s *Schema) Diff(previous *Schema) *SchemaDiff {
 	var d SchemaDiff
 
 	// if a table ID exists in previous, but not s: remove the table
@@ -71,10 +81,10 @@ func (s Schema) Diff(previous Schema) SchemaDiff {
 		}
 	}
 
-	return d
+	return &d
 }
 
-func (s Schema) getTable(pgstreamID string) *Table {
+func (s *Schema) getTable(pgstreamID string) *Table {
 	for i := range s.Tables {
 		if s.Tables[i].PgstreamID == pgstreamID {
 			return &s.Tables[i]
@@ -83,23 +93,30 @@ func (s Schema) getTable(pgstreamID string) *Table {
 	return nil
 }
 
-func (s Schema) hasTable(pgstreamID string) bool {
+func (s *Schema) hasTable(pgstreamID string) bool {
 	return s.getTable(pgstreamID) != nil
 }
 
-func (t Table) IsEqual(other Table) bool {
-	if len(t.Columns) != len(other.Columns) {
+func (t *Table) IsEqual(other *Table) bool {
+	switch {
+	case t == nil && other == nil:
+		return true
+	case t != nil && other == nil, t == nil && other != nil:
 		return false
-	}
+	default:
+		if len(t.Columns) != len(other.Columns) {
+			return false
+		}
 
-	if t.Oid != other.Oid || t.PgstreamID != other.PgstreamID || t.Name != other.Name {
-		return false
-	}
+		if t.Oid != other.Oid || t.PgstreamID != other.PgstreamID || t.Name != other.Name {
+			return false
+		}
 
-	return unorderedColumnsEqual(t.Columns, other.Columns)
+		return unorderedColumnsEqual(t.Columns, other.Columns)
+	}
 }
 
-func (c Column) IsEqual(other Column) bool {
+func (c *Column) IsEqual(other *Column) bool {
 	return c.Name == other.Name &&
 		c.DataType == other.DataType &&
 		c.Nullable == other.Nullable &&
@@ -113,7 +130,7 @@ type SchemaDiff struct {
 	ColumnsToAdd   []Column
 }
 
-func (d SchemaDiff) Empty() bool {
+func (d *SchemaDiff) Empty() bool {
 	return len(d.TablesToRemove) == 0 && len(d.ColumnsToAdd) == 0
 }
 
@@ -125,8 +142,8 @@ func unorderedColumnsEqual(a, b []Column) bool {
 	for _, colA := range a {
 		var found bool
 
-		for _, colB := range b {
-			if colA.IsEqual(colB) {
+		for i := range b {
+			if colA.IsEqual(&b[i]) {
 				found = true
 				break
 			}

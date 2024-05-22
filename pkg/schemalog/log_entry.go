@@ -72,20 +72,27 @@ func (m *LogEntry) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func (m LogEntry) IsEmpty() bool {
-	return m.IsEqual(LogEntry{})
+func (m *LogEntry) IsEmpty() bool {
+	return m == nil || m.IsEqual(&LogEntry{})
 }
 
-func (m LogEntry) IsEqual(other LogEntry) bool {
-	return m.ID == other.ID && m.SchemaName == other.SchemaName && m.CreatedAt == other.CreatedAt && m.Schema.IsEqual(other.Schema)
+func (m *LogEntry) IsEqual(other *LogEntry) bool {
+	switch {
+	case m == nil && other == nil:
+		return true
+	case m == nil && other != nil, m != nil && other == nil:
+		return false
+	default:
+		return m.ID == other.ID && m.SchemaName == other.SchemaName && m.CreatedAt == other.CreatedAt && m.Schema.IsEqual(&other.Schema)
+	}
 }
 
-func (m LogEntry) After(other LogEntry) bool {
+func (m *LogEntry) After(other *LogEntry) bool {
 	return m.ID.Compare(other.ID) > 0
 }
 
-func (m LogEntry) Diff(previous LogEntry) SchemaDiff {
-	return m.Schema.Diff(previous.Schema)
+func (m *LogEntry) Diff(previous *LogEntry) *SchemaDiff {
+	return m.Schema.Diff(&previous.Schema)
 }
 
 // SchemaCreatedAtTimestamp is a wrapper around time.Time that allows us to parse to and from the PG timestamp format.

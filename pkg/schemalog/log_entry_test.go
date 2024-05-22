@@ -9,39 +9,39 @@ import (
 )
 
 func TestLogEntry_Diff(t *testing.T) {
-	var nopDiff SchemaDiff
+	nopDiff := &SchemaDiff{}
 
 	tcs := map[string]struct {
-		old  LogEntry
-		new  LogEntry
-		want SchemaDiff
+		old  *LogEntry
+		new  *LogEntry
+		want *SchemaDiff
 	}{
 		"table removed": {
-			old: LogEntry{
+			old: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{
 						{PgstreamID: "1"},
 					},
 				},
 			},
-			new: LogEntry{
+			new: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{},
 				},
 			},
-			want: SchemaDiff{
+			want: &SchemaDiff{
 				TablesToRemove: []Table{
 					{PgstreamID: "1"},
 				},
 			},
 		},
 		"table added without columns": {
-			old: LogEntry{
+			old: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{},
 				},
 			},
-			new: LogEntry{
+			new: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{
 						{PgstreamID: "1"},
@@ -51,14 +51,14 @@ func TestLogEntry_Diff(t *testing.T) {
 			want: nopDiff,
 		},
 		"table renamed": {
-			old: LogEntry{
+			old: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{
 						{PgstreamID: "1", Name: "old"},
 					},
 				},
 			},
-			new: LogEntry{
+			new: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{
 						{PgstreamID: "1", Name: "new"},
@@ -68,12 +68,12 @@ func TestLogEntry_Diff(t *testing.T) {
 			want: nopDiff,
 		},
 		"new table added with columns": {
-			old: LogEntry{
+			old: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{},
 				},
 			},
-			new: LogEntry{
+			new: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{
 						{
@@ -86,7 +86,7 @@ func TestLogEntry_Diff(t *testing.T) {
 					},
 				},
 			},
-			want: SchemaDiff{
+			want: &SchemaDiff{
 				ColumnsToAdd: []Column{
 					{Name: "col1", PgstreamID: "1-1", DataType: "text", Nullable: true, DefaultValue: ptr("a")},
 					{Name: "col2", PgstreamID: "1-2", DataType: "text", Nullable: true, DefaultValue: ptr("a")},
@@ -94,7 +94,7 @@ func TestLogEntry_Diff(t *testing.T) {
 			},
 		},
 		"column added": {
-			old: LogEntry{
+			old: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{
 						{
@@ -106,7 +106,7 @@ func TestLogEntry_Diff(t *testing.T) {
 					},
 				},
 			},
-			new: LogEntry{
+			new: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{
 						{
@@ -119,14 +119,14 @@ func TestLogEntry_Diff(t *testing.T) {
 					},
 				},
 			},
-			want: SchemaDiff{
+			want: &SchemaDiff{
 				ColumnsToAdd: []Column{
 					{Name: "col2", PgstreamID: "1-2", DataType: "text", Nullable: true, DefaultValue: ptr("a")},
 				},
 			},
 		},
 		"column removed": {
-			old: LogEntry{
+			old: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{
 						{
@@ -138,7 +138,7 @@ func TestLogEntry_Diff(t *testing.T) {
 					},
 				},
 			},
-			new: LogEntry{
+			new: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{
 						{
@@ -151,7 +151,7 @@ func TestLogEntry_Diff(t *testing.T) {
 			want: nopDiff,
 		},
 		"table and columns removed": {
-			old: LogEntry{
+			old: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{
 						{
@@ -163,12 +163,12 @@ func TestLogEntry_Diff(t *testing.T) {
 					},
 				},
 			},
-			new: LogEntry{
+			new: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{},
 				},
 			},
-			want: SchemaDiff{
+			want: &SchemaDiff{
 				TablesToRemove: []Table{
 					{
 						PgstreamID: "1",
@@ -180,7 +180,7 @@ func TestLogEntry_Diff(t *testing.T) {
 			},
 		},
 		"column renamed": {
-			old: LogEntry{
+			old: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{
 						{
@@ -192,7 +192,7 @@ func TestLogEntry_Diff(t *testing.T) {
 					},
 				},
 			},
-			new: LogEntry{
+			new: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{
 						{
