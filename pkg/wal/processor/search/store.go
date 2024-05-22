@@ -4,6 +4,7 @@ package search
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/xataio/pgstream/pkg/schemalog"
@@ -55,3 +56,5 @@ type ErrSchemaNotFound struct {
 func (e ErrSchemaNotFound) Error() string {
 	return fmt.Sprintf("schema [%s] not found", e.SchemaName)
 }
+
+var ErrRetriable = errors.New("retriable error")
