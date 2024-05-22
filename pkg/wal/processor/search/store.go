@@ -4,8 +4,6 @@ package search
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"github.com/xataio/pgstream/pkg/schemalog"
 )
@@ -40,21 +38,3 @@ type DocumentError struct {
 	Status int
 	Error  []byte
 }
-
-type ErrTypeInvalid struct {
-	Input string
-}
-
-func (e ErrTypeInvalid) Error() string {
-	return fmt.Sprintf("unsupported type: %s", e.Input)
-}
-
-type ErrSchemaNotFound struct {
-	SchemaName string
-}
-
-func (e ErrSchemaNotFound) Error() string {
-	return fmt.Sprintf("schema [%s] not found", e.SchemaName)
-}
-
-var ErrRetriable = errors.New("retriable error")
