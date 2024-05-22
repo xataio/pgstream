@@ -9,8 +9,10 @@ import (
 )
 
 type Store interface {
+	GetMapper() Mapper
 	// schema operations
-	GetLatestSchema(ctx context.Context, schemaName string) (*schemalog.LogEntry, error)
+	GetLastSchemaLogEntry(ctx context.Context, schemaName string) (*schemalog.LogEntry, error)
+	SchemaExists(ctx context.Context, schemaName string) (bool, error)
 	CreateSchema(ctx context.Context, schemaName string) error
 	DeleteSchema(ctx context.Context, schemaName string) error
 	UpdateSchemaMapping(ctx context.Context, schemaName string, m *schemalog.LogEntry, d *schemalog.SchemaDiff) error

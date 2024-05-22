@@ -51,9 +51,14 @@ func NewStoreWithClient(client es.SearchClient) *Store {
 	}
 }
 
-// GetLatestSchema will return the schemalog for the schema on input. A nil
-// LogEntry will be returned when there's no existing associated logs
-func (s *Store) GetLatestSchema(ctx context.Context, schemaName string) (*schemalog.LogEntry, error) {
+func (s *Store) GetMapper() search.Mapper {
+	return s.mapper
+}
+
+// GetLastSchemaLogEntry will return the last version of the schemalog for the
+// schema on input. A nil LogEntry will be returned when there's no existing
+// associated logs
+func (s *Store) GetLastSchemaLogEntry(ctx context.Context, schemaName string) (*schemalog.LogEntry, error) {
 	query := es.QueryBody{
 		Query: &es.Query{
 			Bool: &es.BoolFilter{
@@ -97,6 +102,15 @@ func (s *Store) GetLatestSchema(ctx context.Context, schemaName string) (*schema
 	}
 
 	return s.adapter.RecordToLogEntry(res.Hits.Hits[0].Source)
+}
+
+func (s *Store) SchemaExists(ctx context.Context, schemaName string) (bool, error) {
+	indexName := s.adapter.SchemaNameToIndex(schemaName)
+	exists, err := s.client.IndexExists(ctx, indexName.NameWithVersion())
+	if err != nil {
+		return false, mapError(err)
+	}
+	return exists, nil
 }
 
 func (s *Store) CreateSchema(ctx context.Context, schemaName string) error {
