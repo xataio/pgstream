@@ -29,12 +29,11 @@ type Document struct {
 	Schema  string
 	Data    map[string]any
 	Version *int
-	Deleted bool
+	Delete  bool
 }
 
 type DocumentError struct {
-	ID     string
-	Schema string
-	Status int
-	Error  []byte
+	Document Document
+	Status   int
+	Error    string
 }

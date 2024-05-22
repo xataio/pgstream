@@ -505,10 +505,12 @@ func TestStore_SendDocuments(t *testing.T) {
 
 			wantErrDocs: []search.DocumentError{
 				{
-					ID:     "doc-1",
-					Schema: testSchemaName,
+					Document: search.Document{
+						ID:     "doc-1",
+						Schema: testSchemaName,
+					},
 					Status: http.StatusUnauthorized,
-					Error:  []byte("oh noes"),
+					Error:  "oh noes",
 				},
 			},
 			wantErr: nil,
