@@ -85,11 +85,11 @@ func (s *Store) GetLatestSchema(ctx context.Context, schemaName string) (*schema
 			// Create the pgstream index if it was not found.
 			err = s.createSchemaLogIndex(ctx, schemalogIndexName)
 			if err != nil {
-				return nil, err
+				return nil, mapError(err)
 			}
 			return nil, search.ErrSchemaNotFound{SchemaName: schemaName}
 		}
-		return nil, fmt.Errorf("get latest schema, failed to search os: %w", err)
+		return nil, fmt.Errorf("get latest schema, failed to search os: %w", mapError(err))
 	}
 
 	if len(res.Hits.Hits) == 0 {
@@ -119,17 +119,25 @@ func (s *Store) CreateSchema(ctx context.Context, schemaName string) error {
 		},
 	})
 	if err != nil {
-		return err
+		if errors.As(err, &es.ErrResourceAlreadyExists{}) {
+			return &search.ErrSchemaAlreadyExists{
+				SchemaName: schemaName,
+			}
+		}
+		return mapError(err)
 	}
 
-	return s.client.PutIndexAlias(ctx, []string{index.NameWithVersion()}, index.Name())
+	if err := s.client.PutIndexAlias(ctx, []string{index.NameWithVersion()}, index.Name()); err != nil {
+		return mapError(err)
+	}
+	return nil
 }
 
 func (s *Store) UpdateMapping(ctx context.Context, schemaName string, logEntry *schemalog.LogEntry, diff *schemalog.SchemaDiff) error {
 	index := s.adapter.SchemaNameToIndex(schemaName)
 	if diff != nil {
 		if err := s.updateMappingAddNewColumns(ctx, index, diff.ColumnsToAdd); err != nil {
-			return fmt.Errorf("failed to add new columns: %w", err)
+			return fmt.Errorf("failed to add new columns: %w", mapError(err))
 		}
 
 		if len(diff.TablesToRemove) > 0 {
@@ -138,13 +146,13 @@ func (s *Store) UpdateMapping(ctx context.Context, schemaName string, logEntry *
 				tableIDs = append(tableIDs, table.PgstreamID)
 			}
 			if err := s.deleteTableDocuments(ctx, index, tableIDs); err != nil {
-				return fmt.Errorf("failed to delete table documents: %w", err)
+				return fmt.Errorf("failed to delete table documents: %w", mapError(err))
 			}
 		}
 	}
 
 	if err := s.insertNewSchemaLog(ctx, logEntry); err != nil {
-		return fmt.Errorf("failed to insert new schema log: %w", err)
+		return fmt.Errorf("failed to insert new schema log: %w", mapError(err))
 	}
 
 	return nil
@@ -153,7 +161,7 @@ func (s *Store) UpdateMapping(ctx context.Context, schemaName string, logEntry *
 func (s *Store) SendDocuments(ctx context.Context, docs []search.Document) ([]search.DocumentError, error) {
 	failed, err := s.client.SendBulkRequest(ctx, s.adapter.SearchDocsToBulkItems(docs))
 	if err != nil {
-		return nil, err
+		return nil, mapError(err)
 	}
 
 	return s.adapter.BulkItemsToSearchDocErrs(failed), nil
@@ -163,17 +171,17 @@ func (s *Store) DeleteSchema(ctx context.Context, schemaName string) error {
 	index := s.adapter.SchemaNameToIndex(schemaName)
 	exists, err := s.client.IndexExists(ctx, index.NameWithVersion())
 	if err != nil {
-		return err
+		return mapError(err)
 	}
 
 	if exists {
 		if err := s.client.DeleteIndex(ctx, []string{index.NameWithVersion()}); err != nil {
-			return err
+			return mapError(err)
 		}
 	}
 
 	// delete the schema from the schema log index
-	return s.client.DeleteByQuery(ctx, &es.DeleteByQueryRequest{
+	if err := s.client.DeleteByQuery(ctx, &es.DeleteByQueryRequest{
 		Index: []string{schemalogIndexName},
 		Query: map[string]any{
 			"query": map[string]any{
@@ -183,12 +191,18 @@ func (s *Store) DeleteSchema(ctx context.Context, schemaName string) error {
 			},
 		},
 		Refresh: true,
-	})
+	}); err != nil {
+		return mapError(err)
+	}
+	return nil
 }
 
 func (s *Store) DeleteTableDocuments(ctx context.Context, schemaName string, tableIDs []string) error {
 	index := s.adapter.SchemaNameToIndex(schemaName)
-	return s.deleteTableDocuments(ctx, index, tableIDs)
+	if err := s.deleteTableDocuments(ctx, index, tableIDs); err != nil {
+		return mapError(err)
+	}
+	return nil
 }
 
 func (s *Store) deleteTableDocuments(ctx context.Context, index IndexName, tableIDs []string) error {
@@ -294,4 +308,11 @@ func (s *Store) insertNewSchemaLog(ctx context.Context, m *schemalog.LogEntry) e
 	}
 
 	return nil
+}
+
+func mapError(err error) error {
+	if errors.As(err, &es.RetryableError{}) {
+		return fmt.Errorf("%w: %v", search.ErrRetriable, err.Error())
+	}
+	return err
 }
