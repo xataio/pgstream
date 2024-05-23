@@ -30,7 +30,7 @@ type Document struct {
 	ID      string
 	Schema  string
 	Data    map[string]any
-	Version *int
+	Version int
 	Delete  bool
 }
 

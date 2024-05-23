@@ -97,7 +97,7 @@ func (a *adapter) searchDocToBulkItem(doc search.Document) es.BulkItem {
 	bulkIndex := &es.BulkIndex{
 		Index:       indexName.Name(),
 		ID:          doc.ID,
-		Version:     doc.Version,
+		Version:     &doc.Version,
 		VersionType: "external",
 	}
 	if doc.Delete {
@@ -120,11 +120,15 @@ func (a *adapter) bulkItemToSearchDocErr(item es.BulkItem) search.DocumentError 
 	case item.Index != nil:
 		doc.Document.Schema = a.IndexToSchemaName(item.Index.Index)
 		doc.Document.ID = item.Index.ID
-		doc.Document.Version = item.Index.Version
+		if item.Index.Version != nil {
+			doc.Document.Version = *item.Index.Version
+		}
 	case item.Delete != nil:
 		doc.Document.Schema = a.IndexToSchemaName(item.Delete.Index)
 		doc.Document.ID = item.Delete.ID
-		doc.Document.Version = item.Delete.Version
+		if item.Delete.Version != nil {
+			doc.Document.Version = *item.Delete.Version
+		}
 		doc.Document.Delete = true
 	}
 	return doc
