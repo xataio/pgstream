@@ -31,6 +31,7 @@ type Metadata struct {
 }
 
 type Column struct {
+	// ID is a pgstream assigned immutable column id. Id does not change when column is renamed.
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Type  string `json:"type"`
