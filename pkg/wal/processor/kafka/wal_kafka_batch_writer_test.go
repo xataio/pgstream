@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,6 +15,8 @@ import (
 	"github.com/xataio/pgstream/internal/kafka"
 	kafkamocks "github.com/xataio/pgstream/internal/kafka/mocks"
 	"github.com/xataio/pgstream/internal/replication"
+	synclib "github.com/xataio/pgstream/internal/sync"
+	syncmocks "github.com/xataio/pgstream/internal/sync/mocks"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 
@@ -50,7 +51,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 		walEvent        *wal.Data
 		pos             commitPosition
 		eventSerialiser func(any) ([]byte, error)
-		semaphore       weightedSemaphore
+		semaphore       synclib.WeightedSemaphore
 
 		wantMsgs []*msg
 		wantErr  error
@@ -146,9 +147,9 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 			name:     "error - acquiring semaphore",
 			walEvent: testWalEvent,
 			pos:      commitPosition{pgPos: testLSN},
-			semaphore: &mockWeightedSemaphore{
-				tryAcquireFn: func(int64) bool { return false },
-				acquireFn:    func(_ context.Context, i int64) error { return errTest },
+			semaphore: &syncmocks.WeightedSemaphore{
+				TryAcquireFn: func(int64) bool { return false },
+				AcquireFn:    func(_ context.Context, i int64) error { return errTest },
 			},
 
 			wantMsgs: []*msg{},
@@ -210,7 +211,7 @@ func TestBatchKafkaWriter_SendThread(t *testing.T) {
 		name             string
 		writerValidation func(i uint64, doneChan chan struct{}, msgs ...kafka.Message) error
 		msgs             []*msg
-		semaphore        *mockWeightedSemaphore
+		semaphore        *syncmocks.WeightedSemaphore
 
 		wantWriteCalls   uint64
 		wantReleaseCalls uint64
@@ -231,8 +232,8 @@ func TestBatchKafkaWriter_SendThread(t *testing.T) {
 				}
 				return fmt.Errorf("unexpected write call: %d", i)
 			},
-			semaphore: &mockWeightedSemaphore{
-				releaseFn: func(_ uint64, size int64) {
+			semaphore: &syncmocks.WeightedSemaphore{
+				ReleaseFn: func(_ uint64, size int64) {
 					require.Equal(t, len(testBytes), int(size))
 				},
 			},
@@ -287,8 +288,8 @@ func TestBatchKafkaWriter_SendThread(t *testing.T) {
 				}
 				return nil
 			},
-			semaphore: &mockWeightedSemaphore{
-				releaseFn: func(i uint64, size int64) {
+			semaphore: &syncmocks.WeightedSemaphore{
+				ReleaseFn: func(i uint64, size int64) {
 					switch i {
 					case 1:
 						require.Equal(t, int64(51), size)
@@ -313,8 +314,8 @@ func TestBatchKafkaWriter_SendThread(t *testing.T) {
 				}()
 				return errTest
 			},
-			semaphore: &mockWeightedSemaphore{
-				releaseFn: func(_ uint64, size int64) {
+			semaphore: &syncmocks.WeightedSemaphore{
+				ReleaseFn: func(_ uint64, size int64) {
 					require.Equal(t, len(testBytes), int(size))
 				},
 			},
@@ -357,7 +358,7 @@ func TestBatchKafkaWriter_SendThread(t *testing.T) {
 				err := writer.Send(ctx)
 				require.ErrorIs(t, err, tc.wantErr)
 				require.Equal(t, tc.wantWriteCalls, mockWriter.GetWriteCalls())
-				require.Equal(t, tc.wantReleaseCalls, tc.semaphore.getReleaseCalls())
+				require.Equal(t, tc.wantReleaseCalls, tc.semaphore.GetReleaseCalls())
 			}()
 
 			for _, msg := range tc.msgs {
@@ -486,28 +487,4 @@ func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
-}
-
-type mockWeightedSemaphore struct {
-	tryAcquireFn func(int64) bool
-	acquireFn    func(context.Context, int64) error
-	releaseFn    func(uint64, int64)
-	releaseCalls uint64
-}
-
-func (m *mockWeightedSemaphore) TryAcquire(i int64) bool {
-	return m.tryAcquireFn(i)
-}
-
-func (m *mockWeightedSemaphore) Acquire(ctx context.Context, i int64) error {
-	return m.acquireFn(ctx, i)
-}
-
-func (m *mockWeightedSemaphore) Release(i int64) {
-	atomic.AddUint64(&m.releaseCalls, 1)
-	m.releaseFn(m.getReleaseCalls(), i)
-}
-
-func (m *mockWeightedSemaphore) getReleaseCalls() uint64 {
-	return atomic.LoadUint64(&m.releaseCalls)
 }

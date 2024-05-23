@@ -12,12 +12,12 @@ import (
 
 	"github.com/xataio/pgstream/internal/kafka"
 	"github.com/xataio/pgstream/internal/replication"
+	synclib "github.com/xataio/pgstream/internal/sync"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"golang.org/x/sync/semaphore"
 )
 
 type BatchWriter struct {
@@ -26,7 +26,7 @@ type BatchWriter struct {
 	// queueBytesSema is used to limit the amount of memory used by the
 	// unbuffered msg channel, optimising the channel performance for variable
 	// size messages, while preventing the process from running oom
-	queueBytesSema weightedSemaphore
+	queueBytesSema synclib.WeightedSemaphore
 	msgChan        chan (*msg)
 
 	maxBatchBytes int64
@@ -42,12 +42,6 @@ type BatchWriter struct {
 type kafkaWriter interface {
 	WriteMessages(context.Context, ...kafka.Message) error
 	Close() error
-}
-
-type weightedSemaphore interface {
-	TryAcquire(int64) bool
-	Acquire(context.Context, int64) error
-	Release(int64)
 }
 
 // checkpoint defines the way to confirm the positions that have been read.
@@ -78,7 +72,7 @@ func NewBatchWriter(config kafka.WriterConfig) (*BatchWriter, error) {
 		}
 		maxQueueBytes = int(config.MaxQueueBytes)
 	}
-	w.queueBytesSema = semaphore.NewWeighted(int64(maxQueueBytes))
+	w.queueBytesSema = synclib.NewWeightedSemaphore(int64(maxQueueBytes))
 
 	// Since the batch kafka writer handles the batching, we don't want to have
 	// a timeout configured in the underlying kafka-go writer or the latency for
