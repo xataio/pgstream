@@ -36,6 +36,33 @@ type Document struct {
 
 type DocumentError struct {
 	Document Document
-	Status   int
+	Severity Severity
 	Error    string
+}
+
+type Severity uint
+
+const (
+	SeverityNone Severity = iota
+	SeverityDataLoss
+	SeverityIgnored
+	SeverityRetriable
+)
+
+func (s *Severity) String() string {
+	if s == nil {
+		return ""
+	}
+	switch *s {
+	case SeverityNone:
+		return "NONE"
+	case SeverityDataLoss:
+		return "DATALOSS"
+	case SeverityIgnored:
+		return "IGNORED"
+	case SeverityRetriable:
+		return "RETRIABLE"
+	default:
+		return ""
+	}
 }
