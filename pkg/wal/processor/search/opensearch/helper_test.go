@@ -35,16 +35,3 @@ func (m *mockAdapter) SearchDocsToBulkItems(docs []search.Document) []es.BulkIte
 func (m *mockAdapter) BulkItemsToSearchDocErrs(items []es.BulkItem) []search.DocumentError {
 	return m.bulkItemsToSearchDocErrsFn(items)
 }
-
-type mockMapper struct {
-	columnToSearchMappingFn func(column schemalog.Column) (map[string]any, error)
-	mapColumnValueFn        func(column schemalog.Column, value any) (any, error)
-}
-
-func (m *mockMapper) ColumnToSearchMapping(column schemalog.Column) (map[string]any, error) {
-	return m.columnToSearchMappingFn(column)
-}
-
-func (m *mockMapper) MapColumnValue(column schemalog.Column, value any) (any, error) {
-	return m.mapColumnValueFn(column, value)
-}

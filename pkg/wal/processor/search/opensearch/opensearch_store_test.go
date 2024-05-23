@@ -13,9 +13,10 @@ import (
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/internal/es"
-	"github.com/xataio/pgstream/internal/es/mocks"
+	esmocks "github.com/xataio/pgstream/internal/es/mocks"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
+	searchmocks "github.com/xataio/pgstream/pkg/wal/processor/search/mocks"
 )
 
 func TestStore_GetLastSchemaLogEntry(t *testing.T) {
@@ -41,7 +42,7 @@ func TestStore_GetLastSchemaLogEntry(t *testing.T) {
 	}{
 		{
 			name: "ok",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
 					require.Equal(t, &es.SearchRequest{
 						Index: es.Ptr(schemalogIndexName),
@@ -70,7 +71,7 @@ func TestStore_GetLastSchemaLogEntry(t *testing.T) {
 		},
 		{
 			name: "error - marshaling search query",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
 					return nil, errors.New("SearchFn: should not be called")
 				},
@@ -87,7 +88,7 @@ func TestStore_GetLastSchemaLogEntry(t *testing.T) {
 		},
 		{
 			name: "error - no hits in response",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
 					return &es.SearchResponse{
 						Hits: es.Hits{},
@@ -105,7 +106,7 @@ func TestStore_GetLastSchemaLogEntry(t *testing.T) {
 		},
 		{
 			name: "error - schema not found",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
 					return nil, es.ErrResourceNotFound
 				},
@@ -125,7 +126,7 @@ func TestStore_GetLastSchemaLogEntry(t *testing.T) {
 		},
 		{
 			name: "error - retrieving schema",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
 					return nil, errTest
 				},
@@ -141,7 +142,7 @@ func TestStore_GetLastSchemaLogEntry(t *testing.T) {
 		},
 		{
 			name: "error - schema not found with pgstream index creation",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
 					return nil, es.ErrResourceNotFound
 				},
@@ -165,7 +166,7 @@ func TestStore_GetLastSchemaLogEntry(t *testing.T) {
 		},
 		{
 			name: "error - schema not found, failed to create schemalog index",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
 					return nil, es.ErrResourceNotFound
 				},
@@ -222,7 +223,7 @@ func TestStore_CreateSchema(t *testing.T) {
 	}{
 		{
 			name: "ok",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				CreateIndexFn: func(ctx context.Context, index string, body map[string]any) error {
 					return nil
 				},
@@ -237,7 +238,7 @@ func TestStore_CreateSchema(t *testing.T) {
 		},
 		{
 			name: "error - creating index",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				CreateIndexFn: func(ctx context.Context, index string, body map[string]any) error {
 					return errTest
 				},
@@ -250,7 +251,7 @@ func TestStore_CreateSchema(t *testing.T) {
 		},
 		{
 			name: "error - putting index alias",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				CreateIndexFn: func(ctx context.Context, index string, body map[string]any) error {
 					return nil
 				},
@@ -302,7 +303,7 @@ func TestStore_UpdateMapping(t *testing.T) {
 	}{
 		{
 			name: "ok - no diff",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
 					return errors.New("PutIndexMappingsFn: should not be called")
 				},
@@ -318,7 +319,7 @@ func TestStore_UpdateMapping(t *testing.T) {
 		},
 		{
 			name: "ok - diff with columns to add",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
 					require.Equal(t, testIndexName, index)
 					require.Equal(t, map[string]any{
@@ -340,8 +341,8 @@ func TestStore_UpdateMapping(t *testing.T) {
 					{Name: "col-1", PgstreamID: "pgstreamid-1"},
 				},
 			},
-			mapper: &mockMapper{
-				columnToSearchMappingFn: func(column schemalog.Column) (map[string]any, error) {
+			mapper: &searchmocks.Mapper{
+				ColumnToSearchMappingFn: func(column schemalog.Column) (map[string]any, error) {
 					return testMapping, nil
 				},
 			},
@@ -350,7 +351,7 @@ func TestStore_UpdateMapping(t *testing.T) {
 		},
 		{
 			name: "ok - diff with tables to remove",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
 					return errors.New("PutIndexMappingsFn: should not be called")
 				},
@@ -381,7 +382,7 @@ func TestStore_UpdateMapping(t *testing.T) {
 		},
 		{
 			name: "error - updating mapping",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
 					return errTest
 				},
@@ -402,7 +403,7 @@ func TestStore_UpdateMapping(t *testing.T) {
 		},
 		{
 			name: "error - deleting tables",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
 					return errors.New("PutIndexMappingsFn: should not be called")
 				},
@@ -424,7 +425,7 @@ func TestStore_UpdateMapping(t *testing.T) {
 		},
 		{
 			name: "error - inserting schemalog",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
 					return errors.New("PutIndexMappingsFn: should not be called")
 				},
@@ -477,7 +478,7 @@ func TestStore_SendDocuments(t *testing.T) {
 	}{
 		{
 			name: "ok - no failed documents",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				SendBulkRequestFn: func(ctx context.Context, items []es.BulkItem) ([]es.BulkItem, error) {
 					return nil, nil
 				},
@@ -488,7 +489,7 @@ func TestStore_SendDocuments(t *testing.T) {
 		},
 		{
 			name: "ok - with failed documents",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				SendBulkRequestFn: func(ctx context.Context, items []es.BulkItem) ([]es.BulkItem, error) {
 					return []es.BulkItem{
 						{
@@ -517,7 +518,7 @@ func TestStore_SendDocuments(t *testing.T) {
 		},
 		{
 			name: "error - sending bulk request",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				SendBulkRequestFn: func(ctx context.Context, items []es.BulkItem) ([]es.BulkItem, error) {
 					return nil, errTest
 				},
@@ -557,7 +558,7 @@ func TestStore_DeleteSchema(t *testing.T) {
 	}{
 		{
 			name: "ok",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
 					require.Equal(t, testIndexWithVersion, index)
 					return true, nil
@@ -584,7 +585,7 @@ func TestStore_DeleteSchema(t *testing.T) {
 		},
 		{
 			name: "ok - index doesn't exist",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
 					require.Equal(t, testIndexWithVersion, index)
 					return false, nil
@@ -610,7 +611,7 @@ func TestStore_DeleteSchema(t *testing.T) {
 		},
 		{
 			name: "error - checking index exists",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
 					return false, errTest
 				},
@@ -626,7 +627,7 @@ func TestStore_DeleteSchema(t *testing.T) {
 		},
 		{
 			name: "error - deleting index",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
 					return true, nil
 				},
@@ -642,7 +643,7 @@ func TestStore_DeleteSchema(t *testing.T) {
 		},
 		{
 			name: "error - deleting schema from schema log",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
 					return false, nil
 				},
@@ -686,7 +687,7 @@ func TestStore_DeleteTableDocuments(t *testing.T) {
 	}{
 		{
 			name: "ok",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
 					require.Equal(t, []string{testSchemaName}, req.Index)
 					require.Equal(t, map[string]any{
@@ -706,7 +707,7 @@ func TestStore_DeleteTableDocuments(t *testing.T) {
 		},
 		{
 			name: "ok - no tables",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
 					require.Equal(t, []string{testSchemaName}, req.Index)
 					require.Equal(t, map[string]any{
@@ -726,7 +727,7 @@ func TestStore_DeleteTableDocuments(t *testing.T) {
 		},
 		{
 			name: "error - deleting by query",
-			client: &mocks.Client{
+			client: &esmocks.Client{
 				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
 					return errTest
 				},

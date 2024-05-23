@@ -11,16 +11,11 @@ import (
 
 	"github.com/xataio/pgstream/internal/backoff"
 	"github.com/xataio/pgstream/internal/kafka"
+	loglib "github.com/xataio/pgstream/internal/log"
 	"github.com/xataio/pgstream/pkg/wal"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-)
-
-const (
-	// if we go over this limit the log will likely be truncated and it will not
-	// be very readable
-	logMaxBytes = 10000
 )
 
 type Reader struct {
@@ -89,7 +84,7 @@ func (r *Reader) Listen(ctx context.Context) error {
 				logEvent := log.Ctx(ctx).Error().
 					Str("severity", "DATALOSS").
 					Err(err)
-				addBytesToLog(logEvent, "wal_data", msg.Value).Msg("processing kafka msg")
+				loglib.AddBytesToLog(logEvent, "wal_data", msg.Value).Msg("processing kafka msg")
 			}
 		}
 	}
@@ -137,11 +132,4 @@ func (r *Reader) commitMessagesWithRetry(ctx context.Context, msgs []*kafka.Mess
 		func(err error, d time.Duration) {
 			log.Ctx(ctx).Warn().Err(err).Msgf("failed to commit messages. Retrying in %v", d)
 		})
-}
-
-func addBytesToLog(log *zerolog.Event, key string, value []byte) *zerolog.Event {
-	if len(value) > logMaxBytes {
-		return log.Bytes(key, value[:logMaxBytes])
-	}
-	return log.Bytes(key, value)
 }
