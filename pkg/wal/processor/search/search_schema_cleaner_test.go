@@ -155,11 +155,3 @@ func TestSchemaCleaner_start(t *testing.T) {
 		})
 	}
 }
-
-type mockStore struct {
-	deleteSchemaFn func(context.Context, string) error
-}
-
-func (m *mockStore) DeleteSchema(ctx context.Context, schemaName string) error {
-	return m.deleteSchemaFn(ctx, schemaName)
-}
