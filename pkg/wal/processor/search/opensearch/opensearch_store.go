@@ -55,120 +55,47 @@ func (s *Store) GetMapper() search.Mapper {
 	return s.mapper
 }
 
-// GetLastSchemaLogEntry will return the last version of the schemalog for the
-// schema on input. A nil LogEntry will be returned when there's no existing
-// associated logs
-func (s *Store) GetLastSchemaLogEntry(ctx context.Context, schemaName string) (*schemalog.LogEntry, error) {
-	query := es.QueryBody{
-		Query: &es.Query{
-			Bool: &es.BoolFilter{
-				Filter: []es.Condition{
-					{
-						Term: map[string]any{
-							"schema_name": schemaName,
-						},
-					},
-				},
-			},
-		},
+func (s *Store) ApplySchemaChange(ctx context.Context, newEntry *schemalog.LogEntry) error {
+	if newEntry == nil {
+		return nil
 	}
-
-	bodyJSON, err := s.marshaler(query)
+	existingLogEntry, err := s.getLastSchemaLogEntry(ctx, newEntry.SchemaName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal to JSON: %+v, %w", query, err)
-	}
-
-	res, err := s.client.Search(ctx, &es.SearchRequest{
-		Index: es.Ptr(schemalogIndexName),
-		Size:  es.Ptr(1),
-		Sort:  es.Ptr("version:desc"),
-		Query: bytes.NewBuffer(bodyJSON),
-	})
-	if err != nil {
-		if errors.Is(err, es.ErrResourceNotFound) {
-			log.Ctx(ctx).Warn().Msgf("[%s]: index not found: %v. Trying to create it", schemalogIndexName, err)
-			// Create the pgstream index if it was not found.
-			err = s.createSchemaLogIndex(ctx, schemalogIndexName)
-			if err != nil {
-				return nil, mapError(err)
+		// if there's no schemalog, this is a new schema and we need to create
+		// it
+		if errors.As(err, &search.ErrSchemaNotFound{}) {
+			if err := s.ensureSchema(ctx, newEntry.SchemaName); err != nil {
+				return fmt.Errorf("ensuring schema existence: %w", err)
 			}
-			return nil, search.ErrSchemaNotFound{SchemaName: schemaName}
-		}
-		return nil, fmt.Errorf("get latest schema, failed to search os: %w", mapError(err))
-	}
-
-	if len(res.Hits.Hits) == 0 {
-		return nil, search.ErrSchemaNotFound{SchemaName: schemaName}
-	}
-
-	return s.adapter.RecordToLogEntry(res.Hits.Hits[0].Source)
-}
-
-func (s *Store) SchemaExists(ctx context.Context, schemaName string) (bool, error) {
-	indexName := s.adapter.SchemaNameToIndex(schemaName)
-	exists, err := s.client.IndexExists(ctx, indexName.NameWithVersion())
-	if err != nil {
-		return false, mapError(err)
-	}
-	return exists, nil
-}
-
-func (s *Store) CreateSchema(ctx context.Context, schemaName string) error {
-	index := s.adapter.SchemaNameToIndex(schemaName)
-	err := s.client.CreateIndex(ctx, index.NameWithVersion(), map[string]any{
-		"mappings": map[string]any{
-			"dynamic": "strict",
-			"properties": map[string]any{
-				"_table": map[string]any{
-					"type": "keyword",
-				},
-			},
-		},
-		"settings": map[string]any{
-			"number_of_shards":                 1,
-			"number_of_replicas":               1,
-			"index.mapping.total_fields.limit": 2000,
-			"index.knn":                        true,
-			"knn.algo_param.ef_search":         openSearchDefaultEFSearch,
-		},
-	})
-	if err != nil {
-		if errors.As(err, &es.ErrResourceAlreadyExists{}) {
-			return &search.ErrSchemaAlreadyExists{
-				SchemaName: schemaName,
-			}
-		}
-		return mapError(err)
-	}
-
-	if err := s.client.PutIndexAlias(ctx, []string{index.NameWithVersion()}, index.Name()); err != nil {
-		return mapError(err)
-	}
-	return nil
-}
-
-func (s *Store) UpdateMapping(ctx context.Context, schemaName string, logEntry *schemalog.LogEntry, diff *schemalog.SchemaDiff) error {
-	index := s.adapter.SchemaNameToIndex(schemaName)
-	if diff != nil {
-		if err := s.updateMappingAddNewColumns(ctx, index, diff.ColumnsToAdd); err != nil {
-			return fmt.Errorf("failed to add new columns: %w", mapError(err))
-		}
-
-		if len(diff.TablesToRemove) > 0 {
-			tableIDs := make([]string, 0, len(diff.TablesToRemove))
-			for _, table := range diff.TablesToRemove {
-				tableIDs = append(tableIDs, table.PgstreamID)
-			}
-			if err := s.deleteTableDocuments(ctx, index, tableIDs); err != nil {
-				return fmt.Errorf("failed to delete table documents: %w", mapError(err))
-			}
+		} else {
+			return fmt.Errorf("get latest schema: %w", err)
 		}
 	}
 
-	if err := s.insertNewSchemaLog(ctx, logEntry); err != nil {
-		return fmt.Errorf("failed to insert new schema log: %w", mapError(err))
+	// make sure the index and the mapping for the schema exist, and if it
+	// doesn't, align it with latest schema log mapping. This check will allow
+	// us to self recover in case of schema OS index deletion
+	if err := s.ensureSchemaMapping(ctx, newEntry.SchemaName, existingLogEntry); err != nil {
+		return fmt.Errorf("ensuring schema mapping: %w", err)
 	}
 
+	// older schema should not be possible to receive
+	// We compare version field rather than id because XID is not actually sortable.
+	if existingLogEntry != nil && newEntry.Version <= existingLogEntry.Version {
+		return search.ErrSchemaUpdateOutOfOrder{
+			SchemaName:       newEntry.SchemaName,
+			SchemaID:         newEntry.ID.String(),
+			NewVersion:       int(newEntry.Version),
+			NewCreatedAt:     newEntry.CreatedAt.Time,
+			CurrentVersion:   int(existingLogEntry.Version),
+			CurrentCreatedAt: existingLogEntry.CreatedAt.Time,
+		}
+	}
+
+	changes := newEntry.Diff(existingLogEntry)
+	if err := s.updateMapping(ctx, newEntry.SchemaName, newEntry, changes); err != nil {
+		return fmt.Errorf("update mapping for schema: %w", err)
+	}
 	return nil
 }
 
@@ -216,6 +143,123 @@ func (s *Store) DeleteTableDocuments(ctx context.Context, schemaName string, tab
 	if err := s.deleteTableDocuments(ctx, index, tableIDs); err != nil {
 		return mapError(err)
 	}
+	return nil
+}
+
+// getLastSchemaLogEntry will return the last version of the schemalog for the
+// schema on input. A nil LogEntry will be returned when there's no existing
+// associated logs
+func (s *Store) getLastSchemaLogEntry(ctx context.Context, schemaName string) (*schemalog.LogEntry, error) {
+	query := es.QueryBody{
+		Query: &es.Query{
+			Bool: &es.BoolFilter{
+				Filter: []es.Condition{
+					{
+						Term: map[string]any{
+							"schema_name": schemaName,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	bodyJSON, err := s.marshaler(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal to JSON: %+v, %w", query, err)
+	}
+
+	res, err := s.client.Search(ctx, &es.SearchRequest{
+		Index: es.Ptr(schemalogIndexName),
+		Size:  es.Ptr(1),
+		Sort:  es.Ptr("version:desc"),
+		Query: bytes.NewBuffer(bodyJSON),
+	})
+	if err != nil {
+		if errors.Is(err, es.ErrResourceNotFound) {
+			log.Ctx(ctx).Warn().Msgf("[%s]: index not found: %v. Trying to create it", schemalogIndexName, err)
+			// Create the pgstream index if it was not found.
+			err = s.createSchemaLogIndex(ctx, schemalogIndexName)
+			if err != nil {
+				return nil, mapError(err)
+			}
+			return nil, search.ErrSchemaNotFound{SchemaName: schemaName}
+		}
+		return nil, fmt.Errorf("get latest schema, failed to search os: %w", mapError(err))
+	}
+
+	if len(res.Hits.Hits) == 0 {
+		return nil, search.ErrSchemaNotFound{SchemaName: schemaName}
+	}
+
+	return s.adapter.RecordToLogEntry(res.Hits.Hits[0].Source)
+}
+
+func (s *Store) schemaExists(ctx context.Context, schemaName string) (bool, error) {
+	indexName := s.adapter.SchemaNameToIndex(schemaName)
+	exists, err := s.client.IndexExists(ctx, indexName.NameWithVersion())
+	if err != nil {
+		return false, mapError(err)
+	}
+	return exists, nil
+}
+
+func (s *Store) createSchema(ctx context.Context, schemaName string) error {
+	index := s.adapter.SchemaNameToIndex(schemaName)
+	err := s.client.CreateIndex(ctx, index.NameWithVersion(), map[string]any{
+		"mappings": map[string]any{
+			"dynamic": "strict",
+			"properties": map[string]any{
+				"_table": map[string]any{
+					"type": "keyword",
+				},
+			},
+		},
+		"settings": map[string]any{
+			"number_of_shards":                 1,
+			"number_of_replicas":               1,
+			"index.mapping.total_fields.limit": 2000,
+			"index.knn":                        true,
+			"knn.algo_param.ef_search":         openSearchDefaultEFSearch,
+		},
+	})
+	if err != nil {
+		if errors.As(err, &es.ErrResourceAlreadyExists{}) {
+			return &search.ErrSchemaAlreadyExists{
+				SchemaName: schemaName,
+			}
+		}
+		return mapError(err)
+	}
+
+	if err := s.client.PutIndexAlias(ctx, []string{index.NameWithVersion()}, index.Name()); err != nil {
+		return mapError(err)
+	}
+	return nil
+}
+
+func (s *Store) updateMapping(ctx context.Context, schemaName string, logEntry *schemalog.LogEntry, diff *schemalog.SchemaDiff) error {
+	index := s.adapter.SchemaNameToIndex(schemaName)
+	if diff != nil {
+		if err := s.updateMappingAddNewColumns(ctx, index, diff.ColumnsToAdd); err != nil {
+			return fmt.Errorf("failed to add new columns: %w", mapError(err))
+		}
+
+		if len(diff.TablesToRemove) > 0 {
+			tableIDs := make([]string, 0, len(diff.TablesToRemove))
+			for _, table := range diff.TablesToRemove {
+				tableIDs = append(tableIDs, table.PgstreamID)
+			}
+			if err := s.deleteTableDocuments(ctx, index, tableIDs); err != nil {
+				return fmt.Errorf("failed to delete table documents: %w", mapError(err))
+			}
+		}
+	}
+
+	if err := s.insertNewSchemaLog(ctx, logEntry); err != nil {
+		return fmt.Errorf("failed to insert new schema log: %w", mapError(err))
+	}
+
 	return nil
 }
 
@@ -321,6 +365,33 @@ func (s *Store) insertNewSchemaLog(ctx context.Context, m *schemalog.LogEntry) e
 		return fmt.Errorf("insert schema log: %w", err)
 	}
 
+	return nil
+}
+
+func (s *Store) ensureSchema(ctx context.Context, schemaName string) error {
+	return s.ensureSchemaMapping(ctx, schemaName, nil)
+}
+
+func (s *Store) ensureSchemaMapping(ctx context.Context, schemaName string, metadata *schemalog.LogEntry) error {
+	exists, err := s.schemaExists(ctx, schemaName)
+	if err != nil {
+		return fmt.Errorf("checking existence of schema: %w", err)
+	}
+	if !exists {
+		if err := s.createSchema(ctx, schemaName); err != nil {
+			if errors.As(err, &search.ErrSchemaAlreadyExists{}) {
+				return nil
+			}
+			return fmt.Errorf("creating schema: %w", err)
+		}
+		// if the schema didn't exist, but there's a log entry in the schemalog,
+		// we need to reset it to the latest known mapping
+		if metadata != nil && !metadata.IsEmpty() {
+			if err := s.updateMapping(ctx, schemaName, metadata, metadata.Diff(&schemalog.LogEntry{})); err != nil {
+				return fmt.Errorf("updating mapping for missing schema: %w", err)
+			}
+		}
+	}
 	return nil
 }
 
