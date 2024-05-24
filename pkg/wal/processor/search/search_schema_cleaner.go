@@ -13,15 +13,21 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type cleaner interface {
+	deleteSchema(context.Context, string) error
+	start(context.Context)
+	stop()
+}
+
+type store interface {
+	DeleteSchema(ctx context.Context, schemaName string) error
+}
+
 type schemaCleaner struct {
 	deleteSchemaQueue   chan string
 	store               store
 	backoffProvider     backoff.Provider
 	registrationTimeout time.Duration
-}
-
-type store interface {
-	DeleteSchema(ctx context.Context, schemaName string) error
 }
 
 const (
@@ -31,7 +37,7 @@ const (
 
 var errRegistrationTimeout = errors.New("timeout registering schema for clean up")
 
-func newSchemaCleaner(cfg *backoff.Config, store store) *schemaCleaner { //nolint:unused
+func newSchemaCleaner(cfg *backoff.Config, store store) *schemaCleaner {
 	return &schemaCleaner{
 		deleteSchemaQueue:   make(chan string, maxDeleteQueueSize),
 		store:               store,

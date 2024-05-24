@@ -9,9 +9,18 @@ import (
 	"time"
 
 	"github.com/rs/xid"
+	"github.com/xataio/pgstream/internal/kafka"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 )
+
+type mockAdapter struct {
+	walDataToQueueItemFn func(*wal.Data) (*queueItem, error)
+}
+
+func (m *mockAdapter) walDataToQueueItem(d *wal.Data) (*queueItem, error) {
+	return m.walDataToQueueItemFn(d)
+}
 
 type mockStore struct {
 	getMapperFn            func() Mapper
@@ -41,6 +50,24 @@ func (m *mockStore) DeleteTableDocuments(ctx context.Context, schemaName string,
 func (m *mockStore) SendDocuments(ctx context.Context, docs []Document) ([]DocumentError, error) {
 	m.sendDocumentsCalls++
 	return m.sendDocumentsFn(ctx, m.sendDocumentsCalls, docs)
+}
+
+type mockCleaner struct {
+	deleteSchemaFn func(context.Context, string) error
+	startFn        func(context.Context)
+	stopFn         func()
+}
+
+func (m *mockCleaner) deleteSchema(ctx context.Context, schema string) error {
+	return m.deleteSchemaFn(ctx, schema)
+}
+
+func (m *mockCleaner) start(ctx context.Context) {
+	m.startFn(ctx)
+}
+
+func (m *mockCleaner) stop() {
+	m.stopFn()
 }
 
 const (
@@ -94,6 +121,12 @@ func newTestDataEvent(action string) *wal.Data {
 
 type testDocOption func(*Document)
 
+func withID(id string) testDocOption {
+	return func(d *Document) {
+		d.ID = id
+	}
+}
+
 func newTestDocument(opts ...testDocOption) *Document {
 	doc := &Document{
 		Schema:  testSchemaName,
@@ -117,5 +150,15 @@ func newTestLogEntry(id xid.ID, now time.Time) *schemalog.LogEntry {
 		Version:    0,
 		SchemaName: testSchemaName,
 		CreatedAt:  schemalog.NewSchemaCreatedAtTimestamp(now),
+	}
+}
+
+func newTestCommitPosition() wal.CommitPosition {
+	return wal.CommitPosition{
+		KafkaPos: &kafka.Message{
+			Topic:     "test_topic",
+			Partition: 0,
+			Offset:    1,
+		},
 	}
 }

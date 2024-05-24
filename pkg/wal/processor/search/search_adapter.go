@@ -13,7 +13,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor"
 )
 
-type walAdapter interface { //nolint:unused
+type walAdapter interface {
 	walDataToQueueItem(*wal.Data) (*queueItem, error)
 }
 
