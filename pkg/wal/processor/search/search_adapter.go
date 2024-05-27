@@ -23,10 +23,7 @@ type adapter struct {
 	unmarshaler func([]byte, any) error
 }
 
-var (
-	errInvalidData     = errors.New("wal data event is not a schema log entry")
-	errUnsupportedType = errors.New("type not supported for column")
-)
+var errUnsupportedType = errors.New("type not supported for column")
 
 func newAdapter(m Mapper) *adapter {
 	return &adapter{
@@ -92,7 +89,7 @@ func (a *adapter) walDataToQueueItem(d *wal.Data) (*queueItem, error) {
 
 func (a *adapter) walDataToLogEntry(d *wal.Data) (*schemalog.LogEntry, int, error) {
 	if !processor.IsSchemaLogEvent(d) {
-		return nil, 0, errInvalidData
+		return nil, 0, processor.ErrIncompatibleWalData
 	}
 
 	intermediateRec := make(map[string]any, len(d.Columns))

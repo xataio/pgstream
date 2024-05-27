@@ -13,6 +13,7 @@ import (
 
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
+	"github.com/xataio/pgstream/pkg/wal/processor"
 	searchmocks "github.com/xataio/pgstream/pkg/wal/processor/search/mocks"
 )
 
@@ -183,7 +184,7 @@ func TestAdapter_walDataToLogEntry(t *testing.T) {
 			},
 
 			wantLogEntry: nil,
-			wantErr:      errInvalidData,
+			wantErr:      processor.ErrIncompatibleWalData,
 		},
 		{
 			name:      "error - marshaling",
