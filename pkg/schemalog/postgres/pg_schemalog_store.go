@@ -19,14 +19,18 @@ type Store struct {
 	querier querier
 }
 
+type Config struct {
+	Postgres *pgx.ConnConfig
+}
+
 type querier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	Exec(ctx context.Context, sql string, args ...any) (tag pgconn.CommandTag, err error)
 	Close(ctx context.Context)
 }
 
-func NewStore(ctx context.Context, cfg *pgx.ConnConfig) (*Store, error) {
-	pgConn, err := pgx.ConnectConfig(ctx, cfg)
+func NewStore(ctx context.Context, cfg Config) (*Store, error) {
+	pgConn, err := pgx.ConnectConfig(ctx, cfg.Postgres)
 	if err != nil {
 		return nil, fmt.Errorf("create postgres client: %w", err)
 	}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
+	"github.com/xataio/pgstream/pkg/wal/processor"
 	searchmocks "github.com/xataio/pgstream/pkg/wal/processor/search/mocks"
 )
 
@@ -183,7 +184,7 @@ func TestAdapter_walDataToLogEntry(t *testing.T) {
 			},
 
 			wantLogEntry: nil,
-			wantErr:      errInvalidData,
+			wantErr:      processor.ErrIncompatibleWalData,
 		},
 		{
 			name:      "error - marshaling",
@@ -339,7 +340,7 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 			},
 
 			wantDoc: nil,
-			wantErr: errIDNotFound,
+			wantErr: processor.ErrIDNotFound,
 		},
 		{
 			name:   "error - parsing columns with delete event",
@@ -360,7 +361,7 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 			},
 
 			wantDoc: nil,
-			wantErr: errIDNotFound,
+			wantErr: processor.ErrIDNotFound,
 		},
 		{
 			name: "error - insert event with identity columns",
@@ -475,7 +476,7 @@ func TestAdapter_parseColumns(t *testing.T) {
 			mapper:   noopMapper,
 
 			wantDoc: nil,
-			wantErr: errIDNotFound,
+			wantErr: processor.ErrIDNotFound,
 		},
 		{
 			name: "error - version not found",
@@ -487,7 +488,7 @@ func TestAdapter_parseColumns(t *testing.T) {
 			mapper:   noopMapper,
 
 			wantDoc: nil,
-			wantErr: errVersionNotFound,
+			wantErr: processor.ErrVersionNotFound,
 		},
 		{
 			name: "error - invalid id value",
