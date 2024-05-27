@@ -66,13 +66,13 @@ func (s *Schema) Diff(previous *Schema) *SchemaDiff {
 
 	// if a table ID exists in previous, but not s: remove the table
 	for _, previousTable := range previous.Tables {
-		if !s.hasTable(previousTable.PgstreamID) {
+		if !s.hasTableID(previousTable.PgstreamID) {
 			d.TablesToRemove = append(d.TablesToRemove, previousTable)
 		}
 	}
 
 	for i, table := range s.Tables {
-		if previousTable := previous.getTable(table.PgstreamID); previousTable != nil {
+		if previousTable := previous.getTableByID(table.PgstreamID); previousTable != nil {
 			d.ColumnsToAdd = append(d.ColumnsToAdd, diffColumns(&s.Tables[i], previousTable)...)
 		} else {
 			// if the "old" schema does not have the table, we can add all
@@ -84,7 +84,16 @@ func (s *Schema) Diff(previous *Schema) *SchemaDiff {
 	return &d
 }
 
-func (s *Schema) getTable(pgstreamID string) *Table {
+func (s *Schema) getTableByName(tableName string) *Table {
+	for _, t := range s.Tables {
+		if t.Name == tableName {
+			return &t
+		}
+	}
+	return nil
+}
+
+func (s *Schema) getTableByID(pgstreamID string) *Table {
 	for i := range s.Tables {
 		if s.Tables[i].PgstreamID == pgstreamID {
 			return &s.Tables[i]
@@ -93,8 +102,8 @@ func (s *Schema) getTable(pgstreamID string) *Table {
 	return nil
 }
 
-func (s *Schema) hasTable(pgstreamID string) bool {
-	return s.getTable(pgstreamID) != nil
+func (s *Schema) hasTableID(pgstreamID string) bool {
+	return s.getTableByID(pgstreamID) != nil
 }
 
 func (t *Table) IsEqual(other *Table) bool {
@@ -114,6 +123,15 @@ func (t *Table) IsEqual(other *Table) bool {
 
 		return unorderedColumnsEqual(t.Columns, other.Columns)
 	}
+}
+
+func (t *Table) GetColumnByName(name string) *Column {
+	for _, c := range t.Columns {
+		if c.Name == name {
+			return &c
+		}
+	}
+	return nil
 }
 
 func (c *Column) IsEqual(other *Column) bool {

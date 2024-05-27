@@ -98,6 +98,10 @@ func (m *LogEntry) Diff(previous *LogEntry) *SchemaDiff {
 	return m.Schema.Diff(&previous.Schema)
 }
 
+func (m *LogEntry) GetTableByName(tableName string) *Table {
+	return m.Schema.getTableByName(tableName)
+}
+
 // SchemaCreatedAtTimestamp is a wrapper around time.Time that allows us to parse to and from the PG timestamp format.
 type SchemaCreatedAtTimestamp struct {
 	time.Time
