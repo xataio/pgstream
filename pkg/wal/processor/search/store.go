@@ -11,11 +11,8 @@ import (
 type Store interface {
 	GetMapper() Mapper
 	// schema operations
-	GetLastSchemaLogEntry(ctx context.Context, schemaName string) (*schemalog.LogEntry, error)
-	SchemaExists(ctx context.Context, schemaName string) (bool, error)
-	CreateSchema(ctx context.Context, schemaName string) error
+	ApplySchemaChange(ctx context.Context, logEntry *schemalog.LogEntry) error
 	DeleteSchema(ctx context.Context, schemaName string) error
-	UpdateSchemaMapping(ctx context.Context, schemaName string, m *schemalog.LogEntry, d *schemalog.SchemaDiff) error
 	// data operations
 	DeleteTableDocuments(ctx context.Context, schemaName string, tableIDs []string) error
 	SendDocuments(ctx context.Context, docs []Document) ([]DocumentError, error)
@@ -36,6 +33,33 @@ type Document struct {
 
 type DocumentError struct {
 	Document Document
-	Status   int
+	Severity Severity
 	Error    string
+}
+
+type Severity uint
+
+const (
+	SeverityNone Severity = iota
+	SeverityDataLoss
+	SeverityIgnored
+	SeverityRetriable
+)
+
+func (s *Severity) String() string {
+	if s == nil {
+		return ""
+	}
+	switch *s {
+	case SeverityNone:
+		return "NONE"
+	case SeverityDataLoss:
+		return "DATALOSS"
+	case SeverityIgnored:
+		return "IGNORED"
+	case SeverityRetriable:
+		return "RETRIABLE"
+	default:
+		return ""
+	}
 }

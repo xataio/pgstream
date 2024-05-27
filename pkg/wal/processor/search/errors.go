@@ -5,6 +5,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 type ErrTypeInvalid struct {
@@ -29,6 +30,20 @@ type ErrSchemaAlreadyExists struct {
 
 func (e ErrSchemaAlreadyExists) Error() string {
 	return fmt.Sprintf("schema [%s] already exists", e.SchemaName)
+}
+
+type ErrSchemaUpdateOutOfOrder struct {
+	SchemaName       string
+	SchemaID         string
+	NewVersion       int
+	CurrentVersion   int
+	CurrentCreatedAt time.Time
+	NewCreatedAt     time.Time
+}
+
+func (e ErrSchemaUpdateOutOfOrder) Error() string {
+	return fmt.Sprintf("our of order schema update detected for schema [%s] with id [%s]: incoming version: %d, created at: %v, current version: %d, created at: %v",
+		e.SchemaName, e.SchemaID, e.NewVersion, e.NewCreatedAt, e.CurrentVersion, e.CurrentCreatedAt)
 }
 
 var (

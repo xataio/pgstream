@@ -113,8 +113,7 @@ func (a *adapter) bulkItemToSearchDocErr(item es.BulkItem) search.DocumentError 
 		Document: search.Document{
 			Data: item.Doc,
 		},
-		Error:  string(item.Error),
-		Status: item.Status,
+		Error: string(item.Error),
 	}
 	switch {
 	case item.Index != nil:
@@ -131,5 +130,32 @@ func (a *adapter) bulkItemToSearchDocErr(item es.BulkItem) search.DocumentError 
 		}
 		doc.Document.Delete = true
 	}
+
+	doc.Severity = a.parseSeverity(item.Status, doc.Document.Delete)
+
 	return doc
+}
+
+func (a *adapter) parseSeverity(status int, delete bool) search.Severity {
+	switch status {
+	case 400: // 400 means that the document is invalid. We drop it.
+		return search.SeverityDataLoss
+	case 409: // ignore, likely event out of order
+		return search.SeverityIgnored
+	case 404:
+		if delete { // ignore, likely event out of order
+			return search.SeverityIgnored
+		}
+		return search.SeverityDataLoss
+	case 429: // retry events, likely search store overloaded
+		return search.SeverityRetriable
+	default:
+		if status >= 500 {
+			// internal server error, just retry until opensearch can tell us
+			// what the problem is
+			return search.SeverityRetriable
+		}
+		// maybe DLQ, for now just log
+		return search.SeverityDataLoss
+	}
 }
