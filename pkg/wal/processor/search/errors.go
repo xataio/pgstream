@@ -53,4 +53,5 @@ var (
 	errIDNotFound      = errors.New("id column not found")
 	errNilIDValue      = errors.New("id has nil value")
 	errNilVersionValue = errors.New("version has nil value")
+	errMetadataMissing = errors.New("missing wal event metadata")
 )

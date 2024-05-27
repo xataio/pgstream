@@ -4,6 +4,7 @@ package search
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -15,25 +16,142 @@ import (
 	searchmocks "github.com/xataio/pgstream/pkg/wal/processor/search/mocks"
 )
 
+func TestAdapter_walDataToQueueItem(t *testing.T) {
+	t.Parallel()
+
+	id := xid.New()
+	now := time.Now().UTC().Round(time.Second)
+	testLogEntrySize := 104
+	testDocBytes := []byte("test-doc")
+
+	noopMapper := &searchmocks.Mapper{
+		MapColumnValueFn: func(column schemalog.Column, value any) (any, error) { return value, nil },
+	}
+
+	tests := []struct {
+		name      string
+		data      *wal.Data
+		marshaler func(any) ([]byte, error)
+		mapper    Mapper
+
+		wantItem *queueItem
+		wantErr  error
+	}{
+		{
+			name: "ok - schema log event with insert",
+			data: newTestSchemaChangeEvent("I", id, now),
+
+			wantItem: &queueItem{
+				schemaChange: newTestLogEntry(id, now),
+				bytesSize:    testLogEntrySize,
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - schema log event with update",
+			data: newTestSchemaChangeEvent("U", id, now),
+
+			wantItem: nil,
+			wantErr:  nil,
+		},
+		{
+			name:      "ok - data event",
+			data:      newTestDataEvent("I"),
+			marshaler: func(a any) ([]byte, error) { return testDocBytes, nil },
+
+			wantItem: &queueItem{
+				write:     newTestDocument(),
+				bytesSize: len(testDocBytes),
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - truncate event",
+			data: newTestDataEvent("T"),
+
+			wantItem: &queueItem{
+				truncate: &truncateItem{
+					schemaName: testSchemaName,
+					tableID:    testTableID,
+				},
+				bytesSize: len(testSchemaName) + len(testTableID),
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - skipped action data events",
+			data: newTestDataEvent("B"),
+
+			wantItem: nil,
+			wantErr:  nil,
+		},
+		{
+			name:      "error - data event document size",
+			data:      newTestDataEvent("I"),
+			marshaler: func(a any) ([]byte, error) { return nil, errTest },
+
+			wantItem: nil,
+			wantErr:  errTest,
+		},
+		{
+			name:      "error - data event to document",
+			data:      newTestDataEvent("I"),
+			marshaler: func(a any) ([]byte, error) { return testDocBytes, nil },
+			mapper: &searchmocks.Mapper{
+				MapColumnValueFn: func(column schemalog.Column, value any) (any, error) { return nil, errTest },
+			},
+
+			wantItem: nil,
+			wantErr:  errTest,
+		},
+		{
+			name:      "ok - data event to log entry",
+			data:      newTestSchemaChangeEvent("I", id, now),
+			marshaler: func(a any) ([]byte, error) { return nil, errTest },
+
+			wantItem: nil,
+			wantErr:  errTest,
+		},
+		{
+			name: "error - data event empty metadata",
+			data: func() *wal.Data {
+				d := newTestDataEvent("I")
+				d.Metadata = wal.Metadata{}
+				return d
+			}(),
+			marshaler: func(a any) ([]byte, error) { return testDocBytes, nil },
+
+			wantItem: nil,
+			wantErr:  errMetadataMissing,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			a := newAdapter(noopMapper)
+
+			if tc.marshaler != nil {
+				a.marshaler = tc.marshaler
+			}
+			if tc.mapper != nil {
+				a.mapper = tc.mapper
+			}
+
+			item, err := a.walDataToQueueItem(tc.data)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantItem, item)
+		})
+	}
+}
+
 func TestAdapter_walDataToLogEntry(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().UTC().Round(time.Second)
-	nowStr := now.Format("2006-01-02 15:04:05")
 	id := xid.New()
-
-	testWalData := &wal.Data{
-		Action: "I",
-		Schema: schemalog.SchemaName,
-		Table:  schemalog.TableName,
-		Columns: []wal.Column{
-			{ID: "id", Name: "id", Type: "text", Value: id.String()},
-			{ID: "version", Name: "version", Type: "integer", Value: 0},
-			{ID: "schema_name", Name: "schema_name", Type: "text", Value: "test_schema_1"},
-			{ID: "created_at", Name: "created_at", Type: "timestamp", Value: nowStr},
-		},
-	}
-
+	testWalData := newTestSchemaChangeEvent("I", id, now)
 	errTest := errors.New("oh noes")
 
 	tests := []struct {
@@ -52,7 +170,7 @@ func TestAdapter_walDataToLogEntry(t *testing.T) {
 			wantLogEntry: &schemalog.LogEntry{
 				ID:         id,
 				Version:    0,
-				SchemaName: "test_schema_1",
+				SchemaName: testSchemaName,
 				CreatedAt:  schemalog.NewSchemaCreatedAtTimestamp(now),
 			},
 			wantErr: nil,
@@ -98,7 +216,7 @@ func TestAdapter_walDataToLogEntry(t *testing.T) {
 				a.unmarshaler = tc.unmarshaler
 			}
 
-			logEntry, err := a.walDataToLogEntry(tc.data)
+			logEntry, _, err := a.walDataToLogEntry(tc.data)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantLogEntry, logEntry)
 		})
@@ -109,33 +227,6 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 	t.Parallel()
 
 	testSchema := "test_schema"
-	testWalData := func(action string) *wal.Data {
-		data := &wal.Data{
-			Action: action,
-			Schema: testSchema,
-			Table:  "test_table",
-			Metadata: wal.Metadata{
-				TablePgstreamID:    "table-1",
-				InternalColID:      "col-1",
-				InternalColVersion: "col-2",
-			},
-		}
-
-		cols := []wal.Column{
-			{ID: "col-1", Name: "id", Type: "text", Value: "id-1"},
-			{ID: "col-2", Name: "version", Type: "integer", Value: int64(0)},
-			{ID: "col-3", Name: "name", Type: "text", Value: "a"},
-		}
-
-		switch action {
-		case "D":
-			data.Identity = cols
-		default:
-			data.Columns = cols
-		}
-
-		return data
-	}
 
 	errTest := errors.New("oh noes")
 
@@ -154,24 +245,16 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 		{
 			name:   "ok - insert event",
 			mapper: noopMapper,
-			data:   testWalData("I"),
+			data:   newTestDataEvent("I"),
 
-			wantDoc: &Document{
-				ID:      "table-1_id-1",
-				Version: 0,
-				Schema:  testSchema,
-				Data: map[string]any{
-					"col-3":  "a",
-					"_table": "table-1",
-				},
-			},
+			wantDoc: newTestDocument(),
 			wantErr: nil,
 		},
 		{
 			name:   "ok - insert event with identity columns",
 			mapper: noopMapper,
 			data: func() *wal.Data {
-				d := testWalData("I")
+				d := newTestDataEvent("I")
 				d.Identity = []wal.Column{
 					{ID: "col-1", Name: "id", Type: "text", Value: "id-1"},
 					{ID: "col-2", Name: "version", Type: "integer", Value: int64(0)},
@@ -180,13 +263,13 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 				return d
 			}(),
 			wantDoc: &Document{
-				ID:      "table-1_id-1",
+				ID:      fmt.Sprintf("%s_id-1", testTableID),
 				Version: 0,
 				Schema:  testSchema,
 				Data: map[string]any{
 					"col-3":  "a",
 					"col-4":  "very-long-value",
-					"_table": "table-1",
+					"_table": testTableID,
 				},
 			},
 			wantErr: nil,
@@ -194,7 +277,7 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 		{
 			name: "ok - insert event with identity columns and invalid type",
 			data: func() *wal.Data {
-				d := testWalData("I")
+				d := newTestDataEvent("I")
 				d.Identity = []wal.Column{
 					{ID: "col-4", Name: "toast", Type: "text", Value: "very-long-value"},
 				}
@@ -210,12 +293,12 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 			},
 
 			wantDoc: &Document{
-				ID:      "table-1_id-1",
+				ID:      fmt.Sprintf("%s_id-1", testTableID),
 				Version: 0,
 				Schema:  testSchema,
 				Data: map[string]any{
 					"col-3":  "a",
-					"_table": "table-1",
+					"_table": testTableID,
 				},
 			},
 			wantErr: nil,
@@ -223,15 +306,15 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 		{
 			name:   "ok - delete event",
 			mapper: noopMapper,
-			data:   testWalData("D"),
+			data:   newTestDataEvent("D"),
 
 			wantDoc: &Document{
-				ID:      "table-1_id-1",
+				ID:      fmt.Sprintf("%s_id-1", testTableID),
 				Version: 1,
 				Schema:  testSchema,
 				Data: map[string]any{
 					"col-3":  "a",
-					"_table": "table-1",
+					"_table": testTableID,
 				},
 				Delete: true,
 			},
@@ -249,7 +332,7 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 					{ID: "col-3", Name: "name", Type: "text", Value: "a"},
 				},
 				Metadata: wal.Metadata{
-					TablePgstreamID:    "table-1",
+					TablePgstreamID:    testTableID,
 					InternalColID:      "col-1",
 					InternalColVersion: "col-2",
 				},
@@ -270,7 +353,7 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 					{ID: "col-3", Name: "name", Type: "text", Value: "a"},
 				},
 				Metadata: wal.Metadata{
-					TablePgstreamID:    "table-1",
+					TablePgstreamID:    testTableID,
 					InternalColID:      "col-1",
 					InternalColVersion: "col-2",
 				},
@@ -282,7 +365,7 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 		{
 			name: "error - insert event with identity columns",
 			data: func() *wal.Data {
-				d := testWalData("I")
+				d := newTestDataEvent("I")
 				d.Identity = []wal.Column{
 					{ID: "col-4", Name: "toast", Type: "text", Value: "very-long-value"},
 				}
@@ -324,7 +407,7 @@ func TestAdapter_parseColumns(t *testing.T) {
 		{ID: "col-3", Name: "name", Type: "text", Value: "a"},
 	}
 	testMetadata := wal.Metadata{
-		TablePgstreamID:    "table-1",
+		TablePgstreamID:    testTableID,
 		InternalColID:      "col-1",
 		InternalColVersion: "col-2",
 	}
@@ -351,11 +434,11 @@ func TestAdapter_parseColumns(t *testing.T) {
 			mapper:   noopMapper,
 
 			wantDoc: &Document{
-				ID:      "table-1_id-1",
+				ID:      fmt.Sprintf("%s_id-1", testTableID),
 				Version: 0,
 				Data: map[string]any{
 					"col-3":  "a",
-					"_table": "table-1",
+					"_table": testTableID,
 				},
 			},
 			wantErr: nil,
@@ -374,10 +457,10 @@ func TestAdapter_parseColumns(t *testing.T) {
 			},
 
 			wantDoc: &Document{
-				ID:      "table-1_id-1",
+				ID:      fmt.Sprintf("%s_id-1", testTableID),
 				Version: 0,
 				Data: map[string]any{
-					"_table": "table-1",
+					"_table": testTableID,
 				},
 			},
 			wantErr: nil,

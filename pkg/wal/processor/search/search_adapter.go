@@ -14,8 +14,7 @@ import (
 )
 
 type walAdapter interface { //nolint:unused
-	walDataToDocument(*wal.Data) (*Document, error)
-	walDataToLogEntry(*wal.Data) (*schemalog.LogEntry, error)
+	walDataToQueueItem(*wal.Data) (*queueItem, error)
 }
 
 type adapter struct {
@@ -37,9 +36,63 @@ func newAdapter(m Mapper) *adapter {
 	}
 }
 
-func (a *adapter) walDataToLogEntry(d *wal.Data) (*schemalog.LogEntry, error) {
+func (a *adapter) walDataToQueueItem(d *wal.Data) (*queueItem, error) {
+	if processor.IsSchemaLogEvent(d) {
+		// we only care about inserts - updates can happen when the schema log
+		// is acked
+		if d.Action != "I" {
+			return nil, nil
+		}
+
+		logEntry, size, err := a.walDataToLogEntry(d)
+		if err != nil {
+			return nil, err
+		}
+
+		return &queueItem{
+			schemaChange: logEntry,
+			bytesSize:    size,
+		}, nil
+	}
+
+	if d.Metadata.IsEmpty() {
+		return nil, errMetadataMissing
+	}
+
+	switch d.Action {
+	case "I", "U", "D":
+		doc, err := a.walDataToDocument(d)
+		if err != nil {
+			return nil, err
+		}
+		size, err := a.documentSize(doc)
+		if err != nil {
+			return nil, fmt.Errorf("calculating document size: %w", err)
+		}
+
+		return &queueItem{
+			write:     doc,
+			bytesSize: size,
+		}, nil
+
+	case "T":
+		truncateItem := &truncateItem{
+			schemaName: d.Schema,
+			tableID:    d.Metadata.TablePgstreamID,
+		}
+		return &queueItem{
+			truncate:  truncateItem,
+			bytesSize: len(truncateItem.schemaName) + len(truncateItem.tableID),
+		}, nil
+
+	default:
+		return nil, nil
+	}
+}
+
+func (a *adapter) walDataToLogEntry(d *wal.Data) (*schemalog.LogEntry, int, error) {
 	if !processor.IsSchemaLogEvent(d) {
-		return nil, errInvalidData
+		return nil, 0, errInvalidData
 	}
 
 	intermediateRec := make(map[string]any, len(d.Columns))
@@ -49,15 +102,15 @@ func (a *adapter) walDataToLogEntry(d *wal.Data) (*schemalog.LogEntry, error) {
 
 	intermediateRecBytes, err := a.marshaler(intermediateRec)
 	if err != nil {
-		return nil, fmt.Errorf("parsing wal event into schema log entry, intermediate record is not valid JSON: %w", err)
+		return nil, 0, fmt.Errorf("parsing wal event into schema log entry, intermediate record is not valid JSON: %w", err)
 	}
 
 	var le schemalog.LogEntry
 	if err := a.unmarshaler(intermediateRecBytes, &le); err != nil {
-		return nil, fmt.Errorf("parsing wal event into schema, intermediate record is not valid JSON: %w", err)
+		return nil, 0, fmt.Errorf("parsing wal event into schema, intermediate record is not valid JSON: %w", err)
 	}
 
-	return &le, nil
+	return &le, len(intermediateRecBytes), nil
 }
 
 func (a *adapter) walDataToDocument(data *wal.Data) (*Document, error) {
@@ -187,6 +240,14 @@ func (a *adapter) parseVersionColumn(version any) (int, error) {
 	default:
 		return 0, fmt.Errorf("%T: %w", v, errUnsupportedType)
 	}
+}
+
+func (a *adapter) documentSize(doc *Document) (int, error) {
+	bytes, err := a.marshaler(doc.Data)
+	if err != nil {
+		return 0, err
+	}
+	return len(bytes), nil
 }
 
 // roundFloat64 converts a float64 to int by rounding.
