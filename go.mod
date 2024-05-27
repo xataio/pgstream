@@ -6,6 +6,7 @@ require (
 	github.com/cenkalti/backoff/v4 v4.1.2
 	github.com/elastic/go-elasticsearch/v8 v8.13.1
 	github.com/golang-migrate/migrate/v4 v4.17.1
+	github.com/google/go-cmp v0.6.0
 	github.com/jackc/pglogrepl v0.0.0-20240307033717-828fbfe908e9
 	github.com/jackc/pgx/v5 v5.5.5
 	github.com/mitchellh/mapstructure v1.5.0

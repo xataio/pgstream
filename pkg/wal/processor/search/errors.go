@@ -54,4 +54,5 @@ var (
 	errNilIDValue      = errors.New("id has nil value")
 	errNilVersionValue = errors.New("version has nil value")
 	errMetadataMissing = errors.New("missing wal event metadata")
+	errEmptyQueueItem  = errors.New("invalid empty queue item")
 )

@@ -37,18 +37,6 @@ type DocumentError struct {
 	Error    string
 }
 
-type queueItem struct {
-	write        *Document
-	truncate     *truncateItem
-	schemaChange *schemalog.LogEntry
-	bytesSize    int
-}
-
-type truncateItem struct {
-	schemaName string
-	tableID    string
-}
-
 type Severity uint
 
 const (
