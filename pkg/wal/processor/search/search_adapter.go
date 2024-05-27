@@ -194,10 +194,10 @@ func (a *adapter) parseColumns(columns []wal.Column, metadata wal.Metadata) (*Do
 	}
 
 	if !recIDFound {
-		return nil, errIDNotFound
+		return nil, processor.ErrIDNotFound
 	}
 	if !versionFound {
-		return nil, errVersionNotFound
+		return nil, processor.ErrVersionNotFound
 	}
 
 	doc.Data["_table"] = metadata.TablePgstreamID
