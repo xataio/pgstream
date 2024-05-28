@@ -28,8 +28,10 @@ const (
 )
 
 func NewReader(config ReaderConfig) (*Reader, error) {
-	logger := log.With().Strs("kafka_servers", config.Conn.Servers).Bool("tls_enabled", config.Conn.TLS.Enabled).Logger() //nolint:forbidigo
-	logger.Info().Msg("creating kafka reader")
+	log.Info().
+		Strs("kafka_servers", config.Conn.Servers).
+		Bool("tls_enabled", config.Conn.TLS.Enabled).
+		Msg("creating kafka reader")
 
 	var startOffset int64
 	switch config.ConsumerGroupStartOffset {

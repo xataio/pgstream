@@ -8,9 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/xataio/pgstream/internal/backoff"
-
 	"github.com/rs/zerolog/log"
+	"github.com/xataio/pgstream/internal/backoff"
 )
 
 type cleaner interface {
@@ -71,13 +70,13 @@ func (sc *schemaCleaner) start(ctx context.Context) {
 					return getRetryError(sc.store.DeleteSchema(ctx, schema))
 				},
 				func(err error, duration time.Duration) {
-					log.Ctx(ctx).Warn().Err(err).
+					log.Warn().Err(err).
 						Dur("backoff", duration).
 						Str("schema", schema).
 						Msg("search schema cleaner: delete schema retry failed")
 				})
 			if err != nil {
-				log.Ctx(ctx).Error().Err(err).
+				log.Error().Err(err).
 					Str("schema", schema).
 					Msg("search schema cleaner: delete schema")
 			}

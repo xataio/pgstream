@@ -115,7 +115,7 @@ func (l *Listener) listen(ctx context.Context) error {
 					return err
 				}
 			default:
-				log.Ctx(ctx).Trace().
+				log.Trace().
 					Str("wal_end", l.replicationHandler.GetLSNParser().ToString(msgData.LSN)).
 					Time("server_time", msgData.ServerTime).
 					Bytes("wal_data", msgData.Data).

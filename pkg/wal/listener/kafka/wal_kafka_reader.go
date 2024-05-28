@@ -68,7 +68,7 @@ func (r *Reader) Listen(ctx context.Context) error {
 				return fmt.Errorf("reading from kafka: %w", err)
 			}
 
-			log.Ctx(ctx).Trace().
+			log.Trace().
 				Str("topic", msg.Topic).
 				Int("partition", msg.Partition).
 				Int64("offset", msg.Offset).
@@ -81,7 +81,7 @@ func (r *Reader) Listen(ctx context.Context) error {
 					return fmt.Errorf("canceled: %w", err)
 				}
 
-				logEvent := log.Ctx(ctx).Error().
+				logEvent := log.Error().
 					Str("severity", "DATALOSS").
 					Err(err)
 				loglib.AddBytesToLog(logEvent, "wal_data", msg.Value).Msg("processing kafka msg")
@@ -113,7 +113,7 @@ func (r *Reader) checkpoint(ctx context.Context, positions []wal.CommitPosition)
 	}
 
 	for _, msg := range msgs {
-		log.Ctx(ctx).Trace().
+		log.Trace().
 			Str("topic", msg.Topic).
 			Int("partition", msg.Partition).
 			Int64("offset", msg.Offset).
@@ -130,6 +130,6 @@ func (r *Reader) commitMessagesWithRetry(ctx context.Context, msgs []*kafka.Mess
 			return r.reader.CommitMessages(ctx, msgs...)
 		},
 		func(err error, d time.Duration) {
-			log.Ctx(ctx).Warn().Err(err).Msgf("failed to commit messages. Retrying in %v", d)
+			log.Warn().Err(err).Msgf("failed to commit messages. Retrying in %v", d)
 		})
 }

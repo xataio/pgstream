@@ -34,8 +34,10 @@ type WriterConfig struct {
 //
 // If the topic auto create setting is enabled in the config, it will create it.
 func NewWriter(config WriterConfig) (*Writer, error) {
-	logger := log.With().Strs("kafka_servers", config.Conn.Servers).Bool("tls_enabled", config.Conn.TLS.Enabled).Logger() //nolint:forbidigo
-	logger.Info().Msg("creating kafka writer")
+	log.Info().
+		Strs("kafka_servers", config.Conn.Servers).
+		Bool("tls_enabled", config.Conn.TLS.Enabled).
+		Msg("creating kafka writer")
 
 	if config.Conn.Topic.AutoCreate {
 		if err := createTopic(&config.Conn); err != nil {

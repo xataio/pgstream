@@ -10,12 +10,11 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/xataio/pgstream/internal/es"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
-
-	"github.com/rs/zerolog/log"
 )
 
 type Store struct {
@@ -177,7 +176,7 @@ func (s *Store) getLastSchemaLogEntry(ctx context.Context, schemaName string) (*
 	})
 	if err != nil {
 		if errors.Is(err, es.ErrResourceNotFound) {
-			log.Ctx(ctx).Warn().Msgf("[%s]: index not found: %v. Trying to create it", schemalogIndexName, err)
+			log.Warn().Msgf("[%s]: index not found: %v. Trying to create it", schemalogIndexName, err)
 			// Create the pgstream index if it was not found.
 			err = s.createSchemaLogIndex(ctx, schemalogIndexName)
 			if err != nil {
@@ -331,7 +330,7 @@ func (s *Store) updateMappingAddNewColumns(ctx context.Context, indexName IndexN
 		mapping, err := s.mapper.ColumnToSearchMapping(c)
 		if err != nil {
 			if errors.As(err, &search.ErrTypeInvalid{}) {
-				log.Ctx(ctx).Warn().Dict("column", zerolog.Dict().Str("type", c.DataType).Str("id", c.PgstreamID)).
+				log.Warn().Dict("column", zerolog.Dict().Str("type", c.DataType).Str("id", c.PgstreamID)).
 					Str("schema", indexName.SchemaName()).
 					Msgf("unknown column type: %v", err)
 			} else {

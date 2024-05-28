@@ -84,7 +84,7 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, data *wal.Data) error 
 		}
 
 		if err := t.schemaLogStore.Ack(ctx, logEntry); err != nil {
-			log.Ctx(ctx).Error().Err(err).Msgf("ack schema log")
+			log.Error().Err(err).Msgf("ack schema log")
 		}
 	default:
 		// by default, we translate columns and pass on the event. If we fail to
@@ -95,13 +95,13 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, data *wal.Data) error 
 			// since we don't expect to replicate tables that do not have these
 			// fields (opensearch requires them)
 			if errors.Is(err, processor.ErrIDNotFound) || errors.Is(err, processor.ErrVersionNotFound) {
-				log.Ctx(ctx).Debug().
+				log.Debug().
 					Str("schema", data.Schema).
 					Str("table", data.Table).
 					Msgf("ignoring event: %v", err)
 				return nil
 			} else {
-				log.Ctx(ctx).Error().
+				log.Error().
 					Str("severity", "DATALOSS").
 					Str("error", err.Error()).
 					Str("schema", data.Schema).
