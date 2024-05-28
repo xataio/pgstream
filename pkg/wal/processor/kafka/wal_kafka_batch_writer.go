@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/xataio/pgstream/internal/kafka"
-	"github.com/xataio/pgstream/internal/replication"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -46,13 +45,7 @@ type kafkaWriter interface {
 
 // checkpoint defines the way to confirm the positions that have been read.
 // The actual implementation depends on the source of events (postgres, kafka,...)
-type checkpoint func(ctx context.Context, positions []commitPosition) error
-
-// commitPosition represents a position in the input stream, which can be either
-// postgres or kafka
-type commitPosition struct {
-	pgPos replication.LSN
-}
+type checkpoint func(ctx context.Context, positions []wal.CommitPosition) error
 
 const defaultMaxQueueBytes = 100 * 1024 * 1024 // 100MiB
 
@@ -96,7 +89,7 @@ func NewBatchWriter(config kafka.WriterConfig) (*BatchWriter, error) {
 }
 
 // ProcessWalEvent is called on every new message from the wal
-func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Data, pos commitPosition) (retErr error) {
+func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Data, pos wal.CommitPosition) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.WithLevel(zerolog.PanicLevel).
@@ -129,7 +122,7 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Data, p
 			Key:   w.getMessageKey(walEvent),
 			Value: walEventBytes,
 		},
-		pos: pos.pgPos,
+		pos: pos.PGPos,
 	}
 
 	// make sure we don't reach the queue memory limit before adding the new
@@ -227,7 +220,7 @@ func (w *BatchWriter) sendBatch(ctx context.Context, batch *msgBatch) error {
 	}
 
 	if w.checkpointer != nil {
-		if err := w.checkpointer(ctx, []commitPosition{{pgPos: batch.lastPos}}); err != nil {
+		if err := w.checkpointer(ctx, []wal.CommitPosition{{PGPos: batch.lastPos}}); err != nil {
 			log.Warn().Err(err).Msg("kafka batch writer: error updating commit position")
 		}
 	}
