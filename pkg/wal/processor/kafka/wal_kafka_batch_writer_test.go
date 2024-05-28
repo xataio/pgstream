@@ -49,7 +49,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 	tests := []struct {
 		name            string
 		walEvent        *wal.Data
-		pos             commitPosition
+		pos             wal.CommitPosition
 		eventSerialiser func(any) ([]byte, error)
 		semaphore       synclib.WeightedSemaphore
 
@@ -59,7 +59,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 		{
 			name:     "ok",
 			walEvent: testWalEvent,
-			pos:      commitPosition{pgPos: testLSN},
+			pos:      wal.CommitPosition{PGPos: testLSN},
 
 			wantMsgs: []*msg{
 				{
@@ -83,7 +83,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 					{Name: "schema_name", Value: testSchema},
 				},
 			},
-			pos: commitPosition{pgPos: testLSN},
+			pos: wal.CommitPosition{PGPos: testLSN},
 
 			wantMsgs: []*msg{
 				{
@@ -99,7 +99,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 		{
 			name:            "ok - wal event too large, message dropped",
 			walEvent:        testWalEvent,
-			pos:             commitPosition{pgPos: testLSN},
+			pos:             wal.CommitPosition{PGPos: testLSN},
 			eventSerialiser: func(any) ([]byte, error) { return []byte(strings.Repeat("a", 101)), nil },
 
 			wantMsgs: []*msg{},
@@ -108,7 +108,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 		{
 			name:            "error - marshaling event",
 			walEvent:        testWalEvent,
-			pos:             commitPosition{pgPos: testLSN},
+			pos:             wal.CommitPosition{PGPos: testLSN},
 			eventSerialiser: func(any) ([]byte, error) { return nil, errTest },
 
 			wantMsgs: []*msg{},
@@ -125,7 +125,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 					{Name: "schema_name", Value: 1},
 				},
 			},
-			pos: commitPosition{pgPos: testLSN},
+			pos: wal.CommitPosition{PGPos: testLSN},
 
 			wantMsgs: []*msg{},
 			wantErr:  errors.New("kafka batch writer: understanding event: schema_log schema_name received is not a string: int"),
@@ -138,7 +138,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 				Schema: schemalog.SchemaName,
 				Table:  schemalog.TableName,
 			},
-			pos: commitPosition{pgPos: testLSN},
+			pos: wal.CommitPosition{PGPos: testLSN},
 
 			wantMsgs: []*msg{},
 			wantErr:  errors.New("kafka batch writer: understanding event: schema_log schema_name not found in columns"),
@@ -146,7 +146,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 		{
 			name:     "error - acquiring semaphore",
 			walEvent: testWalEvent,
-			pos:      commitPosition{pgPos: testLSN},
+			pos:      wal.CommitPosition{PGPos: testLSN},
 			semaphore: &syncmocks.WeightedSemaphore{
 				TryAcquireFn: func(int64) bool { return false },
 				AcquireFn:    func(_ context.Context, i int64) error { return errTest },
@@ -415,9 +415,9 @@ func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 					return nil
 				},
 			},
-			checkpoint: func(_ context.Context, commitPos []commitPosition) error {
+			checkpoint: func(_ context.Context, commitPos []wal.CommitPosition) error {
 				require.Equal(t, 1, len(commitPos))
-				require.Equal(t, testLSN, commitPos[0].pgPos)
+				require.Equal(t, testLSN, commitPos[0].PGPos)
 				return nil
 			},
 			batch: testBatch,
@@ -431,7 +431,7 @@ func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 					return errors.New("WriteMessagesFn: should not be called")
 				},
 			},
-			checkpoint: func(_ context.Context, commitPos []commitPosition) error {
+			checkpoint: func(_ context.Context, commitPos []wal.CommitPosition) error {
 				return errors.New("checkpoint: should not be called")
 			},
 			batch: &msgBatch{
@@ -450,7 +450,7 @@ func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 					return nil
 				},
 			},
-			checkpoint: func(_ context.Context, commitPos []commitPosition) error {
+			checkpoint: func(_ context.Context, commitPos []wal.CommitPosition) error {
 				return errTest
 			},
 			batch: testBatch,
@@ -464,7 +464,7 @@ func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 					return errTest
 				},
 			},
-			checkpoint: func(_ context.Context, commitPos []commitPosition) error {
+			checkpoint: func(_ context.Context, commitPos []wal.CommitPosition) error {
 				return errors.New("checkpoint: should not be called")
 			},
 			batch: testBatch,

@@ -10,12 +10,11 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/xataio/pgstream/internal/es"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
-
-	"github.com/rs/zerolog/log"
 )
 
 type Store struct {
@@ -23,6 +22,10 @@ type Store struct {
 	mapper    search.Mapper
 	adapter   Adapter
 	marshaler func(any) ([]byte, error)
+}
+
+type Config struct {
+	URL string
 }
 
 const (
@@ -34,8 +37,8 @@ const (
 	schemalogIndexName = "pgstream"
 )
 
-func NewStore(url string) (*Store, error) {
-	os, err := es.NewClient(url)
+func NewStore(cfg Config) (*Store, error) {
+	os, err := es.NewClient(cfg.URL)
 	if err != nil {
 		return nil, fmt.Errorf("create elasticsearch client: %w", err)
 	}
@@ -177,7 +180,7 @@ func (s *Store) getLastSchemaLogEntry(ctx context.Context, schemaName string) (*
 	})
 	if err != nil {
 		if errors.Is(err, es.ErrResourceNotFound) {
-			log.Ctx(ctx).Warn().Msgf("[%s]: index not found: %v. Trying to create it", schemalogIndexName, err)
+			log.Warn().Msgf("[%s]: index not found: %v. Trying to create it", schemalogIndexName, err)
 			// Create the pgstream index if it was not found.
 			err = s.createSchemaLogIndex(ctx, schemalogIndexName)
 			if err != nil {
@@ -331,7 +334,7 @@ func (s *Store) updateMappingAddNewColumns(ctx context.Context, indexName IndexN
 		mapping, err := s.mapper.ColumnToSearchMapping(c)
 		if err != nil {
 			if errors.As(err, &search.ErrTypeInvalid{}) {
-				log.Ctx(ctx).Warn().Dict("column", zerolog.Dict().Str("type", c.DataType).Str("id", c.PgstreamID)).
+				log.Warn().Dict("column", zerolog.Dict().Str("type", c.DataType).Str("id", c.PgstreamID)).
 					Str("schema", indexName.SchemaName()).
 					Msgf("unknown column type: %v", err)
 			} else {

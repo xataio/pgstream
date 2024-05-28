@@ -36,8 +36,8 @@ type Listener struct {
 // listenerProcessWalEvent is the function type callback to process WAL events.
 type listenerProcessWalEvent func(context.Context, *wal.Data, wal.CommitPosition) error
 
-type ListenerConfig struct {
-	Postgres        pgx.ConnConfig
+type Config struct {
+	Conn            pgx.ConnConfig
 	SyncLSNInterval time.Duration
 }
 
@@ -45,10 +45,10 @@ const defaultLSNSyncInterval = time.Second * 5
 
 func NewListener(
 	ctx context.Context,
-	cfg *ListenerConfig,
+	cfg *Config,
 	processEvent listenerProcessWalEvent,
 ) (*Listener, error) {
-	replicationHandler, err := pgreplication.NewHandler(ctx, &cfg.Postgres)
+	replicationHandler, err := pgreplication.NewHandler(ctx, &cfg.Conn)
 	if err != nil {
 		return nil, fmt.Errorf("pg listener: create replication handler: %w", err)
 	}
@@ -75,6 +75,25 @@ func (l *Listener) Listen(ctx context.Context) error {
 	}
 
 	return l.listen(ctx)
+}
+
+// checkpoint is called by the wal processor. When new records have been pushed
+// to postgres or kafka, we update our internal position.
+func (l *Listener) Checkpoint(ctx context.Context, positions []wal.CommitPosition) error {
+	// we only need the max pg wal offset
+	if len(positions) == 0 {
+		return nil
+	}
+
+	max := positions[0].PGPos
+	for _, position := range positions {
+		if position.PGPos > max {
+			max = position.PGPos
+		}
+	}
+
+	l.replicationHandler.UpdateLSNPosition(replication.LSN(max))
+	return nil
 }
 
 // Close closes the listener internal resources
@@ -115,7 +134,7 @@ func (l *Listener) listen(ctx context.Context) error {
 					return err
 				}
 			default:
-				log.Ctx(ctx).Trace().
+				log.Trace().
 					Str("wal_end", l.replicationHandler.GetLSNParser().ToString(msgData.LSN)).
 					Time("server_time", msgData.ServerTime).
 					Bytes("wal_data", msgData.Data).

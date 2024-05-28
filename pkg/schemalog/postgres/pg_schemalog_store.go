@@ -56,7 +56,7 @@ func (s *Store) Fetch(ctx context.Context, schemaName string, ackedOnly bool) (*
 
 	l := &schemalog.LogEntry{}
 	if err := s.querier.QueryRow(ctx, sql, schemaName).Scan(&l.ID, &l.Version, &l.SchemaName, &l.Schema, &l.CreatedAt, &l.Acked); err != nil {
-		log.Ctx(ctx).Warn().Err(err).Msgf("error fetching schema log for schema %s", schemaName)
+		log.Warn().Err(err).Msgf("error fetching schema log for schema %s", schemaName)
 		return nil, mapError(err)
 	}
 

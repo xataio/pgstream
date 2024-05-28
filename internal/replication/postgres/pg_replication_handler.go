@@ -65,9 +65,9 @@ func (h *Handler) StartReplication(ctx context.Context) error {
 		return fmt.Errorf("identifySystem failed: %w", err)
 	}
 
-	h.pgReplicationSlotName = fmt.Sprintf("%s_slot", sysID.DBName)
+	h.pgReplicationSlotName = fmt.Sprintf("pgstream_%s_slot", sysID.DBName)
 
-	logger := log.Ctx(ctx).With().
+	logger := log.With().
 		Str(logSystemID, sysID.SystemID).
 		Str(logDBName, sysID.DBName).
 		Str(logSlotName, h.pgReplicationSlotName).
@@ -174,7 +174,7 @@ func (h *Handler) SyncLSN(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("syncLSN: send status update: %w", err)
 	}
-	log.Ctx(ctx).Trace().Stringer(logLSNPosition, pglogrepl.LSN(lsn)).Msg("stored new LSN position")
+	log.Trace().Stringer(logLSNPosition, pglogrepl.LSN(lsn)).Msg("stored new LSN position")
 	return nil
 }
 

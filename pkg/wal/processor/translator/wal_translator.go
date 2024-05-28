@@ -30,7 +30,7 @@ type Translator struct {
 type walToLogEntryAdapter func(*wal.Data) (*schemalog.LogEntry, error)
 
 type Config struct {
-	Postgres schemalogpg.Config
+	Store schemalogpg.Config
 }
 
 // configurable filters that allow the user of this library to have flexibility
@@ -40,13 +40,13 @@ type (
 	columnFinder func(*schemalog.Column) bool
 )
 
-// NewTranslator will return a translator processor wrapper that will inject
+// New will return a translator processor wrapper that will inject
 // pgstream metadata into the wal data events before passing them over the
 // processor on input.
-func NewTranslator(cfg Config, p processor.Processor, skipSchema schemaFilter, idFinder, versionFinder columnFinder) (*Translator, error) {
+func New(cfg *Config, p processor.Processor, skipSchema schemaFilter, idFinder, versionFinder columnFinder) (*Translator, error) {
 	var schemaLogStore schemalog.Store
 	var err error
-	schemaLogStore, err = schemalogpg.NewStore(context.Background(), cfg.Postgres)
+	schemaLogStore, err = schemalogpg.NewStore(context.Background(), cfg.Store)
 	if err != nil {
 		return nil, fmt.Errorf("create schema log postgres store: %w", err)
 	}
@@ -62,7 +62,7 @@ func NewTranslator(cfg Config, p processor.Processor, skipSchema schemaFilter, i
 	}, nil
 }
 
-func (t *Translator) ProcessWALEvent(ctx context.Context, data *wal.Data) error {
+func (t *Translator) ProcessWALEvent(ctx context.Context, data *wal.Data, pos wal.CommitPosition) error {
 	if t.skipSchema(data.Schema) {
 		return nil
 	}
@@ -84,7 +84,7 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, data *wal.Data) error 
 		}
 
 		if err := t.schemaLogStore.Ack(ctx, logEntry); err != nil {
-			log.Ctx(ctx).Error().Err(err).Msgf("ack schema log")
+			log.Error().Err(err).Msgf("ack schema log")
 		}
 	default:
 		// by default, we translate columns and pass on the event. If we fail to
@@ -95,13 +95,13 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, data *wal.Data) error 
 			// since we don't expect to replicate tables that do not have these
 			// fields (opensearch requires them)
 			if errors.Is(err, processor.ErrIDNotFound) || errors.Is(err, processor.ErrVersionNotFound) {
-				log.Ctx(ctx).Debug().
+				log.Debug().
 					Str("schema", data.Schema).
 					Str("table", data.Table).
 					Msgf("ignoring event: %v", err)
 				return nil
 			} else {
-				log.Ctx(ctx).Error().
+				log.Error().
 					Str("severity", "DATALOSS").
 					Str("error", err.Error()).
 					Str("schema", data.Schema).
@@ -110,11 +110,11 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, data *wal.Data) error 
 		}
 	}
 
-	return t.processor.ProcessWALEvent(ctx, data)
+	return t.processor.ProcessWALEvent(ctx, data, pos)
 }
 
 func (t *Translator) Close() error {
-	return t.processor.Close()
+	return t.schemaLogStore.Close()
 }
 
 func (t *Translator) translate(ctx context.Context, data *wal.Data) error {

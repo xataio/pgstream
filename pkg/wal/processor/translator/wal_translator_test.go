@@ -71,7 +71,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 				},
 			},
 			processor: &mocks.Processor{
-				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data) error {
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data, pos wal.CommitPosition) error {
 					require.Equal(t, newTestSchemaChangeEvent("I"), walEvent)
 					return nil
 				},
@@ -88,7 +88,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 				},
 			},
 			processor: &mocks.Processor{
-				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data) error {
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data, pos wal.CommitPosition) error {
 					require.Equal(t, newTestSchemaChangeEvent("I"), walEvent)
 					return nil
 				},
@@ -106,7 +106,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 				},
 			},
 			processor: &mocks.Processor{
-				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data) error {
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data, pos wal.CommitPosition) error {
 					require.Equal(t, newTestDataEventWithMetadata("I"), walEvent)
 					return nil
 				},
@@ -123,7 +123,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 				},
 			},
 			processor: &mocks.Processor{
-				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data) error {
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data, pos wal.CommitPosition) error {
 					require.Equal(t, newTestDataEvent("I"), walEvent)
 					return nil
 				},
@@ -140,7 +140,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 				},
 			},
 			processor: &mocks.Processor{
-				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data) error {
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data, pos wal.CommitPosition) error {
 					wantData := newTestDataEvent("I")
 					wantData.Metadata = wal.Metadata{
 						SchemaID:        testSchemaID,
@@ -170,7 +170,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 				},
 			},
 			processor: &mocks.Processor{
-				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data) error {
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data, pos wal.CommitPosition) error {
 					return errTest
 				},
 			},
@@ -205,7 +205,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 				translator.skipSchema = tc.skipSchema
 			}
 
-			err := translator.ProcessWALEvent(context.Background(), tc.data)
+			err := translator.ProcessWALEvent(context.Background(), tc.data, wal.CommitPosition{})
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}

@@ -89,7 +89,7 @@ func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store) *Ba
 func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, data *wal.Data, pos wal.CommitPosition) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Ctx(ctx).WithLevel(zerolog.PanicLevel).
+			log.WithLevel(zerolog.PanicLevel).
 				Any("wal_data", data).
 				Any("panic", r).
 				Bytes("stack_trace", debug.Stack()).
@@ -102,7 +102,7 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, data *wal.Data, pos 
 	item, err := i.adapter.walDataToQueueItem(data)
 	if err != nil {
 		if errors.Is(err, errNilIDValue) || errors.Is(err, errNilVersionValue) || errors.Is(err, errMetadataMissing) {
-			log.Ctx(ctx).Warn().Msgf("invalid event, skipping message: %v", err)
+			log.Warn().Msgf("invalid event, skipping message: %v", err)
 			return nil
 		}
 		return fmt.Errorf("wal data to queue item: %w", err)
@@ -118,7 +118,7 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, data *wal.Data, pos 
 	// from the channel and their size is released
 	msgSize := int64(msg.size())
 	if !i.queueBytesSema.TryAcquire(msgSize) {
-		log.Ctx(ctx).Warn().Msg("search batch indexer: max queue bytes reached, processing blocked")
+		log.Warn().Msg("search batch indexer: max queue bytes reached, processing blocked")
 		if err := i.queueBytesSema.Acquire(ctx, msgSize); err != nil {
 			return err
 		}
@@ -142,7 +142,7 @@ func (i *BatchIndexer) Send(ctx context.Context) error {
 			err := i.sendBatch(ctx, batch)
 			i.queueBytesSema.Release(int64(batch.totalBytes))
 			if err != nil {
-				log.Ctx(ctx).Error().Err(err).Msg("search batch indexer")
+				log.Error().Err(err).Msg("search batch indexer")
 				sendErrChan <- err
 				return
 			}
@@ -211,7 +211,7 @@ func (i *BatchIndexer) sendBatch(ctx context.Context, batch *msgBatch) error {
 				return err
 			}
 			if err := i.applySchemaChange(ctx, item.schemaChange); err != nil {
-				logDataLoss(ctx, item.schemaChange, err)
+				logDataLoss(item.schemaChange, err)
 				return nil
 			}
 		case item.truncate != nil:
@@ -246,7 +246,7 @@ func (i *BatchIndexer) truncateTable(ctx context.Context, item *truncateItem) er
 func (i *BatchIndexer) applySchemaChange(ctx context.Context, new *schemalog.LogEntry) error {
 	// schema is filtered out, nothing to do
 	if i.skipSchema(new.SchemaName) {
-		log.Ctx(ctx).Info().Msgf("applySchemaChange: skipping schema [%s]", new.SchemaName)
+		log.Info().Msgf("applySchemaChange: skipping schema [%s]", new.SchemaName)
 		return nil
 	}
 
@@ -257,7 +257,7 @@ func (i *BatchIndexer) applySchemaChange(ctx context.Context, new *schemalog.Log
 		return nil
 	}
 
-	log.Ctx(ctx).Info().Dict("logEntry", zerolog.Dict().
+	log.Info().Dict("logEntry", zerolog.Dict().
 		Str("ID", new.ID.String()).
 		Int64("version", new.Version).
 		Str("schema", new.SchemaName).
@@ -270,8 +270,8 @@ func (i *BatchIndexer) applySchemaChange(ctx context.Context, new *schemalog.Log
 	return nil
 }
 
-func logDataLoss(ctx context.Context, logEntry *schemalog.LogEntry, err error) {
-	log.Ctx(ctx).Error().Err(err).
+func logDataLoss(logEntry *schemalog.LogEntry, err error) {
+	log.Error().Err(err).
 		Str("severity", "DATALOSS").
 		Dict("logEntry", zerolog.Dict().
 			Str("ID", logEntry.ID.String()).
