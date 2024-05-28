@@ -24,6 +24,10 @@ type Store struct {
 	marshaler func(any) ([]byte, error)
 }
 
+type Config struct {
+	URL string
+}
+
 const (
 	openSearchDefaultANNEngine      = "nmslib"
 	openSearchDefaultM              = 48
@@ -33,8 +37,8 @@ const (
 	schemalogIndexName = "pgstream"
 )
 
-func NewStore(url string) (*Store, error) {
-	os, err := es.NewClient(url)
+func NewStore(cfg Config) (*Store, error) {
+	os, err := es.NewClient(cfg.URL)
 	if err != nil {
 		return nil, fmt.Errorf("create elasticsearch client: %w", err)
 	}
