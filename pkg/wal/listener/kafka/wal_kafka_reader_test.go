@@ -26,12 +26,27 @@ func TestReader_Listen(t *testing.T) {
 		Value: []byte("test-value"),
 	}
 
+	testWalData := wal.Data{
+		Action: "I",
+		Schema: "test_schema",
+		Table:  "test_table",
+	}
+
 	errTest := errors.New("oh noes")
+
+	testUnmarshaler := func(b []byte, a any) error {
+		require.Equal(t, []byte("test-value"), b)
+		data, ok := a.(*wal.Data)
+		require.True(t, ok)
+		*data = testWalData
+		return nil
+	}
 
 	tests := []struct {
 		name          string
 		reader        func(doneChan chan struct{}) *kafkamocks.Reader
 		processRecord payloadProcessor
+		unmarshaler   func(b []byte, a any) error
 
 		wantErr error
 	}{
@@ -46,8 +61,8 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, b []byte, cp wal.CommitPosition) error {
-				require.Equal(t, "test-value", string(b))
+			processRecord: func(ctx context.Context, d *wal.Data, cp wal.CommitPosition) error {
+				require.Equal(t, &testWalData, d)
 				return nil
 			},
 
@@ -64,7 +79,7 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, b []byte, cp wal.CommitPosition) error {
+			processRecord: func(ctx context.Context, d *wal.Data, cp wal.CommitPosition) error {
 				return fmt.Errorf("processRecord: should not be called")
 			},
 
@@ -81,7 +96,7 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, b []byte, cp wal.CommitPosition) error {
+			processRecord: func(ctx context.Context, d *wal.Data, cp wal.CommitPosition) error {
 				return errTest
 			},
 
@@ -98,11 +113,29 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, b []byte, cp wal.CommitPosition) error {
+			processRecord: func(ctx context.Context, d *wal.Data, cp wal.CommitPosition) error {
 				return context.Canceled
 			},
 
 			wantErr: context.Canceled,
+		},
+		{
+			name: "error - unmarshaling message",
+			reader: func(doneChan chan struct{}) *kafkamocks.Reader {
+				var once sync.Once
+				return &kafkamocks.Reader{
+					FetchMessageFn: func(ctx context.Context) (*kafka.Message, error) {
+						defer once.Do(func() { doneChan <- struct{}{} })
+						return testMessage, nil
+					},
+				}
+			},
+			processRecord: func(ctx context.Context, d *wal.Data, cp wal.CommitPosition) error {
+				return errors.New("processRecord: should not be called")
+			},
+			unmarshaler: func(b []byte, a any) error { return errTest },
+
+			wantErr: errTest,
 		},
 	}
 
@@ -117,6 +150,11 @@ func TestReader_Listen(t *testing.T) {
 			r := &Reader{
 				reader:        tc.reader(doneChan),
 				processRecord: tc.processRecord,
+				unmarshaler:   testUnmarshaler,
+			}
+
+			if tc.unmarshaler != nil {
+				r.unmarshaler = tc.unmarshaler
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -144,7 +182,7 @@ func TestReader_Listen(t *testing.T) {
 	}
 }
 
-func TestReader_checkpoint(t *testing.T) {
+func TestReader_Checkpoint(t *testing.T) {
 	t.Parallel()
 
 	testMsgs := []*kafka.Message{
@@ -223,7 +261,7 @@ func TestReader_checkpoint(t *testing.T) {
 				backoffProvider: tc.backoffProvider,
 			}
 
-			err := r.checkpoint(context.Background(), testPositions)
+			err := r.Checkpoint(context.Background(), testPositions)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}

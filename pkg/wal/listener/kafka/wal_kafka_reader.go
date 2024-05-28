@@ -4,6 +4,7 @@ package kafka
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime/debug"
@@ -19,7 +20,8 @@ import (
 )
 
 type Reader struct {
-	reader kafkaReader
+	reader      kafkaReader
+	unmarshaler func([]byte, any) error
 
 	// processRecord is called for a new record.
 	processRecord payloadProcessor
@@ -38,7 +40,7 @@ type kafkaReader interface {
 	Close() error
 }
 
-type payloadProcessor func(context.Context, []byte, wal.CommitPosition) error
+type payloadProcessor func(context.Context, *wal.Data, wal.CommitPosition) error
 
 func NewReader(config ReaderConfig,
 	processRecord payloadProcessor,
@@ -54,6 +56,7 @@ func NewReader(config ReaderConfig,
 		backoffProvider: func(ctx context.Context) backoff.Backoff {
 			return backoff.NewExponentialBackoff(ctx, &config.CommitBackoff)
 		},
+		unmarshaler: json.Unmarshal,
 	}, nil
 }
 
@@ -76,7 +79,12 @@ func (r *Reader) Listen(ctx context.Context) error {
 				Bytes("wal_data", msg.Value).
 				Msg("received")
 
-			if err = r.processRecord(ctx, msg.Value, wal.CommitPosition{KafkaPos: msg}); err != nil {
+			data := &wal.Data{}
+			if err := r.unmarshaler(msg.Value, data); err != nil {
+				return fmt.Errorf("error unmarshaling message value into wal data: %w", err)
+			}
+
+			if err = r.processRecord(ctx, data, wal.CommitPosition{KafkaPos: msg}); err != nil {
 				if errors.Is(err, context.Canceled) {
 					return fmt.Errorf("canceled: %w", err)
 				}
@@ -102,7 +110,7 @@ func (r *Reader) Close() {
 	}
 }
 
-func (r *Reader) checkpoint(ctx context.Context, positions []wal.CommitPosition) error {
+func (r *Reader) Checkpoint(ctx context.Context, positions []wal.CommitPosition) error {
 	msgs := make([]*kafka.Message, 0, len(positions))
 	for _, pos := range positions {
 		msgs = append(msgs, pos.KafkaPos)
