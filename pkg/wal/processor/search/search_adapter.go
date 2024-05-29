@@ -14,7 +14,7 @@ import (
 )
 
 type walAdapter interface {
-	walDataToQueueItem(*wal.Data) (*queueItem, error)
+	walDataToMsg(*wal.Data) (*msg, error)
 }
 
 type adapter struct {
@@ -33,7 +33,7 @@ func newAdapter(m Mapper) *adapter {
 	}
 }
 
-func (a *adapter) walDataToQueueItem(d *wal.Data) (*queueItem, error) {
+func (a *adapter) walDataToMsg(d *wal.Data) (*msg, error) {
 	if processor.IsSchemaLogEvent(d) {
 		// we only care about inserts - updates can happen when the schema log
 		// is acked
@@ -46,7 +46,7 @@ func (a *adapter) walDataToQueueItem(d *wal.Data) (*queueItem, error) {
 			return nil, err
 		}
 
-		return &queueItem{
+		return &msg{
 			schemaChange: logEntry,
 			bytesSize:    size,
 		}, nil
@@ -67,7 +67,7 @@ func (a *adapter) walDataToQueueItem(d *wal.Data) (*queueItem, error) {
 			return nil, fmt.Errorf("calculating document size: %w", err)
 		}
 
-		return &queueItem{
+		return &msg{
 			write:     doc,
 			bytesSize: size,
 		}, nil
@@ -77,7 +77,7 @@ func (a *adapter) walDataToQueueItem(d *wal.Data) (*queueItem, error) {
 			schemaName: d.Schema,
 			tableID:    d.Metadata.TablePgstreamID,
 		}
-		return &queueItem{
+		return &msg{
 			truncate:  truncateItem,
 			bytesSize: len(truncateItem.schemaName) + len(truncateItem.tableID),
 		}, nil

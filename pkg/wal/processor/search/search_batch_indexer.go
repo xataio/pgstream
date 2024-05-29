@@ -86,7 +86,7 @@ func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store) *Ba
 // ProcessWALEvent is called on every new message from the WAL logical
 // replication The function is responsible for sending the data to the search
 // store and committing the event position.
-func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, data *wal.Data, pos wal.CommitPosition) (err error) {
+func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, data *wal.Data) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.WithLevel(zerolog.PanicLevel).
@@ -99,7 +99,7 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, data *wal.Data, pos 
 		}
 	}()
 
-	item, err := i.adapter.walDataToQueueItem(data)
+	msg, err := i.adapter.walDataToMsg(data)
 	if err != nil {
 		if errors.Is(err, errNilIDValue) || errors.Is(err, errNilVersionValue) || errors.Is(err, errMetadataMissing) {
 			log.Warn().Msgf("invalid event, skipping message: %v", err)
@@ -108,11 +108,10 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, data *wal.Data, pos 
 		return fmt.Errorf("wal data to queue item: %w", err)
 	}
 
-	if item == nil {
+	if msg == nil {
 		return nil
 	}
 
-	msg := newMsg(item, pos)
 	// make sure we don't reach the queue memory limit before adding the new
 	// message to the channel. This will block until messages have been read
 	// from the channel and their size is released
@@ -186,12 +185,12 @@ func (i *BatchIndexer) Close() error {
 }
 
 func (i *BatchIndexer) sendBatch(ctx context.Context, batch *msgBatch) error {
-	if len(batch.items) == 0 {
+	if len(batch.msgs) == 0 {
 		return nil
 	}
 
 	// we'll mostly process writes, so pre-allocate the "max" amount
-	writes := make([]Document, 0, len(batch.items))
+	writes := make([]Document, 0, len(batch.msgs))
 	flushWrites := func() error {
 		if len(writes) > 0 {
 			if _, err := i.store.SendDocuments(ctx, writes); err != nil {
@@ -202,27 +201,27 @@ func (i *BatchIndexer) sendBatch(ctx context.Context, batch *msgBatch) error {
 		return nil
 	}
 
-	for _, item := range batch.items {
+	for _, msg := range batch.msgs {
 		switch {
-		case item.write != nil:
-			writes = append(writes, *item.write)
-		case item.schemaChange != nil:
+		case msg.write != nil:
+			writes = append(writes, *msg.write)
+		case msg.schemaChange != nil:
 			if err := flushWrites(); err != nil {
 				return err
 			}
-			if err := i.applySchemaChange(ctx, item.schemaChange); err != nil {
-				logDataLoss(item.schemaChange, err)
+			if err := i.applySchemaChange(ctx, msg.schemaChange); err != nil {
+				logDataLoss(msg.schemaChange, err)
 				return nil
 			}
-		case item.truncate != nil:
+		case msg.truncate != nil:
 			if err := flushWrites(); err != nil {
 				return err
 			}
-			if err := i.truncateTable(ctx, item.truncate); err != nil {
+			if err := i.truncateTable(ctx, msg.truncate); err != nil {
 				return err
 			}
 		default:
-			return errEmptyQueueItem
+			return errEmptyQueueMsg
 		}
 	}
 

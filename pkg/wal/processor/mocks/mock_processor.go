@@ -9,9 +9,9 @@ import (
 )
 
 type Processor struct {
-	ProcessWALEventFn func(ctx context.Context, walEvent *wal.Data, pos wal.CommitPosition) error
+	ProcessWALEventFn func(ctx context.Context, walEvent *wal.Data) error
 }
 
-func (m *Processor) ProcessWALEvent(ctx context.Context, walEvent *wal.Data, pos wal.CommitPosition) error {
-	return m.ProcessWALEventFn(ctx, walEvent, pos)
+func (m *Processor) ProcessWALEvent(ctx context.Context, walEvent *wal.Data) error {
+	return m.ProcessWALEventFn(ctx, walEvent)
 }

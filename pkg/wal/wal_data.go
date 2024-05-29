@@ -9,14 +9,15 @@ import (
 )
 
 type Data struct {
-	Action    string   `json:"action"`    // "I" -- insert, "U" -- update, "D" -- delete, "T" -- truncate
-	Timestamp string   `json:"timestamp"` // ISO8601, i.e. 2019-12-29 04:58:34.806671
-	LSN       string   `json:"lsn"`
-	Schema    string   `json:"schema"`
-	Table     string   `json:"table"`
-	Columns   []Column `json:"columns"`
-	Identity  []Column `json:"identity"`
-	Metadata  Metadata `json:"metadata"` // pgstream specific metadata
+	Action         string         `json:"action"`    // "I" -- insert, "U" -- update, "D" -- delete, "T" -- truncate
+	Timestamp      string         `json:"timestamp"` // ISO8601, i.e. 2019-12-29 04:58:34.806671
+	LSN            string         `json:"lsn"`
+	Schema         string         `json:"schema"`
+	Table          string         `json:"table"`
+	Columns        []Column       `json:"columns"`
+	Identity       []Column       `json:"identity"`
+	Metadata       Metadata       `json:"metadata"` // pgstream specific metadata
+	CommitPosition CommitPosition `json:"-"`
 }
 
 type Metadata struct {

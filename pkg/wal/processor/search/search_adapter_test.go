@@ -35,14 +35,14 @@ func TestAdapter_walDataToQueueItem(t *testing.T) {
 		marshaler func(any) ([]byte, error)
 		mapper    Mapper
 
-		wantItem *queueItem
-		wantErr  error
+		wantMsg *msg
+		wantErr error
 	}{
 		{
 			name: "ok - schema log event with insert",
 			data: newTestSchemaChangeEvent("I", id, now),
 
-			wantItem: &queueItem{
+			wantMsg: &msg{
 				schemaChange: newTestLogEntry(id, now),
 				bytesSize:    testLogEntrySize,
 			},
@@ -52,15 +52,15 @@ func TestAdapter_walDataToQueueItem(t *testing.T) {
 			name: "ok - schema log event with update",
 			data: newTestSchemaChangeEvent("U", id, now),
 
-			wantItem: nil,
-			wantErr:  nil,
+			wantMsg: nil,
+			wantErr: nil,
 		},
 		{
 			name:      "ok - data event",
 			data:      newTestDataEvent("I"),
 			marshaler: func(a any) ([]byte, error) { return testDocBytes, nil },
 
-			wantItem: &queueItem{
+			wantMsg: &msg{
 				write:     newTestDocument(),
 				bytesSize: len(testDocBytes),
 			},
@@ -70,7 +70,7 @@ func TestAdapter_walDataToQueueItem(t *testing.T) {
 			name: "ok - truncate event",
 			data: newTestDataEvent("T"),
 
-			wantItem: &queueItem{
+			wantMsg: &msg{
 				truncate: &truncateItem{
 					schemaName: testSchemaName,
 					tableID:    testTableID,
@@ -83,16 +83,16 @@ func TestAdapter_walDataToQueueItem(t *testing.T) {
 			name: "ok - skipped action data events",
 			data: newTestDataEvent("B"),
 
-			wantItem: nil,
-			wantErr:  nil,
+			wantMsg: nil,
+			wantErr: nil,
 		},
 		{
 			name:      "error - data event document size",
 			data:      newTestDataEvent("I"),
 			marshaler: func(a any) ([]byte, error) { return nil, errTest },
 
-			wantItem: nil,
-			wantErr:  errTest,
+			wantMsg: nil,
+			wantErr: errTest,
 		},
 		{
 			name:      "error - data event to document",
@@ -102,16 +102,16 @@ func TestAdapter_walDataToQueueItem(t *testing.T) {
 				MapColumnValueFn: func(column schemalog.Column, value any) (any, error) { return nil, errTest },
 			},
 
-			wantItem: nil,
-			wantErr:  errTest,
+			wantMsg: nil,
+			wantErr: errTest,
 		},
 		{
 			name:      "ok - data event to log entry",
 			data:      newTestSchemaChangeEvent("I", id, now),
 			marshaler: func(a any) ([]byte, error) { return nil, errTest },
 
-			wantItem: nil,
-			wantErr:  errTest,
+			wantMsg: nil,
+			wantErr: errTest,
 		},
 		{
 			name: "error - data event empty metadata",
@@ -122,8 +122,8 @@ func TestAdapter_walDataToQueueItem(t *testing.T) {
 			}(),
 			marshaler: func(a any) ([]byte, error) { return testDocBytes, nil },
 
-			wantItem: nil,
-			wantErr:  errMetadataMissing,
+			wantMsg: nil,
+			wantErr: errMetadataMissing,
 		},
 	}
 
@@ -140,9 +140,9 @@ func TestAdapter_walDataToQueueItem(t *testing.T) {
 				a.mapper = tc.mapper
 			}
 
-			item, err := a.walDataToQueueItem(tc.data)
+			item, err := a.walDataToMsg(tc.data)
 			require.ErrorIs(t, err, tc.wantErr)
-			require.Equal(t, tc.wantItem, item)
+			require.Equal(t, tc.wantMsg, item)
 		})
 	}
 }

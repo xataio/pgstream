@@ -22,14 +22,20 @@ func TestReader_Listen(t *testing.T) {
 	t.Parallel()
 
 	testMessage := &kafka.Message{
-		Key:   []byte("test-key"),
-		Value: []byte("test-value"),
+		Topic:     "test-topic",
+		Partition: 0,
+		Offset:    1,
+		Key:       []byte("test-key"),
+		Value:     []byte("test-value"),
 	}
 
 	testWalData := wal.Data{
 		Action: "I",
 		Schema: "test_schema",
 		Table:  "test_table",
+		CommitPosition: wal.CommitPosition{
+			KafkaPos: testMessage,
+		},
 	}
 
 	errTest := errors.New("oh noes")
@@ -61,7 +67,7 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, d *wal.Data, cp wal.CommitPosition) error {
+			processRecord: func(ctx context.Context, d *wal.Data) error {
 				require.Equal(t, &testWalData, d)
 				return nil
 			},
@@ -79,7 +85,7 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, d *wal.Data, cp wal.CommitPosition) error {
+			processRecord: func(ctx context.Context, d *wal.Data) error {
 				return fmt.Errorf("processRecord: should not be called")
 			},
 
@@ -96,7 +102,7 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, d *wal.Data, cp wal.CommitPosition) error {
+			processRecord: func(ctx context.Context, d *wal.Data) error {
 				return errTest
 			},
 
@@ -113,7 +119,7 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, d *wal.Data, cp wal.CommitPosition) error {
+			processRecord: func(ctx context.Context, d *wal.Data) error {
 				return context.Canceled
 			},
 
@@ -130,7 +136,7 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, d *wal.Data, cp wal.CommitPosition) error {
+			processRecord: func(ctx context.Context, d *wal.Data) error {
 				return errors.New("processRecord: should not be called")
 			},
 			unmarshaler: func(b []byte, a any) error { return errTest },

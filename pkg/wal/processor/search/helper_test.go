@@ -15,11 +15,11 @@ import (
 )
 
 type mockAdapter struct {
-	walDataToQueueItemFn func(*wal.Data) (*queueItem, error)
+	walDataToMsgFn func(*wal.Data) (*msg, error)
 }
 
-func (m *mockAdapter) walDataToQueueItem(d *wal.Data) (*queueItem, error) {
-	return m.walDataToQueueItemFn(d)
+func (m *mockAdapter) walDataToMsg(d *wal.Data) (*msg, error) {
+	return m.walDataToMsgFn(d)
 }
 
 type mockStore struct {

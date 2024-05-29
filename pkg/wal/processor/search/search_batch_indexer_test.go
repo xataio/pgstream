@@ -47,10 +47,11 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				},
 			},
 			adapter: &mockAdapter{
-				walDataToQueueItemFn: func(*wal.Data) (*queueItem, error) {
-					return &queueItem{
+				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+					return &msg{
 						schemaChange: testSchemaLogEntry,
 						bytesSize:    testSize,
+						pos:          testCommitPos,
 					}, nil
 				},
 			},
@@ -58,11 +59,9 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 
 			wantMsgs: []*msg{
 				{
-					item: &queueItem{
-						schemaChange: testSchemaLogEntry,
-						bytesSize:    testSize,
-					},
-					pos: testCommitPos,
+					schemaChange: testSchemaLogEntry,
+					bytesSize:    testSize,
+					pos:          testCommitPos,
 				},
 			},
 			wantErr: nil,
@@ -73,7 +72,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				TryAcquireFn: func(i int64) bool { return true },
 			},
 			adapter: &mockAdapter{
-				walDataToQueueItemFn: func(*wal.Data) (*queueItem, error) {
+				walDataToMsgFn: func(*wal.Data) (*msg, error) {
 					return nil, nil
 				},
 			},
@@ -88,7 +87,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				TryAcquireFn: func(i int64) bool { return true },
 			},
 			adapter: &mockAdapter{
-				walDataToQueueItemFn: func(*wal.Data) (*queueItem, error) {
+				walDataToMsgFn: func(*wal.Data) (*msg, error) {
 					return nil, errNilIDValue
 				},
 			},
@@ -104,18 +103,19 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				AcquireFn:    func(ctx context.Context, i int64) error { return nil },
 			},
 			adapter: &mockAdapter{
-				walDataToQueueItemFn: func(*wal.Data) (*queueItem, error) {
-					return &queueItem{schemaChange: testSchemaLogEntry}, nil
+				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+					return &msg{
+						schemaChange: testSchemaLogEntry,
+						pos:          testCommitPos,
+					}, nil
 				},
 			},
 			event: newTestSchemaChangeEvent("I", id, now),
 
 			wantMsgs: []*msg{
 				{
-					item: &queueItem{
-						schemaChange: testSchemaLogEntry,
-					},
-					pos: testCommitPos,
+					schemaChange: testSchemaLogEntry,
+					pos:          testCommitPos,
 				},
 			},
 			wantErr: nil,
@@ -127,8 +127,8 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				AcquireFn:    func(ctx context.Context, i int64) error { return errTest },
 			},
 			adapter: &mockAdapter{
-				walDataToQueueItemFn: func(*wal.Data) (*queueItem, error) {
-					return &queueItem{schemaChange: testSchemaLogEntry}, nil
+				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+					return &msg{schemaChange: testSchemaLogEntry}, nil
 				},
 			},
 			event: newTestSchemaChangeEvent("I", id, now),
@@ -142,7 +142,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				TryAcquireFn: func(i int64) bool { return true },
 			},
 			adapter: &mockAdapter{
-				walDataToQueueItemFn: func(*wal.Data) (*queueItem, error) {
+				walDataToMsgFn: func(*wal.Data) (*msg, error) {
 					return nil, errTest
 				},
 			},
@@ -157,7 +157,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				TryAcquireFn: func(i int64) bool { return true },
 			},
 			adapter: &mockAdapter{
-				walDataToQueueItemFn: func(*wal.Data) (*queueItem, error) {
+				walDataToMsgFn: func(*wal.Data) (*msg, error) {
 					panic(errTest)
 				},
 			},
@@ -184,7 +184,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 
 			go func() {
 				defer close(indexer.msgChan)
-				err := indexer.ProcessWALEvent(ctx, tc.event, testCommitPos)
+				err := indexer.ProcessWALEvent(ctx, tc.event)
 				require.ErrorIs(t, err, tc.wantErr)
 			}()
 
@@ -200,7 +200,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				msgs = nil
 			}
 
-			if diff := cmp.Diff(msgs, tc.wantMsgs, cmp.AllowUnexported(msg{}, queueItem{})); diff != "" {
+			if diff := cmp.Diff(msgs, tc.wantMsgs, cmp.AllowUnexported(msg{}, msg{})); diff != "" {
 				t.Errorf("got: \n%v, \nwant \n%v, \ndiff: \n%s", msgs, tc.wantMsgs, diff)
 			}
 		})
@@ -239,7 +239,7 @@ func TestBatchIndexer_Send(t *testing.T) {
 				}
 			},
 			msgs: []*msg{
-				{item: &queueItem{write: testDocument, bytesSize: testSize}},
+				{write: testDocument, bytesSize: testSize},
 			},
 			semaphore: &syncmocks.WeightedSemaphore{
 				ReleaseFn: func(i uint64, bytes int64) {
@@ -264,7 +264,7 @@ func TestBatchIndexer_Send(t *testing.T) {
 				}
 			},
 			msgs: []*msg{
-				{item: &queueItem{schemaChange: testSchemaLogEntry, bytesSize: testSize}},
+				{schemaChange: testSchemaLogEntry, bytesSize: testSize},
 			},
 			semaphore: &syncmocks.WeightedSemaphore{
 				ReleaseFn: func(i uint64, bytes int64) {
@@ -288,7 +288,7 @@ func TestBatchIndexer_Send(t *testing.T) {
 				}
 			},
 			msgs: []*msg{
-				{item: &queueItem{write: testDocument, bytesSize: testSize}},
+				{write: testDocument, bytesSize: testSize},
 			},
 			semaphore: &syncmocks.WeightedSemaphore{
 				ReleaseFn: func(i uint64, bytes int64) {
@@ -387,7 +387,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		{
 			name: "ok - write only batch",
 			batch: &msgBatch{
-				items: []*queueItem{
+				msgs: []*msg{
 					{write: testDocument1},
 					{write: testDocument2},
 				},
@@ -405,7 +405,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		{
 			name: "ok - write and schema change batch",
 			batch: &msgBatch{
-				items: []*queueItem{
+				msgs: []*msg{
 					{write: testDocument1},
 					{schemaChange: testLogEntry},
 					{write: testDocument2},
@@ -435,7 +435,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		{
 			name: "ok - write and truncate batch",
 			batch: &msgBatch{
-				items: []*queueItem{
+				msgs: []*msg{
 					{write: testDocument1},
 					{truncate: &truncateItem{schemaName: testSchemaName, tableID: testTableName}},
 					{write: testDocument2},
@@ -466,7 +466,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		{
 			name: "ok - schema change skipped",
 			batch: &msgBatch{
-				items: []*queueItem{
+				msgs: []*msg{
 					{schemaChange: testLogEntry},
 				},
 				positions: []wal.CommitPosition{testCommitPos},
@@ -479,7 +479,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		{
 			name: "ok - schema dropped",
 			batch: &msgBatch{
-				items: []*queueItem{
+				msgs: []*msg{
 					{
 						schemaChange: func() *schemalog.LogEntry {
 							le := newTestLogEntry(id, now)
@@ -503,7 +503,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		{
 			name: "error - applying schema change",
 			batch: &msgBatch{
-				items: []*queueItem{
+				msgs: []*msg{
 					{schemaChange: testLogEntry},
 				},
 				positions: []wal.CommitPosition{testCommitPos},
@@ -519,7 +519,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		{
 			name: "error - applying schema delete",
 			batch: &msgBatch{
-				items: []*queueItem{
+				msgs: []*msg{
 					{
 						schemaChange: func() *schemalog.LogEntry {
 							le := newTestLogEntry(id, now)
@@ -542,7 +542,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		{
 			name: "error - flushing writes before truncate",
 			batch: &msgBatch{
-				items: []*queueItem{
+				msgs: []*msg{
 					{write: testDocument1},
 					{truncate: &truncateItem{schemaName: testSchemaName, tableID: testTableName}},
 				},
@@ -559,7 +559,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		{
 			name: "error - flushing writes before schema change",
 			batch: &msgBatch{
-				items: []*queueItem{
+				msgs: []*msg{
 					{write: testDocument1},
 					{schemaChange: testLogEntry},
 				},
@@ -576,7 +576,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		{
 			name: "error - truncating table",
 			batch: &msgBatch{
-				items: []*queueItem{
+				msgs: []*msg{
 					{truncate: &truncateItem{schemaName: testSchemaName, tableID: testTableName}},
 				},
 				positions: []wal.CommitPosition{testCommitPos},
@@ -592,7 +592,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		{
 			name: "error - sending documents",
 			batch: &msgBatch{
-				items: []*queueItem{
+				msgs: []*msg{
 					{write: testDocument1},
 					{write: testDocument2},
 				},
@@ -609,7 +609,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		{
 			name: "error - checkpointing",
 			batch: &msgBatch{
-				items: []*queueItem{
+				msgs: []*msg{
 					{write: testDocument1},
 					{write: testDocument2},
 				},
@@ -630,10 +630,10 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		{
 			name: "error - empty queue item",
 			batch: &msgBatch{
-				items: []*queueItem{{}},
+				msgs: []*msg{{}},
 			},
 
-			wantErr: errEmptyQueueItem,
+			wantErr: errEmptyQueueMsg,
 		},
 	}
 

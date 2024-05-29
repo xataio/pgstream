@@ -40,7 +40,7 @@ type kafkaReader interface {
 	Close() error
 }
 
-type payloadProcessor func(context.Context, *wal.Data, wal.CommitPosition) error
+type payloadProcessor func(context.Context, *wal.Data) error
 
 func NewReader(config ReaderConfig,
 	processRecord payloadProcessor,
@@ -83,8 +83,9 @@ func (r *Reader) Listen(ctx context.Context) error {
 			if err := r.unmarshaler(msg.Value, data); err != nil {
 				return fmt.Errorf("error unmarshaling message value into wal data: %w", err)
 			}
+			data.CommitPosition = wal.CommitPosition{KafkaPos: msg}
 
-			if err = r.processRecord(ctx, data, wal.CommitPosition{KafkaPos: msg}); err != nil {
+			if err = r.processRecord(ctx, data); err != nil {
 				if errors.Is(err, context.Canceled) {
 					return fmt.Errorf("canceled: %w", err)
 				}
