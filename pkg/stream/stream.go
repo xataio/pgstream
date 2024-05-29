@@ -18,23 +18,23 @@ import (
 )
 
 type Stream struct {
-	pgURL string
-	pgCfg *pgx.ConnConfig
+	config *Config
+	pgCfg  *pgx.ConnConfig
 }
 
 const (
 	pgstreamSchema = "pgstream"
 )
 
-func New(ctx context.Context, pgURL string) (*Stream, error) {
-	pgCfg, err := pgx.ParseConfig(pgURL)
+func New(ctx context.Context, config *Config) (*Stream, error) {
+	pgCfg, err := pgx.ParseConfig(config.PostgresURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing postgres connection string: %w", err)
 	}
 
 	return &Stream{
-		pgURL: pgURL,
-		pgCfg: pgCfg,
+		config: config,
+		pgCfg:  pgCfg,
 	}, nil
 }
 
@@ -45,7 +45,7 @@ func (s *Stream) Init(ctx context.Context) error {
 		return fmt.Errorf("failed to create pgstream schema: %w", err)
 	}
 
-	migrator, err := newPGMigrator(s.pgURL)
+	migrator, err := newPGMigrator(s.config.PostgresURL)
 	if err != nil {
 		return fmt.Errorf("error creating postgres migrator: %w", err)
 	}
@@ -66,7 +66,7 @@ func (s *Stream) TearDown(ctx context.Context) error {
 		return err
 	}
 
-	migrator, err := newPGMigrator(s.pgURL)
+	migrator, err := newPGMigrator(s.config.PostgresURL)
 	if err != nil {
 		return fmt.Errorf("error creating postgres migrator: %w", err)
 	}
