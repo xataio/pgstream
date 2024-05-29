@@ -10,7 +10,6 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var initCmd = &cobra.Command{
@@ -20,9 +19,9 @@ var initCmd = &cobra.Command{
 		sp, _ := pterm.DefaultSpinner.WithText("initialising pgstream...").Start()
 
 		ctx := context.Background()
-		pgURL := viper.GetString("PG_URL")
 
-		stream, err := stream.New(ctx, pgURL)
+		config := parseStreamConfig()
+		stream, err := stream.New(ctx, config)
 		if err != nil {
 			sp.Fail(err.Error())
 			return err
@@ -45,9 +44,9 @@ var tearDownCmd = &cobra.Command{
 		sp, _ := pterm.DefaultSpinner.WithText("tearing down pgstream...").Start()
 
 		ctx := context.Background()
-		pgURL := viper.GetString("PG_URL")
 
-		stream, err := stream.New(ctx, pgURL)
+		config := parseStreamConfig()
+		stream, err := stream.New(ctx, config)
 		if err != nil {
 			sp.Fail(err.Error())
 			return err

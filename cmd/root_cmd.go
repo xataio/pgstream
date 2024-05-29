@@ -8,14 +8,16 @@ import (
 )
 
 // Version is the pgstream version
-var Version = "development"
+var (
+	Version = "development"
+	env     *Env
+)
 
 func init() {
 	viper.SetEnvPrefix("PGSTREAM")
 	viper.AutomaticEnv()
 
-	rootCmd.PersistentFlags().String("postgres-url", "postgres://postgres:postgres@localhost?sslmode=disable", "Postgres URL")
-	viper.BindPFlag("PG_URL", rootCmd.PersistentFlags().Lookup("postgres-url"))
+	env = loadEnv()
 }
 
 var rootCmd = &cobra.Command{
