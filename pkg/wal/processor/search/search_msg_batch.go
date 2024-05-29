@@ -7,22 +7,18 @@ import (
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
-type msg struct {
-	item *queueItem
-	pos  wal.CommitPosition
-}
-
 type msgBatch struct {
-	items      []*queueItem
+	msgs       []*msg
 	positions  []wal.CommitPosition
 	totalBytes int
 }
 
-type queueItem struct {
+type msg struct {
 	write        *Document
 	truncate     *truncateItem
 	schemaChange *schemalog.LogEntry
 	bytesSize    int
+	pos          wal.CommitPosition
 }
 
 type truncateItem struct {
@@ -30,44 +26,37 @@ type truncateItem struct {
 	tableID    string
 }
 
-func newMsg(item *queueItem, pos wal.CommitPosition) *msg {
-	return &msg{
-		item: item,
-		pos:  pos,
-	}
-}
-
 func (m *msg) size() int {
-	return m.item.bytesSize
+	return m.bytesSize
 }
 
 func (m *msg) isSchemaChange() bool {
-	return m.item != nil && m.item.schemaChange != nil
+	return m.schemaChange != nil
 }
 
 func (m *msgBatch) add(msg *msg) {
-	if msg == nil || msg.item == nil ||
-		(msg.item.write == nil && msg.item.schemaChange == nil && msg.item.truncate == nil) {
+	if msg == nil ||
+		(msg.write == nil && msg.schemaChange == nil && msg.truncate == nil) {
 		return
 	}
 
 	m.totalBytes += msg.size()
-	m.items = append(m.items, msg.item)
+	m.msgs = append(m.msgs, msg)
 	m.positions = append(m.positions, msg.pos)
 }
 
 func (m *msgBatch) drain() *msgBatch {
 	batch := &msgBatch{
-		items:      m.items,
+		msgs:       m.msgs,
 		positions:  m.positions,
 		totalBytes: m.totalBytes,
 	}
-	m.items = []*queueItem{}
+	m.msgs = []*msg{}
 	m.positions = []wal.CommitPosition{}
 	m.totalBytes = 0
 	return batch
 }
 
 func (m *msgBatch) size() int {
-	return len(m.items)
+	return len(m.msgs)
 }

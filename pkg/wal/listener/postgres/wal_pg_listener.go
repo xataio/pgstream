@@ -34,7 +34,7 @@ type Listener struct {
 }
 
 // listenerProcessWalEvent is the function type callback to process WAL events.
-type listenerProcessWalEvent func(context.Context, *wal.Data, wal.CommitPosition) error
+type listenerProcessWalEvent func(context.Context, *wal.Data) error
 
 type Config struct {
 	Conn            pgx.ConnConfig
@@ -173,8 +173,9 @@ func (l *Listener) processWALEvent(ctx context.Context, msgData *replication.Mes
 	if err := l.walDataDeserialiser(msgData.Data, &event); err != nil {
 		return fmt.Errorf("error unmarshaling wal data: %w", err)
 	}
+	event.CommitPosition = wal.CommitPosition{PGPos: msgData.LSN}
 
-	if err := l.processEvent(ctx, event, wal.CommitPosition{PGPos: msgData.LSN}); err != nil {
+	if err := l.processEvent(ctx, event); err != nil {
 		return err
 	}
 

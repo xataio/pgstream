@@ -37,7 +37,7 @@ func TestListener_Listen(t *testing.T) {
 	}
 
 	errTest := errors.New("oh noes")
-	okProcessEvent := func(context.Context, *wal.Data, wal.CommitPosition) error { return nil }
+	okProcessEvent := func(context.Context, *wal.Data) error { return nil }
 
 	tests := []struct {
 		name               string
@@ -256,7 +256,7 @@ func TestListener_Listen(t *testing.T) {
 				}
 				return h
 			},
-			processEventFn: func(context.Context, *wal.Data, wal.CommitPosition) error { return errTest },
+			processEventFn: func(context.Context, *wal.Data) error { return errTest },
 
 			wantSyncCalls: 0,
 			wantErr:       errTest,
@@ -275,7 +275,7 @@ func TestListener_Listen(t *testing.T) {
 				}
 				return h
 			},
-			processEventFn: func(context.Context, *wal.Data, wal.CommitPosition) error { return context.Canceled },
+			processEventFn: func(context.Context, *wal.Data) error { return context.Canceled },
 
 			wantSyncCalls: 1,
 			wantErr:       nil,

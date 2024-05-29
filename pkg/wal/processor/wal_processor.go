@@ -13,7 +13,7 @@ import (
 )
 
 type Processor interface {
-	ProcessWALEvent(ctx context.Context, walEvent *wal.Data, commitPos wal.CommitPosition) error
+	ProcessWALEvent(ctx context.Context, walEvent *wal.Data) error
 }
 
 var (
