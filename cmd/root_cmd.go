@@ -31,6 +31,8 @@ func Execute() error {
 	// register subcommands
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(tearDownCmd)
+	rootCmd.AddCommand(pg2kafkaCmd)
+	rootCmd.AddCommand(kafka2osCmd)
 
 	return rootCmd.Execute()
 }
