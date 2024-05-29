@@ -161,8 +161,11 @@ func (i *BatchIndexer) Send(ctx context.Context) error {
 			// stop sending batches
 			return sendErr
 		case <-ticker.C:
-			batchChan <- msgBatch.drain()
+			if msgBatch.size() > 0 {
+				batchChan <- msgBatch.drain()
+			}
 		case msg := <-i.msgChan:
+			msgBatch.add(msg)
 			// trigger a send if we reached the configured batch size or if the
 			// event was for a schema change. We need to make sure any events
 			// following a schema change are processed using the right schema
@@ -170,7 +173,6 @@ func (i *BatchIndexer) Send(ctx context.Context) error {
 			if msgBatch.size() >= i.batchSize || msg.isSchemaChange() {
 				batchChan <- msgBatch.drain()
 			}
-			msgBatch.add(msg)
 		}
 	}
 }

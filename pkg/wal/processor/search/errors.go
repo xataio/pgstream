@@ -42,7 +42,7 @@ type ErrSchemaUpdateOutOfOrder struct {
 }
 
 func (e ErrSchemaUpdateOutOfOrder) Error() string {
-	return fmt.Sprintf("our of order schema update detected for schema [%s] with id [%s]: incoming version: %d, created at: %v, current version: %d, created at: %v",
+	return fmt.Sprintf("out of order schema update detected for schema [%s] with id [%s]: incoming version: %d, created at: %v, current version: %d, created at: %v",
 		e.SchemaName, e.SchemaID, e.NewVersion, e.NewCreatedAt, e.CurrentVersion, e.CurrentCreatedAt)
 }
 
