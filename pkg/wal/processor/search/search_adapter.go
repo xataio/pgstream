@@ -14,7 +14,7 @@ import (
 )
 
 type walAdapter interface {
-	walDataToMsg(*wal.Data) (*msg, error)
+	walEventToMsg(*wal.Event) (*msg, error)
 }
 
 type adapter struct {
@@ -33,15 +33,21 @@ func newAdapter(m Mapper) *adapter {
 	}
 }
 
-func (a *adapter) walDataToMsg(d *wal.Data) (*msg, error) {
-	if processor.IsSchemaLogEvent(d) {
+func (a *adapter) walEventToMsg(e *wal.Event) (*msg, error) {
+	if e.Data == nil {
+		return &msg{
+			pos: e.CommitPosition,
+		}, nil
+	}
+
+	if processor.IsSchemaLogEvent(e.Data) {
 		// we only care about inserts - updates can happen when the schema log
 		// is acked
-		if d.Action != "I" {
+		if e.Data.Action != "I" {
 			return nil, nil
 		}
 
-		logEntry, size, err := a.walDataToLogEntry(d)
+		logEntry, size, err := a.walDataToLogEntry(e.Data)
 		if err != nil {
 			return nil, err
 		}
@@ -49,16 +55,17 @@ func (a *adapter) walDataToMsg(d *wal.Data) (*msg, error) {
 		return &msg{
 			schemaChange: logEntry,
 			bytesSize:    size,
+			pos:          e.CommitPosition,
 		}, nil
 	}
 
-	if d.Metadata.IsEmpty() {
+	if e.Data.Metadata.IsEmpty() {
 		return nil, errMetadataMissing
 	}
 
-	switch d.Action {
+	switch e.Data.Action {
 	case "I", "U", "D":
-		doc, err := a.walDataToDocument(d)
+		doc, err := a.walDataToDocument(e.Data)
 		if err != nil {
 			return nil, err
 		}
@@ -70,16 +77,18 @@ func (a *adapter) walDataToMsg(d *wal.Data) (*msg, error) {
 		return &msg{
 			write:     doc,
 			bytesSize: size,
+			pos:       e.CommitPosition,
 		}, nil
 
 	case "T":
 		truncateItem := &truncateItem{
-			schemaName: d.Schema,
-			tableID:    d.Metadata.TablePgstreamID,
+			schemaName: e.Data.Schema,
+			tableID:    e.Data.Metadata.TablePgstreamID,
 		}
 		return &msg{
 			truncate:  truncateItem,
 			bytesSize: len(truncateItem.schemaName) + len(truncateItem.tableID),
+			pos:       e.CommitPosition,
 		}, nil
 
 	default:

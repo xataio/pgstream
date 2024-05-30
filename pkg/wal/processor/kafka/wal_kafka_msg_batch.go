@@ -4,17 +4,17 @@ package kafka
 
 import (
 	"github.com/xataio/pgstream/internal/kafka"
-	"github.com/xataio/pgstream/internal/replication"
+	"github.com/xataio/pgstream/pkg/wal"
 )
 
 type msg struct {
 	msg kafka.Message
-	pos replication.LSN
+	pos wal.CommitPosition
 }
 
 type msgBatch struct {
 	msgs       []kafka.Message
-	lastPos    replication.LSN
+	lastPos    wal.CommitPosition
 	totalBytes int
 }
 
@@ -22,7 +22,7 @@ func (mb *msgBatch) add(m *msg) {
 	mb.msgs = append(mb.msgs, m.msg)
 	mb.totalBytes += m.size()
 
-	if m.pos > mb.lastPos {
+	if m.pos.After(&mb.lastPos) {
 		mb.lastPos = m.pos
 	}
 }

@@ -35,7 +35,7 @@ type BatchWriter struct {
 	// optional checkpointer callback to mark what was safely processed
 	checkpointer checkpoint
 
-	eventSerialiser func(any) ([]byte, error)
+	serialiser func(any) ([]byte, error)
 }
 
 type kafkaWriter interface {
@@ -55,7 +55,7 @@ func NewBatchWriter(config kafka.WriterConfig) (*BatchWriter, error) {
 		maxBatchBytes:   config.BatchBytes,
 		maxBatchSize:    config.BatchSize,
 		msgChan:         make(chan *msg),
-		eventSerialiser: json.Marshal,
+		serialiser:    json.Marshal,
 	}
 
 	maxQueueBytes := defaultMaxQueueBytes
@@ -89,7 +89,7 @@ func NewBatchWriter(config kafka.WriterConfig) (*BatchWriter, error) {
 }
 
 // ProcessWalEvent is called on every new message from the wal
-func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Data, pos wal.CommitPosition) (retErr error) {
+func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.WithLevel(zerolog.PanicLevel).
@@ -102,27 +102,30 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Data, p
 		}
 	}()
 
-	walEventBytes, err := w.eventSerialiser(walEvent)
-	if err != nil {
-		return fmt.Errorf("marshalling event: %w", err)
-	}
-	// check if walEventBytes is larger than the Kafka accepted max message size
-	if len(walEventBytes) > int(w.maxBatchBytes) {
-		log.Warn().
-			Str("warning", "record too large").
-			Int("size", len(walEventBytes)).
-			Str("table", walEvent.Table).
-			Str("schema", walEvent.Schema).
-			Msgf("kafka batch writer: record wal event is larger than %d bytes", w.maxBatchBytes)
-		return nil
+	kafkaMsg := &msg{
+		pos: walEvent.CommitPosition,
 	}
 
-	kafkaMsg := &msg{
-		msg: kafka.Message{
-			Key:   w.getMessageKey(walEvent),
-			Value: walEventBytes,
-		},
-		pos: pos.PGPos,
+	if walEvent.Data != nil {
+		walDataBytes, err := w.serialiser(walEvent.Data)
+		if err != nil {
+			return fmt.Errorf("marshalling event: %w", err)
+		}
+		// check if walEventBytes is larger than the Kafka accepted max message size
+		if len(walDataBytes) > int(w.maxBatchBytes) {
+			log.Warn().
+				Str("warning", "record too large").
+				Int("size", len(walDataBytes)).
+				Str("table", walEvent.Data.Table).
+				Str("schema", walEvent.Data.Schema).
+				Msgf("kafka batch writer: record wal event is larger than %d bytes", w.maxBatchBytes)
+			return nil
+		}
+
+		kafkaMsg.msg = kafka.Message{
+			Key:   w.getMessageKey(walEvent.Data),
+			Value: walDataBytes,
+		}
 	}
 
 	// make sure we don't reach the queue memory limit before adding the new
@@ -234,12 +237,12 @@ func (w *BatchWriter) sendBatch(ctx context.Context, batch *msgBatch) error {
 // the event schema is that of the pgstream schema, so we extract the underlying
 // user schema they're linked to, to make sure they're routed to the same
 // partition as their writes. This gives us ordering per schema.
-func (w BatchWriter) getMessageKey(walEvent *wal.Data) []byte {
-	eventKey := walEvent.Schema
-	if processor.IsSchemaLogEvent(walEvent) {
+func (w BatchWriter) getMessageKey(walData *wal.Data) []byte {
+	eventKey := walData.Schema
+	if processor.IsSchemaLogEvent(walData) {
 		var schemaName string
 		var found bool
-		for _, col := range walEvent.Columns {
+		for _, col := range walData.Columns {
 			if col.Name == "schema_name" {
 				var ok bool
 				if schemaName, ok = col.Value.(string); !ok {

@@ -86,11 +86,11 @@ func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store) *Ba
 // ProcessWALEvent is called on every new message from the WAL logical
 // replication The function is responsible for sending the data to the search
 // store and committing the event position.
-func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, data *wal.Data) (err error) {
+func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, event *wal.Event) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.WithLevel(zerolog.PanicLevel).
-				Any("wal_data", data).
+				Any("wal_data", event.Data).
 				Any("panic", r).
 				Bytes("stack_trace", debug.Stack()).
 				Msg("[PANIC] Panic while processing replication event")
@@ -99,7 +99,7 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, data *wal.Data) (err
 		}
 	}()
 
-	msg, err := i.adapter.walDataToMsg(data)
+	msg, err := i.adapter.walEventToMsg(event)
 	if err != nil {
 		if errors.Is(err, errNilIDValue) || errors.Is(err, errNilVersionValue) || errors.Is(err, errMetadataMissing) {
 			log.Warn().Msgf("invalid event, skipping message: %v", err)

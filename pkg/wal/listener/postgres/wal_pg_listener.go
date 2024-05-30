@@ -34,7 +34,7 @@ type Listener struct {
 }
 
 // listenerProcessWalEvent is the function type callback to process WAL events.
-type listenerProcessWalEvent func(context.Context, *wal.Data) error
+type listenerProcessWalEvent func(context.Context, *wal.Event) error
 
 type Config struct {
 	Conn            pgx.ConnConfig

@@ -22,7 +22,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		data       *wal.Data
+		event      *wal.Event
 		store      schemalog.Store
 		adapter    walToLogEntryAdapter
 		skipSchema schemaFilter
@@ -33,37 +33,37 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 	}{
 		{
 			name:       "ok - skip schema",
-			data:       newTestDataEvent("I"),
+			event:      newTestDataEvent("I"),
 			skipSchema: func(s string) bool { return true },
 
 			wantErr: nil,
 		},
 		{
 			name:       "ok - skip log entry schema log",
-			data:       newTestSchemaChangeEvent("I"),
+			event:      newTestSchemaChangeEvent("I"),
 			skipSchema: func(s string) bool { return s == testSchemaName },
 
 			wantErr: nil,
 		},
 		{
 			name: "ok - schema event from ignored table",
-			data: func() *wal.Data {
+			event: func() *wal.Event {
 				d := newTestSchemaChangeEvent("I")
-				d.Table = "other"
+				d.Data.Table = "other"
 				return d
 			}(),
 
 			wantErr: nil,
 		},
 		{
-			name: "ok - schema event from ignored action",
-			data: newTestSchemaChangeEvent("U"),
+			name:  "ok - schema event from ignored action",
+			event: newTestSchemaChangeEvent("U"),
 
 			wantErr: nil,
 		},
 		{
-			name: "ok - schema event",
-			data: newTestSchemaChangeEvent("I"),
+			name:  "ok - schema event",
+			event: newTestSchemaChangeEvent("I"),
 			store: &schemalogmocks.Store{
 				AckFn: func(ctx context.Context, le *schemalog.LogEntry) error {
 					require.Equal(t, testLogEntry, le)
@@ -71,7 +71,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 				},
 			},
 			processor: &mocks.Processor{
-				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data) error {
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
 					require.Equal(t, newTestSchemaChangeEvent("I"), walEvent)
 					return nil
 				},
@@ -80,15 +80,15 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "ok - fail to ack schema event",
-			data: newTestSchemaChangeEvent("I"),
+			name:  "ok - fail to ack schema event",
+			event: newTestSchemaChangeEvent("I"),
 			store: &schemalogmocks.Store{
 				AckFn: func(ctx context.Context, le *schemalog.LogEntry) error {
 					return errTest
 				},
 			},
 			processor: &mocks.Processor{
-				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data) error {
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
 					require.Equal(t, newTestSchemaChangeEvent("I"), walEvent)
 					return nil
 				},
@@ -97,8 +97,8 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "ok - data event",
-			data: newTestDataEvent("I"),
+			name:  "ok - data event",
+			event: newTestDataEvent("I"),
 			store: &schemalogmocks.Store{
 				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					require.Equal(t, testSchemaName, schemaName)
@@ -106,7 +106,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 				},
 			},
 			processor: &mocks.Processor{
-				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data) error {
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
 					require.Equal(t, newTestDataEventWithMetadata("I"), walEvent)
 					return nil
 				},
@@ -115,15 +115,15 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "ok - fail to translate data event",
-			data: newTestDataEvent("I"),
+			name:  "ok - fail to translate data event",
+			event: newTestDataEvent("I"),
 			store: &schemalogmocks.Store{
 				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					return nil, errTest
 				},
 			},
 			processor: &mocks.Processor{
-				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data) error {
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
 					require.Equal(t, newTestDataEvent("I"), walEvent)
 					return nil
 				},
@@ -132,21 +132,21 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "ok - fail to translate data event with invalid data",
-			data: newTestDataEvent("I"),
+			name:  "ok - fail to translate data event with invalid data",
+			event: newTestDataEvent("I"),
 			store: &schemalogmocks.Store{
 				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					return testLogEntry, nil
 				},
 			},
 			processor: &mocks.Processor{
-				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data) error {
-					wantData := newTestDataEvent("I")
-					wantData.Metadata = wal.Metadata{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					wantEvent := newTestDataEvent("I")
+					wantEvent.Data.Metadata = wal.Metadata{
 						SchemaID:        testSchemaID,
 						TablePgstreamID: testTableID,
 					}
-					require.Equal(t, wantData, walEvent)
+					require.Equal(t, wantEvent, walEvent)
 					return nil
 				},
 			},
@@ -156,21 +156,21 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 		},
 		{
 			name:    "error - adapting schema event",
-			data:    newTestSchemaChangeEvent("I"),
+			event:   newTestSchemaChangeEvent("I"),
 			adapter: func(d *wal.Data) (*schemalog.LogEntry, error) { return nil, errTest },
 
 			wantErr: errTest,
 		},
 		{
-			name: "error - processing event",
-			data: newTestDataEvent("I"),
+			name:  "error - processing event",
+			event: newTestDataEvent("I"),
 			store: &schemalogmocks.Store{
 				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					return testLogEntry, nil
 				},
 			},
 			processor: &mocks.Processor{
-				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Data) error {
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
 					return errTest
 				},
 			},
@@ -205,7 +205,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 				translator.skipSchema = tc.skipSchema
 			}
 
-			err := translator.ProcessWALEvent(context.Background(), tc.data)
+			err := translator.ProcessWALEvent(context.Background(), tc.event)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
@@ -239,11 +239,11 @@ func TestTranslator_translate(t *testing.T) {
 					return newTestLogEntry(), nil
 				},
 			},
-			data:          newTestDataEvent("I"),
+			data:          newTestDataEvent("I").Data,
 			idFinder:      func(c *schemalog.Column) bool { return c.Name == "col-1" },
 			versionFinder: func(c *schemalog.Column) bool { return c.Name == "col-2" },
 
-			wantData: newTestDataEventWithMetadata("I"),
+			wantData: newTestDataEventWithMetadata("I").Data,
 			wantErr:  nil,
 		},
 		{
@@ -253,9 +253,9 @@ func TestTranslator_translate(t *testing.T) {
 					return nil, errTest
 				},
 			},
-			data: newTestDataEvent("I"),
+			data: newTestDataEvent("I").Data,
 
-			wantData: newTestDataEvent("I"),
+			wantData: newTestDataEvent("I").Data,
 			wantErr:  errTest,
 		},
 		{
@@ -265,9 +265,9 @@ func TestTranslator_translate(t *testing.T) {
 					return nil, schemalog.ErrNoRows
 				},
 			},
-			data: newTestDataEvent("I"),
+			data: newTestDataEvent("I").Data,
 
-			wantData: newTestDataEvent("I"),
+			wantData: newTestDataEvent("I").Data,
 			wantErr:  nil,
 		},
 		{
@@ -279,13 +279,13 @@ func TestTranslator_translate(t *testing.T) {
 				},
 			},
 			data: func() *wal.Data {
-				d := newTestDataEvent("I")
+				d := newTestDataEvent("I").Data
 				d.Table = "unknown"
 				return d
 			}(),
 
 			wantData: func() *wal.Data {
-				d := newTestDataEvent("I")
+				d := newTestDataEvent("I").Data
 				d.Table = "unknown"
 				return d
 			}(),
@@ -299,12 +299,12 @@ func TestTranslator_translate(t *testing.T) {
 					return newTestLogEntry(), nil
 				},
 			},
-			data:          newTestDataEvent("I"),
+			data:          newTestDataEvent("I").Data,
 			idFinder:      func(c *schemalog.Column) bool { return false },
 			versionFinder: func(c *schemalog.Column) bool { return false },
 
 			wantData: func() *wal.Data {
-				d := newTestDataEvent("I")
+				d := newTestDataEvent("I").Data
 				d.Metadata = wal.Metadata{
 					SchemaID:        testSchemaID,
 					TablePgstreamID: testTableID,
@@ -321,12 +321,12 @@ func TestTranslator_translate(t *testing.T) {
 					return newTestLogEntry(), nil
 				},
 			},
-			data:          newTestDataEvent("I"),
+			data:          newTestDataEvent("I").Data,
 			idFinder:      func(c *schemalog.Column) bool { return c.Name == "col-1" },
 			versionFinder: func(c *schemalog.Column) bool { return false },
 
 			wantData: func() *wal.Data {
-				d := newTestDataEvent("I")
+				d := newTestDataEvent("I").Data
 				d.Metadata = wal.Metadata{
 					SchemaID:        testSchemaID,
 					TablePgstreamID: testTableID,
@@ -345,7 +345,7 @@ func TestTranslator_translate(t *testing.T) {
 				},
 			},
 			data: func() *wal.Data {
-				d := newTestDataEvent("I")
+				d := newTestDataEvent("I").Data
 				d.Columns = append(d.Columns, wal.Column{
 					ID: "col-3", Name: "col-3", Type: "text", Value: "blob",
 				})
@@ -355,7 +355,7 @@ func TestTranslator_translate(t *testing.T) {
 			versionFinder: func(c *schemalog.Column) bool { return c.Name == "col-2" },
 
 			wantData: func() *wal.Data {
-				d := newTestDataEventWithMetadata("I")
+				d := newTestDataEventWithMetadata("I").Data
 				d.Columns = append(d.Columns, wal.Column{ID: "col-3", Name: "col-3", Type: "text", Value: "blob"})
 				return d
 			}(),

@@ -29,10 +29,12 @@ func TestReader_Listen(t *testing.T) {
 		Value:     []byte("test-value"),
 	}
 
-	testWalData := wal.Data{
-		Action: "I",
-		Schema: "test_schema",
-		Table:  "test_table",
+	testWalEvent := wal.Event{
+		Data: &wal.Data{
+			Action: "I",
+			Schema: "test_schema",
+			Table:  "test_table",
+		},
 		CommitPosition: wal.CommitPosition{
 			KafkaPos: testMessage,
 		},
@@ -44,7 +46,7 @@ func TestReader_Listen(t *testing.T) {
 		require.Equal(t, []byte("test-value"), b)
 		data, ok := a.(*wal.Data)
 		require.True(t, ok)
-		*data = testWalData
+		*data = *testWalEvent.Data
 		return nil
 	}
 
@@ -67,8 +69,8 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, d *wal.Data) error {
-				require.Equal(t, &testWalData, d)
+			processRecord: func(ctx context.Context, d *wal.Event) error {
+				require.Equal(t, &testWalEvent, d)
 				return nil
 			},
 
@@ -85,7 +87,7 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, d *wal.Data) error {
+			processRecord: func(ctx context.Context, d *wal.Event) error {
 				return fmt.Errorf("processRecord: should not be called")
 			},
 
@@ -102,7 +104,7 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, d *wal.Data) error {
+			processRecord: func(ctx context.Context, d *wal.Event) error {
 				return errTest
 			},
 
@@ -119,7 +121,7 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, d *wal.Data) error {
+			processRecord: func(ctx context.Context, d *wal.Event) error {
 				return context.Canceled
 			},
 
@@ -136,7 +138,7 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, d *wal.Data) error {
+			processRecord: func(ctx context.Context, d *wal.Event) error {
 				return errors.New("processRecord: should not be called")
 			},
 			unmarshaler: func(b []byte, a any) error { return errTest },

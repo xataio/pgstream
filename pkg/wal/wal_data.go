@@ -3,21 +3,30 @@
 package wal
 
 import (
+	"fmt"
+
 	"github.com/rs/xid"
 	"github.com/xataio/pgstream/internal/kafka"
 	"github.com/xataio/pgstream/internal/replication"
 )
 
+// Event represents the WAL information. If the data is not set but there's a
+// commit position present, it represents a keep alive event that needs to be
+// checkpointed.
+type Event struct {
+	Data           *Data
+	CommitPosition CommitPosition
+}
+
 type Data struct {
-	Action         string         `json:"action"`    // "I" -- insert, "U" -- update, "D" -- delete, "T" -- truncate
-	Timestamp      string         `json:"timestamp"` // ISO8601, i.e. 2019-12-29 04:58:34.806671
-	LSN            string         `json:"lsn"`
-	Schema         string         `json:"schema"`
-	Table          string         `json:"table"`
-	Columns        []Column       `json:"columns"`
-	Identity       []Column       `json:"identity"`
-	Metadata       Metadata       `json:"metadata"` // pgstream specific metadata
-	CommitPosition CommitPosition `json:"-"`
+	Action    string   `json:"action"`    // "I" -- insert, "U" -- update, "D" -- delete, "T" -- truncate
+	Timestamp string   `json:"timestamp"` // ISO8601, i.e. 2019-12-29 04:58:34.806671
+	LSN       string   `json:"lsn"`
+	Schema    string   `json:"schema"`
+	Table     string   `json:"table"`
+	Columns   []Column `json:"columns"`
+	Identity  []Column `json:"identity"`
+	Metadata  Metadata `json:"metadata"` // pgstream specific metadata
 }
 
 type Metadata struct {
@@ -51,4 +60,24 @@ func (m Metadata) IsEmpty() bool {
 type CommitPosition struct {
 	PGPos    replication.LSN
 	KafkaPos *kafka.Message
+}
+
+func (c *CommitPosition) IsEmpty() bool {
+	return c.PGPos == 0 && c.KafkaPos == nil
+}
+
+func (c *CommitPosition) After(pos *CommitPosition) bool {
+	switch {
+	case c.KafkaPos != nil && pos.KafkaPos != nil:
+		return c.KafkaPos.Time.After(pos.KafkaPos.Time)
+	default:
+		return c.PGPos > pos.PGPos
+	}
+}
+
+func (c *CommitPosition) String() string {
+	if c.KafkaPos != nil {
+		return fmt.Sprintf("topic: %s, partition: %d, offset: %d", c.KafkaPos.Topic, c.KafkaPos.Partition, c.KafkaPos.Offset)
+	}
+	return fmt.Sprintf("%X", c.PGPos)
 }

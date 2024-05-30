@@ -33,7 +33,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 		name              string
 		weightedSemaphore *syncmocks.WeightedSemaphore
 		adapter           *mockAdapter
-		event             *wal.Data
+		event             *wal.Event
 
 		wantMsgs []*msg
 		wantErr  error
@@ -47,7 +47,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				},
 			},
 			adapter: &mockAdapter{
-				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return &msg{
 						schemaChange: testSchemaLogEntry,
 						bytesSize:    testSize,
@@ -72,7 +72,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				TryAcquireFn: func(i int64) bool { return true },
 			},
 			adapter: &mockAdapter{
-				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return nil, nil
 				},
 			},
@@ -87,7 +87,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				TryAcquireFn: func(i int64) bool { return true },
 			},
 			adapter: &mockAdapter{
-				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return nil, errNilIDValue
 				},
 			},
@@ -103,7 +103,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				AcquireFn:    func(ctx context.Context, i int64) error { return nil },
 			},
 			adapter: &mockAdapter{
-				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return &msg{
 						schemaChange: testSchemaLogEntry,
 						pos:          testCommitPos,
@@ -127,7 +127,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				AcquireFn:    func(ctx context.Context, i int64) error { return errTest },
 			},
 			adapter: &mockAdapter{
-				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return &msg{schemaChange: testSchemaLogEntry}, nil
 				},
 			},
@@ -142,7 +142,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				TryAcquireFn: func(i int64) bool { return true },
 			},
 			adapter: &mockAdapter{
-				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return nil, errTest
 				},
 			},
@@ -157,7 +157,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				TryAcquireFn: func(i int64) bool { return true },
 			},
 			adapter: &mockAdapter{
-				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					panic(errTest)
 				},
 			},

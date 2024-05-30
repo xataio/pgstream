@@ -26,18 +26,28 @@ func TestListener_Listen(t *testing.T) {
 	}
 
 	testDeserialiser := func(_ []byte, out any) error {
-		event, ok := out.(**wal.Data)
+		data, ok := out.(*wal.Data)
 		if !ok {
 			return fmt.Errorf("unexpected wal data type: %T", out)
 		}
-		*event = &wal.Data{
+		*data = wal.Data{
 			Action: "I",
 		}
 		return nil
 	}
 
 	errTest := errors.New("oh noes")
-	okProcessEvent := func(context.Context, *wal.Data) error { return nil }
+	okProcessEvent := func(_ context.Context, data *wal.Event) error {
+		require.Equal(t, &wal.Event{
+			Data: &wal.Data{
+				Action: "I",
+			},
+			CommitPosition: wal.CommitPosition{
+				PGPos: testLSN,
+			},
+		}, data)
+		return nil
+	}
 
 	tests := []struct {
 		name               string
@@ -256,7 +266,7 @@ func TestListener_Listen(t *testing.T) {
 				}
 				return h
 			},
-			processEventFn: func(context.Context, *wal.Data) error { return errTest },
+			processEventFn: func(context.Context, *wal.Event) error { return errTest },
 
 			wantSyncCalls: 0,
 			wantErr:       errTest,
@@ -275,7 +285,7 @@ func TestListener_Listen(t *testing.T) {
 				}
 				return h
 			},
-			processEventFn: func(context.Context, *wal.Data) error { return context.Canceled },
+			processEventFn: func(context.Context, *wal.Event) error { return nil },
 
 			wantSyncCalls: 1,
 			wantErr:       nil,
