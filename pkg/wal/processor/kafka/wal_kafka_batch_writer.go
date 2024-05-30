@@ -179,9 +179,10 @@ func (w *BatchWriter) Send(ctx context.Context) error {
 			batchChan <- msgBatch.drain()
 		case msg := <-w.msgChan:
 			// if the batch has reached the max allowed size, don't wait for the
-			// next tick and send to kafka
+			// next tick and send to kafka. If we receive a keep alive, send so
+			// that we checkpoint as soon as possible.
 			if msgBatch.totalBytes+msg.size() >= int(w.maxBatchBytes) ||
-				len(msgBatch.msgs) == w.maxBatchSize {
+				len(msgBatch.msgs) == w.maxBatchSize || msg.isKeepAlive() {
 				batchChan <- msgBatch.drain()
 			}
 
@@ -196,28 +197,26 @@ func (w *BatchWriter) Close() error {
 }
 
 func (w *BatchWriter) sendBatch(ctx context.Context, batch *msgBatch) error {
-	if len(batch.msgs) == 0 {
-		return nil
+	log.Debug().Msgf("kafka batch writer: sending message batch size %d with pos: %s", len(batch.msgs), batch.lastPos.String())
+
+	if len(batch.msgs) > 0 {
+		// This call will block until it either reaches the writer configured batch
+		// size or the batch timeout. This batching feature is useful when sharing a
+		// writer across multiple go routines. In our case, we only send from a
+		// single go routine, so we use a low value for the batch timeout, and
+		// trigger the send immediately while handling the batching on our end to
+		// improve throughput and reduce send latency.
+		//
+		// We don't use an asynchronous writer since we need to know if the messages
+		// fail to be written to kafka.
+		if err := w.writer.WriteMessages(ctx, batch.msgs...); err != nil {
+			log.Error().Err(err).Msg("failed to write to kafka")
+			return fmt.Errorf("kafka batch writer: writing to kafka: %w", err)
+		}
 	}
 
-	log.Debug().Msgf("kafka batch writer: sending message batch size %d with pos: %X", len(batch.msgs), batch.lastPos)
-
-	// This call will block until it either reaches the writer configured batch
-	// size or the batch timeout. This batching feature is useful when sharing a
-	// writer across multiple go routines. In our case, we only send from a
-	// single go routine, so we use a low value for the batch timeout, and
-	// trigger the send immediately while handling the batching on our end to
-	// improve throughput and reduce send latency.
-	//
-	// We don't use an asynchronous writer since we need to know if the messages
-	// fail to be written to kafka.
-	if err := w.writer.WriteMessages(ctx, batch.msgs...); err != nil {
-		log.Error().Err(err).Msg("failed to write to kafka")
-		return fmt.Errorf("kafka batch writer: writing to kafka: %w", err)
-	}
-
-	if w.checkpointer != nil {
-		if err := w.checkpointer(ctx, []wal.CommitPosition{{PGPos: batch.lastPos}}); err != nil {
+	if w.checkpointer != nil && !batch.lastPos.IsEmpty() {
+		if err := w.checkpointer(ctx, []wal.CommitPosition{batch.lastPos}); err != nil {
 			log.Warn().Err(err).Msg("kafka batch writer: error updating commit position")
 		}
 	}

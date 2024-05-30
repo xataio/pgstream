@@ -19,8 +19,10 @@ type msgBatch struct {
 }
 
 func (mb *msgBatch) add(m *msg) {
-	mb.msgs = append(mb.msgs, m.msg)
-	mb.totalBytes += m.size()
+	if m.msg.Value != nil {
+		mb.msgs = append(mb.msgs, m.msg)
+		mb.totalBytes += m.size()
+	}
 
 	if m.pos.After(&mb.lastPos) {
 		mb.lastPos = m.pos
@@ -43,4 +45,8 @@ func (mb *msgBatch) drain() *msgBatch {
 // other fields)
 func (m *msg) size() int {
 	return len(m.msg.Value)
+}
+
+func (m *msg) isKeepAlive() bool {
+	return m.msg.Value == nil && !m.pos.IsEmpty()
 }

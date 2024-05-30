@@ -161,10 +161,11 @@ func (i *BatchIndexer) Send(ctx context.Context) error {
 			batchChan <- msgBatch.drain()
 		case msg := <-i.msgChan:
 			// trigger a send if we reached the configured batch size or if the
-			// event was for a schema change. We need to make sure any events
-			// following a schema change are processed using the right schema
-			// version
-			if msgBatch.size() >= i.batchSize || msg.isSchemaChange() {
+			// event was for a schema change/keep alive. We need to make sure
+			// any events following a schema change are processed using the
+			// right schema version, and any keep alive messages are
+			// checkpointed as soon as possible.
+			if msgBatch.size() >= i.batchSize || msg.isSchemaChange() || msg.isKeepAlive() {
 				batchChan <- msgBatch.drain()
 			}
 			msgBatch.add(msg)

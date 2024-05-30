@@ -79,6 +79,19 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - keep alive",
+			walEvent: &wal.Event{
+				CommitPosition: testCommitPosition,
+			},
+
+			wantMsgs: []*msg{
+				{
+					pos: testCommitPosition,
+				},
+			},
+			wantErr: nil,
+		},
+		{
 			name: "ok - pgstream schema event",
 			walEvent: &wal.Event{
 				Data: &wal.Data{

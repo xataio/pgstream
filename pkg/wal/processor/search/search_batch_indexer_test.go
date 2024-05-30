@@ -68,6 +68,29 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - keep alive",
+			weightedSemaphore: &syncmocks.WeightedSemaphore{
+				TryAcquireFn: func(i int64) bool { return true },
+			},
+			adapter: &mockAdapter{
+				walEventToMsgFn: func(*wal.Event) (*msg, error) {
+					return &msg{
+						pos: testCommitPos,
+					}, nil
+				},
+			},
+			event: &wal.Event{
+				CommitPosition: testCommitPos,
+			},
+
+			wantMsgs: []*msg{
+				{
+					pos: testCommitPos,
+				},
+			},
+			wantErr: nil,
+		},
+		{
 			name: "ok - nil queue item",
 			weightedSemaphore: &syncmocks.WeightedSemaphore{
 				TryAcquireFn: func(i int64) bool { return true },
