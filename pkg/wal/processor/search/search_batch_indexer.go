@@ -13,6 +13,7 @@ import (
 	synclib "github.com/xataio/pgstream/internal/sync"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
+	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 
 	"github.com/rs/zerolog"
@@ -37,7 +38,7 @@ type BatchIndexer struct {
 	skipSchema func(schemaName string) bool
 
 	// checkpoint callback to mark what was safely stored
-	checkpoint checkpoint
+	checkpoint checkpointer.Checkpoint
 
 	cleaner cleaner
 }
@@ -49,15 +50,11 @@ type IndexerConfig struct {
 	MaxQueueBytes  int
 }
 
-// checkpoint defines the way to confirm the positions that have been read.
-// The actual implementation depends on the source of events (postgres, kafka,...)
-type checkpoint func(ctx context.Context, positions []wal.CommitPosition) error
-
 const defaultMaxQueueBytes = 100 * 1024 * 1024 // 100MiB
 
 // NewBatchIndexer returns a processor of wal events that indexes data into the
 // search store provided on input.
-func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store) *BatchIndexer {
+func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, checkpointer checkpointer.Checkpoint) *BatchIndexer {
 	indexer := &BatchIndexer{
 		store: store,
 		// by default all schemas are processed
@@ -67,6 +64,7 @@ func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store) *Ba
 		cleaner:           newSchemaCleaner(&config.CleanupBackoff, store),
 		adapter:           newAdapter(store.GetMapper()),
 		msgChan:           make(chan *msg),
+		checkpoint:        checkpointer,
 	}
 
 	// this allows us to bound and configure the memory used by the internal msg
@@ -172,10 +170,6 @@ func (i *BatchIndexer) Send(ctx context.Context) error {
 			msgBatch.add(msg)
 		}
 	}
-}
-
-func (i *BatchIndexer) SetCheckpoint(checkpoint checkpoint) {
-	i.checkpoint = checkpoint
 }
 
 func (i *BatchIndexer) Close() error {

@@ -19,6 +19,7 @@ import (
 	syncmocks "github.com/xataio/pgstream/internal/sync/mocks"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
+	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 
 	"golang.org/x/sync/semaphore"
 )
@@ -414,7 +415,7 @@ func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 	tests := []struct {
 		name       string
 		writer     *kafkamocks.Writer
-		checkpoint checkpoint
+		checkpoint checkpointer.Checkpoint
 		batch      *msgBatch
 
 		wantErr error

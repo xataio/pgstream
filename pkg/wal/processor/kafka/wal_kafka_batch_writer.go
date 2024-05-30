@@ -13,6 +13,7 @@ import (
 	"github.com/xataio/pgstream/internal/kafka"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	"github.com/xataio/pgstream/pkg/wal"
+	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 
 	"github.com/rs/zerolog"
@@ -33,7 +34,7 @@ type BatchWriter struct {
 	sendFrequency time.Duration
 
 	// optional checkpointer callback to mark what was safely processed
-	checkpointer checkpoint
+	checkpointer checkpointer.Checkpoint
 
 	serialiser func(any) ([]byte, error)
 }
@@ -43,19 +44,16 @@ type kafkaWriter interface {
 	Close() error
 }
 
-// checkpoint defines the way to confirm the positions that have been read.
-// The actual implementation depends on the source of events (postgres, kafka,...)
-type checkpoint func(ctx context.Context, positions []wal.CommitPosition) error
-
 const defaultMaxQueueBytes = 100 * 1024 * 1024 // 100MiB
 
-func NewBatchWriter(config kafka.WriterConfig) (*BatchWriter, error) {
+func NewBatchWriter(config kafka.WriterConfig, checkpointer checkpointer.Checkpoint) (*BatchWriter, error) {
 	w := &BatchWriter{
-		sendFrequency:   config.BatchTimeout,
-		maxBatchBytes:   config.BatchBytes,
-		maxBatchSize:    config.BatchSize,
-		msgChan:         make(chan *msg),
+		sendFrequency: config.BatchTimeout,
+		maxBatchBytes: config.BatchBytes,
+		maxBatchSize:  config.BatchSize,
+		msgChan:       make(chan *msg),
 		serialiser:    json.Marshal,
+		checkpointer:  checkpointer,
 	}
 
 	maxQueueBytes := defaultMaxQueueBytes
@@ -195,10 +193,6 @@ func (w *BatchWriter) Send(ctx context.Context) error {
 func (w *BatchWriter) Close() error {
 	close(w.msgChan)
 	return w.writer.Close()
-}
-
-func (w *BatchWriter) SetCheckpoint(checkpoint checkpoint) {
-	w.checkpointer = checkpoint
 }
 
 func (w *BatchWriter) sendBatch(ctx context.Context, batch *msgBatch) error {

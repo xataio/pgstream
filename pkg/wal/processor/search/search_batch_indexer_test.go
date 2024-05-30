@@ -13,6 +13,7 @@ import (
 	syncmocks "github.com/xataio/pgstream/internal/sync/mocks"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
+	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 
 	"github.com/google/go-cmp/cmp"
@@ -371,7 +372,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 	tests := []struct {
 		name       string
 		store      Store
-		checkpoint checkpoint
+		checkpoint checkpointer.Checkpoint
 		batch      *msgBatch
 		skipSchema func(string) bool
 		cleaner    cleaner
@@ -645,8 +646,8 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 			indexer := &BatchIndexer{
 				store:      tc.store,
 				skipSchema: func(schemaName string) bool { return false },
+				checkpoint: tc.checkpoint,
 			}
-			indexer.SetCheckpoint(tc.checkpoint)
 
 			if tc.skipSchema != nil {
 				indexer.skipSchema = tc.skipSchema
