@@ -53,10 +53,9 @@ func TestListener_Listen(t *testing.T) {
 		name               string
 		replicationHandler func(doneChan chan struct{}) *replicationmocks.Handler
 		processEventFn     listenerProcessWalEvent
-		syncInterval       time.Duration
+		deserialiser       func([]byte, any) error
 
-		wantSyncCalls uint64
-		wantErr       error
+		wantErr error
 	}{
 		{
 			name: "ok - message received",
@@ -79,31 +78,7 @@ func TestListener_Listen(t *testing.T) {
 			},
 			processEventFn: okProcessEvent,
 
-			wantSyncCalls: 1,
-			wantErr:       nil,
-		},
-		{
-			name: "ok - sync interval",
-			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
-				h := newMockReplicationHandler()
-				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (replication.Message, error) {
-					return emptyMessage, nil
-				}
-				h.SyncLSNFn = func(ctx context.Context) error {
-					defer func() {
-						if i := h.GetSyncLSNCalls(); i == 1 {
-							doneChan <- struct{}{}
-						}
-					}()
-					return nil
-				}
-				return h
-			},
-			processEventFn: okProcessEvent,
-			syncInterval:   50 * time.Millisecond,
-
-			wantSyncCalls: 2,
-			wantErr:       nil,
+			wantErr: context.Canceled,
 		},
 		{
 			name: "ok - timeout on receive message, retried",
@@ -128,8 +103,7 @@ func TestListener_Listen(t *testing.T) {
 			},
 			processEventFn: okProcessEvent,
 
-			wantSyncCalls: 1,
-			wantErr:       nil,
+			wantErr: context.Canceled,
 		},
 		{
 			name: "ok - nil msg data",
@@ -147,43 +121,12 @@ func TestListener_Listen(t *testing.T) {
 			},
 			processEventFn: okProcessEvent,
 
-			wantSyncCalls: 1,
-			wantErr:       nil,
+			wantErr: context.Canceled,
 		},
 		{
-			name: "ok - keep alive no reply requested",
+			name: "ok - keep alive",
 			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
 				h := newMockReplicationHandler()
-				h.UpdateLSNPositionFn = func(lsn replication.LSN) {
-					require.Equal(t, testLSN, lsn)
-				}
-				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (replication.Message, error) {
-					defer func() {
-						if i == 1 {
-							doneChan <- struct{}{}
-						}
-					}()
-					switch i {
-					case 1:
-						return newMockKeepAliveMessage(false), nil
-					default:
-						return emptyMessage, nil
-					}
-				}
-				return h
-			},
-			processEventFn: okProcessEvent,
-
-			wantSyncCalls: 1,
-			wantErr:       nil,
-		},
-		{
-			name: "ok - keep alive with reply requested",
-			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
-				h := newMockReplicationHandler()
-				h.UpdateLSNPositionFn = func(lsn replication.LSN) {
-					require.Equal(t, testLSN, lsn)
-				}
 				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (replication.Message, error) {
 					defer func() {
 						if i == 1 {
@@ -199,39 +142,16 @@ func TestListener_Listen(t *testing.T) {
 				}
 				return h
 			},
-			processEventFn: okProcessEvent,
-
-			wantSyncCalls: 2,
-			wantErr:       nil,
-		},
-		{
-			name: "error - keep alive",
-			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
-				h := newMockReplicationHandler()
-				h.UpdateLSNPositionFn = func(lsn replication.LSN) {
-					require.Equal(t, testLSN, lsn)
-				}
-				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (replication.Message, error) {
-					defer func() {
-						if i == 1 {
-							doneChan <- struct{}{}
-						}
-					}()
-					switch i {
-					case 1:
-						return newMockKeepAliveMessage(true), nil
-					default:
-						return emptyMessage, nil
-					}
-				}
-				h.SyncLSNFn = func(context.Context) error { return errTest }
-
-				return h
+			processEventFn: func(_ context.Context, data *wal.Event) error {
+				require.Equal(t, &wal.Event{
+					CommitPosition: wal.CommitPosition{
+						PGPos: testLSN,
+					},
+				}, data)
+				return nil
 			},
-			processEventFn: okProcessEvent,
 
-			wantSyncCalls: 1,
-			wantErr:       errTest,
+			wantErr: context.Canceled,
 		},
 		{
 			name: "error - receiving message",
@@ -249,8 +169,7 @@ func TestListener_Listen(t *testing.T) {
 			},
 			processEventFn: okProcessEvent,
 
-			wantSyncCalls: 0,
-			wantErr:       errTest,
+			wantErr: errTest,
 		},
 		{
 			name: "error - processing wal event",
@@ -268,11 +187,10 @@ func TestListener_Listen(t *testing.T) {
 			},
 			processEventFn: func(context.Context, *wal.Event) error { return errTest },
 
-			wantSyncCalls: 0,
-			wantErr:       errTest,
+			wantErr: errTest,
 		},
 		{
-			name: "error - context canceled during process wal event",
+			name: "error - deserialising wal event",
 			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
 				h := newMockReplicationHandler()
 				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (replication.Message, error) {
@@ -286,32 +204,9 @@ func TestListener_Listen(t *testing.T) {
 				return h
 			},
 			processEventFn: func(context.Context, *wal.Event) error { return nil },
+			deserialiser:   func(b []byte, a any) error { return errTest },
 
-			wantSyncCalls: 1,
-			wantErr:       nil,
-		},
-		{
-			name: "error - sync interval",
-			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
-				h := newMockReplicationHandler()
-				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (replication.Message, error) {
-					return emptyMessage, nil
-				}
-				h.SyncLSNFn = func(ctx context.Context) error {
-					defer func() {
-						if i := h.GetSyncLSNCalls(); i == 1 {
-							doneChan <- struct{}{}
-						}
-					}()
-					return errTest
-				}
-				return h
-			},
-			processEventFn: okProcessEvent,
-			syncInterval:   50 * time.Millisecond,
-
-			wantSyncCalls: 1,
-			wantErr:       errTest,
+			wantErr: errTest,
 		},
 	}
 
@@ -323,17 +218,15 @@ func TestListener_Listen(t *testing.T) {
 			doneChan := make(chan struct{}, 1)
 			defer close(doneChan)
 
-			syncInterval := 5 * time.Second
-			if tc.syncInterval != 0 {
-				syncInterval = tc.syncInterval
-			}
-
 			replicationHandler := tc.replicationHandler(doneChan)
 			l := &Listener{
 				replicationHandler:  replicationHandler,
 				processEvent:        tc.processEventFn,
-				syncInterval:        syncInterval,
 				walDataDeserialiser: testDeserialiser,
+			}
+
+			if tc.deserialiser != nil {
+				l.walDataDeserialiser = tc.deserialiser
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -345,7 +238,6 @@ func TestListener_Listen(t *testing.T) {
 				defer wg.Done()
 				err := l.Listen(ctx)
 				require.ErrorIs(t, err, tc.wantErr)
-				require.Equal(t, int(tc.wantSyncCalls), int(replicationHandler.GetSyncLSNCalls()))
 			}()
 
 			// make sure the test doesn't block indefinitely if something goes

@@ -12,8 +12,7 @@ import (
 type Handler interface {
 	StartReplication(ctx context.Context) error
 	ReceiveMessage(ctx context.Context) (Message, error)
-	UpdateLSNPosition(lsn LSN)
-	SyncLSN(ctx context.Context) error
+	SyncLSN(ctx context.Context, lsn LSN) error
 	DropReplicationSlot(ctx context.Context) error
 	GetLSNParser() LSNParser
 	Close() error

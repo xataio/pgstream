@@ -5,7 +5,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
@@ -24,9 +23,11 @@ type Handler struct {
 
 	pgReplicationSlotName string
 
-	// The current (as we know it) position in the WAL.
-	currentLSN uint64
-	lsnParser  replication.LSNParser
+	lsnParser replication.LSNParser
+}
+
+type Config struct {
+	PostgresURL string
 }
 
 const (
@@ -37,14 +38,18 @@ const (
 	logSystemID    = "system_id"
 )
 
-func NewHandler(ctx context.Context, cfg *pgx.ConnConfig) (*Handler, error) {
-	pgConn, err := pgx.ConnectConfig(ctx, cfg)
+func NewHandler(ctx context.Context, cfg Config) (*Handler, error) {
+	pgCfg, err := pgx.ParseConfig(cfg.PostgresURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed parsing postgres connection string: %w", err)
+	}
+	pgConn, err := pgx.ConnectConfig(ctx, pgCfg)
 	if err != nil {
 		return nil, fmt.Errorf("create postgres client: %w", err)
 	}
 
 	// open a second Postgres connection, this one dedicated for replication
-	copyConfig := cfg.Copy()
+	copyConfig := pgCfg.Copy()
 	copyConfig.RuntimeParams["replication"] = "database"
 
 	pgReplicationConn, err := pgconn.ConnectConfig(context.Background(), &copyConfig.Config)
@@ -119,9 +124,7 @@ func (h *Handler) StartReplication(ctx context.Context) error {
 
 	logger.Info().Msgf("logical replication started on slot %v.", h.pgReplicationSlotName)
 
-	h.UpdateLSNPosition(startPos)
-
-	return nil
+	return h.SyncLSN(ctx, startPos)
 }
 
 func (h *Handler) ReceiveMessage(ctx context.Context) (replication.Message, error) {
@@ -159,13 +162,8 @@ func (h *Handler) ReceiveMessage(ctx context.Context) (replication.Message, erro
 	}
 }
 
-func (h *Handler) UpdateLSNPosition(lsn replication.LSN) {
-	atomic.StoreUint64(&h.currentLSN, uint64(lsn))
-}
-
 // SyncLSN notifies Postgres how far we have processed in the WAL.
-func (h *Handler) SyncLSN(ctx context.Context) error {
-	lsn := h.getLSNPosition()
+func (h *Handler) SyncLSN(ctx context.Context, lsn replication.LSN) error {
 	err := pglogrepl.SendStandbyStatusUpdate(
 		ctx,
 		h.pgReplicationConn,
@@ -203,10 +201,6 @@ func (h *Handler) Close() error {
 		return err
 	}
 	return h.pgConn.Close(context.Background())
-}
-
-func (h *Handler) getLSNPosition() replication.LSN {
-	return replication.LSN(atomic.LoadUint64(&h.currentLSN))
 }
 
 // getRestartLSN returns the absolute earliest possible LSN we can support. If

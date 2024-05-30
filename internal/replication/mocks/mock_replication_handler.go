@@ -12,8 +12,7 @@ import (
 type Handler struct {
 	StartReplicationFn    func(context.Context) error
 	ReceiveMessageFn      func(context.Context, uint64) (replication.Message, error)
-	UpdateLSNPositionFn   func(lsn replication.LSN)
-	SyncLSNFn             func(context.Context) error
+	SyncLSNFn             func(context.Context, replication.LSN) error
 	DropReplicationSlotFn func(ctx context.Context) error
 	GetLSNParserFn        func() replication.LSNParser
 	CloseFn               func() error
@@ -30,13 +29,9 @@ func (m *Handler) ReceiveMessage(ctx context.Context) (replication.Message, erro
 	return m.ReceiveMessageFn(ctx, m.GetReceiveMessageCalls())
 }
 
-func (m *Handler) UpdateLSNPosition(lsn replication.LSN) {
-	m.UpdateLSNPositionFn(lsn)
-}
-
-func (m *Handler) SyncLSN(ctx context.Context) error {
+func (m *Handler) SyncLSN(ctx context.Context, lsn replication.LSN) error {
 	atomic.AddUint64(&m.SyncLSNCalls, 1)
-	return m.SyncLSNFn(ctx)
+	return m.SyncLSNFn(ctx, lsn)
 }
 
 func (m *Handler) DropReplicationSlot(ctx context.Context) error {
