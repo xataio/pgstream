@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"runtime/debug"
 
-	"github.com/xataio/pgstream/internal/backoff"
 	"github.com/xataio/pgstream/internal/kafka"
 	loglib "github.com/xataio/pgstream/internal/log"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -27,8 +26,7 @@ type Reader struct {
 }
 
 type ReaderConfig struct {
-	Kafka         kafka.ReaderConfig
-	CommitBackoff backoff.Config
+	Kafka kafka.ReaderConfig
 }
 
 type kafkaReader interface {
@@ -94,7 +92,7 @@ func (r *Reader) Listen(ctx context.Context) error {
 	}
 }
 
-func (r *Reader) Close() {
+func (r *Reader) Close() error {
 	// Cleanly closing the connection to Kafka is important
 	// in order for the consumer's partitions to be re-allocated
 	// quickly.
@@ -103,5 +101,7 @@ func (r *Reader) Close() {
 			Err(err).
 			Bytes("stack_trace", debug.Stack()).
 			Msg("error closing connection to kafka")
+		return err
 	}
+	return nil
 }
