@@ -14,8 +14,8 @@ func init() {
 	viper.SetEnvPrefix("PGSTREAM")
 	viper.AutomaticEnv()
 
-	rootCmd.PersistentFlags().String("postgres-url", "postgres://postgres:postgres@localhost?sslmode=disable", "Postgres URL")
-	viper.BindPFlag("PG_URL", rootCmd.PersistentFlags().Lookup("postgres-url"))
+	rootCmd.PersistentFlags().String("pgurl", "postgres://postgres:postgres@localhost?sslmode=disable", "Postgres URL")
+	viper.BindPFlag("pgurl", rootCmd.PersistentFlags().Lookup("pgurl"))
 }
 
 var rootCmd = &cobra.Command{

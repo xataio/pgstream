@@ -10,25 +10,15 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Initialises pgstream, creating the relevant tables/functions/triggers under the configured internal schema",
+	Short: "Initialises pgstream, creating the replication slot and the relevant tables/functions/triggers under the configured internal schema.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sp, _ := pterm.DefaultSpinner.WithText("initialising pgstream...").Start()
 
-		ctx := context.Background()
-		pgURL := viper.GetString("PG_URL")
-
-		stream, err := stream.New(ctx, pgURL)
-		if err != nil {
-			sp.Fail(err.Error())
-			return err
-		}
-
-		if err := stream.Init(ctx); err != nil {
+		if err := stream.Init(context.Background(), pgURL()); err != nil {
 			sp.Fail(err.Error())
 			return err
 		}
@@ -40,20 +30,11 @@ var initCmd = &cobra.Command{
 
 var tearDownCmd = &cobra.Command{
 	Use:   "tear-down",
-	Short: "It tears down any pgstream setup, removing all the relevant tables/functions/triggers and the internal pgstream schema.",
+	Short: "It tears down any pgstream setup, removing the replication slot and all the relevant tables/functions/triggers, the internal pgstream schema.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sp, _ := pterm.DefaultSpinner.WithText("tearing down pgstream...").Start()
 
-		ctx := context.Background()
-		pgURL := viper.GetString("PG_URL")
-
-		stream, err := stream.New(ctx, pgURL)
-		if err != nil {
-			sp.Fail(err.Error())
-			return err
-		}
-
-		if err := stream.TearDown(ctx); err != nil {
+		if err := stream.TearDown(context.Background(), pgURL()); err != nil {
 			sp.Fail(err.Error())
 			return err
 		}
