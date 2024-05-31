@@ -38,7 +38,12 @@ func (mb *msgBatch) drain() *msgBatch {
 
 	mb.msgs = []kafka.Message{}
 	mb.totalBytes = 0
+	mb.lastPos = wal.CommitPosition{}
 	return batch
+}
+
+func (mb *msgBatch) isEmpty() bool {
+	return len(mb.msgs) == 0 && mb.lastPos.IsEmpty()
 }
 
 // size returns the size of the kafka message value (does not include headers or

@@ -97,6 +97,10 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, event *wal.Event) (e
 		}
 	}()
 
+	log.Debug().
+		Any("wal_data", event.Data).
+		Msg("search batch indexer: received wal event")
+
 	msg, err := i.adapter.walEventToMsg(event)
 	if err != nil {
 		if errors.Is(err, errNilIDValue) || errors.Is(err, errNilVersionValue) || errors.Is(err, errMetadataMissing) {
@@ -158,8 +162,11 @@ func (i *BatchIndexer) Send(ctx context.Context) error {
 			// stop sending batches
 			return sendErr
 		case <-ticker.C:
-			batchChan <- msgBatch.drain()
+			if !msgBatch.isEmpty() {
+				batchChan <- msgBatch.drain()
+			}
 		case msg := <-i.msgChan:
+			msgBatch.add(msg)
 			// trigger a send if we reached the configured batch size or if the
 			// event was for a schema change/keep alive. We need to make sure
 			// any events following a schema change are processed using the
@@ -168,7 +175,6 @@ func (i *BatchIndexer) Send(ctx context.Context) error {
 			if msgBatch.size() >= i.batchSize || msg.isSchemaChange() || msg.isKeepAlive() {
 				batchChan <- msgBatch.drain()
 			}
-			msgBatch.add(msg)
 		}
 	}
 }
@@ -180,7 +186,7 @@ func (i *BatchIndexer) Close() error {
 }
 
 func (i *BatchIndexer) sendBatch(ctx context.Context, batch *msgBatch) error {
-	if len(batch.msgs) == 0 {
+	if batch.isEmpty() {
 		return nil
 	}
 
