@@ -176,20 +176,6 @@ func (h *Handler) SyncLSN(ctx context.Context, lsn replication.LSN) error {
 	return nil
 }
 
-func (h *Handler) DropReplicationSlot(ctx context.Context) error {
-	err := pglogrepl.DropReplicationSlot(
-		ctx,
-		h.pgReplicationConn,
-		h.pgReplicationSlotName,
-		pglogrepl.DropReplicationSlotOptions{Wait: true},
-	)
-	if err != nil {
-		return fmt.Errorf("clean up replication slot %q: %w", h.pgReplicationSlotName, err)
-	}
-
-	return nil
-}
-
 func (h *Handler) GetLSNParser() replication.LSNParser {
 	return h.lsnParser
 }
