@@ -31,7 +31,7 @@ BEGIN
         is_system_schema := pgstream.is_system_schema(rec_schema_name);
 
         IF rec_schema_name IS NOT NULL AND NOT is_system_schema THEN
-            SELECT COUNT(*)+1 INTO schema_version FROM "pgstream"."schema_log" WHERE schema_name = rec_schema_name;
+            SELECT COALESCE((SELECT version+1 FROM "pgstream"."schema_log" WHERE schema_name = rec_schema_name ORDER BY version DESC LIMIT 1), 1) INTO schema_version;
 
             -- a dropped schema log entry is constant, has no tables AND has the dropped flag set to true.
             INSERT INTO "pgstream"."schema_log" (version, schema_name, schema) VALUES (schema_version, rec_schema_name, '{"tables": null, "dropped": true}'::jsonb);
@@ -52,7 +52,7 @@ BEGIN
         is_system_schema := pgstream.is_system_schema(rec_schema_name);
 
         IF rec_schema_name IS NOT NULL AND NOT is_system_schema THEN
-            SELECT COUNT(*)+1 INTO schema_version FROM "pgstream"."schema_log" WHERE schema_name = rec_schema_name;
+            SELECT COALESCE((SELECT version+1 FROM "pgstream"."schema_log" WHERE schema_name = rec_schema_name ORDER BY version DESC LIMIT 1), 1) INTO schema_version;
             INSERT INTO "pgstream"."schema_log" (version, schema_name, schema) VALUES (schema_version, rec_schema_name, pgstream.get_schema(rec_schema_name));
         END IF;
     elsif tg_event = 'ddl_command_end' THEN
@@ -67,7 +67,7 @@ BEGIN
         is_system_schema := pgstream.is_system_schema(rec_schema_name);
 
         IF rec_schema_name IS NOT NULL AND NOT is_system_schema THEN
-            SELECT COUNT(*)+1 INTO schema_version FROM "pgstream"."schema_log" WHERE schema_name = rec_schema_name;
+            SELECT COALESCE((SELECT version+1 FROM "pgstream"."schema_log" WHERE schema_name = rec_schema_name ORDER BY version DESC LIMIT 1), 1) INTO schema_version;
             INSERT INTO "pgstream"."schema_log" (version, schema_name, schema) VALUES (schema_version, rec_schema_name, pgstream.get_schema(rec_schema_name));
         END IF;
     END IF;
