@@ -18,7 +18,7 @@ func newMockReplicationHandler() *replicationmocks.Handler {
 	return &replicationmocks.Handler{
 		StartReplicationFn: func(context.Context) error { return nil },
 		GetLSNParserFn:     func() replication.LSNParser { return newMockLSNParser() },
-		SyncLSNFn:          func(ctx context.Context) error { return nil },
+		SyncLSNFn:          func(ctx context.Context, lsn replication.LSN) error { return nil },
 		ReceiveMessageFn: func(ctx context.Context, i uint64) (replication.Message, error) {
 			return newMockMessage(), nil
 		},

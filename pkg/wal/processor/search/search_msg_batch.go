@@ -34,15 +34,23 @@ func (m *msg) isSchemaChange() bool {
 	return m.schemaChange != nil
 }
 
+func (m *msg) isKeepAlive() bool {
+	return m.write == nil && m.schemaChange == nil && m.truncate == nil &&
+		!m.pos.IsEmpty()
+}
+
 func (m *msgBatch) add(msg *msg) {
-	if msg == nil ||
-		(msg.write == nil && msg.schemaChange == nil && msg.truncate == nil) {
+	if msg == nil {
 		return
 	}
 
-	m.totalBytes += msg.size()
-	m.msgs = append(m.msgs, msg)
-	m.positions = append(m.positions, msg.pos)
+	if msg.write != nil || msg.schemaChange != nil || msg.truncate != nil {
+		m.msgs = append(m.msgs, msg)
+		m.totalBytes += msg.size()
+	}
+	if !msg.pos.IsEmpty() {
+		m.positions = append(m.positions, msg.pos)
+	}
 }
 
 func (m *msgBatch) drain() *msgBatch {

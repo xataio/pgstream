@@ -13,6 +13,7 @@ import (
 	syncmocks "github.com/xataio/pgstream/internal/sync/mocks"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
+	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 
 	"github.com/google/go-cmp/cmp"
@@ -33,7 +34,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 		name              string
 		weightedSemaphore *syncmocks.WeightedSemaphore
 		adapter           *mockAdapter
-		event             *wal.Data
+		event             *wal.Event
 
 		wantMsgs []*msg
 		wantErr  error
@@ -47,7 +48,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				},
 			},
 			adapter: &mockAdapter{
-				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return &msg{
 						schemaChange: testSchemaLogEntry,
 						bytesSize:    testSize,
@@ -67,12 +68,35 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - keep alive",
+			weightedSemaphore: &syncmocks.WeightedSemaphore{
+				TryAcquireFn: func(i int64) bool { return true },
+			},
+			adapter: &mockAdapter{
+				walEventToMsgFn: func(*wal.Event) (*msg, error) {
+					return &msg{
+						pos: testCommitPos,
+					}, nil
+				},
+			},
+			event: &wal.Event{
+				CommitPosition: testCommitPos,
+			},
+
+			wantMsgs: []*msg{
+				{
+					pos: testCommitPos,
+				},
+			},
+			wantErr: nil,
+		},
+		{
 			name: "ok - nil queue item",
 			weightedSemaphore: &syncmocks.WeightedSemaphore{
 				TryAcquireFn: func(i int64) bool { return true },
 			},
 			adapter: &mockAdapter{
-				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return nil, nil
 				},
 			},
@@ -87,7 +111,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				TryAcquireFn: func(i int64) bool { return true },
 			},
 			adapter: &mockAdapter{
-				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return nil, errNilIDValue
 				},
 			},
@@ -103,7 +127,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				AcquireFn:    func(ctx context.Context, i int64) error { return nil },
 			},
 			adapter: &mockAdapter{
-				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return &msg{
 						schemaChange: testSchemaLogEntry,
 						pos:          testCommitPos,
@@ -127,7 +151,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				AcquireFn:    func(ctx context.Context, i int64) error { return errTest },
 			},
 			adapter: &mockAdapter{
-				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return &msg{schemaChange: testSchemaLogEntry}, nil
 				},
 			},
@@ -142,7 +166,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				TryAcquireFn: func(i int64) bool { return true },
 			},
 			adapter: &mockAdapter{
-				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return nil, errTest
 				},
 			},
@@ -157,7 +181,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				TryAcquireFn: func(i int64) bool { return true },
 			},
 			adapter: &mockAdapter{
-				walDataToMsgFn: func(*wal.Data) (*msg, error) {
+				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					panic(errTest)
 				},
 			},
@@ -371,7 +395,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 	tests := []struct {
 		name       string
 		store      Store
-		checkpoint checkpoint
+		checkpoint checkpointer.Checkpoint
 		batch      *msgBatch
 		skipSchema func(string) bool
 		cleaner    cleaner
@@ -645,8 +669,8 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 			indexer := &BatchIndexer{
 				store:      tc.store,
 				skipSchema: func(schemaName string) bool { return false },
+				checkpoint: tc.checkpoint,
 			}
-			indexer.SetCheckpoint(tc.checkpoint)
 
 			if tc.skipSchema != nil {
 				indexer.skipSchema = tc.skipSchema

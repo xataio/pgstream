@@ -62,7 +62,12 @@ func New(cfg *Config, p processor.Processor, skipSchema schemaFilter, idFinder, 
 	}, nil
 }
 
-func (t *Translator) ProcessWALEvent(ctx context.Context, data *wal.Data) error {
+func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) error {
+	if event.Data == nil {
+		return t.processor.ProcessWALEvent(ctx, event)
+	}
+
+	data := event.Data
 	if t.skipSchema(data.Schema) {
 		return nil
 	}
@@ -110,7 +115,7 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, data *wal.Data) error 
 		}
 	}
 
-	return t.processor.ProcessWALEvent(ctx, data)
+	return t.processor.ProcessWALEvent(ctx, event)
 }
 
 func (t *Translator) Close() error {

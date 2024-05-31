@@ -15,11 +15,11 @@ import (
 )
 
 type mockAdapter struct {
-	walDataToMsgFn func(*wal.Data) (*msg, error)
+	walEventToMsgFn func(*wal.Event) (*msg, error)
 }
 
-func (m *mockAdapter) walDataToMsg(d *wal.Data) (*msg, error) {
-	return m.walDataToMsgFn(d)
+func (m *mockAdapter) walEventToMsg(e *wal.Event) (*msg, error) {
+	return m.walEventToMsgFn(e)
 }
 
 type mockStore struct {
@@ -78,22 +78,25 @@ const (
 
 var errTest = errors.New("oh noes")
 
-func newTestSchemaChangeEvent(action string, id xid.ID, now time.Time) *wal.Data {
+func newTestSchemaChangeEvent(action string, id xid.ID, now time.Time) *wal.Event {
 	nowStr := now.Format("2006-01-02 15:04:05")
-	return &wal.Data{
-		Action: action,
-		Schema: schemalog.SchemaName,
-		Table:  schemalog.TableName,
-		Columns: []wal.Column{
-			{ID: "id", Name: "id", Type: "text", Value: id.String()},
-			{ID: "version", Name: "version", Type: "integer", Value: 0},
-			{ID: "schema_name", Name: "schema_name", Type: "text", Value: testSchemaName},
-			{ID: "created_at", Name: "created_at", Type: "timestamp", Value: nowStr},
+	return &wal.Event{
+		Data: &wal.Data{
+			Action: action,
+			Schema: schemalog.SchemaName,
+			Table:  schemalog.TableName,
+			Columns: []wal.Column{
+				{ID: "id", Name: "id", Type: "text", Value: id.String()},
+				{ID: "version", Name: "version", Type: "integer", Value: 0},
+				{ID: "schema_name", Name: "schema_name", Type: "text", Value: testSchemaName},
+				{ID: "created_at", Name: "created_at", Type: "timestamp", Value: nowStr},
+			},
 		},
+		CommitPosition: newTestCommitPosition(),
 	}
 }
 
-func newTestDataEvent(action string) *wal.Data {
+func newTestDataEvent(action string) *wal.Event {
 	cols := []wal.Column{
 		{ID: "col-1", Name: "id", Type: "text", Value: "id-1"},
 		{ID: "col-2", Name: "version", Type: "integer", Value: int64(0)},
@@ -116,7 +119,10 @@ func newTestDataEvent(action string) *wal.Data {
 		d.Columns = cols
 	}
 
-	return d
+	return &wal.Event{
+		Data:           d,
+		CommitPosition: newTestCommitPosition(),
+	}
 }
 
 type testDocOption func(*Document)

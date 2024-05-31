@@ -13,6 +13,7 @@ import (
 	synclib "github.com/xataio/pgstream/internal/sync"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
+	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 
 	"github.com/rs/zerolog"
@@ -37,7 +38,7 @@ type BatchIndexer struct {
 	skipSchema func(schemaName string) bool
 
 	// checkpoint callback to mark what was safely stored
-	checkpoint checkpoint
+	checkpoint checkpointer.Checkpoint
 
 	cleaner cleaner
 }
@@ -49,15 +50,11 @@ type IndexerConfig struct {
 	MaxQueueBytes  int
 }
 
-// checkpoint defines the way to confirm the positions that have been read.
-// The actual implementation depends on the source of events (postgres, kafka,...)
-type checkpoint func(ctx context.Context, positions []wal.CommitPosition) error
-
 const defaultMaxQueueBytes = 100 * 1024 * 1024 // 100MiB
 
 // NewBatchIndexer returns a processor of wal events that indexes data into the
 // search store provided on input.
-func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store) *BatchIndexer {
+func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, checkpointer checkpointer.Checkpoint) *BatchIndexer {
 	indexer := &BatchIndexer{
 		store: store,
 		// by default all schemas are processed
@@ -67,6 +64,7 @@ func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store) *Ba
 		cleaner:           newSchemaCleaner(&config.CleanupBackoff, store),
 		adapter:           newAdapter(store.GetMapper()),
 		msgChan:           make(chan *msg),
+		checkpoint:        checkpointer,
 	}
 
 	// this allows us to bound and configure the memory used by the internal msg
@@ -86,11 +84,11 @@ func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store) *Ba
 // ProcessWALEvent is called on every new message from the WAL logical
 // replication The function is responsible for sending the data to the search
 // store and committing the event position.
-func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, data *wal.Data) (err error) {
+func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, event *wal.Event) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.WithLevel(zerolog.PanicLevel).
-				Any("wal_data", data).
+				Any("wal_data", event.Data).
 				Any("panic", r).
 				Bytes("stack_trace", debug.Stack()).
 				Msg("[PANIC] Panic while processing replication event")
@@ -99,7 +97,7 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, data *wal.Data) (err
 		}
 	}()
 
-	msg, err := i.adapter.walDataToMsg(data)
+	msg, err := i.adapter.walEventToMsg(event)
 	if err != nil {
 		if errors.Is(err, errNilIDValue) || errors.Is(err, errNilVersionValue) || errors.Is(err, errMetadataMissing) {
 			log.Warn().Msgf("invalid event, skipping message: %v", err)
@@ -163,19 +161,16 @@ func (i *BatchIndexer) Send(ctx context.Context) error {
 			batchChan <- msgBatch.drain()
 		case msg := <-i.msgChan:
 			// trigger a send if we reached the configured batch size or if the
-			// event was for a schema change. We need to make sure any events
-			// following a schema change are processed using the right schema
-			// version
-			if msgBatch.size() >= i.batchSize || msg.isSchemaChange() {
+			// event was for a schema change/keep alive. We need to make sure
+			// any events following a schema change are processed using the
+			// right schema version, and any keep alive messages are
+			// checkpointed as soon as possible.
+			if msgBatch.size() >= i.batchSize || msg.isSchemaChange() || msg.isKeepAlive() {
 				batchChan <- msgBatch.drain()
 			}
 			msgBatch.add(msg)
 		}
 	}
-}
-
-func (i *BatchIndexer) SetCheckpoint(checkpoint checkpoint) {
-	i.checkpoint = checkpoint
 }
 
 func (i *BatchIndexer) Close() error {

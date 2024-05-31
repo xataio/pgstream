@@ -45,22 +45,24 @@ func newTestLogEntry() *schemalog.LogEntry {
 	}
 }
 
-func newTestSchemaChangeEvent(action string) *wal.Data {
+func newTestSchemaChangeEvent(action string) *wal.Event {
 	nowStr := now.Format("2006-01-02 15:04:05")
-	return &wal.Data{
-		Action: action,
-		Schema: schemalog.SchemaName,
-		Table:  schemalog.TableName,
-		Columns: []wal.Column{
-			{ID: "id", Name: "id", Type: "text", Value: testSchemaID.String()},
-			{ID: "version", Name: "version", Type: "integer", Value: 0},
-			{ID: "schema_name", Name: "schema_name", Type: "text", Value: testSchemaName},
-			{ID: "created_at", Name: "created_at", Type: "timestamp", Value: nowStr},
+	return &wal.Event{
+		Data: &wal.Data{
+			Action: action,
+			Schema: schemalog.SchemaName,
+			Table:  schemalog.TableName,
+			Columns: []wal.Column{
+				{ID: "id", Name: "id", Type: "text", Value: testSchemaID.String()},
+				{ID: "version", Name: "version", Type: "integer", Value: 0},
+				{ID: "schema_name", Name: "schema_name", Type: "text", Value: testSchemaName},
+				{ID: "created_at", Name: "created_at", Type: "timestamp", Value: nowStr},
+			},
 		},
 	}
 }
 
-func newTestDataEvent(action string) *wal.Data {
+func newTestDataEvent(action string) *wal.Event {
 	cols := []wal.Column{
 		{ID: "col-1", Name: "col-1", Type: "text", Value: "id-1"},
 		{ID: "col-2", Name: "col-2", Type: "integer", Value: int64(0)},
@@ -77,16 +79,18 @@ func newTestDataEvent(action string) *wal.Data {
 		d.Columns = cols
 	}
 
-	return d
+	return &wal.Event{
+		Data: d,
+	}
 }
 
-func newTestDataEventWithMetadata(action string) *wal.Data {
+func newTestDataEventWithMetadata(action string) *wal.Event {
 	d := newTestDataEvent(action)
-	d.Columns = []wal.Column{
+	d.Data.Columns = []wal.Column{
 		{ID: fmt.Sprintf("%s_col-1", testTableID), Name: "col-1", Type: "text", Value: "id-1"},
 		{ID: fmt.Sprintf("%s_col-2", testTableID), Name: "col-2", Type: "integer", Value: int64(0)},
 	}
-	d.Metadata = wal.Metadata{
+	d.Data.Metadata = wal.Metadata{
 		SchemaID:           testSchemaID,
 		TablePgstreamID:    testTableID,
 		InternalColID:      fmt.Sprintf("%s_col-1", testTableID),

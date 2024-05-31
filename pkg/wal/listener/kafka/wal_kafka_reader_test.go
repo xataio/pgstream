@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/xataio/pgstream/internal/backoff"
-	backoffmocks "github.com/xataio/pgstream/internal/backoff/mocks"
 	"github.com/xataio/pgstream/internal/kafka"
 	kafkamocks "github.com/xataio/pgstream/internal/kafka/mocks"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -29,10 +27,12 @@ func TestReader_Listen(t *testing.T) {
 		Value:     []byte("test-value"),
 	}
 
-	testWalData := wal.Data{
-		Action: "I",
-		Schema: "test_schema",
-		Table:  "test_table",
+	testWalEvent := wal.Event{
+		Data: &wal.Data{
+			Action: "I",
+			Schema: "test_schema",
+			Table:  "test_table",
+		},
 		CommitPosition: wal.CommitPosition{
 			KafkaPos: testMessage,
 		},
@@ -44,7 +44,7 @@ func TestReader_Listen(t *testing.T) {
 		require.Equal(t, []byte("test-value"), b)
 		data, ok := a.(*wal.Data)
 		require.True(t, ok)
-		*data = testWalData
+		*data = *testWalEvent.Data
 		return nil
 	}
 
@@ -67,8 +67,8 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, d *wal.Data) error {
-				require.Equal(t, &testWalData, d)
+			processRecord: func(ctx context.Context, d *wal.Event) error {
+				require.Equal(t, &testWalEvent, d)
 				return nil
 			},
 
@@ -85,7 +85,7 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, d *wal.Data) error {
+			processRecord: func(ctx context.Context, d *wal.Event) error {
 				return fmt.Errorf("processRecord: should not be called")
 			},
 
@@ -102,7 +102,7 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, d *wal.Data) error {
+			processRecord: func(ctx context.Context, d *wal.Event) error {
 				return errTest
 			},
 
@@ -119,7 +119,7 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, d *wal.Data) error {
+			processRecord: func(ctx context.Context, d *wal.Event) error {
 				return context.Canceled
 			},
 
@@ -136,7 +136,7 @@ func TestReader_Listen(t *testing.T) {
 					},
 				}
 			},
-			processRecord: func(ctx context.Context, d *wal.Data) error {
+			processRecord: func(ctx context.Context, d *wal.Event) error {
 				return errors.New("processRecord: should not be called")
 			},
 			unmarshaler: func(b []byte, a any) error { return errTest },
@@ -184,91 +184,6 @@ func TestReader_Listen(t *testing.T) {
 					return
 				}
 			}
-		})
-	}
-}
-
-func TestReader_Checkpoint(t *testing.T) {
-	t.Parallel()
-
-	testMsgs := []*kafka.Message{
-		{
-			Key:   []byte("test-key-1"),
-			Value: []byte("test-value-1"),
-		},
-		{
-			Key:   []byte("test-key-2"),
-			Value: []byte("test-value-2"),
-		},
-	}
-
-	testPositions := []wal.CommitPosition{
-		{KafkaPos: testMsgs[0]},
-		{KafkaPos: testMsgs[1]},
-	}
-
-	errTest := errors.New("oh noes")
-
-	tests := []struct {
-		name            string
-		reader          *kafkamocks.Reader
-		backoffProvider backoff.Provider
-
-		wantErr error
-	}{
-		{
-			name: "ok",
-			reader: &kafkamocks.Reader{
-				CommitMessagesFn: func(ctx context.Context, msgs ...*kafka.Message) error {
-					require.ElementsMatch(t, msgs, testMsgs)
-					return nil
-				},
-			},
-			backoffProvider: func(ctx context.Context) backoff.Backoff {
-				return &backoffmocks.Backoff{
-					RetryNotifyFn: func(o backoff.Operation, n backoff.Notify) error {
-						return o()
-					},
-				}
-			},
-
-			wantErr: nil,
-		},
-		{
-			name: "error - committing messages",
-			reader: &kafkamocks.Reader{
-				CommitMessagesFn: func(ctx context.Context, msgs ...*kafka.Message) error {
-					return errTest
-				},
-			},
-			backoffProvider: func(ctx context.Context) backoff.Backoff {
-				return &backoffmocks.Backoff{
-					RetryNotifyFn: func(o backoff.Operation, n backoff.Notify) error {
-						err := o()
-						if err != nil {
-							n(err, 50*time.Millisecond)
-						}
-						return err
-					},
-				}
-			},
-
-			wantErr: errTest,
-		},
-	}
-
-	for _, tc := range tests {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			r := Reader{
-				reader:          tc.reader,
-				backoffProvider: tc.backoffProvider,
-			}
-
-			err := r.Checkpoint(context.Background(), testPositions)
-			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
 }

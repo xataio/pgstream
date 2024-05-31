@@ -13,6 +13,7 @@ import (
 	"github.com/xataio/pgstream/internal/kafka"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	"github.com/xataio/pgstream/pkg/wal"
+	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 
 	"github.com/rs/zerolog"
@@ -33,9 +34,9 @@ type BatchWriter struct {
 	sendFrequency time.Duration
 
 	// optional checkpointer callback to mark what was safely processed
-	checkpointer checkpoint
+	checkpointer checkpointer.Checkpoint
 
-	eventSerialiser func(any) ([]byte, error)
+	serialiser func(any) ([]byte, error)
 }
 
 type kafkaWriter interface {
@@ -43,19 +44,16 @@ type kafkaWriter interface {
 	Close() error
 }
 
-// checkpoint defines the way to confirm the positions that have been read.
-// The actual implementation depends on the source of events (postgres, kafka,...)
-type checkpoint func(ctx context.Context, positions []wal.CommitPosition) error
-
 const defaultMaxQueueBytes = 100 * 1024 * 1024 // 100MiB
 
-func NewBatchWriter(config kafka.WriterConfig) (*BatchWriter, error) {
+func NewBatchWriter(config kafka.WriterConfig, checkpointer checkpointer.Checkpoint) (*BatchWriter, error) {
 	w := &BatchWriter{
-		sendFrequency:   config.BatchTimeout,
-		maxBatchBytes:   config.BatchBytes,
-		maxBatchSize:    config.BatchSize,
-		msgChan:         make(chan *msg),
-		eventSerialiser: json.Marshal,
+		sendFrequency: config.BatchTimeout,
+		maxBatchBytes: config.BatchBytes,
+		maxBatchSize:  config.BatchSize,
+		msgChan:       make(chan *msg),
+		serialiser:    json.Marshal,
+		checkpointer:  checkpointer,
 	}
 
 	maxQueueBytes := defaultMaxQueueBytes
@@ -89,7 +87,7 @@ func NewBatchWriter(config kafka.WriterConfig) (*BatchWriter, error) {
 }
 
 // ProcessWalEvent is called on every new message from the wal
-func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Data, pos wal.CommitPosition) (retErr error) {
+func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.WithLevel(zerolog.PanicLevel).
@@ -102,27 +100,30 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Data, p
 		}
 	}()
 
-	walEventBytes, err := w.eventSerialiser(walEvent)
-	if err != nil {
-		return fmt.Errorf("marshalling event: %w", err)
-	}
-	// check if walEventBytes is larger than the Kafka accepted max message size
-	if len(walEventBytes) > int(w.maxBatchBytes) {
-		log.Warn().
-			Str("warning", "record too large").
-			Int("size", len(walEventBytes)).
-			Str("table", walEvent.Table).
-			Str("schema", walEvent.Schema).
-			Msgf("kafka batch writer: record wal event is larger than %d bytes", w.maxBatchBytes)
-		return nil
+	kafkaMsg := &msg{
+		pos: walEvent.CommitPosition,
 	}
 
-	kafkaMsg := &msg{
-		msg: kafka.Message{
-			Key:   w.getMessageKey(walEvent),
-			Value: walEventBytes,
-		},
-		pos: pos.PGPos,
+	if walEvent.Data != nil {
+		walDataBytes, err := w.serialiser(walEvent.Data)
+		if err != nil {
+			return fmt.Errorf("marshalling event: %w", err)
+		}
+		// check if walEventBytes is larger than the Kafka accepted max message size
+		if len(walDataBytes) > int(w.maxBatchBytes) {
+			log.Warn().
+				Str("warning", "record too large").
+				Int("size", len(walDataBytes)).
+				Str("table", walEvent.Data.Table).
+				Str("schema", walEvent.Data.Schema).
+				Msgf("kafka batch writer: record wal event is larger than %d bytes", w.maxBatchBytes)
+			return nil
+		}
+
+		kafkaMsg.msg = kafka.Message{
+			Key:   w.getMessageKey(walEvent.Data),
+			Value: walDataBytes,
+		}
 	}
 
 	// make sure we don't reach the queue memory limit before adding the new
@@ -178,9 +179,10 @@ func (w *BatchWriter) Send(ctx context.Context) error {
 			batchChan <- msgBatch.drain()
 		case msg := <-w.msgChan:
 			// if the batch has reached the max allowed size, don't wait for the
-			// next tick and send to kafka
+			// next tick and send to kafka. If we receive a keep alive, send so
+			// that we checkpoint as soon as possible.
 			if msgBatch.totalBytes+msg.size() >= int(w.maxBatchBytes) ||
-				len(msgBatch.msgs) == w.maxBatchSize {
+				len(msgBatch.msgs) == w.maxBatchSize || msg.isKeepAlive() {
 				batchChan <- msgBatch.drain()
 			}
 
@@ -194,33 +196,27 @@ func (w *BatchWriter) Close() error {
 	return w.writer.Close()
 }
 
-func (w *BatchWriter) SetCheckpoint(checkpoint checkpoint) {
-	w.checkpointer = checkpoint
-}
-
 func (w *BatchWriter) sendBatch(ctx context.Context, batch *msgBatch) error {
-	if len(batch.msgs) == 0 {
-		return nil
+	log.Debug().Msgf("kafka batch writer: sending message batch size %d with pos: %s", len(batch.msgs), batch.lastPos.String())
+
+	if len(batch.msgs) > 0 {
+		// This call will block until it either reaches the writer configured batch
+		// size or the batch timeout. This batching feature is useful when sharing a
+		// writer across multiple go routines. In our case, we only send from a
+		// single go routine, so we use a low value for the batch timeout, and
+		// trigger the send immediately while handling the batching on our end to
+		// improve throughput and reduce send latency.
+		//
+		// We don't use an asynchronous writer since we need to know if the messages
+		// fail to be written to kafka.
+		if err := w.writer.WriteMessages(ctx, batch.msgs...); err != nil {
+			log.Error().Err(err).Msg("failed to write to kafka")
+			return fmt.Errorf("kafka batch writer: writing to kafka: %w", err)
+		}
 	}
 
-	log.Debug().Msgf("kafka batch writer: sending message batch size %d with pos: %X", len(batch.msgs), batch.lastPos)
-
-	// This call will block until it either reaches the writer configured batch
-	// size or the batch timeout. This batching feature is useful when sharing a
-	// writer across multiple go routines. In our case, we only send from a
-	// single go routine, so we use a low value for the batch timeout, and
-	// trigger the send immediately while handling the batching on our end to
-	// improve throughput and reduce send latency.
-	//
-	// We don't use an asynchronous writer since we need to know if the messages
-	// fail to be written to kafka.
-	if err := w.writer.WriteMessages(ctx, batch.msgs...); err != nil {
-		log.Error().Err(err).Msg("failed to write to kafka")
-		return fmt.Errorf("kafka batch writer: writing to kafka: %w", err)
-	}
-
-	if w.checkpointer != nil {
-		if err := w.checkpointer(ctx, []wal.CommitPosition{{PGPos: batch.lastPos}}); err != nil {
+	if w.checkpointer != nil && !batch.lastPos.IsEmpty() {
+		if err := w.checkpointer(ctx, []wal.CommitPosition{batch.lastPos}); err != nil {
 			log.Warn().Err(err).Msg("kafka batch writer: error updating commit position")
 		}
 	}
@@ -234,12 +230,12 @@ func (w *BatchWriter) sendBatch(ctx context.Context, batch *msgBatch) error {
 // the event schema is that of the pgstream schema, so we extract the underlying
 // user schema they're linked to, to make sure they're routed to the same
 // partition as their writes. This gives us ordering per schema.
-func (w BatchWriter) getMessageKey(walEvent *wal.Data) []byte {
-	eventKey := walEvent.Schema
-	if processor.IsSchemaLogEvent(walEvent) {
+func (w BatchWriter) getMessageKey(walData *wal.Data) []byte {
+	eventKey := walData.Schema
+	if processor.IsSchemaLogEvent(walData) {
 		var schemaName string
 		var found bool
-		for _, col := range walEvent.Columns {
+		for _, col := range walData.Columns {
 			if col.Name == "schema_name" {
 				var ok bool
 				if schemaName, ok = col.Value.(string); !ok {

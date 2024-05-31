@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
-	"time"
 
 	"github.com/xataio/pgstream/internal/backoff"
 	"github.com/xataio/pgstream/internal/kafka"
@@ -25,8 +24,6 @@ type Reader struct {
 
 	// processRecord is called for a new record.
 	processRecord payloadProcessor
-
-	backoffProvider backoff.Provider
 }
 
 type ReaderConfig struct {
@@ -36,11 +33,10 @@ type ReaderConfig struct {
 
 type kafkaReader interface {
 	FetchMessage(context.Context) (*kafka.Message, error)
-	CommitMessages(context.Context, ...*kafka.Message) error
 	Close() error
 }
 
-type payloadProcessor func(context.Context, *wal.Data) error
+type payloadProcessor func(context.Context, *wal.Event) error
 
 func NewReader(config ReaderConfig,
 	processRecord payloadProcessor,
@@ -53,10 +49,7 @@ func NewReader(config ReaderConfig,
 	return &Reader{
 		reader:        reader,
 		processRecord: processRecord,
-		backoffProvider: func(ctx context.Context) backoff.Backoff {
-			return backoff.NewExponentialBackoff(ctx, &config.CommitBackoff)
-		},
-		unmarshaler: json.Unmarshal,
+		unmarshaler:   json.Unmarshal,
 	}, nil
 }
 
@@ -79,13 +72,15 @@ func (r *Reader) Listen(ctx context.Context) error {
 				Bytes("wal_data", msg.Value).
 				Msg("received")
 
-			data := &wal.Data{}
-			if err := r.unmarshaler(msg.Value, data); err != nil {
+			event := &wal.Event{
+				CommitPosition: wal.CommitPosition{KafkaPos: msg},
+			}
+			event.Data = &wal.Data{}
+			if err := r.unmarshaler(msg.Value, event.Data); err != nil {
 				return fmt.Errorf("error unmarshaling message value into wal data: %w", err)
 			}
-			data.CommitPosition = wal.CommitPosition{KafkaPos: msg}
 
-			if err = r.processRecord(ctx, data); err != nil {
+			if err = r.processRecord(ctx, event); err != nil {
 				if errors.Is(err, context.Canceled) {
 					return fmt.Errorf("canceled: %w", err)
 				}
@@ -109,36 +104,4 @@ func (r *Reader) Close() {
 			Bytes("stack_trace", debug.Stack()).
 			Msg("error closing connection to kafka")
 	}
-}
-
-func (r *Reader) Checkpoint(ctx context.Context, positions []wal.CommitPosition) error {
-	msgs := make([]*kafka.Message, 0, len(positions))
-	for _, pos := range positions {
-		msgs = append(msgs, pos.KafkaPos)
-	}
-
-	if err := r.commitMessagesWithRetry(ctx, msgs); err != nil {
-		return err
-	}
-
-	for _, msg := range msgs {
-		log.Trace().
-			Str("topic", msg.Topic).
-			Int("partition", msg.Partition).
-			Int64("offset", msg.Offset).
-			Msg("committed")
-	}
-
-	return nil
-}
-
-func (r *Reader) commitMessagesWithRetry(ctx context.Context, msgs []*kafka.Message) error {
-	bo := r.backoffProvider(ctx)
-	return bo.RetryNotify(
-		func() error {
-			return r.reader.CommitMessages(ctx, msgs...)
-		},
-		func(err error, d time.Duration) {
-			log.Warn().Err(err).Msgf("failed to commit messages. Retrying in %v", d)
-		})
 }

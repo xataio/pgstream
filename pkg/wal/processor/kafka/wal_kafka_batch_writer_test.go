@@ -19,6 +19,7 @@ import (
 	syncmocks "github.com/xataio/pgstream/internal/sync/mocks"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
+	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 
 	"golang.org/x/sync/semaphore"
 )
@@ -36,11 +37,18 @@ var (
 func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 	t.Parallel()
 
-	testWalEvent := &wal.Data{
-		Action: "I",
-		LSN:    testLSNStr,
-		Schema: testSchema,
-		Table:  testTable,
+	testWalEvent := &wal.Event{
+		Data: &wal.Data{
+			Action: "I",
+			LSN:    testLSNStr,
+			Schema: testSchema,
+			Table:  testTable,
+		},
+		CommitPosition: wal.CommitPosition{PGPos: testLSN},
+	}
+
+	testCommitPosition := wal.CommitPosition{
+		PGPos: testLSN,
 	}
 
 	testBytes := []byte("test")
@@ -48,8 +56,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		walEvent        *wal.Data
-		pos             wal.CommitPosition
+		walEvent        *wal.Event
 		eventSerialiser func(any) ([]byte, error)
 		semaphore       synclib.WeightedSemaphore
 
@@ -59,7 +66,6 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 		{
 			name:     "ok",
 			walEvent: testWalEvent,
-			pos:      wal.CommitPosition{PGPos: testLSN},
 
 			wantMsgs: []*msg{
 				{
@@ -67,23 +73,38 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 						Key:   []byte(testSchema),
 						Value: testBytes,
 					},
-					pos: testLSN,
+					pos: testCommitPosition,
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - keep alive",
+			walEvent: &wal.Event{
+				CommitPosition: testCommitPosition,
+			},
+
+			wantMsgs: []*msg{
+				{
+					pos: testCommitPosition,
 				},
 			},
 			wantErr: nil,
 		},
 		{
 			name: "ok - pgstream schema event",
-			walEvent: &wal.Data{
-				Action: "I",
-				LSN:    testLSNStr,
-				Schema: schemalog.SchemaName,
-				Table:  schemalog.TableName,
-				Columns: []wal.Column{
-					{Name: "schema_name", Value: testSchema},
+			walEvent: &wal.Event{
+				Data: &wal.Data{
+					Action: "I",
+					LSN:    testLSNStr,
+					Schema: schemalog.SchemaName,
+					Table:  schemalog.TableName,
+					Columns: []wal.Column{
+						{Name: "schema_name", Value: testSchema},
+					},
 				},
+				CommitPosition: testCommitPosition,
 			},
-			pos: wal.CommitPosition{PGPos: testLSN},
 
 			wantMsgs: []*msg{
 				{
@@ -91,7 +112,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 						Key:   []byte(testSchema),
 						Value: testBytes,
 					},
-					pos: testLSN,
+					pos: testCommitPosition,
 				},
 			},
 			wantErr: nil,
@@ -99,7 +120,6 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 		{
 			name:            "ok - wal event too large, message dropped",
 			walEvent:        testWalEvent,
-			pos:             wal.CommitPosition{PGPos: testLSN},
 			eventSerialiser: func(any) ([]byte, error) { return []byte(strings.Repeat("a", 101)), nil },
 
 			wantMsgs: []*msg{},
@@ -108,7 +128,6 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 		{
 			name:            "error - marshaling event",
 			walEvent:        testWalEvent,
-			pos:             wal.CommitPosition{PGPos: testLSN},
 			eventSerialiser: func(any) ([]byte, error) { return nil, errTest },
 
 			wantMsgs: []*msg{},
@@ -116,29 +135,33 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 		},
 		{
 			name: "panic recovery - invalid schema value type",
-			walEvent: &wal.Data{
-				Action: "I",
-				LSN:    testLSNStr,
-				Schema: schemalog.SchemaName,
-				Table:  schemalog.TableName,
-				Columns: []wal.Column{
-					{Name: "schema_name", Value: 1},
+			walEvent: &wal.Event{
+				Data: &wal.Data{
+					Action: "I",
+					LSN:    testLSNStr,
+					Schema: schemalog.SchemaName,
+					Table:  schemalog.TableName,
+					Columns: []wal.Column{
+						{Name: "schema_name", Value: 1},
+					},
 				},
+				CommitPosition: testCommitPosition,
 			},
-			pos: wal.CommitPosition{PGPos: testLSN},
 
 			wantMsgs: []*msg{},
 			wantErr:  errors.New("kafka batch writer: understanding event: schema_log schema_name received is not a string: int"),
 		},
 		{
 			name: "panic recovery - schema_name not found",
-			walEvent: &wal.Data{
-				Action: "I",
-				LSN:    testLSNStr,
-				Schema: schemalog.SchemaName,
-				Table:  schemalog.TableName,
+			walEvent: &wal.Event{
+				Data: &wal.Data{
+					Action: "I",
+					LSN:    testLSNStr,
+					Schema: schemalog.SchemaName,
+					Table:  schemalog.TableName,
+				},
+				CommitPosition: testCommitPosition,
 			},
-			pos: wal.CommitPosition{PGPos: testLSN},
 
 			wantMsgs: []*msg{},
 			wantErr:  errors.New("kafka batch writer: understanding event: schema_log schema_name not found in columns"),
@@ -146,7 +169,6 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 		{
 			name:     "error - acquiring semaphore",
 			walEvent: testWalEvent,
-			pos:      wal.CommitPosition{PGPos: testLSN},
 			semaphore: &syncmocks.WeightedSemaphore{
 				TryAcquireFn: func(int64) bool { return false },
 				AcquireFn:    func(_ context.Context, i int64) error { return errTest },
@@ -163,10 +185,10 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 			t.Parallel()
 
 			writer := &BatchWriter{
-				msgChan:         make(chan *msg),
-				maxBatchBytes:   100,
-				queueBytesSema:  semaphore.NewWeighted(defaultMaxQueueBytes),
-				eventSerialiser: mockMarshaler,
+				msgChan:        make(chan *msg),
+				maxBatchBytes:  100,
+				queueBytesSema: semaphore.NewWeighted(defaultMaxQueueBytes),
+				serialiser:     mockMarshaler,
 			}
 
 			if tc.semaphore != nil {
@@ -174,12 +196,12 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 			}
 
 			if tc.eventSerialiser != nil {
-				writer.eventSerialiser = tc.eventSerialiser
+				writer.serialiser = tc.eventSerialiser
 			}
 
 			go func() {
 				defer close(writer.msgChan)
-				err := writer.ProcessWALEvent(context.Background(), tc.walEvent, tc.pos)
+				err := writer.ProcessWALEvent(context.Background(), tc.walEvent)
 				if !errors.Is(err, tc.wantErr) {
 					require.Equal(t, err.Error(), tc.wantErr.Error())
 				}
@@ -198,13 +220,16 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 func TestBatchKafkaWriter_SendThread(t *testing.T) {
 	t.Parallel()
 
+	testCommitPosition := wal.CommitPosition{
+		PGPos: testLSN,
+	}
 	testBytes := []byte("test")
 	testKafkaMsg := &msg{
 		msg: kafka.Message{
 			Key:   []byte(testSchema),
 			Value: testBytes,
 		},
-		pos: testLSN,
+		pos: testCommitPosition,
 	}
 
 	tests := []struct {
@@ -250,21 +275,21 @@ func TestBatchKafkaWriter_SendThread(t *testing.T) {
 						Key:   []byte(testSchema),
 						Value: []byte(strings.Repeat("a", 51)),
 					},
-					pos: testLSN,
+					pos: testCommitPosition,
 				},
 				{
 					msg: kafka.Message{
 						Key:   []byte(testSchema),
 						Value: []byte(strings.Repeat("b", 50)),
 					},
-					pos: testLSN,
+					pos: testCommitPosition,
 				},
 				{
 					msg: kafka.Message{
 						Key:   []byte(testSchema),
 						Value: []byte(strings.Repeat("c", 10)),
 					},
-					pos: testLSN,
+					pos: testCommitPosition,
 				},
 			},
 			writerValidation: func(i uint64, doneChan chan struct{}, msgs ...kafka.Message) error {
@@ -386,6 +411,9 @@ func TestBatchKafkaWriter_SendThread(t *testing.T) {
 func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 	t.Parallel()
 
+	testCommitPosition := wal.CommitPosition{
+		PGPos: testLSN,
+	}
 	testBytes := []byte("test")
 	testBatch := &msgBatch{
 		msgs: []kafka.Message{
@@ -394,13 +422,13 @@ func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 				Value: testBytes,
 			},
 		},
-		lastPos: testLSN,
+		lastPos: testCommitPosition,
 	}
 
 	tests := []struct {
 		name       string
 		writer     *kafkamocks.Writer
-		checkpoint checkpoint
+		checkpoint checkpointer.Checkpoint
 		batch      *msgBatch
 
 		wantErr error
