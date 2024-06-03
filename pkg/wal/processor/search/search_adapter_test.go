@@ -538,6 +538,18 @@ func TestAdapter_parseColumns(t *testing.T) {
 			wantErr: errIncompatibleLSN,
 		},
 		{
+			name: "error - version not found",
+			columns: []wal.Column{
+				{ID: "col-1", Name: "id", Type: "text", Value: "id-1"},
+				{ID: "col-3", Name: "name", Type: "text", Value: "a"},
+			},
+			metadata: testMetadata,
+			mapper:   noopMapper,
+
+			wantDoc: nil,
+			wantErr: processor.ErrVersionNotFound,
+		},
+		{
 			name: "error - id not found",
 			columns: []wal.Column{
 				{ID: "col-2", Name: "version", Type: "integer", Value: int64(0)},

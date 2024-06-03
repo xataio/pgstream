@@ -121,9 +121,9 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) erro
 		// translate, log a DATALOSS severity error and continue processing the
 		// event without translating
 		if err := t.translate(ctx, data); err != nil {
-			// for now, do not consider events missing id/version fields to be data loss,
-			// since we don't expect to replicate tables that do not have these
-			// fields (opensearch requires them)
+			// for now, do not consider events missing id/version fields to be
+			// data loss, since we don't expect to replicate tables that do not
+			// have these fields
 			if errors.Is(err, processor.ErrIDNotFound) || errors.Is(err, processor.ErrVersionNotFound) {
 				log.Debug().
 					Str("schema", data.Schema).
@@ -179,28 +179,35 @@ func (t *Translator) translate(ctx context.Context, data *wal.Data) error {
 
 // fillEventMetadata will update the event on input with the pgstream ids for
 // the table and the internal id/version columns. It will return an error if the
-// id column is not found.
+// id column is not found, or if a version finder was set but no version was
+// found.
 func (t *Translator) fillEventMetadata(event *wal.Data, log *schemalog.LogEntry, tbl *schemalog.Table) error {
 	event.Metadata.SchemaID = log.ID
 	event.Metadata.TablePgstreamID = tbl.PgstreamID
 
-	foundID := false
+	foundID, foundVersion := false, false
 	for i := range tbl.Columns {
 		col := &tbl.Columns[i]
-		if t.idFinder(col) && !foundID {
+		if t.idFinder != nil && t.idFinder(col) && !foundID {
 			foundID = true
 			event.Metadata.InternalColID = col.PgstreamID
 			continue
 		}
 
-		if t.versionFinder(col) {
+		if t.versionFinder != nil && t.versionFinder(col) && !foundVersion {
+			foundVersion = true
 			event.Metadata.InternalColVersion = col.PgstreamID
 			continue
 		}
 	}
 
-	if !foundID {
+	switch {
+	case !foundID:
+		// for now the id is required
 		return fmt.Errorf("table [%s]: %w", tbl.Name, processor.ErrIDNotFound)
+	case t.versionFinder != nil && !foundVersion:
+		// if there's a version finder and the column wasn't found, return an error
+		return fmt.Errorf("table [%s]: %w", tbl.Name, processor.ErrVersionNotFound)
 	}
 
 	return nil

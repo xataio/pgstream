@@ -215,13 +215,18 @@ func (a *adapter) parseColumns(columns []wal.Column, metadata wal.Metadata, lsnS
 	if !recIDFound {
 		return nil, processor.ErrIDNotFound
 	}
-	// if version is not found, default to use the LSN
+	// if version is not found, default to use the LSN if no version column is
+	// provided. Return an error otherwise.
 	if !versionFound {
-		lsn, err := a.lsnParser.FromString(lsnStr)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %w", errIncompatibleLSN, err)
+		if useLSNAsVersion(metadata) {
+			lsn, err := a.lsnParser.FromString(lsnStr)
+			if err != nil {
+				return nil, fmt.Errorf("%w: %w", errIncompatibleLSN, err)
+			}
+			doc.Version = int(lsn)
+		} else {
+			return nil, processor.ErrVersionNotFound
 		}
-		doc.Version = int(lsn)
 	}
 
 	doc.Data["_table"] = metadata.TablePgstreamID
