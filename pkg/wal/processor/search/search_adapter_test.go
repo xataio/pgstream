@@ -11,6 +11,8 @@ import (
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/xataio/pgstream/internal/replication"
+	replicationmocks "github.com/xataio/pgstream/internal/replication/mocks"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -27,6 +29,10 @@ func TestAdapter_walEventToMsg(t *testing.T) {
 
 	noopMapper := &searchmocks.Mapper{
 		MapColumnValueFn: func(column schemalog.Column, value any) (any, error) { return value, nil },
+	}
+
+	testLSNParser := &replicationmocks.LSNParser{
+		FromStringFn: func(s string) (replication.LSN, error) { return replication.LSN(7773397064), nil },
 	}
 
 	tests := []struct {
@@ -145,7 +151,7 @@ func TestAdapter_walEventToMsg(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			a := newAdapter(noopMapper)
+			a := newAdapter(noopMapper, testLSNParser)
 
 			if tc.marshaler != nil {
 				a.marshaler = tc.marshaler
@@ -223,7 +229,7 @@ func TestAdapter_walDataToLogEntry(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			a := newAdapter(&searchmocks.Mapper{})
+			a := newAdapter(&searchmocks.Mapper{}, &replicationmocks.LSNParser{})
 			if tc.marshaler != nil {
 				a.marshaler = tc.marshaler
 			}
@@ -247,6 +253,10 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 
 	noopMapper := &searchmocks.Mapper{
 		MapColumnValueFn: func(column schemalog.Column, value any) (any, error) { return value, nil },
+	}
+
+	testLSNParser := &replicationmocks.LSNParser{
+		FromStringFn: func(s string) (replication.LSN, error) { return replication.LSN(7773397064), nil },
 	}
 
 	tests := []struct {
@@ -405,7 +415,7 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			a := newAdapter(tc.mapper)
+			a := newAdapter(tc.mapper, testLSNParser)
 			doc, err := a.walDataToDocument(tc.data)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantDoc, doc)
@@ -427,6 +437,12 @@ func TestAdapter_parseColumns(t *testing.T) {
 		InternalColVersion: "col-2",
 	}
 
+	testLSNStr := "1/CF54A048"
+	testLSN := 7773397064
+	testLSNParser := &replicationmocks.LSNParser{
+		FromStringFn: func(s string) (replication.LSN, error) { return replication.LSN(testLSN), nil },
+	}
+
 	noopMapper := &searchmocks.Mapper{
 		MapColumnValueFn: func(column schemalog.Column, value any) (any, error) { return value, nil },
 	}
@@ -438,6 +454,7 @@ func TestAdapter_parseColumns(t *testing.T) {
 		columns  []wal.Column
 		metadata wal.Metadata
 		mapper   Mapper
+		parser   replication.LSNParser
 
 		wantDoc *Document
 		wantErr error
@@ -481,6 +498,46 @@ func TestAdapter_parseColumns(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - version not found, default to use lsn",
+			columns: []wal.Column{
+				{ID: "col-1", Name: "id", Type: "text", Value: "id-1"},
+				{ID: "col-3", Name: "name", Type: "text", Value: "a"},
+			},
+			metadata: wal.Metadata{
+				TablePgstreamID: testTableID,
+				InternalColID:   "col-1",
+			},
+			mapper: noopMapper,
+
+			wantDoc: &Document{
+				ID:      fmt.Sprintf("%s_id-1", testTableID),
+				Version: testLSN,
+				Data: map[string]any{
+					"col-3":  "a",
+					"_table": testTableID,
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "error - version not found, incompatible LSN value",
+			columns: []wal.Column{
+				{ID: "col-1", Name: "id", Type: "text", Value: "id-1"},
+				{ID: "col-3", Name: "name", Type: "text", Value: "a"},
+			},
+			metadata: wal.Metadata{
+				TablePgstreamID: testTableID,
+				InternalColID:   "col-1",
+			},
+			mapper: noopMapper,
+			parser: &replicationmocks.LSNParser{
+				FromStringFn: func(s string) (replication.LSN, error) { return 0, errTest },
+			},
+
+			wantDoc: nil,
+			wantErr: errIncompatibleLSN,
+		},
+		{
 			name: "error - id not found",
 			columns: []wal.Column{
 				{ID: "col-2", Name: "version", Type: "integer", Value: int64(0)},
@@ -491,18 +548,6 @@ func TestAdapter_parseColumns(t *testing.T) {
 
 			wantDoc: nil,
 			wantErr: processor.ErrIDNotFound,
-		},
-		{
-			name: "error - version not found",
-			columns: []wal.Column{
-				{ID: "col-1", Name: "id", Type: "text", Value: "id-1"},
-				{ID: "col-3", Name: "name", Type: "text", Value: "a"},
-			},
-			metadata: testMetadata,
-			mapper:   noopMapper,
-
-			wantDoc: nil,
-			wantErr: processor.ErrVersionNotFound,
 		},
 		{
 			name: "error - invalid id value",
@@ -551,8 +596,12 @@ func TestAdapter_parseColumns(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			a := newAdapter(tc.mapper)
-			doc, err := a.parseColumns(tc.columns, tc.metadata)
+			a := newAdapter(tc.mapper, testLSNParser)
+			if tc.parser != nil {
+				a.lsnParser = tc.parser
+			}
+
+			doc, err := a.parseColumns(tc.columns, tc.metadata, testLSNStr)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantDoc, doc)
 		})

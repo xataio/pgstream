@@ -82,7 +82,7 @@ func Start(ctx context.Context, config *Config) error {
 		if err != nil {
 			return err
 		}
-		searchIndexer := search.NewBatchIndexer(ctx, config.Processor.Search.Indexer, searchStore, checkpoint)
+		searchIndexer := search.NewBatchIndexer(ctx, config.Processor.Search.Indexer, searchStore, checkpoint, pgreplication.NewLSNParser())
 		defer searchIndexer.Close()
 		processor = searchIndexer
 

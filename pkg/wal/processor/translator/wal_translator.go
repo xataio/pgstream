@@ -76,7 +76,7 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) erro
 	case isSchemaLogSchema(data.Schema):
 		// this happens when a write occurs to the `table_ids` table or if the
 		// schema log table rows are acked
-		if !isSchemaLogTable(data.Table) || data.Action != "I" {
+		if !isSchemaLogTable(data.Table) || !data.IsInsert() {
 			return nil
 		}
 		logEntry, err := t.walToLogEntryAdapter(data)

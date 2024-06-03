@@ -10,6 +10,10 @@ import (
 
 type LSNParser struct{}
 
+func NewLSNParser() *LSNParser {
+	return &LSNParser{}
+}
+
 func (p *LSNParser) FromString(lsnStr string) (replication.LSN, error) {
 	lsn, err := pglogrepl.ParseLSN(lsnStr)
 	if err != nil {
