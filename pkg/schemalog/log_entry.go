@@ -93,7 +93,7 @@ func (m *LogEntry) After(other *LogEntry) bool {
 
 func (m *LogEntry) Diff(previous *LogEntry) *SchemaDiff {
 	if previous == nil {
-		return &SchemaDiff{}
+		return m.Schema.Diff(&Schema{})
 	}
 	return m.Schema.Diff(&previous.Schema)
 }

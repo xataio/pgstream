@@ -41,7 +41,15 @@ type Config struct {
 	Replication pgreplication.Config
 }
 
-func NewListener(
+func NewWithHandler(handler replicationHandler, processEvent listenerProcessWalEvent) *Listener {
+	return &Listener{
+		replicationHandler:  handler,
+		processEvent:        processEvent,
+		walDataDeserialiser: json.Unmarshal,
+	}
+}
+
+func New(
 	ctx context.Context,
 	cfg *Config,
 	processEvent listenerProcessWalEvent,
@@ -108,8 +116,13 @@ func (l *Listener) listen(ctx context.Context) error {
 }
 
 func (l *Listener) processWALEvent(ctx context.Context, msgData *replication.MessageData) error {
+	// if there's no data, it's a keep alive. If a reply is not requested,
+	// no need to process this message.
+	if msgData.Data == nil && !msgData.ReplyRequested {
+		return nil
+	}
+
 	event := &wal.Event{}
-	// if there's no data, it's a keep alive
 	if msgData.Data != nil {
 		event.Data = &wal.Data{}
 		if err := l.walDataDeserialiser(msgData.Data, event.Data); err != nil {

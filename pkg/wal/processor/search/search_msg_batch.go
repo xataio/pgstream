@@ -68,3 +68,7 @@ func (m *msgBatch) drain() *msgBatch {
 func (m *msgBatch) size() int {
 	return len(m.msgs)
 }
+
+func (m *msgBatch) isEmpty() bool {
+	return len(m.msgs) == 0 && len(m.positions) == 0
+}

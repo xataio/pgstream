@@ -176,17 +176,23 @@ func (w *BatchWriter) Send(ctx context.Context) error {
 			// stop sending batches
 			return sendErr
 		case <-ticker.C:
-			batchChan <- msgBatch.drain()
+			if !msgBatch.isEmpty() {
+				batchChan <- msgBatch.drain()
+			}
 		case msg := <-w.msgChan:
 			// if the batch has reached the max allowed size, don't wait for the
-			// next tick and send to kafka. If we receive a keep alive, send so
-			// that we checkpoint as soon as possible.
+			// next tick and send to kafka.
 			if msgBatch.totalBytes+msg.size() >= int(w.maxBatchBytes) ||
-				len(msgBatch.msgs) == w.maxBatchSize || msg.isKeepAlive() {
+				len(msgBatch.msgs) == w.maxBatchSize {
 				batchChan <- msgBatch.drain()
 			}
 
 			msgBatch.add(msg)
+			// If we receive a keep alive, send so that we checkpoint as soon as
+			// possible.
+			if msg.isKeepAlive() {
+				batchChan <- msgBatch.drain()
+			}
 		}
 	}
 }

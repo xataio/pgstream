@@ -20,7 +20,7 @@ type Store struct {
 }
 
 type Config struct {
-	Postgres *pgx.ConnConfig
+	URL string
 }
 
 type querier interface {
@@ -30,7 +30,11 @@ type querier interface {
 }
 
 func NewStore(ctx context.Context, cfg Config) (*Store, error) {
-	pgConn, err := pgx.ConnectConfig(ctx, cfg.Postgres)
+	pgCfg, err := pgx.ParseConfig(cfg.URL)
+	if err != nil {
+		return nil, err
+	}
+	pgConn, err := pgx.ConnectConfig(ctx, pgCfg)
 	if err != nil {
 		return nil, fmt.Errorf("create postgres client: %w", err)
 	}

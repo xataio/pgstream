@@ -21,6 +21,13 @@ type Config struct {
 
 type lsnSyncer interface {
 	SyncLSN(ctx context.Context, lsn replication.LSN) error
+	Close() error
+}
+
+func NewWithHandler(handler lsnSyncer) *Checkpointer {
+	return &Checkpointer{
+		syncer: handler,
+	}
 }
 
 func New(ctx context.Context, cfg Config) (*Checkpointer, error) {
@@ -48,4 +55,8 @@ func (c *Checkpointer) SyncLSN(ctx context.Context, positions []wal.CommitPositi
 	}
 
 	return c.syncer.SyncLSN(ctx, replication.LSN(max))
+}
+
+func (c *Checkpointer) Close() error {
+	return c.syncer.Close()
 }
