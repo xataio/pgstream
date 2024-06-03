@@ -4,7 +4,6 @@ package translator
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -247,6 +246,25 @@ func TestTranslator_translate(t *testing.T) {
 			wantErr:  nil,
 		},
 		{
+			name: "ok - no version provided",
+			store: &schemalogmocks.Store{
+				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+					require.Equal(t, testSchemaName, schemaName)
+					return newTestLogEntry(), nil
+				},
+			},
+			data:          newTestDataEvent("I").Data,
+			idFinder:      func(c *schemalog.Column) bool { return c.Name == "col-1" },
+			versionFinder: func(c *schemalog.Column) bool { return false },
+
+			wantData: func() *wal.Data {
+				d := newTestDataEventWithMetadata("I").Data
+				d.Metadata.InternalColVersion = ""
+				return d
+			}(),
+			wantErr: nil,
+		},
+		{
 			name: "error - fetching schema log entry",
 			store: &schemalogmocks.Store{
 				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
@@ -312,29 +330,6 @@ func TestTranslator_translate(t *testing.T) {
 				return d
 			}(),
 			wantErr: processor.ErrIDNotFound,
-		},
-		{
-			name: "error - filling metadata, version not found",
-			store: &schemalogmocks.Store{
-				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
-					require.Equal(t, testSchemaName, schemaName)
-					return newTestLogEntry(), nil
-				},
-			},
-			data:          newTestDataEvent("I").Data,
-			idFinder:      func(c *schemalog.Column) bool { return c.Name == "col-1" },
-			versionFinder: func(c *schemalog.Column) bool { return false },
-
-			wantData: func() *wal.Data {
-				d := newTestDataEvent("I").Data
-				d.Metadata = wal.Metadata{
-					SchemaID:        testSchemaID,
-					TablePgstreamID: testTableID,
-					InternalColID:   fmt.Sprintf("%s_col-1", testTableID),
-				}
-				return d
-			}(),
-			wantErr: processor.ErrVersionNotFound,
 		},
 		{
 			name: "error - translating columns",

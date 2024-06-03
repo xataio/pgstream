@@ -153,13 +153,13 @@ func (t *Translator) translate(ctx context.Context, data *wal.Data) error {
 }
 
 // fillEventMetadata will update the event on input with the pgstream ids for
-// the table and the internal id/version columns. It will return an error if
-// either of the columns is not found.
+// the table and the internal id/version columns. It will return an error if the
+// id column is not found.
 func (t *Translator) fillEventMetadata(event *wal.Data, log *schemalog.LogEntry, tbl *schemalog.Table) error {
 	event.Metadata.SchemaID = log.ID
 	event.Metadata.TablePgstreamID = tbl.PgstreamID
 
-	foundID, foundVersion := false, false
+	foundID := false
 	for i := range tbl.Columns {
 		col := &tbl.Columns[i]
 		if t.idFinder(col) && !foundID {
@@ -168,18 +168,14 @@ func (t *Translator) fillEventMetadata(event *wal.Data, log *schemalog.LogEntry,
 			continue
 		}
 
-		if t.versionFinder(col) && !foundVersion {
-			foundVersion = true
+		if t.versionFinder(col) {
 			event.Metadata.InternalColVersion = col.PgstreamID
 			continue
 		}
 	}
 
-	switch {
-	case !foundID:
+	if !foundID {
 		return fmt.Errorf("table [%s]: %w", tbl.Name, processor.ErrIDNotFound)
-	case !foundVersion:
-		return fmt.Errorf("table [%s]: %w", tbl.Name, processor.ErrVersionNotFound)
 	}
 
 	return nil
