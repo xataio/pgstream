@@ -40,10 +40,12 @@ type (
 	columnFinder func(*schemalog.Column) bool
 )
 
-// New will return a translator processor wrapper that will inject
-// pgstream metadata into the wal data events before passing them over the
-// processor on input.
-func New(cfg *Config, p processor.Processor, skipSchema schemaFilter, idFinder, versionFinder columnFinder) (*Translator, error) {
+type Option func(t *Translator)
+
+// New will return a translator processor wrapper that will inject pgstream
+// metadata into the wal data events before passing them over the processor on
+// input. By default, all schemas are processed.
+func New(cfg *Config, p processor.Processor, opts ...Option) (*Translator, error) {
 	var schemaLogStore schemalog.Store
 	var err error
 	schemaLogStore, err = schemalogpg.NewStore(context.Background(), cfg.Store)
@@ -52,14 +54,37 @@ func New(cfg *Config, p processor.Processor, skipSchema schemaFilter, idFinder, 
 	}
 	schemaLogStore = schemalog.NewStoreCache(schemaLogStore)
 
-	return &Translator{
+	t := &Translator{
 		processor:            p,
 		schemaLogStore:       schemaLogStore,
 		walToLogEntryAdapter: processor.WalDataToLogEntry,
-		skipSchema:           skipSchema,
-		idFinder:             idFinder,
-		versionFinder:        versionFinder,
-	}, nil
+		// by default all schemas are processed
+		skipSchema: func(s string) bool { return false },
+	}
+
+	for _, opt := range opts {
+		opt(t)
+	}
+
+	return t, nil
+}
+
+func WithIDFinder(idFinder columnFinder) Option {
+	return func(t *Translator) {
+		t.idFinder = idFinder
+	}
+}
+
+func WithVersionFinder(versionFinder columnFinder) Option {
+	return func(t *Translator) {
+		t.versionFinder = versionFinder
+	}
+}
+
+func WithSkipSchema(skipSchema schemaFilter) Option {
+	return func(t *Translator) {
+		t.skipSchema = skipSchema
+	}
 }
 
 func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) error {
