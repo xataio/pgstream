@@ -35,6 +35,20 @@ WITH table_oids AS (
              format_type(pg_attribute.atttypid, pg_attribute.atttypmod) AS column_type,
              pg_get_expr(pg_attrdef.adbin, pg_attrdef.adrelid) AS column_default,
              NOT ( pg_attribute.attnotnull OR pg_type.typtype = 'd' AND pg_type.typnotnull) AS column_nullable,
+             (EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conrelid = pg_attribute.attrelid
+                AND ARRAY[pg_attribute.attnum::int] @> conkey::int[]
+                AND contype = 'u'
+              ) OR EXISTS (
+                SELECT 1
+                FROM pg_index
+                JOIN pg_class ON pg_class.oid = pg_index.indexrelid
+                WHERE indrelid = pg_attribute.attrelid
+                AND indisunique
+                AND ARRAY[pg_attribute.attnum::int] @> pg_index.indkey::int[]
+             )) AS column_unique,
              pg_catalog.col_description(table_oids.table_oid,pg_attribute.attnum) AS metadata
          FROM pg_attribute
                   JOIN table_oids ON pg_attribute.attrelid = table_oids.table_oid
@@ -54,10 +68,20 @@ WITH table_oids AS (
                      'type', columns.column_type,
                      'default', columns.column_default,
                      'nullable', columns.column_nullable,
+                     'unique', columns.column_unique,
                      'metadata', columns.metadata
-                 )) AS table_columns
+                 )) AS table_columns,
+             (
+                SELECT COALESCE(json_agg(pg_attribute.attname), '[]'::json)
+                FROM pg_index, pg_attribute
+                WHERE
+                    indrelid = columns.table_oid AND
+                    pg_attribute.attrelid = columns.table_oid AND
+                    pg_attribute.attnum = any(pg_index.indkey)
+                    AND indisprimary
+              ) AS primary_key_columns
          FROM columns
-         group by table_name, table_oid, table_pgs_id
+         GROUP BY table_name, table_oid, table_pgs_id
      ),
      as_json AS (
          SELECT
@@ -67,7 +91,8 @@ WITH table_oids AS (
                              'oid', by_table.table_oid,
                              'pgstream_id', by_table.table_pgs_id,
                              'name', by_table.table_name,
-                             'columns', by_table.table_columns
+                             'columns', by_table.table_columns,
+                             'primary_key_columns', by_table.primary_key_columns
                          ))
                  ) AS v
          FROM by_table
