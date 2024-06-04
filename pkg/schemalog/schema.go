@@ -79,6 +79,12 @@ func (s *Schema) Diff(previous *Schema) *SchemaDiff {
 	for i, table := range s.Tables {
 		if previousTable := previous.getTableByID(table.PgstreamID); previousTable != nil {
 			d.ColumnsToAdd = append(d.ColumnsToAdd, diffColumns(&s.Tables[i], previousTable)...)
+			if hasPrimaryKeyChanged(previousTable.PrimaryKeyColumns, table.PrimaryKeyColumns) {
+				d.PrimaryKeyChange = append(d.PrimaryKeyChange, table.Name)
+			}
+			if hasUniqueNotNullChanged(previousTable, &s.Tables[i]) {
+				d.UniqueNotNullChange = append(d.UniqueNotNullChange, table.Name)
+			}
 		} else {
 			// if the "old" schema does not have the table, we can add all
 			// columns without checking further.
@@ -179,8 +185,10 @@ func (c *Column) IsEqual(other *Column) bool {
 }
 
 type SchemaDiff struct {
-	TablesToRemove []Table
-	ColumnsToAdd   []Column
+	TablesToRemove      []Table
+	ColumnsToAdd        []Column
+	PrimaryKeyChange    []string
+	UniqueNotNullChange []string
 }
 
 func (d *SchemaDiff) Empty() bool {
@@ -229,4 +237,20 @@ func diffColumns(new, old *Table) []Column {
 	}
 
 	return colsAdded
+}
+
+func hasPrimaryKeyChanged(old, new []string) bool {
+	slices.Sort(old)
+	slices.Sort(new)
+	return !slices.Equal(old, new)
+}
+
+func hasUniqueNotNullChanged(old, new *Table) bool {
+	// we only care about unique not null changes if there's no primary key defined
+	if len(old.PrimaryKeyColumns) != 0 || len(new.PrimaryKeyColumns) != 0 {
+		return false
+	}
+	oldUniqueNotNullCol := old.GetFirstUniqueNotNullColumn()
+	newUniqueNotNullCol := new.GetFirstUniqueNotNullColumn()
+	return !oldUniqueNotNullCol.IsEqual(newUniqueNotNullCol)
 }
