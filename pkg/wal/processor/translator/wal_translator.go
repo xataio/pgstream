@@ -257,8 +257,10 @@ func primaryKeyFinder(c *schemalog.Column, tbl *schemalog.Table) bool {
 	}
 
 	switch len(tbl.PrimaryKeyColumns) {
-	case 0:
-		// no primary key present, choose a not nullable unique column if it
+	case 1:
+		return c.Name == tbl.PrimaryKeyColumns[0]
+	default:
+		// If composite or no primary key present, choose a not nullable unique column if it
 		// exists
 		notNullUniqueCol := tbl.GetFirstUniqueNotNullColumn()
 		if notNullUniqueCol == nil {
@@ -266,10 +268,5 @@ func primaryKeyFinder(c *schemalog.Column, tbl *schemalog.Table) bool {
 		}
 
 		return c.Name == notNullUniqueCol.Name
-	case 1:
-		return c.Name == tbl.PrimaryKeyColumns[0]
-	default:
-		// composite primary keys not currently supported
-		return false
 	}
 }

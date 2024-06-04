@@ -478,6 +478,20 @@ func Test_primaryKeyFinder(t *testing.T) {
 
 			wantFound: false,
 		},
+		{
+			name: "composite primary key and unique not null column",
+			col: &schemalog.Column{
+				Name: "col-3",
+			},
+			tbl: &schemalog.Table{
+				Columns: []schemalog.Column{
+					{Name: "col-3", Unique: true, Nullable: false},
+				},
+				PrimaryKeyColumns: []string{"col-1", "col-2"},
+			},
+
+			wantFound: true,
+		},
 	}
 
 	for _, tc := range tests {
