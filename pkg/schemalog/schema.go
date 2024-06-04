@@ -2,7 +2,10 @@
 
 package schemalog
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"slices"
+)
 
 type Schema struct {
 	Tables []Table `json:"tables"`
@@ -134,6 +137,28 @@ func (t *Table) GetColumnByName(name string) *Column {
 		}
 	}
 	return nil
+}
+
+// GetFirstUniqueNotNullColumn will return the first unique not null column in
+// the table. It will sort the columns by pgstream ID, and return the first one
+// matching the not null/unique constraints. It uses the pgstream id instead of
+// the name since the id doesn't change.
+func (t *Table) GetFirstUniqueNotNullColumn() *Column {
+	colMap := make(map[string]*Column, len(t.Columns))
+	colIDs := make([]string, 0, len(t.Columns))
+	for i, c := range t.Columns {
+		if c.Unique && !c.Nullable {
+			colIDs = append(colIDs, c.PgstreamID)
+			colMap[c.PgstreamID] = &t.Columns[i]
+		}
+	}
+
+	if len(colIDs) == 0 {
+		return nil
+	}
+
+	slices.Sort(colIDs)
+	return colMap[colIDs[0]]
 }
 
 func (c *Column) IsEqual(other *Column) bool {

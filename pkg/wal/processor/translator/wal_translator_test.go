@@ -150,7 +150,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			idFinder: func(c *schemalog.Column) bool { return false },
+			idFinder: func(c *schemalog.Column, _ *schemalog.Table) bool { return false },
 
 			wantErr: nil,
 		},
@@ -188,8 +188,8 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 				processor:            tc.processor,
 				schemaLogStore:       tc.store,
 				skipSchema:           func(s string) bool { return false },
-				idFinder:             func(c *schemalog.Column) bool { return c.Name == "col-1" },
-				versionFinder:        func(c *schemalog.Column) bool { return c.Name == "col-2" },
+				idFinder:             func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-1" },
+				versionFinder:        func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-2" },
 				walToLogEntryAdapter: func(d *wal.Data) (*schemalog.LogEntry, error) { return testLogEntry, nil },
 			}
 
@@ -232,7 +232,7 @@ func TestTranslator_translate(t *testing.T) {
 			wantErr:  nil,
 		},
 		{
-			name: "ok",
+			name: "ok - default primary key finder",
 			store: &schemalogmocks.Store{
 				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					require.Equal(t, testSchemaName, schemaName)
@@ -240,8 +240,23 @@ func TestTranslator_translate(t *testing.T) {
 				},
 			},
 			data:          newTestDataEvent("I").Data,
-			idFinder:      func(c *schemalog.Column) bool { return c.Name == "col-1" },
-			versionFinder: func(c *schemalog.Column) bool { return c.Name == "col-2" },
+			idFinder:      primaryKeyFinder,
+			versionFinder: func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-2" },
+
+			wantData: newTestDataEventWithMetadata("I").Data,
+			wantErr:  nil,
+		},
+		{
+			name: "ok - custom id finder",
+			store: &schemalogmocks.Store{
+				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+					require.Equal(t, testSchemaName, schemaName)
+					return newTestLogEntry(), nil
+				},
+			},
+			data:          newTestDataEvent("I").Data,
+			idFinder:      func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-1" },
+			versionFinder: func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-2" },
 
 			wantData: newTestDataEventWithMetadata("I").Data,
 			wantErr:  nil,
@@ -255,7 +270,7 @@ func TestTranslator_translate(t *testing.T) {
 				},
 			},
 			data:     newTestDataEvent("I").Data,
-			idFinder: func(c *schemalog.Column) bool { return c.Name == "col-1" },
+			idFinder: func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-1" },
 
 			wantData: func() *wal.Data {
 				d := newTestDataEventWithMetadata("I").Data
@@ -318,8 +333,8 @@ func TestTranslator_translate(t *testing.T) {
 				},
 			},
 			data:          newTestDataEvent("I").Data,
-			idFinder:      func(c *schemalog.Column) bool { return false },
-			versionFinder: func(c *schemalog.Column) bool { return false },
+			idFinder:      func(c *schemalog.Column, _ *schemalog.Table) bool { return false },
+			versionFinder: func(c *schemalog.Column, _ *schemalog.Table) bool { return false },
 
 			wantData: func() *wal.Data {
 				d := newTestDataEvent("I").Data
@@ -340,8 +355,8 @@ func TestTranslator_translate(t *testing.T) {
 				},
 			},
 			data:          newTestDataEvent("I").Data,
-			idFinder:      func(c *schemalog.Column) bool { return c.Name == "col-1" },
-			versionFinder: func(c *schemalog.Column) bool { return false },
+			idFinder:      func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-1" },
+			versionFinder: func(c *schemalog.Column, _ *schemalog.Table) bool { return false },
 
 			wantData: func() *wal.Data {
 				d := newTestDataEvent("I").Data
@@ -369,8 +384,8 @@ func TestTranslator_translate(t *testing.T) {
 				})
 				return d
 			}(),
-			idFinder:      func(c *schemalog.Column) bool { return c.Name == "col-1" },
-			versionFinder: func(c *schemalog.Column) bool { return c.Name == "col-2" },
+			idFinder:      func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-1" },
+			versionFinder: func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-2" },
 
 			wantData: func() *wal.Data {
 				d := newTestDataEventWithMetadata("I").Data
@@ -395,6 +410,83 @@ func TestTranslator_translate(t *testing.T) {
 			err := translator.translate(context.Background(), tc.data)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantData, tc.data)
+		})
+	}
+}
+
+func Test_primaryKeyFinder(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		col  *schemalog.Column
+		tbl  *schemalog.Table
+
+		wantFound bool
+	}{
+		{
+			name: "nil table",
+			col: &schemalog.Column{
+				Name: "col-1",
+			},
+
+			wantFound: false,
+		},
+		{
+			name: "primary key",
+			col: &schemalog.Column{
+				Name: "col-1",
+			},
+			tbl: &schemalog.Table{
+				PrimaryKeyColumns: []string{"col-1"},
+			},
+
+			wantFound: true,
+		},
+		{
+			name: "no primary keys/unique not null columns",
+			col: &schemalog.Column{
+				Name: "col-1",
+			},
+			tbl: &schemalog.Table{},
+
+			wantFound: false,
+		},
+		{
+			name: "no primary keys with unique not null columns",
+			col: &schemalog.Column{
+				Name: "col-3",
+			},
+			tbl: &schemalog.Table{
+				Columns: []schemalog.Column{
+					{Name: "col-1", Unique: false, Nullable: true},
+					{Name: "col-2", Unique: false, Nullable: true},
+					{Name: "col-3", Unique: true, Nullable: false},
+				},
+			},
+
+			wantFound: true,
+		},
+		{
+			name: "composite primary key",
+			col: &schemalog.Column{
+				Name: "col-1",
+			},
+			tbl: &schemalog.Table{
+				PrimaryKeyColumns: []string{"col-1", "col-2"},
+			},
+
+			wantFound: false,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			found := primaryKeyFinder(tc.col, tc.tbl)
+			require.Equal(t, tc.wantFound, found)
 		})
 	}
 }

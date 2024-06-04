@@ -10,7 +10,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/xataio/pgstream/internal/replication"
 	pgreplication "github.com/xataio/pgstream/internal/replication/postgres"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	pgcheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/postgres"
@@ -98,7 +97,7 @@ func Start(ctx context.Context, config *Config) error {
 
 	if config.Processor.Translator != nil {
 		log.Info().Msg("adding translation to processor...")
-		translator, err := newTranslator(*config.Processor.Translator, processor)
+		translator, err := translator.New(config.Processor.Translator, processor)
 		if err != nil {
 			return fmt.Errorf("error creating processor translation layer: %w", err)
 		}
@@ -138,13 +137,4 @@ func Start(ctx context.Context, config *Config) error {
 	}
 
 	return nil
-}
-
-func newTranslator(cfg translator.Config, processor processor.Processor) (*translator.Translator, error) {
-	// temporary id finder until the id is automatically inferred by the PK.
-	idFinder := func(c *schemalog.Column) bool {
-		return c.Name == "id"
-	}
-
-	return translator.New(&cfg, processor, translator.WithIDFinder(idFinder))
 }
