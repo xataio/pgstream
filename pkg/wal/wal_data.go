@@ -48,6 +48,14 @@ type Column struct {
 	Value any    `json:"value"`
 }
 
+func (d *Data) IsUpdate() bool {
+	return d.Action == "U"
+}
+
+func (d *Data) IsInsert() bool {
+	return d.Action == "I"
+}
+
 // IsEmpty is true if string fields are empty
 func (m Metadata) IsEmpty() bool {
 	if m.TablePgstreamID == "" && m.InternalColID == "" && m.InternalColVersion == "" {

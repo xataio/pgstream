@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/xataio/pgstream/internal/replication"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -21,15 +22,17 @@ type adapter struct {
 	mapper      Mapper
 	marshaler   func(any) ([]byte, error)
 	unmarshaler func([]byte, any) error
+	lsnParser   replication.LSNParser
 }
 
 var errUnsupportedType = errors.New("type not supported for column")
 
-func newAdapter(m Mapper) *adapter {
+func newAdapter(m Mapper, parser replication.LSNParser) *adapter {
 	return &adapter{
 		mapper:      m,
 		marshaler:   json.Marshal,
 		unmarshaler: json.Unmarshal,
+		lsnParser:   parser,
 	}
 }
 
@@ -43,7 +46,7 @@ func (a *adapter) walEventToMsg(e *wal.Event) (*msg, error) {
 	if processor.IsSchemaLogEvent(e.Data) {
 		// we only care about inserts - updates can happen when the schema log
 		// is acked
-		if e.Data.Action != "I" {
+		if !e.Data.IsInsert() {
 			return nil, nil
 		}
 
@@ -124,17 +127,18 @@ func (a *adapter) walDataToDocument(data *wal.Data) (*Document, error) {
 	var err error
 	switch data.Action {
 	case "D":
-		doc, err = a.parseColumns(data.Identity, data.Metadata)
+		doc, err = a.parseColumns(data.Identity, data.Metadata, data.LSN)
 		if err != nil {
 			return nil, err
 		}
 		doc.Delete = true
 		doc.Version += 1
 	default:
-		doc, err = a.parseColumns(data.Columns, data.Metadata)
+		doc, err = a.parseColumns(data.Columns, data.Metadata, data.LSN)
 		if err != nil {
 			return nil, err
 		}
+
 		// Go through the identity columns (old values) to include any values
 		// that were not found in the replication event but are in the identity.
 		// This is needed because TOAST columns are not included in the replication
@@ -159,13 +163,19 @@ func (a *adapter) walDataToDocument(data *wal.Data) (*Document, error) {
 				doc.Data[col.ID] = parsedColumn
 			}
 		}
+
+		// if we use the LSN as version, we need to increment it manually on
+		// update operations to avoid version conflicts
+		if useLSNAsVersion(data.Metadata) && data.IsUpdate() {
+			doc.Version += 1
+		}
 	}
 
 	doc.Schema = data.Schema
 	return doc, nil
 }
 
-func (a *adapter) parseColumns(columns []wal.Column, metadata wal.Metadata) (*Document, error) {
+func (a *adapter) parseColumns(columns []wal.Column, metadata wal.Metadata, lsnStr string) (*Document, error) {
 	recIDFound := false
 	versionFound := false
 	doc := &Document{
@@ -205,8 +215,18 @@ func (a *adapter) parseColumns(columns []wal.Column, metadata wal.Metadata) (*Do
 	if !recIDFound {
 		return nil, processor.ErrIDNotFound
 	}
+	// if version is not found, default to use the LSN if no version column is
+	// provided. Return an error otherwise.
 	if !versionFound {
-		return nil, processor.ErrVersionNotFound
+		if useLSNAsVersion(metadata) {
+			lsn, err := a.lsnParser.FromString(lsnStr)
+			if err != nil {
+				return nil, fmt.Errorf("%w: %w", errIncompatibleLSN, err)
+			}
+			doc.Version = int(lsn)
+		} else {
+			return nil, processor.ErrVersionNotFound
+		}
 	}
 
 	doc.Data["_table"] = metadata.TablePgstreamID
@@ -262,4 +282,8 @@ func roundFloat64(val float64) int {
 		return int(val - 0.5)
 	}
 	return int(val + 0.5)
+}
+
+func useLSNAsVersion(metadata wal.Metadata) bool {
+	return metadata.InternalColVersion == ""
 }

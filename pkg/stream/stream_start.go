@@ -82,7 +82,7 @@ func Start(ctx context.Context, config *Config) error {
 		if err != nil {
 			return err
 		}
-		searchIndexer := search.NewBatchIndexer(ctx, config.Processor.Search.Indexer, searchStore, checkpoint)
+		searchIndexer := search.NewBatchIndexer(ctx, config.Processor.Search.Indexer, searchStore, checkpoint, pgreplication.NewLSNParser())
 		defer searchIndexer.Close()
 		processor = searchIndexer
 
@@ -141,17 +141,10 @@ func Start(ctx context.Context, config *Config) error {
 }
 
 func newTranslator(cfg translator.Config, processor processor.Processor) (*translator.Translator, error) {
-	// temporary id/version finders until the version requirement is removed,
-	// and the id is automatically inferred by the PK.
+	// temporary id finder until the id is automatically inferred by the PK.
 	idFinder := func(c *schemalog.Column) bool {
 		return c.Name == "id"
 	}
 
-	versionFinder := func(c *schemalog.Column) bool {
-		return c.Name == "version"
-	}
-
-	skipSchema := func(string) bool { return false }
-
-	return translator.New(&cfg, processor, skipSchema, idFinder, versionFinder)
+	return translator.New(&cfg, processor, translator.WithIDFinder(idFinder))
 }

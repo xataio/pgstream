@@ -247,6 +247,24 @@ func TestTranslator_translate(t *testing.T) {
 			wantErr:  nil,
 		},
 		{
+			name: "ok - no version provided",
+			store: &schemalogmocks.Store{
+				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+					require.Equal(t, testSchemaName, schemaName)
+					return newTestLogEntry(), nil
+				},
+			},
+			data:     newTestDataEvent("I").Data,
+			idFinder: func(c *schemalog.Column) bool { return c.Name == "col-1" },
+
+			wantData: func() *wal.Data {
+				d := newTestDataEventWithMetadata("I").Data
+				d.Metadata.InternalColVersion = ""
+				return d
+			}(),
+			wantErr: nil,
+		},
+		{
 			name: "error - fetching schema log entry",
 			store: &schemalogmocks.Store{
 				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {

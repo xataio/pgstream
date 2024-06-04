@@ -40,10 +40,12 @@ type (
 	columnFinder func(*schemalog.Column) bool
 )
 
-// New will return a translator processor wrapper that will inject
-// pgstream metadata into the wal data events before passing them over the
-// processor on input.
-func New(cfg *Config, p processor.Processor, skipSchema schemaFilter, idFinder, versionFinder columnFinder) (*Translator, error) {
+type Option func(t *Translator)
+
+// New will return a translator processor wrapper that will inject pgstream
+// metadata into the wal data events before passing them over the processor on
+// input. By default, all schemas are processed.
+func New(cfg *Config, p processor.Processor, opts ...Option) (*Translator, error) {
 	var schemaLogStore schemalog.Store
 	var err error
 	schemaLogStore, err = schemalogpg.NewStore(context.Background(), cfg.Store)
@@ -52,14 +54,37 @@ func New(cfg *Config, p processor.Processor, skipSchema schemaFilter, idFinder, 
 	}
 	schemaLogStore = schemalog.NewStoreCache(schemaLogStore)
 
-	return &Translator{
+	t := &Translator{
 		processor:            p,
 		schemaLogStore:       schemaLogStore,
 		walToLogEntryAdapter: processor.WalDataToLogEntry,
-		skipSchema:           skipSchema,
-		idFinder:             idFinder,
-		versionFinder:        versionFinder,
-	}, nil
+		// by default all schemas are processed
+		skipSchema: func(s string) bool { return false },
+	}
+
+	for _, opt := range opts {
+		opt(t)
+	}
+
+	return t, nil
+}
+
+func WithIDFinder(idFinder columnFinder) Option {
+	return func(t *Translator) {
+		t.idFinder = idFinder
+	}
+}
+
+func WithVersionFinder(versionFinder columnFinder) Option {
+	return func(t *Translator) {
+		t.versionFinder = versionFinder
+	}
+}
+
+func WithSkipSchema(skipSchema schemaFilter) Option {
+	return func(t *Translator) {
+		t.skipSchema = skipSchema
+	}
 }
 
 func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) error {
@@ -76,7 +101,7 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) erro
 	case isSchemaLogSchema(data.Schema):
 		// this happens when a write occurs to the `table_ids` table or if the
 		// schema log table rows are acked
-		if !isSchemaLogTable(data.Table) || data.Action != "I" {
+		if !isSchemaLogTable(data.Table) || !data.IsInsert() {
 			return nil
 		}
 		logEntry, err := t.walToLogEntryAdapter(data)
@@ -96,9 +121,9 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) erro
 		// translate, log a DATALOSS severity error and continue processing the
 		// event without translating
 		if err := t.translate(ctx, data); err != nil {
-			// for now, do not consider events missing id/version fields to be data loss,
-			// since we don't expect to replicate tables that do not have these
-			// fields (opensearch requires them)
+			// for now, do not consider events missing id/version fields to be
+			// data loss, since we don't expect to replicate tables that do not
+			// have these fields
 			if errors.Is(err, processor.ErrIDNotFound) || errors.Is(err, processor.ErrVersionNotFound) {
 				log.Debug().
 					Str("schema", data.Schema).
@@ -153,8 +178,9 @@ func (t *Translator) translate(ctx context.Context, data *wal.Data) error {
 }
 
 // fillEventMetadata will update the event on input with the pgstream ids for
-// the table and the internal id/version columns. It will return an error if
-// either of the columns is not found.
+// the table and the internal id/version columns. It will return an error if the
+// id column is not found, or if a version finder was set but no version was
+// found.
 func (t *Translator) fillEventMetadata(event *wal.Data, log *schemalog.LogEntry, tbl *schemalog.Table) error {
 	event.Metadata.SchemaID = log.ID
 	event.Metadata.TablePgstreamID = tbl.PgstreamID
@@ -162,13 +188,13 @@ func (t *Translator) fillEventMetadata(event *wal.Data, log *schemalog.LogEntry,
 	foundID, foundVersion := false, false
 	for i := range tbl.Columns {
 		col := &tbl.Columns[i]
-		if t.idFinder(col) && !foundID {
+		if t.idFinder != nil && t.idFinder(col) && !foundID {
 			foundID = true
 			event.Metadata.InternalColID = col.PgstreamID
 			continue
 		}
 
-		if t.versionFinder(col) && !foundVersion {
+		if t.versionFinder != nil && t.versionFinder(col) && !foundVersion {
 			foundVersion = true
 			event.Metadata.InternalColVersion = col.PgstreamID
 			continue
@@ -177,8 +203,10 @@ func (t *Translator) fillEventMetadata(event *wal.Data, log *schemalog.LogEntry,
 
 	switch {
 	case !foundID:
+		// for now the id is required
 		return fmt.Errorf("table [%s]: %w", tbl.Name, processor.ErrIDNotFound)
-	case !foundVersion:
+	case t.versionFinder != nil && !foundVersion:
+		// if there's a version finder and the column wasn't found, return an error
 		return fmt.Errorf("table [%s]: %w", tbl.Name, processor.ErrVersionNotFound)
 	}
 

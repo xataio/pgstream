@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/xataio/pgstream/internal/backoff"
+	"github.com/xataio/pgstream/internal/replication"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -54,7 +55,7 @@ const defaultMaxQueueBytes = 100 * 1024 * 1024 // 100MiB
 
 // NewBatchIndexer returns a processor of wal events that indexes data into the
 // search store provided on input.
-func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, checkpointer checkpointer.Checkpoint) *BatchIndexer {
+func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, checkpointer checkpointer.Checkpoint, lsnParser replication.LSNParser) *BatchIndexer {
 	indexer := &BatchIndexer{
 		store: store,
 		// by default all schemas are processed
@@ -62,7 +63,7 @@ func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, che
 		batchSize:         config.BatchSize,
 		batchSendInterval: config.BatchTime,
 		cleaner:           newSchemaCleaner(&config.CleanupBackoff, store),
-		adapter:           newAdapter(store.GetMapper()),
+		adapter:           newAdapter(store.GetMapper(), lsnParser),
 		msgChan:           make(chan *msg),
 		checkpoint:        checkpointer,
 	}
@@ -194,8 +195,12 @@ func (i *BatchIndexer) sendBatch(ctx context.Context, batch *msgBatch) error {
 	writes := make([]Document, 0, len(batch.msgs))
 	flushWrites := func() error {
 		if len(writes) > 0 {
-			if _, err := i.store.SendDocuments(ctx, writes); err != nil {
+			failed, err := i.store.SendDocuments(ctx, writes)
+			if err != nil {
 				return err
+			}
+			if len(failed) > 0 {
+				log.Error().Msgf("failed to send documents: %v", failed)
 			}
 			writes = writes[:0]
 		}
