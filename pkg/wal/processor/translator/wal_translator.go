@@ -127,7 +127,7 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) erro
 			// data loss, since we don't expect to replicate tables that do not
 			// have these fields
 			if errors.Is(err, processor.ErrIDNotFound) || errors.Is(err, processor.ErrVersionNotFound) {
-				log.Debug().
+				log.Warn().
 					Str("schema", data.Schema).
 					Str("table", data.Table).
 					Msgf("ignoring event: %v", err)

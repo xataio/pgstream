@@ -5,6 +5,7 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/xataio/pgstream/internal/log"
 )
 
 // Version is the pgstream version
@@ -18,9 +19,11 @@ func init() {
 
 	rootCmd.PersistentFlags().String("pgurl", "postgres://postgres:postgres@localhost?sslmode=disable", "Postgres URL")
 	rootCmd.PersistentFlags().StringP("config", "c", "", ".env config file to use if any")
+	rootCmd.PersistentFlags().String("log-level", "debug", "log level for the application")
 
 	viper.BindPFlag("pgurl", rootCmd.PersistentFlags().Lookup("pgurl"))
 	viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config"))
+	viper.BindPFlag("PGSTREAM_LOG_LEVEL", rootCmd.PersistentFlags().Lookup("log-level"))
 }
 
 var rootCmd = &cobra.Command{
@@ -28,7 +31,14 @@ var rootCmd = &cobra.Command{
 	SilenceUsage: true,
 	Version:      Version,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		return loadConfig()
+		if err := loadConfig(); err != nil {
+			return err
+		}
+
+		log.SetGlobalLogger(log.NewLogger(&log.Config{
+			LogLevel: viper.GetString("PGSTREAM_LOG_LEVEL"),
+		}))
+		return nil
 	},
 }
 
