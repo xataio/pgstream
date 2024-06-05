@@ -37,7 +37,7 @@ type Config struct {
 // when processing and translating the wal event data
 type (
 	schemaFilter func(string) bool
-	columnFinder func(*schemalog.Column) bool
+	columnFinder func(*schemalog.Column, *schemalog.Table) bool
 )
 
 type Option func(t *Translator)
@@ -60,6 +60,8 @@ func New(cfg *Config, p processor.Processor, opts ...Option) (*Translator, error
 		walToLogEntryAdapter: processor.WalDataToLogEntry,
 		// by default all schemas are processed
 		skipSchema: func(s string) bool { return false },
+		// by default we look for the primary key to use as identity column
+		idFinder: primaryKeyFinder,
 	}
 
 	for _, opt := range opts {
@@ -188,13 +190,13 @@ func (t *Translator) fillEventMetadata(event *wal.Data, log *schemalog.LogEntry,
 	foundID, foundVersion := false, false
 	for i := range tbl.Columns {
 		col := &tbl.Columns[i]
-		if t.idFinder != nil && t.idFinder(col) && !foundID {
+		if t.idFinder(col, tbl) && !foundID {
 			foundID = true
 			event.Metadata.InternalColID = col.PgstreamID
 			continue
 		}
 
-		if t.versionFinder != nil && t.versionFinder(col) && !foundVersion {
+		if t.versionFinder != nil && t.versionFinder(col, tbl) && !foundVersion {
 			foundVersion = true
 			event.Metadata.InternalColVersion = col.PgstreamID
 			continue
@@ -203,7 +205,7 @@ func (t *Translator) fillEventMetadata(event *wal.Data, log *schemalog.LogEntry,
 
 	switch {
 	case !foundID:
-		// for now the id is required
+		// the id is required
 		return fmt.Errorf("table [%s]: %w", tbl.Name, processor.ErrIDNotFound)
 	case t.versionFinder != nil && !foundVersion:
 		// if there's a version finder and the column wasn't found, return an error
@@ -241,4 +243,30 @@ func isSchemaLogSchema(schema string) bool {
 
 func isSchemaLogTable(table string) bool {
 	return table == schemalog.TableName
+}
+
+// primaryKeyFinder will flag as identity column the primary key of the table on
+// input. If there's no primary key defined for the table, it will use the first
+// (alphabetically ordered) not null unique column in the table. If there's no
+// unique not null columns or primary keys, then no column will be flagged as
+// identity. Composite primary keys are not currently supported, and will not be
+// flagged as identity either.
+func primaryKeyFinder(c *schemalog.Column, tbl *schemalog.Table) bool {
+	if c == nil || tbl == nil {
+		return false
+	}
+
+	switch len(tbl.PrimaryKeyColumns) {
+	case 1:
+		return c.Name == tbl.PrimaryKeyColumns[0]
+	default:
+		// If composite or no primary key present, choose a not nullable unique column if it
+		// exists
+		notNullUniqueCol := tbl.GetFirstUniqueNotNullColumn()
+		if notNullUniqueCol == nil {
+			return false
+		}
+
+		return c.Name == notNullUniqueCol.Name
+	}
 }

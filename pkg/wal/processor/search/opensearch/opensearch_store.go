@@ -96,6 +96,19 @@ func (s *Store) ApplySchemaChange(ctx context.Context, newEntry *schemalog.LogEn
 	}
 
 	changes := newEntry.Diff(existingLogEntry)
+	// for now only log a warning when a reindexing is required, since the data
+	// can still be indexed, old data will need a reindex to take into account
+	// the new identity for search to be effective
+	//
+	// TODO: in the future, we will trigger a reindex automatically in this
+	// situation
+	for _, tbl := range changes.PrimaryKeyChange {
+		log.Warn().Msgf("primary key identity column changed for table %s, reindexing required", tbl)
+	}
+	for _, tbl := range changes.UniqueNotNullChange {
+		log.Warn().Msgf("unique not null identity column changed for table %s, reindexing required", tbl)
+	}
+
 	if err := s.updateMapping(ctx, newEntry.SchemaName, newEntry, changes); err != nil {
 		return fmt.Errorf("update mapping for schema: %w", err)
 	}

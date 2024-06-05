@@ -36,9 +36,10 @@ func newTestLogEntry() *schemalog.LogEntry {
 					Name:       testTableName,
 					PgstreamID: testTableID,
 					Columns: []schemalog.Column{
-						{Name: "col-1", DataType: "text", PgstreamID: fmt.Sprintf("%s_col-1", testTableID)},
+						{Name: "col-1", DataType: "text", PgstreamID: fmt.Sprintf("%s_col-1", testTableID), Unique: true},
 						{Name: "col-2", DataType: "integer", PgstreamID: fmt.Sprintf("%s_col-2", testTableID)},
 					},
+					PrimaryKeyColumns: []string{"col-1"},
 				},
 			},
 		},
