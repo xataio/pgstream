@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rs/zerolog/log"
 	"github.com/xataio/pgstream/internal/backoff"
+	loglib "github.com/xataio/pgstream/pkg/log"
 )
 
 type cleaner interface {
@@ -23,6 +23,7 @@ type store interface {
 }
 
 type schemaCleaner struct {
+	logger              loglib.Logger
 	deleteSchemaQueue   chan string
 	store               store
 	backoffProvider     backoff.Provider
@@ -36,8 +37,9 @@ const (
 
 var errRegistrationTimeout = errors.New("timeout registering schema for clean up")
 
-func newSchemaCleaner(cfg *backoff.Config, store store) *schemaCleaner {
+func newSchemaCleaner(cfg *backoff.Config, store store, logger loglib.Logger) *schemaCleaner {
 	return &schemaCleaner{
+		logger:              logger,
 		deleteSchemaQueue:   make(chan string, maxDeleteQueueSize),
 		store:               store,
 		registrationTimeout: defaultRegistrationTimeout,
@@ -70,15 +72,13 @@ func (sc *schemaCleaner) start(ctx context.Context) {
 					return getRetryError(sc.store.DeleteSchema(ctx, schema))
 				},
 				func(err error, duration time.Duration) {
-					log.Warn().Err(err).
-						Dur("backoff", duration).
-						Str("schema", schema).
-						Msg("search schema cleaner: delete schema retry failed")
+					sc.logger.Warn(err, "search schema cleaner: delete schema retry failed", loglib.Fields{
+						"backoff": duration,
+						"schema":  schema,
+					})
 				})
 			if err != nil {
-				log.Error().Err(err).
-					Str("schema", schema).
-					Msg("search schema cleaner: delete schema")
+				sc.logger.Error(err, "search schema cleaner: delete schema", loglib.Fields{"schema": schema})
 			}
 		}
 	}

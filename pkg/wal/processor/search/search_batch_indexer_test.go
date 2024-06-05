@@ -11,6 +11,7 @@ import (
 	"time"
 
 	syncmocks "github.com/xataio/pgstream/internal/sync/mocks"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
@@ -198,6 +199,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 			t.Parallel()
 
 			indexer := &BatchIndexer{
+				logger:         loglib.NewNoopLogger(),
 				queueBytesSema: tc.weightedSemaphore,
 				msgChan:        make(chan *msg, 100),
 				adapter:        tc.adapter,
@@ -335,6 +337,7 @@ func TestBatchIndexer_Send(t *testing.T) {
 			defer close(doneChan)
 
 			indexer := &BatchIndexer{
+				logger:            loglib.NewNoopLogger(),
 				msgChan:           make(chan *msg, 100),
 				store:             tc.store(doneChan),
 				batchSendInterval: 100 * time.Millisecond,
@@ -667,6 +670,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 			t.Parallel()
 
 			indexer := &BatchIndexer{
+				logger:     loglib.NewNoopLogger(),
 				store:      tc.store,
 				skipSchema: func(schemaName string) bool { return false },
 				checkpoint: tc.checkpoint,

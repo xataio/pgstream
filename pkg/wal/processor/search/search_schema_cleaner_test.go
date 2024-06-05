@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/internal/backoff"
 	"github.com/xataio/pgstream/internal/backoff/mocks"
+	loglib "github.com/xataio/pgstream/pkg/log"
 )
 
 func TestSchemaCleaner_deleteSchema(t *testing.T) {
@@ -45,6 +46,7 @@ func TestSchemaCleaner_deleteSchema(t *testing.T) {
 			t.Parallel()
 
 			schemaCleaner := &schemaCleaner{
+				logger:              loglib.NewNoopLogger(),
 				registrationTimeout: time.Second,
 				deleteSchemaQueue:   make(chan string, tc.queueSize),
 			}
@@ -121,6 +123,7 @@ func TestSchemaCleaner_start(t *testing.T) {
 			defer close(doneChan)
 
 			schemaCleaner := &schemaCleaner{
+				logger:              loglib.NewNoopLogger(),
 				store:               tc.store,
 				backoffProvider:     tc.backoffProvider(doneChan),
 				registrationTimeout: defaultRegistrationTimeout,
