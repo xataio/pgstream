@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	schemalogmocks "github.com/xataio/pgstream/pkg/schemalog/mocks"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -185,6 +186,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 			t.Parallel()
 
 			translator := &Translator{
+				logger:               loglib.NewNoopLogger(),
 				processor:            tc.processor,
 				schemaLogStore:       tc.store,
 				skipSchema:           func(s string) bool { return false },
@@ -402,6 +404,7 @@ func TestTranslator_translate(t *testing.T) {
 			t.Parallel()
 
 			translator := &Translator{
+				logger:         loglib.NewNoopLogger(),
 				schemaLogStore: tc.store,
 				idFinder:       tc.idFinder,
 				versionFinder:  tc.versionFinder,
