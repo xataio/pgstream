@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/rs/zerolog/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 
 	"github.com/jackc/pgx/v5"
@@ -60,8 +59,7 @@ func (s *Store) Fetch(ctx context.Context, schemaName string, ackedOnly bool) (*
 
 	l := &schemalog.LogEntry{}
 	if err := s.querier.QueryRow(ctx, sql, schemaName).Scan(&l.ID, &l.Version, &l.SchemaName, &l.Schema, &l.CreatedAt, &l.Acked); err != nil {
-		log.Warn().Err(err).Msgf("error fetching schema log for schema %s", schemaName)
-		return nil, mapError(err)
+		return nil, mapError(fmt.Errorf("error fetching schema log for schema %s: %w", schemaName, err))
 	}
 
 	return l, nil
