@@ -17,6 +17,7 @@ import (
 	"github.com/xataio/pgstream/internal/replication"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	syncmocks "github.com/xataio/pgstream/internal/sync/mocks"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
@@ -185,6 +186,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 			t.Parallel()
 
 			writer := &BatchWriter{
+				logger:         loglib.NewNoopLogger(),
 				msgChan:        make(chan *msg),
 				maxBatchBytes:  100,
 				queueBytesSema: semaphore.NewWeighted(defaultMaxQueueBytes),
@@ -365,6 +367,7 @@ func TestBatchKafkaWriter_SendThread(t *testing.T) {
 			}
 
 			writer := &BatchWriter{
+				logger:         loglib.NewNoopLogger(),
 				writer:         mockWriter,
 				msgChan:        make(chan *msg),
 				maxBatchBytes:  100,
@@ -507,6 +510,7 @@ func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 			t.Parallel()
 
 			writer := &BatchWriter{
+				logger:       loglib.NewNoopLogger(),
 				writer:       tc.writer,
 				checkpointer: tc.checkpoint,
 			}
