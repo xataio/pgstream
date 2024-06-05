@@ -4,17 +4,19 @@ package kafka
 
 import (
 	"context"
+	"fmt"
 	"time"
 
-	"github.com/rs/zerolog/log"
 	"github.com/xataio/pgstream/internal/backoff"
 	"github.com/xataio/pgstream/internal/kafka"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
 type Checkpointer struct {
 	committer       msgCommitter
 	backoffProvider backoff.Provider
+	logger          loglib.Logger
 }
 
 type Config struct {
@@ -27,18 +29,33 @@ type msgCommitter interface {
 	Close() error
 }
 
-func New(ctx context.Context, cfg Config) (*Checkpointer, error) {
-	reader, err := kafka.NewReader(cfg.Reader)
+type Option func(c *Checkpointer)
+
+func New(ctx context.Context, cfg Config, opts ...Option) (*Checkpointer, error) {
+	c := &Checkpointer{
+		logger: loglib.NewNoopLogger(),
+		backoffProvider: func(ctx context.Context) backoff.Backoff {
+			return backoff.NewExponentialBackoff(ctx, &cfg.CommitBackoff)
+		},
+	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	var err error
+	c.committer, err = kafka.NewReader(cfg.Reader, c.logger)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Checkpointer{
-		committer: reader,
-		backoffProvider: func(ctx context.Context) backoff.Backoff {
-			return backoff.NewExponentialBackoff(ctx, &cfg.CommitBackoff)
-		},
-	}, nil
+	return c, nil
+}
+
+func WithLogger(l loglib.Logger) Option {
+	return func(c *Checkpointer) {
+		c.logger = loglib.NewLogger(l)
+	}
 }
 
 func (c *Checkpointer) CommitMessages(ctx context.Context, positions []wal.CommitPosition) error {
@@ -52,11 +69,11 @@ func (c *Checkpointer) CommitMessages(ctx context.Context, positions []wal.Commi
 	}
 
 	for _, msg := range msgs {
-		log.Trace().
-			Str("topic", msg.Topic).
-			Int("partition", msg.Partition).
-			Int64("offset", msg.Offset).
-			Msg("committed")
+		c.logger.Trace("committed", loglib.Fields{
+			"topic":     msg.Topic,
+			"partition": msg.Partition,
+			"offset":    msg.Offset,
+		})
 	}
 
 	return nil
@@ -73,6 +90,6 @@ func (c *Checkpointer) commitMessagesWithRetry(ctx context.Context, msgs []*kafk
 			return c.committer.CommitMessages(ctx, msgs...)
 		},
 		func(err error, d time.Duration) {
-			log.Warn().Err(err).Msgf("kafka checkpointer: failed to commit messages, retrying in %v", d)
+			c.logger.Warn(err, fmt.Sprintf("kafka checkpointer: failed to commit messages, retrying in %v", d))
 		})
 }
