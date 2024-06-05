@@ -12,7 +12,7 @@ type mockAdapter struct {
 	recordToLogEntryFn         func(map[string]any) (*schemalog.LogEntry, error)
 	schemaNameToIndexFn        func(schemaName string) IndexName
 	indexToSchemaNameFn        func(index string) string
-	searchDocsToBulkItemsFn    func(docs []search.Document) []es.BulkItem
+	searchDocToBulkItemFn      func(docs search.Document) es.BulkItem
 	bulkItemsToSearchDocErrsFn func(items []es.BulkItem) []search.DocumentError
 }
 
@@ -28,8 +28,8 @@ func (m *mockAdapter) IndexToSchemaName(index string) string {
 	return m.indexToSchemaNameFn(index)
 }
 
-func (m *mockAdapter) SearchDocsToBulkItems(docs []search.Document) []es.BulkItem {
-	return m.searchDocsToBulkItemsFn(docs)
+func (m *mockAdapter) SearchDocToBulkItem(docs search.Document) es.BulkItem {
+	return m.searchDocToBulkItemFn(docs)
 }
 
 func (m *mockAdapter) BulkItemsToSearchDocErrs(items []es.BulkItem) []search.DocumentError {

@@ -9,15 +9,14 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
-
 	"github.com/xataio/pgstream/internal/es"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 )
 
 type Store struct {
+	logger    loglib.Logger
 	client    es.SearchClient
 	mapper    search.Mapper
 	adapter   Adapter
@@ -28,6 +27,8 @@ type Config struct {
 	URL string
 }
 
+type Option func(*Store)
+
 const (
 	openSearchDefaultANNEngine      = "nmslib"
 	openSearchDefaultM              = 48
@@ -37,20 +38,33 @@ const (
 	schemalogIndexName = "pgstream"
 )
 
-func NewStore(cfg Config) (*Store, error) {
+func NewStore(cfg Config, opts ...Option) (*Store, error) {
 	os, err := es.NewClient(cfg.URL)
 	if err != nil {
 		return nil, fmt.Errorf("create elasticsearch client: %w", err)
 	}
-	return NewStoreWithClient(os), nil
+
+	s := NewStoreWithClient(os)
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	return s, nil
 }
 
 func NewStoreWithClient(client es.SearchClient) *Store {
 	return &Store{
+		logger:    loglib.NewNoopLogger(),
 		client:    client,
 		adapter:   newDefaultAdapter(),
 		mapper:    NewPostgresMapper(),
 		marshaler: json.Marshal,
+	}
+}
+
+func WithLogger(l loglib.Logger) Option {
+	return func(s *Store) {
+		s.logger = loglib.NewLogger(l)
 	}
 }
 
@@ -103,10 +117,10 @@ func (s *Store) ApplySchemaChange(ctx context.Context, newEntry *schemalog.LogEn
 	// TODO: in the future, we will trigger a reindex automatically in this
 	// situation
 	for _, tbl := range changes.PrimaryKeyChange {
-		log.Warn().Msgf("primary key identity column changed for table %s, reindexing required", tbl)
+		s.logger.Warn(nil, fmt.Sprintf("primary key identity column changed for table %s, reindexing required", tbl))
 	}
 	for _, tbl := range changes.UniqueNotNullChange {
-		log.Warn().Msgf("unique not null identity column changed for table %s, reindexing required", tbl)
+		s.logger.Warn(nil, fmt.Sprintf("unique not null identity column changed for table %s, reindexing required", tbl))
 	}
 
 	if err := s.updateMapping(ctx, newEntry.SchemaName, newEntry, changes); err != nil {
@@ -116,7 +130,18 @@ func (s *Store) ApplySchemaChange(ctx context.Context, newEntry *schemalog.LogEn
 }
 
 func (s *Store) SendDocuments(ctx context.Context, docs []search.Document) ([]search.DocumentError, error) {
-	failed, err := s.client.SendBulkRequest(ctx, s.adapter.SearchDocsToBulkItems(docs))
+	items := make([]es.BulkItem, 0, len(docs))
+	for _, doc := range docs {
+		if len(doc.ID) > osIDFieldLengthLimit {
+			s.logger.Error(errors.New("ID is longer than 512 bytes"), "opensearch store adapter: error processing document, skipping", loglib.Fields{
+				"severity": "DATALOSS",
+				"id":       doc.ID,
+			})
+			continue
+		}
+		items = append(items, s.adapter.SearchDocToBulkItem(doc))
+	}
+	failed, err := s.client.SendBulkRequest(ctx, items)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -193,7 +218,7 @@ func (s *Store) getLastSchemaLogEntry(ctx context.Context, schemaName string) (*
 	})
 	if err != nil {
 		if errors.Is(err, es.ErrResourceNotFound) {
-			log.Warn().Msgf("[%s]: index not found: %v. Trying to create it", schemalogIndexName, err)
+			s.logger.Warn(err, "index not found, trying to create it", loglib.Fields{"index": schemalogIndexName})
 			// Create the pgstream index if it was not found.
 			err = s.createSchemaLogIndex(ctx, schemalogIndexName)
 			if err != nil {
@@ -347,9 +372,13 @@ func (s *Store) updateMappingAddNewColumns(ctx context.Context, indexName IndexN
 		mapping, err := s.mapper.ColumnToSearchMapping(c)
 		if err != nil {
 			if errors.As(err, &search.ErrTypeInvalid{}) {
-				log.Warn().Dict("column", zerolog.Dict().Str("type", c.DataType).Str("id", c.PgstreamID)).
-					Str("schema", indexName.SchemaName()).
-					Msgf("unknown column type: %v", err)
+				s.logger.Warn(err, "unknown column type", loglib.Fields{
+					"column": map[string]any{
+						"type": c.DataType,
+						"id":   c.PgstreamID,
+					},
+					"schema": indexName.SchemaName(),
+				})
 			} else {
 				return fmt.Errorf("failed to convert column to search mapping: %w", err)
 			}
