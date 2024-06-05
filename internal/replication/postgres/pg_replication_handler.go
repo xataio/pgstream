@@ -10,12 +10,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
-	"github.com/rs/zerolog/log"
 
 	"github.com/xataio/pgstream/internal/replication"
+	loglib "github.com/xataio/pgstream/pkg/log"
 )
 
 type Handler struct {
+	logger loglib.Logger
 	// Create two connections. One for querying, one for handling replication
 	// events.
 	pgConn            *pgx.Conn
@@ -30,6 +31,8 @@ type Config struct {
 	PostgresURL string
 }
 
+type Option func(h *Handler)
+
 const (
 	logLSNPosition = "position"
 	logSlotName    = "slot_name"
@@ -38,7 +41,7 @@ const (
 	logSystemID    = "system_id"
 )
 
-func NewHandler(ctx context.Context, cfg Config) (*Handler, error) {
+func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, error) {
 	pgCfg, err := pgx.ParseConfig(cfg.PostgresURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing postgres connection string: %w", err)
@@ -57,11 +60,24 @@ func NewHandler(ctx context.Context, cfg Config) (*Handler, error) {
 		return nil, fmt.Errorf("create postgres replication client: %w", err)
 	}
 
-	return &Handler{
+	h := &Handler{
+		logger:            loglib.NewNoopLogger(),
 		pgConn:            pgConn,
 		pgReplicationConn: pgReplicationConn,
 		lsnParser:         &LSNParser{},
-	}, nil
+	}
+
+	for _, opt := range opts {
+		opt(h)
+	}
+
+	return h, nil
+}
+
+func WithLogger(l loglib.Logger) Option {
+	return func(h *Handler) {
+		h.logger = loglib.NewLogger(l)
+	}
 }
 
 func (h *Handler) StartReplication(ctx context.Context) error {
@@ -72,26 +88,24 @@ func (h *Handler) StartReplication(ctx context.Context) error {
 
 	h.pgReplicationSlotName = fmt.Sprintf("pgstream_%s_slot", sysID.DBName)
 
-	logger := log.With().
-		Str(logSystemID, sysID.SystemID).
-		Str(logDBName, sysID.DBName).
-		Str(logSlotName, h.pgReplicationSlotName).
-		Logger()
-	ctx = logger.WithContext(ctx)
-
-	logger.Info().
-		Int32(logTimeline, sysID.Timeline).
-		Stringer(logLSNPosition, sysID.XLogPos).
-		Msg("identifySystem success")
+	logFields := loglib.Fields{
+		logSystemID: sysID.SystemID,
+		logDBName:   sysID.DBName,
+		logSlotName: h.pgReplicationSlotName,
+	}
+	h.logger.Info("replication handler: identifySystem success", logFields, loglib.Fields{
+		logTimeline:    sysID.Timeline,
+		logLSNPosition: sysID.XLogPos,
+	})
 
 	startPos, err := h.getLastSyncedLSN(ctx)
 	if err != nil {
 		return fmt.Errorf("read last position: %w", err)
 	}
 
-	logger.Trace().
-		Stringer(logLSNPosition, pglogrepl.LSN(startPos)).
-		Msg("read last LSN position.")
+	h.logger.Trace("replication handler: read last LSN position", logFields, loglib.Fields{
+		logLSNPosition: pglogrepl.LSN(startPos),
+	})
 
 	if startPos == 0 {
 		// todo(deverts): If we don't have a position. Read from as early as possible.
@@ -103,7 +117,9 @@ func (h *Handler) StartReplication(ctx context.Context) error {
 		}
 	}
 
-	logger.Trace().Stringer(logLSNPosition, pglogrepl.LSN(startPos)).Msg("set start LSN")
+	h.logger.Trace("replication handler: set start LSN", logFields, loglib.Fields{
+		logLSNPosition: pglogrepl.LSN(startPos),
+	})
 
 	pluginArguments := []string{
 		`"include-timestamp" '1'`,
@@ -122,7 +138,7 @@ func (h *Handler) StartReplication(ctx context.Context) error {
 		return fmt.Errorf("startReplication: %w", err)
 	}
 
-	logger.Info().Msgf("logical replication started on slot %v.", h.pgReplicationSlotName)
+	h.logger.Info("replication handler: logical replication started", logFields)
 
 	return h.SyncLSN(ctx, startPos)
 }
@@ -172,7 +188,9 @@ func (h *Handler) SyncLSN(ctx context.Context, lsn replication.LSN) error {
 	if err != nil {
 		return fmt.Errorf("syncLSN: send status update: %w", err)
 	}
-	log.Trace().Stringer(logLSNPosition, pglogrepl.LSN(lsn)).Msg("stored new LSN position")
+	h.logger.Trace("stored new LSN position", loglib.Fields{
+		logLSNPosition: pglogrepl.LSN(lsn),
+	})
 	return nil
 }
 
