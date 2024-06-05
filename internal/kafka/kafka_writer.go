@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rs/zerolog/log"
 	"github.com/segmentio/kafka-go"
+	loglib "github.com/xataio/pgstream/pkg/log"
 )
 
 // Writer is a wrapper around the kafkago library writer
@@ -33,11 +33,11 @@ type WriterConfig struct {
 // same partition.
 //
 // If the topic auto create setting is enabled in the config, it will create it.
-func NewWriter(config WriterConfig) (*Writer, error) {
-	log.Info().
-		Strs("kafka_servers", config.Conn.Servers).
-		Bool("tls_enabled", config.Conn.TLS.Enabled).
-		Msg("creating kafka writer")
+func NewWriter(config WriterConfig, logger loglib.Logger) (*Writer, error) {
+	logger.Info("creating kafka writer", loglib.Fields{
+		"kafka_servers": config.Conn.Servers,
+		"tls_enabled":   config.Conn.TLS.Enabled,
+	})
 
 	if config.Conn.Topic.AutoCreate {
 		if err := createTopic(&config.Conn); err != nil {
@@ -57,8 +57,8 @@ func NewWriter(config WriterConfig) (*Writer, error) {
 			RequiredAcks: kafka.RequireAll,
 			Balancer:     &kafka.CRC32Balancer{},
 			Transport:    transport,
-			Logger:       makeLogger(log.Trace),
-			ErrorLogger:  makeLogger(log.Error),
+			Logger:       makeLogger(logger.Trace),
+			ErrorLogger:  makeErrLogger(logger.Error),
 			BatchTimeout: config.BatchTimeout,
 			BatchBytes:   config.BatchBytes,
 			BatchSize:    config.BatchSize,

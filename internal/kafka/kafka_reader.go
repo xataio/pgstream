@@ -6,8 +6,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/rs/zerolog/log"
 	"github.com/segmentio/kafka-go"
+	loglib "github.com/xataio/pgstream/pkg/log"
 )
 
 type Reader struct {
@@ -27,11 +27,11 @@ const (
 	maxReaderBytes = 25 * 1024 * 1024 // 25 MiB
 )
 
-func NewReader(config ReaderConfig) (*Reader, error) {
-	log.Info().
-		Strs("kafka_servers", config.Conn.Servers).
-		Bool("tls_enabled", config.Conn.TLS.Enabled).
-		Msg("creating kafka reader")
+func NewReader(config ReaderConfig, logger loglib.Logger) (*Reader, error) {
+	logger.Info("creating kafka reader", loglib.Fields{
+		"kafka_servers": config.Conn.Servers,
+		"tls_enabled":   config.Conn.TLS.Enabled,
+	})
 
 	var startOffset int64
 	switch config.ConsumerGroupStartOffset {
@@ -57,8 +57,8 @@ func NewReader(config ReaderConfig) (*Reader, error) {
 			MaxBytes:       maxReaderBytes, // TODO: this needs to be in sync with the broker max size
 			CommitInterval: 0,              // disabled, we call commit ourselves
 			Dialer:         dialer,
-			Logger:         makeLogger(log.Trace),
-			ErrorLogger:    makeLogger(log.Error),
+			Logger:         makeLogger(logger.Trace),
+			ErrorLogger:    makeErrLogger(logger.Error),
 			StartOffset:    startOffset,
 		}),
 	}, nil
