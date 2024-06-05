@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package log
+package zerolog
 
 import (
 	"io"
@@ -10,6 +10,9 @@ import (
 	"strconv"
 	"time"
 
+	loglib "github.com/xataio/pgstream/pkg/log"
+	zerologlib "github.com/xataio/pgstream/pkg/log/zerolog"
+
 	"github.com/go-logr/zerologr"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -18,10 +21,6 @@ import (
 type Config struct {
 	LogLevel string
 }
-
-// if we go over this limit the log will likely be truncated and it will not
-// be very readable
-const logMaxBytes = 10000
 
 // init sets some zerolog global defaults we want to keep throughout the project.
 func init() {
@@ -38,14 +37,26 @@ func init() {
 	}
 }
 
-func AddBytesToLog(log *zerolog.Event, key string, value []byte) *zerolog.Event {
-	if len(value) > logMaxBytes {
-		return log.Bytes(key, value[:logMaxBytes])
-	}
-	return log.Bytes(key, value)
+// SetGlobalLogger sets the log output in the stdlib log package and the
+// zerolog global loggers.
+func SetGlobalLogger(logger *zerolog.Logger) {
+	// Rewire stdlib "log" global logger to our logger for dependencies
+	// logging to `log.Default()...`
+	stdlog.SetFlags(0)
+	stdlog.SetOutput(logger)
+
+	// Update zerolog global logger for packages/dependencies using this logger
+	log.Logger = *logger
+
+	// Set global logger in case context.Context is missing a contextual logger
+	zerolog.DefaultContextLogger = logger
 }
 
-// NewLogger creates a new logger writing to out.
+func NewStdLogger(l *zerolog.Logger) loglib.Logger {
+	return zerologlib.NewLogger(l)
+}
+
+// newLogger creates a new logger writing to out.
 // The logger will emit a timestamp, the caller's filename, and optionally
 // emit the stacktrace for errors that carry a stack trace.
 //
@@ -81,21 +92,6 @@ func NewLogger(config *Config) *zerolog.Logger {
 		Level(level)
 
 	return &logger
-}
-
-// SetGlobalLogger sets the log output in the stdlib log package and the
-// zerolog global loggers.
-func SetGlobalLogger(logger *zerolog.Logger) {
-	// Rewire stdlib "log" global logger to our logger for dependencies
-	// logging to `log.Default()...`
-	stdlog.SetFlags(0)
-	stdlog.SetOutput(logger)
-
-	// Update zerolog global logger for packages/dependencies using this logger
-	log.Logger = *logger
-
-	// Set global logger in case context.Context is missing a contextual logger
-	zerolog.DefaultContextLogger = logger
 }
 
 func withTimeFormat(format string) func(*zerolog.ConsoleWriter) {
