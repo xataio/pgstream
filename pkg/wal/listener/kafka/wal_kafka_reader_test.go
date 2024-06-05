@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/internal/kafka"
 	kafkamocks "github.com/xataio/pgstream/internal/kafka/mocks"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
@@ -154,6 +155,7 @@ func TestReader_Listen(t *testing.T) {
 			defer close(doneChan)
 
 			r := &Reader{
+				logger:        loglib.NewNoopLogger(),
 				reader:        tc.reader(doneChan),
 				processRecord: tc.processRecord,
 				unmarshaler:   testUnmarshaler,
