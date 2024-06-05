@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/internal/replication"
 	replicationmocks "github.com/xataio/pgstream/internal/replication/mocks"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
@@ -220,6 +221,7 @@ func TestListener_Listen(t *testing.T) {
 
 			replicationHandler := tc.replicationHandler(doneChan)
 			l := &Listener{
+				logger:              loglib.NewNoopLogger(),
 				replicationHandler:  replicationHandler,
 				processEvent:        tc.processEventFn,
 				walDataDeserialiser: testDeserialiser,

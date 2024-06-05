@@ -10,16 +10,15 @@ import (
 
 	"github.com/xataio/pgstream/internal/replication"
 	pgreplication "github.com/xataio/pgstream/internal/replication/postgres"
-
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
-
-	"github.com/rs/zerolog/log"
 )
 
 // Listener contains the environment for subscribing and listening to
 // postgres logical replication events.
 type Listener struct {
 	replicationHandler replicationHandler
+	logger             loglib.Logger
 
 	// Function called for processing WAL events.
 	processEvent listenerProcessWalEvent
@@ -41,31 +40,27 @@ type Config struct {
 	Replication pgreplication.Config
 }
 
-func NewWithHandler(handler replicationHandler, processEvent listenerProcessWalEvent) *Listener {
-	return &Listener{
+type Option func(l *Listener)
+
+func New(handler replicationHandler, processEvent listenerProcessWalEvent, opts ...Option) *Listener {
+	l := &Listener{
+		logger:              loglib.NewNoopLogger(),
 		replicationHandler:  handler,
 		processEvent:        processEvent,
 		walDataDeserialiser: json.Unmarshal,
 	}
+
+	for _, opt := range opts {
+		opt(l)
+	}
+
+	return l
 }
 
-func New(
-	ctx context.Context,
-	cfg *Config,
-	processEvent listenerProcessWalEvent,
-) (*Listener, error) {
-	replicationHandler, err := pgreplication.NewHandler(ctx, cfg.Replication)
-	if err != nil {
-		return nil, fmt.Errorf("pg listener: create replication handler: %w", err)
+func WithLogger(logger loglib.Logger) Option {
+	return func(l *Listener) {
+		l.logger = loglib.NewLogger(logger)
 	}
-
-	l := &Listener{
-		replicationHandler:  replicationHandler,
-		processEvent:        processEvent,
-		walDataDeserialiser: json.Unmarshal,
-	}
-
-	return l, nil
 }
 
 // Listen starts the subscription process to listen for updates from PG.
@@ -102,11 +97,11 @@ func (l *Listener) listen(ctx context.Context) error {
 				continue
 			}
 
-			log.Trace().
-				Str("wal_end", l.replicationHandler.GetLSNParser().ToString(msgData.LSN)).
-				Time("server_time", msgData.ServerTime).
-				Bytes("wal_data", msgData.Data).
-				Send()
+			l.logger.Trace("", loglib.Fields{
+				"wal_end":     l.replicationHandler.GetLSNParser().ToString(msgData.LSN),
+				"server_time": msgData.ServerTime,
+				"wal_data":    msgData.Data,
+			})
 
 			if err := l.processWALEvent(ctx, msgData); err != nil {
 				return err
