@@ -5,7 +5,6 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/xataio/pgstream/internal/log"
 )
 
 // Version is the pgstream version
@@ -31,14 +30,7 @@ var rootCmd = &cobra.Command{
 	SilenceUsage: true,
 	Version:      Version,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		if err := loadConfig(); err != nil {
-			return err
-		}
-
-		log.SetGlobalLogger(log.NewLogger(&log.Config{
-			LogLevel: viper.GetString("PGSTREAM_LOG_LEVEL"),
-		}))
-		return nil
+		return loadConfig()
 	},
 }
 
