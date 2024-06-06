@@ -176,6 +176,13 @@ func parseSearchProcessorConfig() *stream.SearchProcessorConfig {
 		Store: opensearch.Config{
 			URL: searchStore,
 		},
+		Retrier: &search.StoreRetryConfig{
+			Backoff: backoff.Config{
+				InitialInterval: viper.GetDuration("PGSTREAM_SEARCH_STORE_BACKOFF_INITIAL_INTERVAL"),
+				MaxInterval:     viper.GetDuration("PGSTREAM_SEARCH_STORE_BACKOFF_MAX_INTERVAL"),
+				MaxRetries:      viper.GetUint("PGSTREAM_SEARCH_STORE_BACKOFF_MAX_RETRIES"),
+			},
+		},
 	}
 }
 
