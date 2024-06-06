@@ -83,10 +83,17 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config) error {
 			return kafkaWriter.Send(ctx)
 		})
 	case config.Processor.Search != nil:
-		searchStore, err := opensearch.NewStore(config.Processor.Search.Store, opensearch.WithLogger(logger))
+		var searchStore search.Store
+		var err error
+		searchStore, err = opensearch.NewStore(config.Processor.Search.Store, opensearch.WithLogger(logger))
 		if err != nil {
 			return err
 		}
+		if config.Processor.Search.Retrier != nil {
+			logger.Debug("using retry logic with search store...")
+			searchStore = search.NewStoreRetrier(searchStore, config.Processor.Search.Retrier, search.WithStoreLogger(logger))
+		}
+
 		searchIndexer := search.NewBatchIndexer(ctx,
 			config.Processor.Search.Indexer,
 			searchStore,

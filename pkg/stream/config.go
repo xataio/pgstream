@@ -46,6 +46,7 @@ type KafkaProcessorConfig struct {
 type SearchProcessorConfig struct {
 	Indexer search.IndexerConfig
 	Store   opensearch.Config
+	Retrier *search.StoreRetryConfig
 }
 
 func (c *Config) IsValid() error {
