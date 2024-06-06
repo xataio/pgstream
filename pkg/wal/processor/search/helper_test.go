@@ -108,7 +108,7 @@ func newTestDataEvent(action string) *wal.Event {
 		Table:  testTableName,
 		Metadata: wal.Metadata{
 			TablePgstreamID:    testTableID,
-			InternalColID:      "col-1",
+			InternalColIDs:     []string{"col-1"},
 			InternalColVersion: "col-2",
 		},
 	}

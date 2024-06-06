@@ -358,7 +358,7 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 				},
 				Metadata: wal.Metadata{
 					TablePgstreamID:    testTableID,
-					InternalColID:      "col-1",
+					InternalColIDs:     []string{"col-1"},
 					InternalColVersion: "col-2",
 				},
 			},
@@ -379,7 +379,7 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 				},
 				Metadata: wal.Metadata{
 					TablePgstreamID:    testTableID,
-					InternalColID:      "col-1",
+					InternalColIDs:     []string{"col-1"},
 					InternalColVersion: "col-2",
 				},
 			},
@@ -433,7 +433,7 @@ func TestAdapter_parseColumns(t *testing.T) {
 	}
 	testMetadata := wal.Metadata{
 		TablePgstreamID:    testTableID,
-		InternalColID:      "col-1",
+		InternalColIDs:     []string{"col-1"},
 		InternalColVersion: "col-2",
 	}
 
@@ -505,7 +505,7 @@ func TestAdapter_parseColumns(t *testing.T) {
 			},
 			metadata: wal.Metadata{
 				TablePgstreamID: testTableID,
-				InternalColID:   "col-1",
+				InternalColIDs:  []string{"col-1"},
 			},
 			mapper: noopMapper,
 
@@ -527,7 +527,7 @@ func TestAdapter_parseColumns(t *testing.T) {
 			},
 			metadata: wal.Metadata{
 				TablePgstreamID: testTableID,
-				InternalColID:   "col-1",
+				InternalColIDs:  []string{"col-1"},
 			},
 			mapper: noopMapper,
 			parser: &replicationmocks.LSNParser{
@@ -620,45 +620,104 @@ func TestAdapter_parseColumns(t *testing.T) {
 	}
 }
 
-func TestAdapter_parseIDColumn(t *testing.T) {
+func TestAdapter_parseIDColumns(t *testing.T) {
 	t.Parallel()
+
+	noopMapper := &searchmocks.Mapper{
+		MapColumnValueFn: func(column schemalog.Column, value any) (any, error) { return value, nil },
+	}
+
+	newDoc := func(id string) *Document {
+		return &Document{
+			ID:   id,
+			Data: make(map[string]any),
+		}
+	}
 
 	testTable := "test-table"
 	tests := []struct {
-		name string
-		id   any
+		name      string
+		idColumns []wal.Column
 
-		wantID  string
+		wantDoc *Document
 		wantErr error
 	}{
 		{
-			name:    "ok - string",
-			id:      "id-1",
-			wantID:  "test-table_id-1",
+			name: "ok - string",
+			idColumns: []wal.Column{
+				{ID: "col-1", Name: "id-1", Value: "id1"},
+			},
+			wantDoc: newDoc(fmt.Sprintf("%s_id1", testTable)),
 			wantErr: nil,
 		},
 		{
-			name:    "ok - int64",
-			id:      int64(1),
-			wantID:  "test-table_1",
+			name: "ok - int64",
+			idColumns: []wal.Column{
+				{Name: "id-1", Value: int64(1)},
+			},
+			wantDoc: newDoc(fmt.Sprintf("%s_1", testTable)),
 			wantErr: nil,
 		},
 		{
-			name:    "ok - float64",
-			id:      float64(1.0),
-			wantID:  "test-table_1",
+			name: "ok - float64",
+			idColumns: []wal.Column{
+				{Name: "id-1", Value: float64(1.0)},
+			},
+			wantDoc: newDoc(fmt.Sprintf("%s_1", testTable)),
 			wantErr: nil,
 		},
 		{
-			name:    "error - nil",
-			id:      nil,
-			wantID:  "",
+			name: "ok - multiple id columns",
+			idColumns: []wal.Column{
+				{ID: "col-1", Name: "id-1", Value: "id1"},
+				{ID: "col-2", Name: "id-2", Value: float64(2.0)},
+				{ID: "col-3", Name: "id-3", Value: int64(100)},
+			},
+			wantDoc: &Document{
+				ID: fmt.Sprintf("%s_id1-2-100", testTable),
+				Data: map[string]any{
+					"col-1": "id1",
+					"col-2": float64(2.0),
+					"col-3": int64(100),
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name:      "error - no id columns",
+			idColumns: []wal.Column{},
+			wantDoc:   newDoc(""),
+			wantErr:   processor.ErrIDNotFound,
+		},
+		{
+			name: "error - nil",
+			idColumns: []wal.Column{
+				{Name: "id-1", Value: nil},
+			},
+			wantDoc: newDoc(""),
 			wantErr: errNilIDValue,
 		},
 		{
-			name:    "error - unexpected type",
-			id:      true,
-			wantID:  "",
+			name: "error - unexpected type on single identity",
+			idColumns: []wal.Column{
+				{Name: "id-1", Value: true},
+			},
+			wantDoc: newDoc(""),
+			wantErr: errUnsupportedType,
+		},
+		{
+			name: "error - unexpected type on multiple identities",
+			idColumns: []wal.Column{
+				{ID: "col-1", Name: "id-1", Value: "id1"},
+				{ID: "col-2", Name: "id-2", Value: true},
+				{ID: "col-3", Name: "id-3", Value: int64(100)},
+			},
+			wantDoc: &Document{
+				ID: "",
+				Data: map[string]any{
+					"col-1": "id1",
+				},
+			},
 			wantErr: errUnsupportedType,
 		},
 	}
@@ -668,10 +727,13 @@ func TestAdapter_parseIDColumn(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			a := &adapter{}
-			id, err := a.parseIDColumn(testTable, tc.id)
+			a := &adapter{
+				mapper: noopMapper,
+			}
+			doc := newDoc("")
+			err := a.parseIDColumns(testTable, tc.idColumns, doc)
 			require.ErrorIs(t, err, tc.wantErr)
-			require.Equal(t, tc.wantID, id)
+			require.Equal(t, tc.wantDoc, doc)
 		})
 	}
 }

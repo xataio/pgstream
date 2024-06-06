@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
@@ -198,9 +199,9 @@ func (t *Translator) fillEventMetadata(event *wal.Data, log *schemalog.LogEntry,
 	foundID, foundVersion := false, false
 	for i := range tbl.Columns {
 		col := &tbl.Columns[i]
-		if t.idFinder(col, tbl) && !foundID {
+		if t.idFinder(col, tbl) {
 			foundID = true
-			event.Metadata.InternalColID = col.PgstreamID
+			event.Metadata.InternalColIDs = append(event.Metadata.InternalColIDs, col.PgstreamID)
 			continue
 		}
 
@@ -265,10 +266,8 @@ func primaryKeyFinder(c *schemalog.Column, tbl *schemalog.Table) bool {
 	}
 
 	switch len(tbl.PrimaryKeyColumns) {
-	case 1:
-		return c.Name == tbl.PrimaryKeyColumns[0]
-	default:
-		// If composite or no primary key present, choose a not nullable unique column if it
+	case 0:
+		// If no primary key present, choose a not nullable unique column if it
 		// exists
 		notNullUniqueCol := tbl.GetFirstUniqueNotNullColumn()
 		if notNullUniqueCol == nil {
@@ -276,5 +275,8 @@ func primaryKeyFinder(c *schemalog.Column, tbl *schemalog.Table) bool {
 		}
 
 		return c.Name == notNullUniqueCol.Name
+	default:
+		// single or composite primary key
+		return slices.Contains(tbl.PrimaryKeyColumns, c.Name)
 	}
 }

@@ -144,7 +144,7 @@ func (a *adapter) walDataToDocument(data *wal.Data) (*Document, error) {
 		// This is needed because TOAST columns are not included in the replication
 		// event unless they change in the transaction.
 		for _, col := range data.Identity {
-			if col.ID == data.Metadata.InternalColID || col.ID == data.Metadata.InternalColVersion {
+			if data.Metadata.IsIDColumn(col.ID) || data.Metadata.IsVersionColumn(col.ID) {
 				continue
 			}
 			if _, exists := doc.Data[col.ID]; !exists {
@@ -176,21 +176,18 @@ func (a *adapter) walDataToDocument(data *wal.Data) (*Document, error) {
 }
 
 func (a *adapter) parseColumns(columns []wal.Column, metadata wal.Metadata, lsnStr string) (*Document, error) {
-	recIDFound := false
 	versionFound := false
 	doc := &Document{
 		Data: map[string]any{},
 	}
 
 	var err error
+	idColumns := []wal.Column{}
 	for _, col := range columns {
-		switch col.ID {
-		case metadata.InternalColID:
-			if doc.ID, err = a.parseIDColumn(metadata.TablePgstreamID, col.Value); err != nil {
-				return nil, fmt.Errorf("id found, but unable to parse: %w", err)
-			}
-			recIDFound = true
-		case metadata.InternalColVersion:
+		switch {
+		case metadata.IsIDColumn(col.ID):
+			idColumns = append(idColumns, col)
+		case metadata.IsVersionColumn(col.ID):
 			if doc.Version, err = a.parseVersionColumn(col.Value); err != nil {
 				return nil, fmt.Errorf("version found, but unable to parse: %w", err)
 			}
@@ -212,9 +209,10 @@ func (a *adapter) parseColumns(columns []wal.Column, metadata wal.Metadata, lsnS
 		}
 	}
 
-	if !recIDFound {
-		return nil, processor.ErrIDNotFound
+	if err := a.parseIDColumns(metadata.TablePgstreamID, idColumns, doc); err != nil {
+		return nil, fmt.Errorf("parsing id columns: %w", err)
 	}
+
 	// if version is not found, default to use the LSN if no version column is
 	// provided. Return an error otherwise.
 	if !versionFound {
@@ -234,25 +232,56 @@ func (a *adapter) parseColumns(columns []wal.Column, metadata wal.Metadata, lsnS
 	return doc, nil
 }
 
-// parseIDColumn extracts the ID from an `any` type. Prepends the table name to the ID
-// since we have multiple tables in the same schema.
-func (a *adapter) parseIDColumn(tableName string, id any) (string, error) {
-	i := ""
-
-	switch v := id.(type) {
-	case string:
-		i = v
-	case int64:
-		i = strconv.FormatInt(v, 10)
-	case float64:
-		i = strconv.FormatFloat(v, 'f', -1, 64)
-	case nil:
-		return "", errNilIDValue
-	default:
-		return "", fmt.Errorf("%T: %w", v, errUnsupportedType)
+// parseIDColumns extracts the IDs from `any` type. Prepends the table name to
+// the ID since we have multiple tables in the same schema. It will combine them
+// if there are multiple identity columns.
+func (a *adapter) parseIDColumns(tableName string, idColumns []wal.Column, doc *Document) error {
+	if len(idColumns) == 0 {
+		return processor.ErrIDNotFound
 	}
 
-	return fmt.Sprintf("%s_%s", tableName, i), nil
+	id := ""
+	addToID := func(s string) {
+		if id == "" {
+			id = s
+			return
+		}
+		id = fmt.Sprintf("%s-%s", id, s)
+	}
+
+	isCompositeID := len(idColumns) > 1
+	for _, col := range idColumns {
+		switch v := col.Value.(type) {
+		case string:
+			addToID(v)
+		case int64:
+			addToID(strconv.FormatInt(v, 10))
+		case float64:
+			addToID(strconv.FormatFloat(v, 'f', -1, 64))
+		case nil:
+			return errNilIDValue
+		default:
+			return fmt.Errorf("%T: %w", v, errUnsupportedType)
+		}
+
+		// if the identity is a combination of multiple fields, we need to map
+		// the individual fields as part of the document. Otherwise, the
+		// identity will be the document id.
+		if isCompositeID {
+			parsedColumn, err := a.mapper.MapColumnValue(schemalog.Column{
+				Name:       col.Name,
+				DataType:   col.Type,
+				PgstreamID: col.ID,
+			}, col.Value)
+			if err != nil {
+				return fmt.Errorf("mapping id column value: %w", err)
+			}
+			doc.Data[col.ID] = parsedColumn
+		}
+	}
+
+	doc.ID = fmt.Sprintf("%s_%s", tableName, id)
+	return nil
 }
 
 func (a *adapter) parseVersionColumn(version any) (int, error) {

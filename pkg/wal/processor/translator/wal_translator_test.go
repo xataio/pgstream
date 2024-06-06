@@ -365,7 +365,7 @@ func TestTranslator_translate(t *testing.T) {
 				d.Metadata = wal.Metadata{
 					SchemaID:        testSchemaID,
 					TablePgstreamID: testTableID,
-					InternalColID:   fmt.Sprintf("%s_col-1", testTableID),
+					InternalColIDs:  []string{fmt.Sprintf("%s_col-1", testTableID)},
 				}
 				return d
 			}(),
@@ -479,10 +479,10 @@ func Test_primaryKeyFinder(t *testing.T) {
 				PrimaryKeyColumns: []string{"col-1", "col-2"},
 			},
 
-			wantFound: false,
+			wantFound: true,
 		},
 		{
-			name: "composite primary key and unique not null column",
+			name: "unique not null column with composite primary key",
 			col: &schemalog.Column{
 				Name: "col-3",
 			},
@@ -493,7 +493,7 @@ func Test_primaryKeyFinder(t *testing.T) {
 				PrimaryKeyColumns: []string{"col-1", "col-2"},
 			},
 
-			wantFound: true,
+			wantFound: false,
 		},
 	}
 
