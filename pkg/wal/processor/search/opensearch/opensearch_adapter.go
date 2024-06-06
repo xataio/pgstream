@@ -10,14 +10,12 @@ import (
 	"github.com/xataio/pgstream/internal/es"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
-
-	"github.com/rs/zerolog/log"
 )
 
 type Adapter interface {
 	SchemaNameToIndex(schemaName string) IndexName
 	IndexToSchemaName(index string) string
-	SearchDocsToBulkItems(docs []search.Document) []es.BulkItem
+	SearchDocToBulkItem(docs search.Document) es.BulkItem
 	BulkItemsToSearchDocErrs(items []es.BulkItem) []search.DocumentError
 	RecordToLogEntry(rec map[string]any) (*schemalog.LogEntry, error)
 }
@@ -48,20 +46,23 @@ func (a *adapter) IndexToSchemaName(index string) string {
 	return strings.TrimSuffix(index, "-1")
 }
 
-func (a *adapter) SearchDocsToBulkItems(docs []search.Document) []es.BulkItem {
-	items := make([]es.BulkItem, 0, len(docs))
-	for _, doc := range docs {
-		if len(doc.ID) > osIDFieldLengthLimit {
-			log.Error().
-				Str("severity", "DATALOSS").
-				Str("error", "ID is longer than 512 bytes").
-				Str("id", doc.ID).
-				Msg("opensearch store adapter: error processing document, skipping")
-			continue
-		}
-		items = append(items, a.searchDocToBulkItem(doc))
+func (a *adapter) SearchDocToBulkItem(doc search.Document) es.BulkItem {
+	indexName := a.SchemaNameToIndex(doc.Schema)
+	item := es.BulkItem{
+		Doc: doc.Data,
 	}
-	return items
+	bulkIndex := &es.BulkIndex{
+		Index:       indexName.Name(),
+		ID:          doc.ID,
+		Version:     &doc.Version,
+		VersionType: "external",
+	}
+	if doc.Delete {
+		item.Delete = bulkIndex
+	} else {
+		item.Index = bulkIndex
+	}
+	return item
 }
 
 func (a *adapter) BulkItemsToSearchDocErrs(items []es.BulkItem) []search.DocumentError {
@@ -87,25 +88,6 @@ func (a *adapter) RecordToLogEntry(rec map[string]any) (*schemalog.LogEntry, err
 	}
 
 	return &log, nil
-}
-
-func (a *adapter) searchDocToBulkItem(doc search.Document) es.BulkItem {
-	indexName := a.SchemaNameToIndex(doc.Schema)
-	item := es.BulkItem{
-		Doc: doc.Data,
-	}
-	bulkIndex := &es.BulkIndex{
-		Index:       indexName.Name(),
-		ID:          doc.ID,
-		Version:     &doc.Version,
-		VersionType: "external",
-	}
-	if doc.Delete {
-		item.Delete = bulkIndex
-	} else {
-		item.Index = bulkIndex
-	}
-	return item
 }
 
 func (a *adapter) bulkItemToSearchDocErr(item es.BulkItem) search.DocumentError {

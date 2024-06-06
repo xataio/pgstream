@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/rs/zerolog/log"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -19,6 +19,7 @@ import (
 // allows following processors to have more information for processing the event
 // effectively.
 type Translator struct {
+	logger               loglib.Logger
 	processor            processor.Processor
 	walToLogEntryAdapter walToLogEntryAdapter
 	skipSchema           schemaFilter
@@ -55,6 +56,7 @@ func New(cfg *Config, p processor.Processor, opts ...Option) (*Translator, error
 	schemaLogStore = schemalog.NewStoreCache(schemaLogStore)
 
 	t := &Translator{
+		logger:               loglib.NewNoopLogger(),
 		processor:            p,
 		schemaLogStore:       schemaLogStore,
 		walToLogEntryAdapter: processor.WalDataToLogEntry,
@@ -89,6 +91,12 @@ func WithSkipSchema(skipSchema schemaFilter) Option {
 	}
 }
 
+func WithLogger(l loglib.Logger) Option {
+	return func(t *Translator) {
+		t.logger = loglib.NewLogger(l)
+	}
+}
+
 func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) error {
 	if event.Data == nil {
 		return t.processor.ProcessWALEvent(ctx, event)
@@ -116,7 +124,7 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) erro
 		}
 
 		if err := t.schemaLogStore.Ack(ctx, logEntry); err != nil {
-			log.Error().Err(err).Msgf("ack schema log")
+			t.logger.Error(err, "ack schema log")
 		}
 	default:
 		// by default, we translate columns and pass on the event. If we fail to
@@ -127,17 +135,17 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) erro
 			// data loss, since we don't expect to replicate tables that do not
 			// have these fields
 			if errors.Is(err, processor.ErrIDNotFound) || errors.Is(err, processor.ErrVersionNotFound) {
-				log.Debug().
-					Str("schema", data.Schema).
-					Str("table", data.Table).
-					Msgf("ignoring event: %v", err)
+				t.logger.Warn(err, "ignoring event", loglib.Fields{
+					"schema": data.Schema,
+					"table":  data.Table,
+				})
 				return nil
 			} else {
-				log.Error().
-					Str("severity", "DATALOSS").
-					Str("error", err.Error()).
-					Str("schema", data.Schema).
-					Str("table", data.Table)
+				t.logger.Error(err, "", loglib.Fields{
+					"severity": "DATALOSS",
+					"schema":   data.Schema,
+					"table":    data.Table,
+				})
 			}
 		}
 	}

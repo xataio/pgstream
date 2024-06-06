@@ -18,9 +18,11 @@ func init() {
 
 	rootCmd.PersistentFlags().String("pgurl", "postgres://postgres:postgres@localhost?sslmode=disable", "Postgres URL")
 	rootCmd.PersistentFlags().StringP("config", "c", "", ".env config file to use if any")
+	rootCmd.PersistentFlags().String("log-level", "debug", "log level for the application")
 
 	viper.BindPFlag("pgurl", rootCmd.PersistentFlags().Lookup("pgurl"))
 	viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config"))
+	viper.BindPFlag("PGSTREAM_LOG_LEVEL", rootCmd.PersistentFlags().Lookup("log-level"))
 }
 
 var rootCmd = &cobra.Command{

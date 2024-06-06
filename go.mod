@@ -5,6 +5,7 @@ go 1.22.2
 require (
 	github.com/cenkalti/backoff/v4 v4.1.2
 	github.com/elastic/go-elasticsearch/v8 v8.0.0-20210311100734-5d6b0c808457
+	github.com/go-logr/zerologr v1.2.3
 	github.com/golang-migrate/migrate/v4 v4.17.1
 	github.com/google/go-cmp v0.6.0
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
@@ -28,6 +29,7 @@ require (
 	github.com/containerd/console v1.0.3 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
+	github.com/go-logr/logr v1.2.3 // indirect
 	github.com/gookit/color v1.5.4 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect

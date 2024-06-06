@@ -14,6 +14,7 @@ import (
 	backoffmocks "github.com/xataio/pgstream/internal/backoff/mocks"
 	"github.com/xataio/pgstream/internal/kafka"
 	kafkamocks "github.com/xataio/pgstream/internal/kafka/mocks"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
@@ -92,6 +93,7 @@ func TestCheckpointer_CommitMessages(t *testing.T) {
 			t.Parallel()
 
 			r := Checkpointer{
+				logger:          loglib.NewNoopLogger(),
 				committer:       tc.reader,
 				backoffProvider: tc.backoffProvider,
 			}

@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/rs/zerolog/log"
 	"github.com/xataio/pgstream/internal/replication"
 	pgreplication "github.com/xataio/pgstream/internal/replication/postgres"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	pgcheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/postgres"
@@ -24,7 +24,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func Start(ctx context.Context, config *Config) error {
+func Start(ctx context.Context, logger loglib.Logger, config *Config) error {
 	if err := config.IsValid(); err != nil {
 		return fmt.Errorf("incompatible configuration: %w", err)
 	}
@@ -34,7 +34,9 @@ func Start(ctx context.Context, config *Config) error {
 	var replicationHandler replication.Handler
 	if config.Listener.Postgres != nil {
 		var err error
-		replicationHandler, err = pgreplication.NewHandler(ctx, config.Listener.Postgres.Replication)
+		replicationHandler, err = pgreplication.NewHandler(ctx,
+			config.Listener.Postgres.Replication,
+			pgreplication.WithLogger(logger))
 		if err != nil {
 			return fmt.Errorf("error setting up postgres replication handler")
 		}
@@ -45,7 +47,9 @@ func Start(ctx context.Context, config *Config) error {
 	var checkpoint checkpointer.Checkpoint
 	switch {
 	case config.Listener.Kafka != nil:
-		kafkaCheckpointer, err := kafkacheckpoint.New(ctx, config.Listener.Kafka.Checkpointer)
+		kafkaCheckpointer, err := kafkacheckpoint.New(ctx,
+			config.Listener.Kafka.Checkpointer,
+			kafkacheckpoint.WithLogger(logger))
 		if err != nil {
 			return fmt.Errorf("error setting up kafka checkpointer:%w", err)
 		}
@@ -63,7 +67,9 @@ func Start(ctx context.Context, config *Config) error {
 	var processor processor.Processor
 	switch {
 	case config.Processor.Kafka != nil:
-		kafkaWriter, err := kafkaprocessor.NewBatchWriter(*config.Processor.Kafka.Writer, checkpoint)
+		kafkaWriter, err := kafkaprocessor.NewBatchWriter(*config.Processor.Kafka.Writer,
+			kafkaprocessor.WithCheckpoint(checkpoint),
+			kafkaprocessor.WithLogger(logger))
 		if err != nil {
 			return err
 		}
@@ -73,22 +79,28 @@ func Start(ctx context.Context, config *Config) error {
 		// the kafka batch writer requires to initialise a go routine to send
 		// the batches asynchronously
 		eg.Go(func() error {
-			log.Info().Msg("running kafka batch writer...")
+			logger.Info("running kafka batch writer...")
 			return kafkaWriter.Send(ctx)
 		})
 	case config.Processor.Search != nil:
-		searchStore, err := opensearch.NewStore(config.Processor.Search.Store)
+		searchStore, err := opensearch.NewStore(config.Processor.Search.Store, opensearch.WithLogger(logger))
 		if err != nil {
 			return err
 		}
-		searchIndexer := search.NewBatchIndexer(ctx, config.Processor.Search.Indexer, searchStore, checkpoint, pgreplication.NewLSNParser())
+		searchIndexer := search.NewBatchIndexer(ctx,
+			config.Processor.Search.Indexer,
+			searchStore,
+			pgreplication.NewLSNParser(),
+			search.WithCheckpoint(checkpoint),
+			search.WithLogger(logger),
+		)
 		defer searchIndexer.Close()
 		processor = searchIndexer
 
 		// the search batch indexer requires to initialise a go routine to send
 		// the batches asynchronously
 		eg.Go(func() error {
-			log.Info().Msg("running search batch indexer...")
+			logger.Info("running search batch indexer...")
 			return searchIndexer.Send(ctx)
 		})
 	default:
@@ -96,8 +108,8 @@ func Start(ctx context.Context, config *Config) error {
 	}
 
 	if config.Processor.Translator != nil {
-		log.Info().Msg("adding translation to processor...")
-		translator, err := translator.New(config.Processor.Translator, processor)
+		logger.Info("adding translation to processor...")
+		translator, err := translator.New(config.Processor.Translator, processor, translator.WithLogger(logger))
 		if err != nil {
 			return fmt.Errorf("error creating processor translation layer: %w", err)
 		}
@@ -109,23 +121,27 @@ func Start(ctx context.Context, config *Config) error {
 
 	switch {
 	case config.Listener.Postgres != nil:
-		listener := pglistener.NewWithHandler(replicationHandler, processor.ProcessWALEvent)
+		listener := pglistener.New(replicationHandler,
+			processor.ProcessWALEvent,
+			pglistener.WithLogger(logger))
 		defer listener.Close()
 
 		eg.Go(func() error {
-			log.Info().Msg("running postgres listener...")
+			logger.Info("running postgres listener...")
 			return listener.Listen(ctx)
 		})
 	case config.Listener.Kafka != nil:
 		var err error
-		listener, err := kafkalistener.NewReader(config.Listener.Kafka.Reader, processor.ProcessWALEvent)
+		listener, err := kafkalistener.NewReader(config.Listener.Kafka.Reader,
+			processor.ProcessWALEvent,
+			kafkalistener.WithLogger(logger))
 		if err != nil {
 			return err
 		}
 		defer listener.Close()
 
 		eg.Go(func() error {
-			log.Info().Msg("running kafka reader...")
+			logger.Info("running kafka reader...")
 			return listener.Listen(ctx)
 		})
 	}

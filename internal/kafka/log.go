@@ -3,12 +3,20 @@
 package kafka
 
 import (
-	"github.com/rs/zerolog"
+	"fmt"
+
 	"github.com/segmentio/kafka-go"
+	loglib "github.com/xataio/pgstream/pkg/log"
 )
 
-func makeLogger(start func() *zerolog.Event) kafka.LoggerFunc {
+func makeLogger(logFn func(msg string, fields ...loglib.Fields)) kafka.LoggerFunc {
 	return func(msg string, args ...interface{}) {
-		start().Msgf(msg, args...)
+		logFn(fmt.Sprintf(msg, args...), nil)
+	}
+}
+
+func makeErrLogger(logFn func(err error, msg string, fields ...loglib.Fields)) kafka.LoggerFunc {
+	return func(msg string, args ...interface{}) {
+		logFn(nil, fmt.Sprintf(msg, args...), nil)
 	}
 }

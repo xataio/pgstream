@@ -12,13 +12,11 @@ import (
 	"github.com/xataio/pgstream/internal/backoff"
 	"github.com/xataio/pgstream/internal/replication"
 	synclib "github.com/xataio/pgstream/internal/sync"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
-
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 )
 
 // BatchIndexer is the environment for ingesting the WAL logical
@@ -26,6 +24,7 @@ import (
 type BatchIndexer struct {
 	store   Store
 	adapter walAdapter
+	logger  loglib.Logger
 
 	// queueBytesSema is used to limit the amount of memory used by the
 	// unbuffered msg channel, optimising the channel performance for variable
@@ -51,21 +50,22 @@ type IndexerConfig struct {
 	MaxQueueBytes  int
 }
 
+type Option func(*BatchIndexer)
+
 const defaultMaxQueueBytes = 100 * 1024 * 1024 // 100MiB
 
 // NewBatchIndexer returns a processor of wal events that indexes data into the
 // search store provided on input.
-func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, checkpointer checkpointer.Checkpoint, lsnParser replication.LSNParser) *BatchIndexer {
+func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, lsnParser replication.LSNParser, opts ...Option) *BatchIndexer {
 	indexer := &BatchIndexer{
-		store: store,
+		store:  store,
+		logger: loglib.NewNoopLogger(),
 		// by default all schemas are processed
 		skipSchema:        func(string) bool { return false },
 		batchSize:         config.BatchSize,
 		batchSendInterval: config.BatchTime,
-		cleaner:           newSchemaCleaner(&config.CleanupBackoff, store),
 		adapter:           newAdapter(store.GetMapper(), lsnParser),
 		msgChan:           make(chan *msg),
-		checkpoint:        checkpointer,
 	}
 
 	// this allows us to bound and configure the memory used by the internal msg
@@ -76,10 +76,27 @@ func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, che
 	}
 	indexer.queueBytesSema = synclib.NewWeightedSemaphore(int64(maxQueueBytes))
 
+	for _, opt := range opts {
+		opt(indexer)
+	}
+
+	indexer.cleaner = newSchemaCleaner(&config.CleanupBackoff, store, indexer.logger)
 	// start a goroutine for processing schema deletes asynchronously.
 	// routine ends when the internal channel is closed.
 	go indexer.cleaner.start(ctx)
 	return indexer
+}
+
+func WithLogger(l loglib.Logger) Option {
+	return func(i *BatchIndexer) {
+		i.logger = loglib.NewLogger(l)
+	}
+}
+
+func WithCheckpoint(c checkpointer.Checkpoint) Option {
+	return func(i *BatchIndexer) {
+		i.checkpoint = c
+	}
 }
 
 // ProcessWALEvent is called on every new message from the WAL logical
@@ -88,24 +105,23 @@ func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, che
 func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, event *wal.Event) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.WithLevel(zerolog.PanicLevel).
-				Any("wal_data", event.Data).
-				Any("panic", r).
-				Bytes("stack_trace", debug.Stack()).
-				Msg("[PANIC] Panic while processing replication event")
-
+			i.logger.Panic("[PANIC] Panic while processing replication event", loglib.Fields{
+				"wal_data":    event.Data,
+				"panic":       r,
+				"stack_trace": debug.Stack(),
+			})
 			err = fmt.Errorf("search batch indexer: %w: %v", processor.ErrPanic, r)
 		}
 	}()
 
-	log.Debug().
-		Any("wal_data", event.Data).
-		Msg("search batch indexer: received wal event")
+	i.logger.Trace("search batch indexer: received wal event", loglib.Fields{
+		"wal_data": event.Data,
+	})
 
 	msg, err := i.adapter.walEventToMsg(event)
 	if err != nil {
 		if errors.Is(err, errNilIDValue) || errors.Is(err, errNilVersionValue) || errors.Is(err, errMetadataMissing) {
-			log.Warn().Msgf("invalid event, skipping message: %v", err)
+			i.logger.Warn(err, "search batch indexer: invalid event, skipping message")
 			return nil
 		}
 		return fmt.Errorf("wal data to queue item: %w", err)
@@ -120,7 +136,7 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, event *wal.Event) (e
 	// from the channel and their size is released
 	msgSize := int64(msg.size())
 	if !i.queueBytesSema.TryAcquire(msgSize) {
-		log.Warn().Msg("search batch indexer: max queue bytes reached, processing blocked")
+		i.logger.Warn(nil, "search batch indexer: max queue bytes reached, processing blocked")
 		if err := i.queueBytesSema.Acquire(ctx, msgSize); err != nil {
 			return err
 		}
@@ -144,7 +160,7 @@ func (i *BatchIndexer) Send(ctx context.Context) error {
 			err := i.sendBatch(ctx, batch)
 			i.queueBytesSema.Release(int64(batch.totalBytes))
 			if err != nil {
-				log.Error().Err(err).Msg("search batch indexer")
+				i.logger.Error(err, "search batch indexer")
 				sendErrChan <- err
 				return
 			}
@@ -200,7 +216,9 @@ func (i *BatchIndexer) sendBatch(ctx context.Context, batch *msgBatch) error {
 				return err
 			}
 			if len(failed) > 0 {
-				log.Error().Msgf("failed to send documents: %v", failed)
+				i.logger.Error(nil, "failed to send documents", loglib.Fields{
+					"failed_documents": failed,
+				})
 			}
 			writes = writes[:0]
 		}
@@ -216,7 +234,7 @@ func (i *BatchIndexer) sendBatch(ctx context.Context, batch *msgBatch) error {
 				return err
 			}
 			if err := i.applySchemaChange(ctx, msg.schemaChange); err != nil {
-				logDataLoss(msg.schemaChange, err)
+				i.logDataLoss(msg.schemaChange, err)
 				return nil
 			}
 		case msg.truncate != nil:
@@ -251,7 +269,7 @@ func (i *BatchIndexer) truncateTable(ctx context.Context, item *truncateItem) er
 func (i *BatchIndexer) applySchemaChange(ctx context.Context, new *schemalog.LogEntry) error {
 	// schema is filtered out, nothing to do
 	if i.skipSchema(new.SchemaName) {
-		log.Info().Msgf("applySchemaChange: skipping schema [%s]", new.SchemaName)
+		i.logger.Info("search batch indexer: apply schema change: skipping schema", loglib.Fields{"schema_name": new.SchemaName})
 		return nil
 	}
 
@@ -262,11 +280,14 @@ func (i *BatchIndexer) applySchemaChange(ctx context.Context, new *schemalog.Log
 		return nil
 	}
 
-	log.Info().Dict("logEntry", zerolog.Dict().
-		Str("ID", new.ID.String()).
-		Int64("version", new.Version).
-		Str("schema", new.SchemaName).
-		Bool("isDropped", new.Schema.Dropped)).Msg("search batch indexer: apply schema change")
+	i.logger.Info("search batch indexer: apply schema change", loglib.Fields{
+		"logEntry": map[string]any{
+			"ID":        new.ID.String(),
+			"version":   new.Version,
+			"schema":    new.SchemaName,
+			"isDropped": new.Schema.Dropped,
+		},
+	})
 
 	if err := i.store.ApplySchemaChange(ctx, new); err != nil {
 		return fmt.Errorf("applying schema change: %w", err)
@@ -275,12 +296,13 @@ func (i *BatchIndexer) applySchemaChange(ctx context.Context, new *schemalog.Log
 	return nil
 }
 
-func logDataLoss(logEntry *schemalog.LogEntry, err error) {
-	log.Error().Err(err).
-		Str("severity", "DATALOSS").
-		Dict("logEntry", zerolog.Dict().
-			Str("ID", logEntry.ID.String()).
-			Int64("version", logEntry.Version).
-			Str("schema", logEntry.SchemaName)).
-		Msg("search batch indexer")
+func (i *BatchIndexer) logDataLoss(logEntry *schemalog.LogEntry, err error) {
+	i.logger.Error(err, "search batch indexer", loglib.Fields{
+		"severity": "DATALOSS",
+		"logEntry": map[string]any{
+			"ID":      logEntry.ID.String(),
+			"version": logEntry.Version,
+			"schema":  logEntry.SchemaName,
+		},
+	})
 }

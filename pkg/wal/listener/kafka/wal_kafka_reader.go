@@ -10,16 +10,14 @@ import (
 	"runtime/debug"
 
 	"github.com/xataio/pgstream/internal/kafka"
-	loglib "github.com/xataio/pgstream/internal/log"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
-
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 )
 
 type Reader struct {
 	reader      kafkaReader
 	unmarshaler func([]byte, any) error
+	logger      loglib.Logger
 
 	// processRecord is called for a new record.
 	processRecord payloadProcessor
@@ -36,19 +34,32 @@ type kafkaReader interface {
 
 type payloadProcessor func(context.Context, *wal.Event) error
 
-func NewReader(config ReaderConfig,
-	processRecord payloadProcessor,
-) (*Reader, error) {
-	reader, err := kafka.NewReader(config.Kafka)
+type Option func(*Reader)
+
+func NewReader(config ReaderConfig, processRecord payloadProcessor, opts ...Option) (*Reader, error) {
+	r := &Reader{
+		logger:        loglib.NewNoopLogger(),
+		processRecord: processRecord,
+		unmarshaler:   json.Unmarshal,
+	}
+
+	for _, opt := range opts {
+		opt(r)
+	}
+
+	var err error
+	r.reader, err = kafka.NewReader(config.Kafka, r.logger)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Reader{
-		reader:        reader,
-		processRecord: processRecord,
-		unmarshaler:   json.Unmarshal,
-	}, nil
+	return r, nil
+}
+
+func WithLogger(logger loglib.Logger) Option {
+	return func(r *Reader) {
+		r.logger = loglib.NewLogger(logger)
+	}
 }
 
 func (r *Reader) Listen(ctx context.Context) error {
@@ -62,13 +73,13 @@ func (r *Reader) Listen(ctx context.Context) error {
 				return fmt.Errorf("reading from kafka: %w", err)
 			}
 
-			log.Trace().
-				Str("topic", msg.Topic).
-				Int("partition", msg.Partition).
-				Int64("offset", msg.Offset).
-				Bytes("key", msg.Key).
-				Bytes("wal_data", msg.Value).
-				Msg("received")
+			r.logger.Trace("received", loglib.Fields{
+				"topic":     msg.Topic,
+				"partition": msg.Partition,
+				"offset":    msg.Offset,
+				"key":       msg.Key,
+				"wal_data":  msg.Value,
+			})
 
 			event := &wal.Event{
 				CommitPosition: wal.CommitPosition{KafkaPos: msg},
@@ -83,10 +94,10 @@ func (r *Reader) Listen(ctx context.Context) error {
 					return fmt.Errorf("canceled: %w", err)
 				}
 
-				logEvent := log.Error().
-					Str("severity", "DATALOSS").
-					Err(err)
-				loglib.AddBytesToLog(logEvent, "wal_data", msg.Value).Msg("processing kafka msg")
+				r.logger.Error(err, "processing kafka msg", loglib.Fields{
+					"severity": "DATALOSS",
+					"wal_data": msg.Value,
+				})
 			}
 		}
 	}
@@ -97,10 +108,9 @@ func (r *Reader) Close() error {
 	// in order for the consumer's partitions to be re-allocated
 	// quickly.
 	if err := r.reader.Close(); err != nil {
-		log.WithLevel(zerolog.ErrorLevel).
-			Err(err).
-			Bytes("stack_trace", debug.Stack()).
-			Msg("error closing connection to kafka")
+		r.logger.Error(err, "error closing connection to kafka", loglib.Fields{
+			"stack_trace": debug.Stack(),
+		})
 		return err
 	}
 	return nil

@@ -5,7 +5,6 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 	"github.com/xataio/pgstream/internal/backoff"
 	"github.com/xataio/pgstream/internal/kafka"
@@ -22,7 +21,7 @@ import (
 func loadConfig() error {
 	cfgFile := viper.GetString("config")
 	if cfgFile != "" {
-		log.Info().Msgf("using config file: %s", cfgFile)
+		fmt.Printf("using config file: %s\n", cfgFile) //nolint:forbidigo //logger hasn't been configured yet
 		viper.SetConfigFile(cfgFile)
 		if err := viper.ReadInConfig(); err != nil {
 			return fmt.Errorf("error reading config: %w", err)
