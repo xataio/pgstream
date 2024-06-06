@@ -4,6 +4,7 @@ package wal
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/rs/xid"
 	"github.com/xataio/pgstream/internal/kafka"
@@ -32,11 +33,11 @@ type Data struct {
 type Metadata struct {
 	SchemaID        xid.ID `json:"schema_id"`         // the schema ID the event was stamped with
 	TablePgstreamID string `json:"table_pgstream_id"` // the ID of the table to which the event belongs
-	// This is the Pgstream ID of the "id" column. We track this specifically, as we extract it from the event
-	// in order to use as the ID for the OS record.
-	InternalColID string `json:"id_col_pgstream_id"`
+	// This is the Pgstream ID of the "id" column(s). We track this specifically, as we extract it from the event
+	// in order to use as the ID for the record.
+	InternalColIDs []string `json:"id_col_pgstream_id"`
 	// This is the Pgstream ID of the "version" column. We track this specifically, as we extract it from the event
-	// in order to use as the version when working with OS' optimistic concurrency checks.
+	// in order to use as the version when working with optimistic concurrency checks.
 	InternalColVersion string `json:"version_col_pgstream_id"`
 }
 
@@ -58,10 +59,18 @@ func (d *Data) IsInsert() bool {
 
 // IsEmpty is true if string fields are empty
 func (m Metadata) IsEmpty() bool {
-	if m.TablePgstreamID == "" && m.InternalColID == "" && m.InternalColVersion == "" {
+	if m.TablePgstreamID == "" && len(m.InternalColIDs) == 0 && m.InternalColVersion == "" {
 		return true
 	}
 	return false
+}
+
+func (m Metadata) IsVersionColumn(colID string) bool {
+	return m.InternalColVersion == colID
+}
+
+func (m Metadata) IsIDColumn(colID string) bool {
+	return slices.Contains(m.InternalColIDs, colID)
 }
 
 // CommitPosition represents a position in the input stream, which can be either postgres or kafka

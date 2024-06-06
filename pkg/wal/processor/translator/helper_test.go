@@ -94,7 +94,7 @@ func newTestDataEventWithMetadata(action string) *wal.Event {
 	d.Data.Metadata = wal.Metadata{
 		SchemaID:           testSchemaID,
 		TablePgstreamID:    testTableID,
-		InternalColID:      fmt.Sprintf("%s_col-1", testTableID),
+		InternalColIDs:     []string{fmt.Sprintf("%s_col-1", testTableID)},
 		InternalColVersion: fmt.Sprintf("%s_col-2", testTableID),
 	}
 	return d
