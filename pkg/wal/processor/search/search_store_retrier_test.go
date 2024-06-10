@@ -6,11 +6,9 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/internal/backoff"
-	backoffmocks "github.com/xataio/pgstream/internal/backoff/mocks"
 	loglib "github.com/xataio/pgstream/pkg/log"
 )
 
@@ -136,30 +134,13 @@ func TestStoreRetrier_SendDocuments(t *testing.T) {
 	}
 }
 
-// mock backoff provider runs the operation for up to 3 times until it succeeds
+// mock backoff provider runs the operation for up to 2 times until it succeeds
 // or returns error
 func newMockBackoffProvider() backoff.Provider {
 	return func(ctx context.Context) backoff.Backoff {
-		return &backoffmocks.Backoff{
-			RetryNotifyFn: func(o backoff.Operation, n backoff.Notify) error {
-				run := func() error {
-					err := o()
-					if err != nil {
-						n(err, time.Second)
-					}
-					return err
-				}
-
-				var err error
-				for i := 0; i < 3; i++ {
-					err = run()
-					if err == nil {
-						break
-					}
-				}
-
-				return err
-			},
-		}
+		return backoff.NewConstantBackoff(ctx, &backoff.ConstantConfig{
+			Interval:   0,
+			MaxRetries: 2,
+		})
 	}
 }

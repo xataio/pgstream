@@ -30,11 +30,9 @@ var errPartialDocumentSend = errors.New("failed to send some or all documents")
 
 func NewStoreRetrier(s Store, cfg *StoreRetryConfig, opts ...StoreOption) *StoreRetrier {
 	sr := &StoreRetrier{
-		inner:  s,
-		logger: loglib.NewNoopLogger(),
-		backoffProvider: func(ctx context.Context) backoff.Backoff {
-			return backoff.NewExponentialBackoff(ctx, &cfg.Backoff)
-		},
+		inner:           s,
+		logger:          loglib.NewNoopLogger(),
+		backoffProvider: backoff.NewProvider(&cfg.Backoff),
 	}
 
 	for _, opt := range opts {
