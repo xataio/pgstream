@@ -13,6 +13,7 @@ import (
 
 type Checkpointer struct {
 	syncer lsnSyncer
+	parser replication.LSNParser
 }
 
 type Config struct {
@@ -24,9 +25,10 @@ type lsnSyncer interface {
 	Close() error
 }
 
-func NewWithHandler(handler lsnSyncer) *Checkpointer {
+func NewWithHandler(syncer lsnSyncer) *Checkpointer {
 	return &Checkpointer{
-		syncer: handler,
+		syncer: syncer,
+		parser: pgreplication.NewLSNParser(),
 	}
 }
 
@@ -42,15 +44,19 @@ func New(ctx context.Context, cfg Config) (*Checkpointer, error) {
 }
 
 func (c *Checkpointer) SyncLSN(ctx context.Context, positions []wal.CommitPosition) error {
-	// we only need the max pg wal offset
 	if len(positions) == 0 {
 		return nil
 	}
 
-	max := positions[0].PGPos
+	// we only need the max pg wal offset
+	var max replication.LSN
 	for _, position := range positions {
-		if position.PGPos > max {
-			max = position.PGPos
+		lsn, err := c.parser.FromString(string(position))
+		if err != nil {
+			return err
+		}
+		if lsn > max {
+			max = lsn
 		}
 	}
 

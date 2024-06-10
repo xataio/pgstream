@@ -54,7 +54,7 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config) error {
 			return fmt.Errorf("error setting up kafka checkpointer:%w", err)
 		}
 		defer kafkaCheckpointer.Close()
-		checkpoint = kafkaCheckpointer.CommitMessages
+		checkpoint = kafkaCheckpointer.CommitOffsets
 
 	case config.Listener.Postgres != nil:
 		pgCheckpointer := pgcheckpoint.NewWithHandler(replicationHandler)

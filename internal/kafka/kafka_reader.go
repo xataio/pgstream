@@ -78,10 +78,18 @@ func (r *Reader) FetchMessage(ctx context.Context) (*Message, error) {
 	return &msg, nil
 }
 
-func (r *Reader) CommitMessages(ctx context.Context, msgs ...*Message) error {
-	kafkaMsgs := make([]kafka.Message, 0, len(msgs))
-	for _, msg := range msgs {
-		kafkaMsgs = append(kafkaMsgs, kafka.Message(*msg))
+func (r *Reader) CommitOffsets(ctx context.Context, offsets ...*Offset) error {
+	if len(offsets) == 0 {
+		return nil
+	}
+
+	kafkaMsgs := make([]kafka.Message, 0, len(offsets))
+	for _, offset := range offsets {
+		kafkaMsgs = append(kafkaMsgs, kafka.Message{
+			Topic:     offset.Topic,
+			Partition: offset.Partition,
+			Offset:    offset.Offset,
+		})
 	}
 	return r.reader.CommitMessages(ctx, kafkaMsgs...)
 }
