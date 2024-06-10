@@ -20,6 +20,7 @@ import (
 func TestReader_Listen(t *testing.T) {
 	t.Parallel()
 
+	testOffsetStr := "test-topic/0/1"
 	testMessage := &kafka.Message{
 		Topic:     "test-topic",
 		Partition: 0,
@@ -34,9 +35,7 @@ func TestReader_Listen(t *testing.T) {
 			Schema: "test_schema",
 			Table:  "test_table",
 		},
-		CommitPosition: wal.CommitPosition{
-			KafkaPos: testMessage,
-		},
+		CommitPosition: wal.CommitPosition(testOffsetStr),
 	}
 
 	errTest := errors.New("oh noes")
@@ -159,6 +158,9 @@ func TestReader_Listen(t *testing.T) {
 				reader:        tc.reader(doneChan),
 				processRecord: tc.processRecord,
 				unmarshaler:   testUnmarshaler,
+				offsetParser: &kafkamocks.OffsetParser{
+					ToStringFn: func(o *kafka.Offset) string { return testOffsetStr },
+				},
 			}
 
 			if tc.unmarshaler != nil {

@@ -43,9 +43,7 @@ func TestListener_Listen(t *testing.T) {
 			Data: &wal.Data{
 				Action: "I",
 			},
-			CommitPosition: wal.CommitPosition{
-				PGPos: testLSN,
-			},
+			CommitPosition: wal.CommitPosition(testLSNStr),
 		}, data)
 		return nil
 	}
@@ -145,9 +143,7 @@ func TestListener_Listen(t *testing.T) {
 			},
 			processEventFn: func(_ context.Context, data *wal.Event) error {
 				require.Equal(t, &wal.Event{
-					CommitPosition: wal.CommitPosition{
-						PGPos: testLSN,
-					},
+					CommitPosition: wal.CommitPosition(testLSNStr),
 				}, data)
 				return nil
 			},
@@ -225,6 +221,7 @@ func TestListener_Listen(t *testing.T) {
 				replicationHandler:  replicationHandler,
 				processEvent:        tc.processEventFn,
 				walDataDeserialiser: testDeserialiser,
+				lsnParser:           newMockLSNParser(),
 			}
 
 			if tc.deserialiser != nil {

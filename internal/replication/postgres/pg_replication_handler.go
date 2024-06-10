@@ -193,7 +193,7 @@ func (h *Handler) SyncLSN(ctx context.Context, lsn replication.LSN) error {
 		return fmt.Errorf("syncLSN: send status update: %w", err)
 	}
 	h.logger.Trace("stored new LSN position", loglib.Fields{
-		logLSNPosition: pglogrepl.LSN(lsn),
+		logLSNPosition: pglogrepl.LSN(lsn).String(),
 	})
 	return nil
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/internal/kafka"
 	kafkamocks "github.com/xataio/pgstream/internal/kafka/mocks"
-	"github.com/xataio/pgstream/internal/replication"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	syncmocks "github.com/xataio/pgstream/internal/sync/mocks"
 	loglib "github.com/xataio/pgstream/pkg/log"
@@ -29,7 +28,6 @@ var (
 	testSchema = "test_schema"
 	testTable  = "test_table"
 
-	testLSN    = replication.LSN(7773397064)
 	testLSNStr = "1/CF54A048"
 
 	errTest = errors.New("oh noes")
@@ -45,12 +43,10 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 			Schema: testSchema,
 			Table:  testTable,
 		},
-		CommitPosition: wal.CommitPosition{PGPos: testLSN},
+		CommitPosition: wal.CommitPosition(testLSNStr),
 	}
 
-	testCommitPosition := wal.CommitPosition{
-		PGPos: testLSN,
-	}
+	testCommitPosition := wal.CommitPosition(testLSNStr)
 
 	testBytes := []byte("test")
 	mockMarshaler := func(any) ([]byte, error) { return testBytes, nil }
@@ -222,9 +218,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 func TestBatchKafkaWriter_SendThread(t *testing.T) {
 	t.Parallel()
 
-	testCommitPosition := wal.CommitPosition{
-		PGPos: testLSN,
-	}
+	testCommitPosition := wal.CommitPosition(testLSNStr)
 	testBytes := []byte("test")
 	testKafkaMsg := &msg{
 		msg: kafka.Message{
@@ -414,9 +408,7 @@ func TestBatchKafkaWriter_SendThread(t *testing.T) {
 func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 	t.Parallel()
 
-	testCommitPosition := wal.CommitPosition{
-		PGPos: testLSN,
-	}
+	testCommitPosition := wal.CommitPosition(testLSNStr)
 	testBytes := []byte("test")
 	testBatch := &msgBatch{
 		msgs: []kafka.Message{
@@ -425,7 +417,7 @@ func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 				Value: testBytes,
 			},
 		},
-		lastPos: testCommitPosition,
+		positions: []wal.CommitPosition{testCommitPosition},
 	}
 
 	tests := []struct {
@@ -448,7 +440,7 @@ func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 			},
 			checkpoint: func(_ context.Context, commitPos []wal.CommitPosition) error {
 				require.Equal(t, 1, len(commitPos))
-				require.Equal(t, testLSN, commitPos[0].PGPos)
+				require.Equal(t, testCommitPosition, commitPos[0])
 				return nil
 			},
 			batch: testBatch,

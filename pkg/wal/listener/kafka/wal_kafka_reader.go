@@ -15,9 +15,10 @@ import (
 )
 
 type Reader struct {
-	reader      kafkaReader
-	unmarshaler func([]byte, any) error
-	logger      loglib.Logger
+	reader       kafkaReader
+	unmarshaler  func([]byte, any) error
+	logger       loglib.Logger
+	offsetParser kafka.OffsetParser
 
 	// processRecord is called for a new record.
 	processRecord payloadProcessor
@@ -41,6 +42,7 @@ func NewReader(config ReaderConfig, processRecord payloadProcessor, opts ...Opti
 		logger:        loglib.NewNoopLogger(),
 		processRecord: processRecord,
 		unmarshaler:   json.Unmarshal,
+		offsetParser:  kafka.NewOffsetParser(),
 	}
 
 	for _, opt := range opts {
@@ -81,8 +83,14 @@ func (r *Reader) Listen(ctx context.Context) error {
 				"wal_data":  msg.Value,
 			})
 
+			offset := &kafka.Offset{
+				Topic:     msg.Topic,
+				Partition: msg.Partition,
+				Offset:    msg.Offset,
+			}
+
 			event := &wal.Event{
-				CommitPosition: wal.CommitPosition{KafkaPos: msg},
+				CommitPosition: wal.CommitPosition(r.offsetParser.ToString(offset)),
 			}
 			event.Data = &wal.Data{}
 			if err := r.unmarshaler(msg.Value, event.Data); err != nil {
