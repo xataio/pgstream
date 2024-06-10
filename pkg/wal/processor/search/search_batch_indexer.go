@@ -9,7 +9,6 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/xataio/pgstream/internal/backoff"
 	"github.com/xataio/pgstream/internal/replication"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	loglib "github.com/xataio/pgstream/pkg/log"
@@ -43,16 +42,7 @@ type BatchIndexer struct {
 	cleaner cleaner
 }
 
-type IndexerConfig struct {
-	BatchSize      int
-	BatchTime      time.Duration
-	CleanupBackoff backoff.Config
-	MaxQueueBytes  int
-}
-
 type Option func(*BatchIndexer)
-
-const defaultMaxQueueBytes = 100 * 1024 * 1024 // 100MiB
 
 // NewBatchIndexer returns a processor of wal events that indexes data into the
 // search store provided on input.
@@ -62,19 +52,15 @@ func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, lsn
 		logger: loglib.NewNoopLogger(),
 		// by default all schemas are processed
 		skipSchema:        func(string) bool { return false },
-		batchSize:         config.BatchSize,
-		batchSendInterval: config.BatchTime,
+		batchSize:         config.batchSize(),
+		batchSendInterval: config.batchTime(),
 		adapter:           newAdapter(store.GetMapper(), lsnParser),
 		msgChan:           make(chan *msg),
 	}
 
 	// this allows us to bound and configure the memory used by the internal msg
 	// queue
-	maxQueueBytes := defaultMaxQueueBytes
-	if config.MaxQueueBytes > 0 {
-		maxQueueBytes = config.MaxQueueBytes
-	}
-	indexer.queueBytesSema = synclib.NewWeightedSemaphore(int64(maxQueueBytes))
+	indexer.queueBytesSema = synclib.NewWeightedSemaphore(config.maxQueueBytes())
 
 	for _, opt := range opts {
 		opt(indexer)
