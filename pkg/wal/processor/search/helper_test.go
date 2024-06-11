@@ -159,5 +159,5 @@ func newTestLogEntry(id xid.ID, now time.Time) *schemalog.LogEntry {
 }
 
 func newTestCommitPosition() wal.CommitPosition {
-	return wal.CommitPosition("test_topic-0-1")
+	return wal.CommitPosition("test_topic/0/1")
 }
