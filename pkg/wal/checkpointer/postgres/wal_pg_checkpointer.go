@@ -4,7 +4,6 @@ package postgres
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/xataio/pgstream/internal/replication"
 	pgreplication "github.com/xataio/pgstream/internal/replication/postgres"
@@ -25,22 +24,11 @@ type lsnSyncer interface {
 	Close() error
 }
 
-func NewWithHandler(syncer lsnSyncer) *Checkpointer {
+func New(syncer lsnSyncer) *Checkpointer {
 	return &Checkpointer{
 		syncer: syncer,
 		parser: pgreplication.NewLSNParser(),
 	}
-}
-
-func New(ctx context.Context, cfg Config) (*Checkpointer, error) {
-	replicationHandler, err := pgreplication.NewHandler(ctx, cfg.Replication)
-	if err != nil {
-		return nil, fmt.Errorf("postgres checkpointer: create replication handler: %w", err)
-	}
-
-	return &Checkpointer{
-		syncer: replicationHandler,
-	}, nil
 }
 
 func (c *Checkpointer) SyncLSN(ctx context.Context, positions []wal.CommitPosition) error {

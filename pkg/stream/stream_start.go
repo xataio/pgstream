@@ -57,7 +57,7 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config) error {
 		checkpoint = kafkaCheckpointer.CommitOffsets
 
 	case config.Listener.Postgres != nil:
-		pgCheckpointer := pgcheckpoint.NewWithHandler(replicationHandler)
+		pgCheckpointer := pgcheckpoint.New(replicationHandler)
 		defer pgCheckpointer.Close()
 		checkpoint = pgCheckpointer.SyncLSN
 	}
