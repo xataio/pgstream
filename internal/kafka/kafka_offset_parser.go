@@ -22,18 +22,27 @@ type OffsetParser interface {
 
 type Parser struct{}
 
-var ErrInvalidOffsetFormat = errors.New("invalid format for kafka offset")
+var (
+	ErrInvalidOffsetFormat = errors.New("invalid format for kafka offset")
+
+	// "/" is used as a separator to concatenate the topic, partition and
+	// offset. The partition and offset are integers, and the topic allowed
+	// characters are [a-zA-Z0-9\._\-].
+	//
+	// See https://github.com/apache/kafka/blob/0.10.2/core/src/main/scala/kafka/common/Topic.scala#L29
+	separator = "/"
+)
 
 func NewOffsetParser() *Parser {
 	return &Parser{}
 }
 
 func (p *Parser) ToString(o *Offset) string {
-	return fmt.Sprintf("%s/%d/%d", o.Topic, o.Partition, o.Offset)
+	return fmt.Sprintf("%s%s%d%s%d", o.Topic, separator, o.Partition, separator, o.Offset)
 }
 
 func (p *Parser) FromString(s string) (*Offset, error) {
-	parts := strings.Split(s, "/")
+	parts := strings.Split(s, separator)
 	if len(parts) != 3 {
 		return nil, ErrInvalidOffsetFormat
 	}
