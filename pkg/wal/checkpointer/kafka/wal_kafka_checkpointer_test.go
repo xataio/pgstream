@@ -18,23 +18,43 @@ import (
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
-func TestCheckpointer_CommitMessages(t *testing.T) {
+func TestCheckpointer_CommitOffsets(t *testing.T) {
 	t.Parallel()
 
-	testMsgs := []*kafka.Message{
+	testPositions := []wal.CommitPosition{
+		"topic_1-0-1", "topic_1-1-1", "topic_1-1-2",
+	}
+	testOffsets := []*kafka.Offset{
 		{
-			Key:   []byte("test-key-1"),
-			Value: []byte("test-value-1"),
+			Topic:     "topic_1",
+			Partition: 0,
+			Offset:    1,
 		},
 		{
-			Key:   []byte("test-key-2"),
-			Value: []byte("test-value-2"),
+			Topic:     "topic_1",
+			Partition: 1,
+			Offset:    1,
+		},
+		{
+			Topic:     "topic_1",
+			Partition: 1,
+			Offset:    2,
 		},
 	}
 
-	testPositions := []wal.CommitPosition{
-		{KafkaPos: testMsgs[0]},
-		{KafkaPos: testMsgs[1]},
+	mockParser := &kafkamocks.OffsetParser{
+		FromStringFn: func(s string) (*kafka.Offset, error) {
+			switch s {
+			case string(testPositions[0]):
+				return testOffsets[0], nil
+			case string(testPositions[1]):
+				return testOffsets[1], nil
+			case string(testPositions[2]):
+				return testOffsets[2], nil
+			default:
+				return nil, kafka.ErrInvalidOffsetFormat
+			}
+		},
 	}
 
 	errTest := errors.New("oh noes")
@@ -43,14 +63,17 @@ func TestCheckpointer_CommitMessages(t *testing.T) {
 		name            string
 		reader          *kafkamocks.Reader
 		backoffProvider backoff.Provider
+		parser          kafka.OffsetParser
 
 		wantErr error
 	}{
 		{
 			name: "ok",
 			reader: &kafkamocks.Reader{
-				CommitMessagesFn: func(ctx context.Context, msgs ...*kafka.Message) error {
-					require.ElementsMatch(t, msgs, testMsgs)
+				CommitOffsetsFn: func(ctx context.Context, offsets ...*kafka.Offset) error {
+					require.ElementsMatch(t, offsets, []*kafka.Offset{
+						testOffsets[0], testOffsets[2],
+					})
 					return nil
 				},
 			},
@@ -65,9 +88,9 @@ func TestCheckpointer_CommitMessages(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "error - committing messages",
+			name: "error - committing offsets",
 			reader: &kafkamocks.Reader{
-				CommitMessagesFn: func(ctx context.Context, msgs ...*kafka.Message) error {
+				CommitOffsetsFn: func(ctx context.Context, offsets ...*kafka.Offset) error {
 					return errTest
 				},
 			},
@@ -85,6 +108,19 @@ func TestCheckpointer_CommitMessages(t *testing.T) {
 
 			wantErr: errTest,
 		},
+		{
+			name: "error - parsing offsets",
+			reader: &kafkamocks.Reader{
+				CommitOffsetsFn: func(ctx context.Context, offsets ...*kafka.Offset) error {
+					return errors.New("CommitOffsetsFn: should not be called")
+				},
+			},
+			parser: &kafkamocks.OffsetParser{
+				FromStringFn: func(s string) (*kafka.Offset, error) { return nil, errTest },
+			},
+
+			wantErr: errTest,
+		},
 	}
 
 	for _, tc := range tests {
@@ -96,9 +132,14 @@ func TestCheckpointer_CommitMessages(t *testing.T) {
 				logger:          loglib.NewNoopLogger(),
 				committer:       tc.reader,
 				backoffProvider: tc.backoffProvider,
+				offsetParser:    mockParser,
 			}
 
-			err := r.CommitMessages(context.Background(), testPositions)
+			if tc.parser != nil {
+				r.offsetParser = tc.parser
+			}
+
+			err := r.CommitOffsets(context.Background(), testPositions)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}

@@ -9,17 +9,17 @@ import (
 )
 
 type Reader struct {
-	FetchMessageFn   func(ctx context.Context) (*kafka.Message, error)
-	CommitMessagesFn func(ctx context.Context, msgs ...*kafka.Message) error
-	CloseFn          func() error
+	FetchMessageFn  func(ctx context.Context) (*kafka.Message, error)
+	CommitOffsetsFn func(ctx context.Context, offsets ...*kafka.Offset) error
+	CloseFn         func() error
 }
 
 func (m *Reader) FetchMessage(ctx context.Context) (*kafka.Message, error) {
 	return m.FetchMessageFn(ctx)
 }
 
-func (m *Reader) CommitMessages(ctx context.Context, msgs ...*kafka.Message) error {
-	return m.CommitMessagesFn(ctx, msgs...)
+func (m *Reader) CommitOffsets(ctx context.Context, offsets ...*kafka.Offset) error {
+	return m.CommitOffsetsFn(ctx, offsets...)
 }
 
 func (m *Reader) Close() error {

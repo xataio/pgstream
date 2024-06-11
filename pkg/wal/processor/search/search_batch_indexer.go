@@ -101,7 +101,8 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, event *wal.Event) (e
 	}()
 
 	i.logger.Trace("search batch indexer: received wal event", loglib.Fields{
-		"wal_data": event.Data,
+		"wal_data":            event.Data,
+		"wal_commit_position": event.CommitPosition,
 	})
 
 	msg, err := i.adapter.walEventToMsg(event)

@@ -19,6 +19,7 @@ import (
 type Listener struct {
 	replicationHandler replicationHandler
 	logger             loglib.Logger
+	lsnParser          replication.LSNParser
 
 	// Function called for processing WAL events.
 	processEvent listenerProcessWalEvent
@@ -48,6 +49,7 @@ func New(handler replicationHandler, processEvent listenerProcessWalEvent, opts 
 		replicationHandler:  handler,
 		processEvent:        processEvent,
 		walDataDeserialiser: json.Unmarshal,
+		lsnParser:           handler.GetLSNParser(),
 	}
 
 	for _, opt := range opts {
@@ -98,7 +100,7 @@ func (l *Listener) listen(ctx context.Context) error {
 			}
 
 			l.logger.Trace("", loglib.Fields{
-				"wal_end":     l.replicationHandler.GetLSNParser().ToString(msgData.LSN),
+				"wal_end":     l.lsnParser.ToString(msgData.LSN),
 				"server_time": msgData.ServerTime,
 				"wal_data":    msgData.Data,
 			})
@@ -124,7 +126,7 @@ func (l *Listener) processWALEvent(ctx context.Context, msgData *replication.Mes
 			return fmt.Errorf("error unmarshaling wal data: %w", err)
 		}
 	}
-	event.CommitPosition = wal.CommitPosition{PGPos: msgData.LSN}
+	event.CommitPosition = wal.CommitPosition(l.lsnParser.ToString(msgData.LSN))
 
 	return l.processEvent(ctx, event)
 }

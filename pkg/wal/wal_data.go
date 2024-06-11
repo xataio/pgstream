@@ -3,12 +3,9 @@
 package wal
 
 import (
-	"fmt"
 	"slices"
 
 	"github.com/rs/xid"
-	"github.com/xataio/pgstream/internal/kafka"
-	"github.com/xataio/pgstream/internal/replication"
 )
 
 // Event represents the WAL information. If the data is not set but there's a
@@ -73,28 +70,5 @@ func (m Metadata) IsIDColumn(colID string) bool {
 	return slices.Contains(m.InternalColIDs, colID)
 }
 
-// CommitPosition represents a position in the input stream, which can be either postgres or kafka
-type CommitPosition struct {
-	PGPos    replication.LSN
-	KafkaPos *kafka.Message
-}
-
-func (c *CommitPosition) IsEmpty() bool {
-	return c.PGPos == 0 && c.KafkaPos == nil
-}
-
-func (c *CommitPosition) After(pos *CommitPosition) bool {
-	switch {
-	case c.KafkaPos != nil && pos.KafkaPos != nil:
-		return c.KafkaPos.Time.After(pos.KafkaPos.Time)
-	default:
-		return c.PGPos > pos.PGPos
-	}
-}
-
-func (c *CommitPosition) String() string {
-	if c.KafkaPos != nil {
-		return fmt.Sprintf("topic: %s, partition: %d, offset: %d", c.KafkaPos.Topic, c.KafkaPos.Partition, c.KafkaPos.Offset)
-	}
-	return fmt.Sprintf("%X", c.PGPos)
-}
+// CommitPosition represents a position in the input stream
+type CommitPosition string

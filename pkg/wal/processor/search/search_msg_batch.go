@@ -36,7 +36,7 @@ func (m *msg) isSchemaChange() bool {
 
 func (m *msg) isKeepAlive() bool {
 	return m.write == nil && m.schemaChange == nil && m.truncate == nil &&
-		!m.pos.IsEmpty()
+		m.pos != ""
 }
 
 func (m *msgBatch) add(msg *msg) {
@@ -48,7 +48,7 @@ func (m *msgBatch) add(msg *msg) {
 		m.msgs = append(m.msgs, msg)
 		m.totalBytes += msg.size()
 	}
-	if !msg.pos.IsEmpty() {
+	if msg.pos != "" {
 		m.positions = append(m.positions, msg.pos)
 	}
 }

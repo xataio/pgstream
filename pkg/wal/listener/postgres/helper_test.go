@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	testLSN = replication.LSN(7773397064)
+	testLSN    = replication.LSN(7773397064)
+	testLSNStr = "1/CF54A048"
 )
 
 func newMockReplicationHandler() *replicationmocks.Handler {
@@ -51,6 +52,7 @@ func newMockKeepAliveMessage(replyRequested bool) *replicationmocks.Message {
 
 func newMockLSNParser() *replicationmocks.LSNParser {
 	return &replicationmocks.LSNParser{
-		ToStringFn: func(replication.LSN) string { return "lsn" },
+		ToStringFn:   func(replication.LSN) string { return testLSNStr },
+		FromStringFn: func(s string) (replication.LSN, error) { return testLSN, nil },
 	}
 }

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/rs/xid"
-	"github.com/xataio/pgstream/internal/kafka"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 )
@@ -160,11 +159,5 @@ func newTestLogEntry(id xid.ID, now time.Time) *schemalog.LogEntry {
 }
 
 func newTestCommitPosition() wal.CommitPosition {
-	return wal.CommitPosition{
-		KafkaPos: &kafka.Message{
-			Topic:     "test_topic",
-			Partition: 0,
-			Offset:    1,
-		},
-	}
+	return wal.CommitPosition("test_topic/0/1")
 }

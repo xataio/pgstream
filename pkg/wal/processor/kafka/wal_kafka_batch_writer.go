@@ -223,8 +223,8 @@ func (w *BatchWriter) Close() error {
 
 func (w *BatchWriter) sendBatch(ctx context.Context, batch *msgBatch) error {
 	w.logger.Debug("kafka batch writer: sending message batch", loglib.Fields{
-		"batch_size":       len(batch.msgs),
-		"batch_commit_pos": batch.lastPos.String(),
+		"batch_size":             len(batch.msgs),
+		"batch_commit_positions": len(batch.positions),
 	})
 
 	if len(batch.msgs) > 0 {
@@ -243,8 +243,8 @@ func (w *BatchWriter) sendBatch(ctx context.Context, batch *msgBatch) error {
 		}
 	}
 
-	if w.checkpointer != nil && !batch.lastPos.IsEmpty() {
-		if err := w.checkpointer(ctx, []wal.CommitPosition{batch.lastPos}); err != nil {
+	if w.checkpointer != nil && len(batch.positions) > 0 {
+		if err := w.checkpointer(ctx, batch.positions); err != nil {
 			w.logger.Warn(err, "kafka batch writer: error updating commit position")
 		}
 	}

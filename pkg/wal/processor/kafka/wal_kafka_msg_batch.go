@@ -14,7 +14,7 @@ type msg struct {
 
 type msgBatch struct {
 	msgs       []kafka.Message
-	lastPos    wal.CommitPosition
+	positions  []wal.CommitPosition
 	totalBytes int
 }
 
@@ -24,26 +24,26 @@ func (mb *msgBatch) add(m *msg) {
 		mb.totalBytes += m.size()
 	}
 
-	if m.pos.After(&mb.lastPos) {
-		mb.lastPos = m.pos
+	if m.pos != "" {
+		mb.positions = append(mb.positions, m.pos)
 	}
 }
 
 func (mb *msgBatch) drain() *msgBatch {
 	batch := &msgBatch{
 		msgs:       mb.msgs,
-		lastPos:    mb.lastPos,
+		positions:  mb.positions,
 		totalBytes: mb.totalBytes,
 	}
 
 	mb.msgs = []kafka.Message{}
 	mb.totalBytes = 0
-	mb.lastPos = wal.CommitPosition{}
+	mb.positions = []wal.CommitPosition{}
 	return batch
 }
 
 func (mb *msgBatch) isEmpty() bool {
-	return len(mb.msgs) == 0 && mb.lastPos.IsEmpty()
+	return len(mb.msgs) == 0 && len(mb.positions) == 0
 }
 
 // size returns the size of the kafka message value (does not include headers or
@@ -53,5 +53,5 @@ func (m *msg) size() int {
 }
 
 func (m *msg) isKeepAlive() bool {
-	return m.msg.Value == nil && !m.pos.IsEmpty()
+	return m.msg.Value == nil && m.pos != ""
 }
