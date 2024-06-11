@@ -13,6 +13,7 @@ import (
 	"github.com/xataio/pgstream/pkg/stream"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
+	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
@@ -104,14 +105,8 @@ func parseKafkaReaderConfig(kafkaServers []string, kafkaTopic, consumerGroupID s
 
 func parseKafkaCheckpointConfig(readerCfg *kafkalistener.ReaderConfig) kafkacheckpoint.Config {
 	return kafkacheckpoint.Config{
-		Reader: readerCfg.Kafka,
-		CommitBackoff: backoff.Config{
-			Exponential: &backoff.ExponentialConfig{
-				InitialInterval: viper.GetDuration("PGSTREAM_KAFKA_COMMIT_BACKOFF_INITIAL_INTERVAL"),
-				MaxInterval:     viper.GetDuration("PGSTREAM_KAFKA_COMMIT_BACKOFF_MAX_INTERVAL"),
-				MaxRetries:      viper.GetUint("PGSTREAM_KAFKA_COMMIT_BACKOFF_MAX_RETRIES"),
-			},
-		},
+		Reader:        readerCfg.Kafka,
+		CommitBackoff: parseBackoffConfig("PGSTREAM_KAFKA_COMMIT"),
 	}
 }
 
@@ -138,9 +133,9 @@ func parseKafkaProcessorConfig() *stream.KafkaProcessorConfig {
 	}
 }
 
-func parseKafkaWriterConfig(kafkaServers []string, kafkaTopic string) *kafka.WriterConfig {
-	return &kafka.WriterConfig{
-		Conn: kafka.ConnConfig{
+func parseKafkaWriterConfig(kafkaServers []string, kafkaTopic string) *kafkaprocessor.Config {
+	return &kafkaprocessor.Config{
+		Kafka: kafka.ConnConfig{
 			Servers: kafkaServers,
 			Topic: kafka.TopicConfig{
 				Name:              kafkaTopic,
@@ -153,9 +148,10 @@ func parseKafkaWriterConfig(kafkaServers []string, kafkaTopic string) *kafka.Wri
 				Enabled: false,
 			},
 		},
-		BatchTimeout: viper.GetDuration("PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT"),
-		BatchBytes:   viper.GetInt64("PGSTREAM_KAFKA_WRITER_BATCH_BYTES"),
-		BatchSize:    viper.GetInt("PGSTREAM_KAFKA_WRITER_BATCH_SIZE"),
+		BatchTimeout:  viper.GetDuration("PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT"),
+		BatchBytes:    viper.GetInt64("PGSTREAM_KAFKA_WRITER_BATCH_BYTES"),
+		BatchSize:     viper.GetInt("PGSTREAM_KAFKA_WRITER_BATCH_SIZE"),
+		MaxQueueBytes: viper.GetInt64("PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES"),
 	}
 }
 
@@ -167,28 +163,49 @@ func parseSearchProcessorConfig() *stream.SearchProcessorConfig {
 
 	return &stream.SearchProcessorConfig{
 		Indexer: search.IndexerConfig{
-			BatchSize: viper.GetInt("PGSTREAM_SEARCH_INDEXER_BATCH_SIZE"),
-			BatchTime: viper.GetDuration("PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT"),
-			CleanupBackoff: backoff.Config{
-				Exponential: &backoff.ExponentialConfig{
-					InitialInterval: viper.GetDuration("PGSTREAM_SEARCH_INDEXER_CLEANUP_BACKOFF_INITIAL_INTERVAL"),
-					MaxInterval:     viper.GetDuration("PGSTREAM_SEARCH_INDEXER_CLEANUP_BACKOFF_MAX_INTERVAL"),
-					MaxRetries:      viper.GetUint("PGSTREAM_SEARCH_INDEXER_CLEANUP_BACKOFF_MAX_RETRIES"),
-				},
-			},
+			BatchSize:      viper.GetInt("PGSTREAM_SEARCH_INDEXER_BATCH_SIZE"),
+			BatchTime:      viper.GetDuration("PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT"),
+			CleanupBackoff: parseBackoffConfig("PGSTREAM_SEARCH_INDEXER_CLEANUP"),
 		},
 		Store: opensearch.Config{
 			URL: searchStore,
 		},
 		Retrier: &search.StoreRetryConfig{
-			Backoff: backoff.Config{
-				Exponential: &backoff.ExponentialConfig{
-					InitialInterval: viper.GetDuration("PGSTREAM_SEARCH_STORE_BACKOFF_INITIAL_INTERVAL"),
-					MaxInterval:     viper.GetDuration("PGSTREAM_SEARCH_STORE_BACKOFF_MAX_INTERVAL"),
-					MaxRetries:      viper.GetUint("PGSTREAM_SEARCH_STORE_BACKOFF_MAX_RETRIES"),
-				},
-			},
+			Backoff: parseBackoffConfig("PGSTREAM_SEARCH_STORE"),
 		},
+	}
+}
+
+func parseBackoffConfig(prefix string) backoff.Config {
+	return backoff.Config{
+		Exponential: parseExponentialBackoffConfig(prefix),
+		Constant:    parseConstantBackoffConfig(prefix),
+	}
+}
+
+func parseExponentialBackoffConfig(prefix string) *backoff.ExponentialConfig {
+	initialInterval := viper.GetDuration(fmt.Sprintf("%s_BACKOFF_INITIAL_INTERVAL", prefix))
+	maxInterval := viper.GetDuration(fmt.Sprintf("%s_BACKOFF_MAX_INTERVAL", prefix))
+	maxRetries := viper.GetUint(fmt.Sprintf("%s_BACKOFF_MAX_RETRIES", prefix))
+	if initialInterval == 0 && maxInterval == 0 && maxRetries == 0 {
+		return nil
+	}
+	return &backoff.ExponentialConfig{
+		InitialInterval: initialInterval,
+		MaxInterval:     maxInterval,
+		MaxRetries:      maxRetries,
+	}
+}
+
+func parseConstantBackoffConfig(prefix string) *backoff.ConstantConfig {
+	interval := viper.GetDuration(fmt.Sprintf("%s_BACKOFF_INTERVAL", prefix))
+	maxRetries := viper.GetUint(fmt.Sprintf("%s_BACKOFF_MAX_RETRIES", prefix))
+	if interval == 0 && maxRetries == 0 {
+		return nil
+	}
+	return &backoff.ConstantConfig{
+		Interval:   interval,
+		MaxRetries: maxRetries,
 	}
 }
 

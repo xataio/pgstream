@@ -67,7 +67,7 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config) error {
 	var processor processor.Processor
 	switch {
 	case config.Processor.Kafka != nil:
-		kafkaWriter, err := kafkaprocessor.NewBatchWriter(*config.Processor.Kafka.Writer,
+		kafkaWriter, err := kafkaprocessor.NewBatchWriter(config.Processor.Kafka.Writer,
 			kafkaprocessor.WithCheckpoint(checkpoint),
 			kafkaprocessor.WithLogger(logger))
 		if err != nil {

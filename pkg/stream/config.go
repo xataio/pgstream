@@ -5,10 +5,10 @@ package stream
 import (
 	"errors"
 
-	kafkalib "github.com/xataio/pgstream/internal/kafka"
 	pgreplication "github.com/xataio/pgstream/internal/replication/postgres"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
+	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
@@ -40,7 +40,7 @@ type ProcessorConfig struct {
 }
 
 type KafkaProcessorConfig struct {
-	Writer *kafkalib.WriterConfig
+	Writer *kafkaprocessor.Config
 }
 
 type SearchProcessorConfig struct {

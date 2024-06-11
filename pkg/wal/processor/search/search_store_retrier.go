@@ -21,10 +21,18 @@ type StoreRetrier struct {
 }
 
 type StoreRetryConfig struct {
+	// If not provided it defaults to using exponential backoff with initial
+	// interval of 1s, max interval of 1min, and 0 max retries.
 	Backoff backoff.Config
 }
 
 type StoreOption func(*StoreRetrier)
+
+const (
+	defaultStoreRetryInitialInterval = time.Second
+	defaultStoreRetryMaxInterval     = time.Minute
+	defaultStoreRetryMaxRetries      = 0
+)
 
 var errPartialDocumentSend = errors.New("failed to send some or all documents")
 
@@ -32,7 +40,7 @@ func NewStoreRetrier(s Store, cfg *StoreRetryConfig, opts ...StoreOption) *Store
 	sr := &StoreRetrier{
 		inner:           s,
 		logger:          loglib.NewNoopLogger(),
-		backoffProvider: backoff.NewProvider(&cfg.Backoff),
+		backoffProvider: backoff.NewProvider(cfg.backoffConfig()),
 	}
 
 	for _, opt := range opts {
@@ -158,4 +166,17 @@ func (s *StoreRetrier) logFailure(docErr DocumentError) {
 		"doc_id":    docErr.Document.ID,
 		"doc":       docBytes,
 	})
+}
+
+func (c *StoreRetryConfig) backoffConfig() *backoff.Config {
+	if c != nil && (c.Backoff.Constant != nil || c.Backoff.Exponential != nil) {
+		return &c.Backoff
+	}
+	return &backoff.Config{
+		Exponential: &backoff.ExponentialConfig{
+			InitialInterval: defaultStoreRetryInitialInterval,
+			MaxInterval:     defaultStoreRetryMaxInterval,
+			MaxRetries:      defaultStoreRetryMaxRetries,
+		},
+	}
 }
