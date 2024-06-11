@@ -106,9 +106,11 @@ func parseKafkaCheckpointConfig(readerCfg *kafkalistener.ReaderConfig) kafkachec
 	return kafkacheckpoint.Config{
 		Reader: readerCfg.Kafka,
 		CommitBackoff: backoff.Config{
-			InitialInterval: viper.GetDuration("PGSTREAM_KAFKA_COMMIT_BACKOFF_INITIAL_INTERVAL"),
-			MaxInterval:     viper.GetDuration("PGSTREAM_KAFKA_COMMIT_BACKOFF_MAX_INTERVAL"),
-			MaxRetries:      viper.GetUint("PGSTREAM_KAFKA_COMMIT_BACKOFF_MAX_RETRIES"),
+			Exponential: &backoff.ExponentialConfig{
+				InitialInterval: viper.GetDuration("PGSTREAM_KAFKA_COMMIT_BACKOFF_INITIAL_INTERVAL"),
+				MaxInterval:     viper.GetDuration("PGSTREAM_KAFKA_COMMIT_BACKOFF_MAX_INTERVAL"),
+				MaxRetries:      viper.GetUint("PGSTREAM_KAFKA_COMMIT_BACKOFF_MAX_RETRIES"),
+			},
 		},
 	}
 }
@@ -168,9 +170,11 @@ func parseSearchProcessorConfig() *stream.SearchProcessorConfig {
 			BatchSize: viper.GetInt("PGSTREAM_SEARCH_INDEXER_BATCH_SIZE"),
 			BatchTime: viper.GetDuration("PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT"),
 			CleanupBackoff: backoff.Config{
-				InitialInterval: viper.GetDuration("PGSTREAM_SEARCH_INDEXER_CLEANUP_BACKOFF_INITIAL_INTERVAL"),
-				MaxInterval:     viper.GetDuration("PGSTREAM_SEARCH_INDEXER_CLEANUP_BACKOFF_MAX_INTERVAL"),
-				MaxRetries:      viper.GetUint("PGSTREAM_SEARCH_INDEXER_CLEANUP_BACKOFF_MAX_RETRIES"),
+				Exponential: &backoff.ExponentialConfig{
+					InitialInterval: viper.GetDuration("PGSTREAM_SEARCH_INDEXER_CLEANUP_BACKOFF_INITIAL_INTERVAL"),
+					MaxInterval:     viper.GetDuration("PGSTREAM_SEARCH_INDEXER_CLEANUP_BACKOFF_MAX_INTERVAL"),
+					MaxRetries:      viper.GetUint("PGSTREAM_SEARCH_INDEXER_CLEANUP_BACKOFF_MAX_RETRIES"),
+				},
 			},
 		},
 		Store: opensearch.Config{
@@ -178,9 +182,11 @@ func parseSearchProcessorConfig() *stream.SearchProcessorConfig {
 		},
 		Retrier: &search.StoreRetryConfig{
 			Backoff: backoff.Config{
-				InitialInterval: viper.GetDuration("PGSTREAM_SEARCH_STORE_BACKOFF_INITIAL_INTERVAL"),
-				MaxInterval:     viper.GetDuration("PGSTREAM_SEARCH_STORE_BACKOFF_MAX_INTERVAL"),
-				MaxRetries:      viper.GetUint("PGSTREAM_SEARCH_STORE_BACKOFF_MAX_RETRIES"),
+				Exponential: &backoff.ExponentialConfig{
+					InitialInterval: viper.GetDuration("PGSTREAM_SEARCH_STORE_BACKOFF_INITIAL_INTERVAL"),
+					MaxInterval:     viper.GetDuration("PGSTREAM_SEARCH_STORE_BACKOFF_MAX_INTERVAL"),
+					MaxRetries:      viper.GetUint("PGSTREAM_SEARCH_STORE_BACKOFF_MAX_RETRIES"),
+				},
 			},
 		},
 	}

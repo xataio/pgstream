@@ -43,9 +43,7 @@ func newSchemaCleaner(cfg *backoff.Config, store store, logger loglib.Logger) *s
 		deleteSchemaQueue:   make(chan string, maxDeleteQueueSize),
 		store:               store,
 		registrationTimeout: defaultRegistrationTimeout,
-		backoffProvider: func(ctx context.Context) backoff.Backoff {
-			return backoff.NewExponentialBackoff(ctx, cfg)
-		},
+		backoffProvider:     backoff.NewProvider(cfg),
 	}
 }
 

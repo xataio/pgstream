@@ -33,10 +33,8 @@ type Option func(c *Checkpointer)
 
 func New(ctx context.Context, cfg Config, opts ...Option) (*Checkpointer, error) {
 	c := &Checkpointer{
-		logger: loglib.NewNoopLogger(),
-		backoffProvider: func(ctx context.Context) backoff.Backoff {
-			return backoff.NewExponentialBackoff(ctx, &cfg.CommitBackoff)
-		},
+		logger:          loglib.NewNoopLogger(),
+		backoffProvider: backoff.NewProvider(&cfg.CommitBackoff),
 	}
 
 	for _, opt := range opts {
