@@ -13,6 +13,7 @@ import (
 	"github.com/xataio/pgstream/pkg/stream"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
+	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
@@ -132,9 +133,9 @@ func parseKafkaProcessorConfig() *stream.KafkaProcessorConfig {
 	}
 }
 
-func parseKafkaWriterConfig(kafkaServers []string, kafkaTopic string) *kafka.WriterConfig {
-	return &kafka.WriterConfig{
-		Conn: kafka.ConnConfig{
+func parseKafkaWriterConfig(kafkaServers []string, kafkaTopic string) *kafkaprocessor.Config {
+	return &kafkaprocessor.Config{
+		Kafka: kafka.ConnConfig{
 			Servers: kafkaServers,
 			Topic: kafka.TopicConfig{
 				Name:              kafkaTopic,
@@ -147,9 +148,10 @@ func parseKafkaWriterConfig(kafkaServers []string, kafkaTopic string) *kafka.Wri
 				Enabled: false,
 			},
 		},
-		BatchTimeout: viper.GetDuration("PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT"),
-		BatchBytes:   viper.GetInt64("PGSTREAM_KAFKA_WRITER_BATCH_BYTES"),
-		BatchSize:    viper.GetInt("PGSTREAM_KAFKA_WRITER_BATCH_SIZE"),
+		BatchTimeout:  viper.GetDuration("PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT"),
+		BatchBytes:    viper.GetInt64("PGSTREAM_KAFKA_WRITER_BATCH_BYTES"),
+		BatchSize:     viper.GetInt("PGSTREAM_KAFKA_WRITER_BATCH_SIZE"),
+		MaxQueueBytes: viper.GetInt64("PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES"),
 	}
 }
 

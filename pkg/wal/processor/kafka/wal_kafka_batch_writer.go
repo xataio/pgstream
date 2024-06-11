@@ -45,26 +45,21 @@ type kafkaWriter interface {
 
 type Option func(*BatchWriter)
 
-const defaultMaxQueueBytes = 100 * 1024 * 1024 // 100MiB
-
 var errRecordTooLarge = errors.New("record too large")
 
-func NewBatchWriter(config kafka.WriterConfig, opts ...Option) (*BatchWriter, error) {
+func NewBatchWriter(config *Config, opts ...Option) (*BatchWriter, error) {
 	w := &BatchWriter{
-		sendFrequency: config.BatchTimeout,
-		maxBatchBytes: config.BatchBytes,
-		maxBatchSize:  config.BatchSize,
+		sendFrequency: config.batchTimeout(),
+		maxBatchBytes: config.batchBytes(),
+		maxBatchSize:  config.batchSize(),
 		msgChan:       make(chan *msg),
 		serialiser:    json.Marshal,
 		logger:        loglib.NewNoopLogger(),
 	}
 
-	maxQueueBytes := defaultMaxQueueBytes
-	if config.MaxQueueBytes > 0 {
-		if config.MaxQueueBytes < config.BatchBytes {
-			return nil, errors.New("max queue bytes must be equal or bigger than the batch bytes")
-		}
-		maxQueueBytes = int(config.MaxQueueBytes)
+	maxQueueBytes, err := config.maxQueueBytes()
+	if err != nil {
+		return nil, err
 	}
 	w.queueBytesSema = synclib.NewWeightedSemaphore(int64(maxQueueBytes))
 
@@ -82,10 +77,13 @@ func NewBatchWriter(config kafka.WriterConfig, opts ...Option) (*BatchWriter, er
 	// batching behaviour of the kafka-go library, the writer adds handling for
 	// additional features (automatic retries, reconnection, distribution of
 	// messages across partitions,etc) which we want to benefit from.
-	const batchTimeout = 10 * time.Millisecond
-	config.BatchTimeout = batchTimeout
-	var err error
-	w.writer, err = kafka.NewWriter(config, w.logger)
+	const kafkaBatchTimeout = 10 * time.Millisecond
+	w.writer, err = kafka.NewWriter(kafka.WriterConfig{
+		Conn:         config.Kafka,
+		BatchTimeout: kafkaBatchTimeout,
+		BatchSize:    config.batchSize(),
+		BatchBytes:   config.batchBytes(),
+	}, w.logger)
 	if err != nil {
 		return nil, err
 	}

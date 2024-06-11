@@ -20,11 +20,10 @@ type Writer struct {
 type Message kafka.Message
 
 type WriterConfig struct {
-	Conn          ConnConfig
-	BatchTimeout  time.Duration
-	BatchBytes    int64
-	BatchSize     int
-	MaxQueueBytes int64
+	Conn         ConnConfig
+	BatchTimeout time.Duration
+	BatchBytes   int64
+	BatchSize    int
 }
 
 // NewWriter returns a kafka writer that produces messages to the configured
