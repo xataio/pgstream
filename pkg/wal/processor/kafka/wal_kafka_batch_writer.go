@@ -11,15 +11,17 @@ import (
 	"time"
 
 	"github.com/xataio/pgstream/internal/kafka"
+	kafkainstrumentation "github.com/xataio/pgstream/internal/kafka/instrumentation"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
+	"go.opentelemetry.io/otel/metric"
 )
 
 type BatchWriter struct {
-	writer kafkaWriter
+	writer kafka.MessageWriter
 	logger loglib.Logger
 
 	// queueBytesSema is used to limit the amount of memory used by the
@@ -36,11 +38,6 @@ type BatchWriter struct {
 	checkpointer checkpointer.Checkpoint
 
 	serialiser func(any) ([]byte, error)
-}
-
-type kafkaWriter interface {
-	WriteMessages(context.Context, ...kafka.Message) error
-	Close() error
 }
 
 type Option func(*BatchWriter)
@@ -100,6 +97,17 @@ func WithLogger(l loglib.Logger) Option {
 func WithCheckpoint(c checkpointer.Checkpoint) Option {
 	return func(w *BatchWriter) {
 		w.checkpointer = c
+	}
+}
+
+func WithInstrumentation(m metric.Meter) Option {
+	return func(w *BatchWriter) {
+		instrumentedWriter, err := kafkainstrumentation.NewWriter(w.writer, m)
+		if err != nil {
+			w.logger.Error(err, "initialising kafka writer instrumentation")
+			return
+		}
+		w.writer = instrumentedWriter
 	}
 }
 

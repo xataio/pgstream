@@ -11,6 +11,11 @@ import (
 	loglib "github.com/xataio/pgstream/pkg/log"
 )
 
+type MessageWriter interface {
+	WriteMessages(context.Context, ...Message) error
+	Close() error
+}
+
 // Writer is a wrapper around the kafkago library writer
 type Writer struct {
 	kafkaWriter *kafka.Writer

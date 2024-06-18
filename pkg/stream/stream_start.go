@@ -78,9 +78,14 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config, meter metr
 	var processor processor.Processor
 	switch {
 	case config.Processor.Kafka != nil:
-		kafkaWriter, err := kafkaprocessor.NewBatchWriter(config.Processor.Kafka.Writer,
+		opts := []kafkaprocessor.Option{
 			kafkaprocessor.WithCheckpoint(checkpoint),
-			kafkaprocessor.WithLogger(logger))
+			kafkaprocessor.WithLogger(logger),
+		}
+		if meter != nil {
+			opts = append(opts, kafkaprocessor.WithInstrumentation(meter))
+		}
+		kafkaWriter, err := kafkaprocessor.NewBatchWriter(config.Processor.Kafka.Writer, opts...)
 		if err != nil {
 			return err
 		}
