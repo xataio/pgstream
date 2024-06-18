@@ -6,7 +6,7 @@ import (
 	"context"
 	"sync/atomic"
 
-	"github.com/xataio/pgstream/internal/replication"
+	"github.com/xataio/pgstream/pkg/wal/replication"
 )
 
 type Handler struct {

@@ -13,6 +13,7 @@ type Handler interface {
 	StartReplication(ctx context.Context) error
 	ReceiveMessage(ctx context.Context) (Message, error)
 	SyncLSN(ctx context.Context, lsn LSN) error
+	GetReplicationLag(ctx context.Context) (int64, error)
 	GetLSNParser() LSNParser
 	Close() error
 }

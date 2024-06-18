@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/xataio/pgstream/internal/replication"
-	pgreplication "github.com/xataio/pgstream/internal/replication/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
@@ -16,15 +14,20 @@ import (
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
 	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor"
+	processinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/instrumentation"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
+	"github.com/xataio/pgstream/pkg/wal/replication"
+	replicationinstrumentation "github.com/xataio/pgstream/pkg/wal/replication/instrumentation"
+	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/errgroup"
 )
 
-func Start(ctx context.Context, logger loglib.Logger, config *Config) error {
+func Start(ctx context.Context, logger loglib.Logger, config *Config, meter metric.Meter) error {
 	if err := config.IsValid(); err != nil {
 		return fmt.Errorf("incompatible configuration: %w", err)
 	}
@@ -39,6 +42,14 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config) error {
 			pgreplication.WithLogger(logger))
 		if err != nil {
 			return fmt.Errorf("error setting up postgres replication handler")
+		}
+	}
+
+	if replicationHandler != nil && meter != nil {
+		var err error
+		replicationHandler, err = replicationinstrumentation.NewHandler(replicationHandler, meter)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -67,9 +78,14 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config) error {
 	var processor processor.Processor
 	switch {
 	case config.Processor.Kafka != nil:
-		kafkaWriter, err := kafkaprocessor.NewBatchWriter(config.Processor.Kafka.Writer,
+		opts := []kafkaprocessor.Option{
 			kafkaprocessor.WithCheckpoint(checkpoint),
-			kafkaprocessor.WithLogger(logger))
+			kafkaprocessor.WithLogger(logger),
+		}
+		if meter != nil {
+			opts = append(opts, kafkaprocessor.WithInstrumentation(meter))
+		}
+		kafkaWriter, err := kafkaprocessor.NewBatchWriter(config.Processor.Kafka.Writer, opts...)
 		if err != nil {
 			return err
 		}
@@ -122,6 +138,14 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config) error {
 		}
 		defer translator.Close()
 		processor = translator
+	}
+
+	if processor != nil && meter != nil {
+		var err error
+		processor, err = processinstrumentation.NewProcessor(processor, meter)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Listener

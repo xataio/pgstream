@@ -5,7 +5,7 @@ package postgres
 import (
 	"github.com/jackc/pglogrepl"
 
-	"github.com/xataio/pgstream/internal/replication"
+	"github.com/xataio/pgstream/pkg/wal/replication"
 )
 
 type PrimaryKeepAliveMessage pglogrepl.PrimaryKeepaliveMessage

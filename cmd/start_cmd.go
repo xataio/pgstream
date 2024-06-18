@@ -14,11 +14,13 @@ import (
 var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Starts the configured pgstream modules",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		logger := zerolog.NewLogger(&zerolog.Config{
-			LogLevel: viper.GetString("PGSTREAM_LOG_LEVEL"),
-		})
-		zerolog.SetGlobalLogger(logger)
-		return stream.Start(context.Background(), zerolog.NewStdLogger(logger), parseStreamConfig())
-	},
+	RunE:  withSignalWatcher(start),
+}
+
+func start(ctx context.Context) error {
+	logger := zerolog.NewLogger(&zerolog.Config{
+		LogLevel: viper.GetString("PGSTREAM_LOG_LEVEL"),
+	})
+	zerolog.SetGlobalLogger(logger)
+	return stream.Start(ctx, zerolog.NewStdLogger(logger), parseStreamConfig(), nil)
 }

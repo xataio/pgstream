@@ -154,6 +154,10 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) erro
 	return t.processor.ProcessWALEvent(ctx, event)
 }
 
+func (t *Translator) Name() string {
+	return t.processor.Name()
+}
+
 func (t *Translator) Close() error {
 	return t.schemaLogStore.Close()
 }

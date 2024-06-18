@@ -15,3 +15,7 @@ type Processor struct {
 func (m *Processor) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) error {
 	return m.ProcessWALEventFn(ctx, walEvent)
 }
+
+func (m *Processor) Name() string {
+	return "mock"
+}

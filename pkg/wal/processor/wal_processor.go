@@ -14,6 +14,7 @@ import (
 
 type Processor interface {
 	ProcessWALEvent(ctx context.Context, walEvent *wal.Event) error
+	Name() string
 }
 
 var (

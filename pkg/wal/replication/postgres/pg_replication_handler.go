@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 
-	"github.com/xataio/pgstream/internal/replication"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/wal/replication"
 )
 
 type Handler struct {
@@ -196,6 +196,22 @@ func (h *Handler) SyncLSN(ctx context.Context, lsn replication.LSN) error {
 		logLSNPosition: pglogrepl.LSN(lsn).String(),
 	})
 	return nil
+}
+
+func (h *Handler) GetReplicationLag(ctx context.Context) (int64, error) {
+	conn, err := h.pgConnBuilder()
+	if err != nil {
+		return -1, err
+	}
+	defer conn.Close(ctx)
+
+	var lag int64
+	lagQuery := `SELECT (pg_current_wal_lsn() - confirmed_flush_lsn) FROM pg_replication_slots WHERE slot_name=$1`
+	if err := conn.QueryRow(ctx, lagQuery, h.pgReplicationSlotName).Scan(&lag); err != nil {
+		return -1, err
+	}
+
+	return lag, nil
 }
 
 func (h *Handler) GetLSNParser() replication.LSNParser {
