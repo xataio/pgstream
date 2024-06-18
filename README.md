@@ -140,8 +140,9 @@ In addition to the two implementations described above, there's an optional proc
 
 ## Glossary
 
-- WAL: Write Ahead Logging (https://www.postgresql.org/docs/current/wal-intro.html)
-- LSN: Log Sequence Number (https://pgpedia.info/l/LSN-log-sequence-number.html)
+- [WAL](https://www.postgresql.org/docs/current/wal-intro.html): Write Ahead Logging
+- [LSN](https://pgpedia.info/l/LSN-log-sequence-number.html): Log Sequence Number
+- [DDL](https://en.wikipedia.org/wiki/Data_definition_language): Data Definition Language
 
 ## Contributing
 
