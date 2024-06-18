@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 
-	"github.com/xataio/pgstream/internal/replication"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/wal/replication"
 )
 
 type Handler struct {

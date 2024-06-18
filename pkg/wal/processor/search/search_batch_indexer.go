@@ -9,13 +9,13 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/xataio/pgstream/internal/replication"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
+	"github.com/xataio/pgstream/pkg/wal/replication"
 )
 
 // BatchIndexer is the environment for ingesting the WAL logical

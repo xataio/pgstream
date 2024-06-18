@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/xataio/pgstream/internal/replication"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
+	"github.com/xataio/pgstream/pkg/wal/replication"
 )
 
 type walAdapter interface {

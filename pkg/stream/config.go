@@ -5,13 +5,13 @@ package stream
 import (
 	"errors"
 
-	pgreplication "github.com/xataio/pgstream/internal/replication/postgres"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
+	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
 type Config struct {

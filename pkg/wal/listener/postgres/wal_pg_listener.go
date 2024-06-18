@@ -8,10 +8,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/xataio/pgstream/internal/replication"
-	pgreplication "github.com/xataio/pgstream/internal/replication/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
+	"github.com/xataio/pgstream/pkg/wal/replication"
+	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
 // Listener contains the environment for subscribing and listening to

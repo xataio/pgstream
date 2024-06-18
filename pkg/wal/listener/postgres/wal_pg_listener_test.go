@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/xataio/pgstream/internal/replication"
-	replicationmocks "github.com/xataio/pgstream/internal/replication/mocks"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
+	"github.com/xataio/pgstream/pkg/wal/replication"
+	replicationmocks "github.com/xataio/pgstream/pkg/wal/replication/mocks"
 )
 
 func TestListener_Listen(t *testing.T) {

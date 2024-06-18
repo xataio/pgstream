@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/xataio/pgstream/internal/replication"
-	pgreplication "github.com/xataio/pgstream/internal/replication/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
@@ -21,6 +19,8 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
+	"github.com/xataio/pgstream/pkg/wal/replication"
+	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/errgroup"

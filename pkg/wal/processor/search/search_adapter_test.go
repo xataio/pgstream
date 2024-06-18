@@ -11,12 +11,12 @@ import (
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/xataio/pgstream/internal/replication"
-	replicationmocks "github.com/xataio/pgstream/internal/replication/mocks"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 	searchmocks "github.com/xataio/pgstream/pkg/wal/processor/search/mocks"
+	"github.com/xataio/pgstream/pkg/wal/replication"
+	replicationmocks "github.com/xataio/pgstream/pkg/wal/replication/mocks"
 )
 
 func TestAdapter_walEventToMsg(t *testing.T) {

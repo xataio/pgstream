@@ -5,9 +5,9 @@ package postgres
 import (
 	"context"
 
-	"github.com/xataio/pgstream/internal/replication"
-	pgreplication "github.com/xataio/pgstream/internal/replication/postgres"
 	"github.com/xataio/pgstream/pkg/wal"
+	"github.com/xataio/pgstream/pkg/wal/replication"
+	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
 type Checkpointer struct {

@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/viper"
 	"github.com/xataio/pgstream/internal/backoff"
 	"github.com/xataio/pgstream/internal/kafka"
-	pgreplication "github.com/xataio/pgstream/internal/replication/postgres"
 	pgschemalog "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/stream"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
@@ -17,6 +16,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
+	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
 func loadConfig() error {
