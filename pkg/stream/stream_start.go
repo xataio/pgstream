@@ -20,6 +20,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
 	"github.com/xataio/pgstream/pkg/wal/replication"
+	replicationinstrumentation "github.com/xataio/pgstream/pkg/wal/replication/instrumentation"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 
 	"go.opentelemetry.io/otel/metric"
@@ -41,6 +42,14 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config, meter metr
 			pgreplication.WithLogger(logger))
 		if err != nil {
 			return fmt.Errorf("error setting up postgres replication handler")
+		}
+	}
+
+	if replicationHandler != nil && meter != nil {
+		var err error
+		replicationHandler, err = replicationinstrumentation.NewHandler(replicationHandler, meter)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -126,7 +135,7 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config, meter metr
 		processor = translator
 	}
 
-	if meter != nil {
+	if processor != nil && meter != nil {
 		var err error
 		processor, err = processinstrumentation.NewProcessor(processor, meter)
 		if err != nil {
