@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/xataio/pgstream/internal/backoff"
 	"github.com/xataio/pgstream/internal/kafka"
+	"github.com/xataio/pgstream/internal/tls"
 	pgschemalog "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/stream"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
@@ -92,10 +93,7 @@ func parseKafkaReaderConfig(kafkaServers []string, kafkaTopic, consumerGroupID s
 				Topic: kafka.TopicConfig{
 					Name: kafkaTopic,
 				},
-				TLS: &kafka.TLSConfig{
-					// TODO: add support for TLS configuration
-					Enabled: false,
-				},
+				TLS: parseTLSConfig("PGSTREAM_KAFKA"),
 			},
 			ConsumerGroupID:          consumerGroupID,
 			ConsumerGroupStartOffset: viper.GetString("PGSTREAM_KAFKA_READER_CONSUMER_GROUP_START_OFFSET"),
@@ -143,10 +141,7 @@ func parseKafkaWriterConfig(kafkaServers []string, kafkaTopic string) *kafkaproc
 				ReplicationFactor: viper.GetInt("PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR"),
 				AutoCreate:        viper.GetBool("PGSTREAM_KAFKA_TOPIC_AUTO_CREATE"),
 			},
-			TLS: &kafka.TLSConfig{
-				// TODO: add support for TLS configuration
-				Enabled: false,
-			},
+			TLS: parseTLSConfig("PGSTREAM_KAFKA"),
 		},
 		BatchTimeout:  viper.GetDuration("PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT"),
 		BatchBytes:    viper.GetInt64("PGSTREAM_KAFKA_WRITER_BATCH_BYTES"),
@@ -218,5 +213,14 @@ func parseTranslatorConfig() *translator.Config {
 		Store: pgschemalog.Config{
 			URL: pgURL,
 		},
+	}
+}
+
+func parseTLSConfig(prefix string) *tls.Config {
+	return &tls.Config{
+		Enabled:        viper.GetBool(fmt.Sprintf("%s_TLS_ENABLED", prefix)),
+		CaCertFile:     viper.GetString(fmt.Sprintf("%s_TLS_CA_CERT_FILE", prefix)),
+		ClientCertFile: viper.GetString(fmt.Sprintf("%s_TLS_CLIENT_CERT_FILE", prefix)),
+		ClientKeyFile:  viper.GetString(fmt.Sprintf("%s_TLS_CLIENT_KEY_FILE", prefix)),
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
+	tlslib "github.com/xataio/pgstream/internal/tls"
 	loglib "github.com/xataio/pgstream/pkg/log"
 )
 
@@ -101,16 +102,14 @@ func createTopic(cfg *ConnConfig) error {
 	})
 }
 
-func buildTransport(tlsConfig *TLSConfig) (kafka.RoundTripper, error) {
-	transport := kafka.DefaultTransport
-
-	if tlsConfig.Enabled {
-		tlsConfig, err := newTLSConfig(tlsConfig)
+func buildTransport(cfg *tlslib.Config) (kafka.RoundTripper, error) {
+	if cfg.Enabled {
+		tlsConfig, err := tlslib.NewConfig(cfg)
 		if err != nil {
 			return nil, fmt.Errorf("building TLS config: %w", err)
 		}
-		transport = &kafka.Transport{TLS: tlsConfig}
+		return &kafka.Transport{TLS: tlsConfig}, nil
 	}
 
-	return transport, nil
+	return kafka.DefaultTransport, nil
 }

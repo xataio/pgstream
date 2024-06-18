@@ -9,13 +9,15 @@ import (
 	"strconv"
 	"time"
 
+	tlslib "github.com/xataio/pgstream/internal/tls"
+
 	"github.com/segmentio/kafka-go"
 )
 
 type ConnConfig struct {
 	Servers []string
 	Topic   TopicConfig
-	TLS     *TLSConfig
+	TLS     *tlslib.Config
 }
 
 type TopicConfig struct {
@@ -65,20 +67,17 @@ func withConnection(config *ConnConfig, kafkaOperation func(conn *kafka.Conn) er
 	return kafkaOperation(controllerConn)
 }
 
-func buildDialer(tlsConfig *TLSConfig) (*kafka.Dialer, error) {
+func buildDialer(cfg *tlslib.Config) (*kafka.Dialer, error) {
 	timeout := 10 * time.Second
 
-	dialer := &kafka.Dialer{
-		Timeout:   timeout,
-		DualStack: true,
-	}
-	if tlsConfig.Enabled {
-		var err error
-		dialer, err = buildTLSDialer(tlsConfig, timeout)
-		if err != nil {
-			return nil, fmt.Errorf("building dialer: %w", err)
-		}
+	tlsConfig, err := tlslib.NewConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("loading TLS configuration: %w", err)
 	}
 
-	return dialer, nil
+	return &kafka.Dialer{
+		Timeout:   timeout,
+		DualStack: true,
+		TLS:       tlsConfig,
+	}, nil
 }
