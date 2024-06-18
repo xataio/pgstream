@@ -34,6 +34,13 @@ Some of the limitations of the initial release include:
 - Primary key/unique not null column required for replication
 - Kafka serialisation support limited to JSON
 
+## Table of Contents
+
+- [Usage](#usage)
+- [Architecture](#architecture)
+- [Contributing](#contributing)
+- [License](#license)
+- [Support](#support)
 
 ## Usage
 
@@ -101,9 +108,9 @@ A listener is anything that listens for WAL data, regardless of the source. It d
 
 There are currently two implementations of the listener:
 
-- Postgres: listens to wal events directly from the replication slot. Since the wal replication slot is sequential, the postgres wal listener is limited to run as a single process. The associated postgres checkpointer will sync the LSN so that the replication lag doesn't grow indefinitely.
+- **Postgres listener**: listens to wal events directly from the replication slot. Since the wal replication slot is sequential, the postgres wal listener is limited to run as a single process. The associated postgres checkpointer will sync the LSN so that the replication lag doesn't grow indefinitely.
 
-- Kafka reader: reads wal events from a kafka topic. It can be configured to run concurrently by using partitions and kafka consumer groups, applying a fan-out strategy to the wal events. The data will be partitioned by database schema by default, but can be configured when using `pgstream` as a library. The associated kafka checkpointer will commit the message offsets per topic/partition so that the consumer group doesn't process the same message twice.
+- **Kafka reader**: reads wal events from a kafka topic. It can be configured to run concurrently by using partitions and kafka consumer groups, applying a fan-out strategy to the wal events. The data will be partitioned by database schema by default, but can be configured when using `pgstream` as a library. The associated kafka checkpointer will commit the message offsets per topic/partition so that the consumer group doesn't process the same message twice.
 
 
 ### WAL Processor
@@ -112,12 +119,12 @@ A processor processes a wal event. Depending on the implementation it might also
 
 There are currently two implementations of the processor:
 
-- Kafka batch writer: it writes the wal events into a kafka topic, using the event schema as the kafka key for partitioning. This implementation allows to fan-out the sequential wal events, while acting as an intermediate buffer to avoid the replication slot to grow when there are slow consumers. It has a memory guarded buffering system internally to be able to process events from the wal continously, and a batching mechanism that will send to kafka once the configured settings are reached. It treats both data and schema events equally, since it doesn't care about the content.
+- **Kafka batch writer**: it writes the wal events into a kafka topic, using the event schema as the kafka key for partitioning. This implementation allows to fan-out the sequential wal events, while acting as an intermediate buffer to avoid the replication slot to grow when there are slow consumers. It has a memory guarded buffering system internally to be able to process events from the wal continously, and a batching mechanism that will send to kafka once the configured settings are reached. It treats both data and schema events equally, since it doesn't care about the content.
 
-- Search batch indexer: it indexes the wal events into an opensearch/elasticsearch compatible search store. It implements the same kind of mechanism than the kafka batch writer to ensure continuous processing from the listener, and it also uses a batching mechanism to minimise search store calls. The search mapping logic is configurable when used as a library. The wal event identity is used as the search store document id, and if no other version is provided, the LSN is used as the document version. Events that do not have an identity are not indexed. Schema events are stored in a separate search store index (`pgstream`), where the schema log history is kept for use within the search store (i.e, read queries).
+- **Search batch indexer**: it indexes the wal events into an opensearch/elasticsearch compatible search store. It implements the same kind of mechanism than the kafka batch writer to ensure continuous processing from the listener, and it also uses a batching mechanism to minimise search store calls. The search mapping logic is configurable when used as a library. The wal event identity is used as the search store document id, and if no other version is provided, the LSN is used as the document version. Events that do not have an identity are not indexed. Schema events are stored in a separate search store index (`pgstream`), where the schema log history is kept for use within the search store (i.e, read queries).
 
 
-In addition to the two implementations described above, there's an optional processor decorator that injects some of the pgstream logic into the wal event. This includes:
+In addition to the two implementations described above, there's an optional processor decorator, the **translator**, that injects some of the pgstream logic into the wal event. This includes:
 
 - Data events:
 	- Setting the wal event identity. If provided, it will use the configured id finder (only available when used as a library), otherwise it will default to using the table primary key/unique not null column.
@@ -126,6 +133,9 @@ In addition to the two implementations described above, there's an optional proc
 
 - Schema events:
 	- 	Acknolwedging the new incoming schema in the postgres `pgstream.schema_log` table.
+
+<img width="1587" alt="Screenshot 2024-06-18 at 16 49 32" src="https://github.com/xataio/pgstream/assets/33323594/1580e3ab-109b-4ac6-a33e-0a80f8d6e454">
+
 
 ## Contributing
 
@@ -141,3 +151,16 @@ We welcome contributions from the community! If you'd like to contribute to pgst
 5. Submit a pull request.
 
 For this project, we pledge to act and interact in ways that contribute to an open, welcoming, diverse, inclusive, and healthy community.
+
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+
+## Support
+
+If you have any questions, encounter issues, or need assistance, open an issue in this repository our join our [Discord](https://xata.io/discord), and our community will be happy to help.
+
+
+<br>
+<p align="right">Made with :heart: by <a href="https://xata.io">Xata 🦋</a></p>
