@@ -183,6 +183,10 @@ func (i *BatchIndexer) Send(ctx context.Context) error {
 	}
 }
 
+func (i *BatchIndexer) Name() string {
+	return "search-batch-indexer"
+}
+
 func (i *BatchIndexer) Close() error {
 	close(i.msgChan)
 	i.cleaner.stop()

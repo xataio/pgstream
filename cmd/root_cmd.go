@@ -3,6 +3,11 @@
 package cmd
 
 import (
+	"context"
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -42,4 +47,24 @@ func Execute() error {
 	rootCmd.AddCommand(startCmd)
 
 	return rootCmd.Execute()
+}
+
+func withSignalWatcher(fn func(ctx context.Context) error) func(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc,
+		syscall.SIGHUP,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+		syscall.SIGQUIT)
+	go func() {
+		<-sigc
+		cancel()
+	}()
+
+	return func(cmd *cobra.Command, args []string) error {
+		defer cancel()
+		return fn(ctx)
+	}
 }

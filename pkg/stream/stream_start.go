@@ -16,15 +16,17 @@ import (
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
 	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor"
+	processinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/instrumentation"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
 
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/errgroup"
 )
 
-func Start(ctx context.Context, logger loglib.Logger, config *Config) error {
+func Start(ctx context.Context, logger loglib.Logger, config *Config, meter metric.Meter) error {
 	if err := config.IsValid(); err != nil {
 		return fmt.Errorf("incompatible configuration: %w", err)
 	}
@@ -122,6 +124,14 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config) error {
 		}
 		defer translator.Close()
 		processor = translator
+	}
+
+	if meter != nil {
+		var err error
+		processor, err = processinstrumentation.NewProcessor(processor, meter)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Listener

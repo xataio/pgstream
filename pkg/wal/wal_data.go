@@ -4,6 +4,7 @@ package wal
 
 import (
 	"slices"
+	"time"
 
 	"github.com/rs/xid"
 )
@@ -44,6 +45,12 @@ type Column struct {
 	Name  string `json:"name"`
 	Type  string `json:"type"`
 	Value any    `json:"value"`
+}
+
+const iso8601Format = "2006-01-02 15:04:05.999999+00"
+
+func (d *Data) GetTimestamp() (time.Time, error) {
+	return time.Parse(iso8601Format, d.Timestamp)
 }
 
 func (d *Data) IsUpdate() bool {

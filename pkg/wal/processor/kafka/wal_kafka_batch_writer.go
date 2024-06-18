@@ -216,6 +216,10 @@ func (w *BatchWriter) Send(ctx context.Context) error {
 	}
 }
 
+func (w *BatchWriter) Name() string {
+	return "kafka-batch-writer"
+}
+
 func (w *BatchWriter) Close() error {
 	close(w.msgChan)
 	return w.writer.Close()
