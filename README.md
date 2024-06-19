@@ -7,7 +7,7 @@
 
 # :otter: pgstream - Postgres replication with DDL changes
 
-`pgstream` is an open source command-line tool and library that offers postgres replication with DDL changes. It keeps track of schema changes and replicates them along with the data changes to ensure a consistent view of the source data down the stream. It aims at providing a modular approach to replication where all the different stream components can be combined and used interchangeably as long as they are compatible.
+`pgstream` is an open source command-line tool and library that offers postgres replication with DDL changes to any provided output. It keeps track of schema changes and replicates them along with the data changes to ensure a consistent view of the source data downstream. It aims at providing a modular approach to replication where all the different stream components can be combined and used interchangeably as long as they are compatible. This modular approach makes adding and integrating output plugin implementations simple and painless.
 
 ## Features
 
