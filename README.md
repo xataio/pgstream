@@ -7,12 +7,13 @@
 
 # :otter: pgstream - Postgres replication with DDL changes
 
-`pgstream` is an open source command-line tool and library that offers postgres replication with DDL changes to any provided output. It keeps track of schema changes and replicates them along with the data changes to ensure a consistent view of the source data downstream. It aims at providing a modular approach to replication where all the different stream components can be combined and used interchangeably as long as they are compatible. This modular approach makes adding and integrating output plugin implementations simple and painless.
+`pgstream` is an open source command-line tool and library that offers postgres replication with DDL changes to any provided output. 
 
 ## Features
 
 - Schema change tracking and replication of DDL changes
-- Optional fan out module support (i.e, Kafka)
+- Optional fan out module support
+- Easy to deploy, only requires postgres
 - Schema based message partitioning
 - Schema filtering
 - Elasticsearch/Opensearch replication output support
@@ -20,24 +21,13 @@
 - Highly customisable modules when used as library
 - Core metrics available via opentelemetry
 - Extendable support for custom replication outputs
-- Continuous consumption of replication slot with configurable memory guards for optimal usage based on traffic
-
-## Limitations
-
-Some of the limitations of the initial release include:
-
-- Single Kafka topic support
-- State required for DDL changes support
-- Postgres plugin support limited to `wal2json`
-- Data filtering limited to schema level
-- No initial/automatic data replay
-- Primary key/unique not null column required for replication
-- Kafka serialisation support limited to JSON
+- Continuous consumption of replication slot with configurable memory guards
 
 ## Table of Contents
 
 - [Usage](#usage)
 - [Architecture](#architecture)
+- [Limitations](#limitations)
 - [Glossary](#glossary)
 - [Contributing](#contributing)
 - [License](#license)
@@ -79,18 +69,18 @@ This command will clean up all pgstream state.
 
 Start will require the configuration to be provided, either via environment variables, config file or a combination of both. There are some sample configuration files provided in the repo that can be used as guidelines.
 
-Example running pgstream with postgres->opensearch:
+Example running pgstream with postgres -> opensearch:
 ```
 ./pgstream start -c pg2os.env --log-level trace
 ```
 
-Example running pgstream with postgres->kafka, and in a separate terminal, kafka->opensearch:
+Example running pgstream with postgres -> kafka, and in a separate terminal, kafka->opensearch:
 ```
 ./pgstream start -c pg2kafka.env --log-level trace
 ./pgstream start -c kafka2os.env --log-level trace
 ```
 
-The start command will parse the configuration provided, and decide based on it the modules that need to be started. It requires at least one listener and one processor to be configured.
+The start command will parse the configuration provided, and initialise the configured modules. It requires at least one listener and one processor.
 
 ## Tracking schema changes
 
@@ -101,11 +91,16 @@ The detailed SQL used can be found in the [migrations folder](https://github.com
 
 ## Architecture
 
-`pgstream` relies on a series of modules connected to each other to build a stream that will allow data to reach the output plugins. At a high level the implementation is split into WAL listeners and WAL processors.
+`pgstream` is constructed as a streaming pipeline, where data from one module streams into the next, eventually reaching the configured output plugins. It keeps track of schema changes and replicates them along with the data changes to ensure a consistent view of the source data downstream. It aims at providing a modular approach to replication where all the different stream components can be combined and used interchangeably as long as they are compatible. This modular approach makes adding and integrating output plugin implementations simple and painless. 
+
+At a high level the implementation is split into WAL listeners and WAL processors.
+
+![pgstream_progress_black drawio](https://github.com/xataio/pgstream/assets/33323594/01047982-7118-4ac9-87da-40f80ca9d29c)
+
 
 ### WAL Listener
 
-A listener is anything that listens for WAL data, regardless of the source. It doesn't have any logic beyond the listening, and relies on a processor to act on the WAL event itself. Depending on the listener implementation, it might be required to also have a checkpointer to flag the events as processed once the processor is done.
+A listener is anything that listens for WAL data, regardless of the source. It has a single responsibility: consume and manage the WAL events, delegating the processing of those entries to modules that form the processing pipeline. Depending on the listener implementation, it might be required to also have a checkpointer to flag the events as processed once the processor is done.
 
 There are currently two implementations of the listener:
 
@@ -120,7 +115,7 @@ A processor processes a WAL event. Depending on the implementation it might also
 
 There are currently two implementations of the processor:
 
-- **Kafka batch writer**: it writes the WAL events into a kafka topic, using the event schema as the kafka key for partitioning. This implementation allows to fan-out the sequential WAL events, while acting as an intermediate buffer to avoid the replication slot to grow when there are slow consumers. It has a memory guarded buffering system internally to be able to process events from the WAL continously, and a batching mechanism that will send to kafka once the configured settings are reached. It treats both data and schema events equally, since it doesn't care about the content.
+- **Kafka batch writer**: it writes the WAL events into a kafka topic, using the event schema as the kafka key for partitioning. This implementation allows to fan-out the sequential WAL events, while acting as an intermediate buffer to avoid the replication slot to grow when there are slow consumers. It has a memory guarded buffering system internally to limit the memory usage of the buffer. The buffer is sent to kafka based on the configured linger time and maximum size. It treats both data and schema events equally, since it doesn't care about the content.
 
 - **Search batch indexer**: it indexes the WAL events into an opensearch/elasticsearch compatible search store. It implements the same kind of mechanism than the kafka batch writer to ensure continuous processing from the listener, and it also uses a batching mechanism to minimise search store calls. The search mapping logic is configurable when used as a library. The WAL event identity is used as the search store document id, and if no other version is provided, the LSN is used as the document version. Events that do not have an identity are not indexed. Schema events are stored in a separate search store index (`pgstream`), where the schema log history is kept for use within the search store (i.e, read queries).
 
@@ -135,7 +130,18 @@ In addition to the two implementations described above, there's an optional proc
 - Schema events:
 	- 	Acknolwedging the new incoming schema in the postgres `pgstream.schema_log` table.
 
-<img width="1587" alt="Screenshot 2024-06-18 at 16 49 32" src="https://github.com/xataio/pgstream/assets/33323594/1580e3ab-109b-4ac6-a33e-0a80f8d6e454">
+
+## Limitations
+
+Some of the limitations of the initial release include:
+
+- Single Kafka topic support
+- State required for DDL changes support
+- Postgres plugin support limited to `wal2json`
+- Data filtering limited to schema level
+- No initial/automatic data replay
+- Primary key/unique not null column required for replication
+- Kafka serialisation support limited to JSON
 
 
 ## Glossary
