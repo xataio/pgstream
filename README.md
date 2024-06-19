@@ -16,11 +16,11 @@
 - Easy to deploy, only requires postgres
 - Schema based message partitioning
 - Schema filtering
-- Elasticsearch/Opensearch replication output support
+- Elasticsearch/Opensearch replication output plugin support
 - Automatic discovery of table primary key/unique not null columns for use as event identity
 - Highly customisable modules when used as library
 - Core metrics available via opentelemetry
-- Extendable support for custom replication outputs
+- Extendable support for custom replication output plugins
 - Continuous consumption of replication slot with configurable memory guards
 
 ## Table of Contents
