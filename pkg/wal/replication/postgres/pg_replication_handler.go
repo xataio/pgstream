@@ -15,6 +15,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/replication"
 )
 
+// Handler handles the postgres replication slot operations
 type Handler struct {
 	logger loglib.Logger
 
@@ -39,6 +40,7 @@ const (
 	logSystemID    = "system_id"
 )
 
+// NewHandler returns a new postgres replication handler for the database on input.
 func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, error) {
 	pgCfg, err := pgx.ParseConfig(cfg.PostgresURL)
 	if err != nil {
@@ -78,6 +80,10 @@ func WithLogger(l loglib.Logger) Option {
 	}
 }
 
+// StartReplication will start the replication process on the configured
+// replication slot. It will check for the last synced LSN
+// (confirmed_flush_lsn), and if there isn't one, it will start replication from
+// the restart_lsn position.
 func (h *Handler) StartReplication(ctx context.Context) error {
 	sysID, err := pglogrepl.IdentifySystem(ctx, h.pgReplicationConn)
 	if err != nil {
@@ -112,9 +118,6 @@ func (h *Handler) StartReplication(ctx context.Context) error {
 	})
 
 	if startPos == 0 {
-		// todo(deverts): If we don't have a position. Read from as early as possible.
-		// this _could_ be too old. In the future, it would be good to calculate if we're
-		// too far behind, so we can fix it.
 		startPos, err = h.getRestartLSN(ctx, conn, h.pgReplicationSlotName)
 		if err != nil {
 			return fmt.Errorf("get restart LSN: %w", err)
@@ -147,6 +150,8 @@ func (h *Handler) StartReplication(ctx context.Context) error {
 	return h.SyncLSN(ctx, startPos)
 }
 
+// ReceiveMessage will listen for messages from the WAL. It returns an error if
+// an unexpected message is received.
 func (h *Handler) ReceiveMessage(ctx context.Context) (replication.Message, error) {
 	msg, err := h.pgReplicationConn.ReceiveMessage(ctx)
 	if err != nil {
@@ -198,6 +203,9 @@ func (h *Handler) SyncLSN(ctx context.Context, lsn replication.LSN) error {
 	return nil
 }
 
+// GetReplicationLag will return the consumer current replication lag. This
+// value is different from the postgres replication lag, which takes into
+// consideration all consumers and ongoing transactions.
 func (h *Handler) GetReplicationLag(ctx context.Context) (int64, error) {
 	conn, err := h.pgConnBuilder()
 	if err != nil {
@@ -214,6 +222,7 @@ func (h *Handler) GetReplicationLag(ctx context.Context) (int64, error) {
 	return lag, nil
 }
 
+// GetLSNParser returns a postgres implementation of the LSN parser.
 func (h *Handler) GetLSNParser() replication.LSNParser {
 	return h.lsnParser
 }

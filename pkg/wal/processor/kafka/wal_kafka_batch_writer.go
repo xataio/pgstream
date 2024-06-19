@@ -20,6 +20,8 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+// BatchWriter is a kafka writer that uses batches to send the data to the
+// configured kafka topic.
 type BatchWriter struct {
 	writer kafka.MessageWriter
 	logger loglib.Logger

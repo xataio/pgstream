@@ -8,6 +8,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/replication"
 )
 
+// LSNParser is the postgres implementation of the replication.LSNParser
 type LSNParser struct{}
 
 func NewLSNParser() *LSNParser {

@@ -10,6 +10,8 @@ import (
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
+// Checkpointer is a postgres implementation of a wal checkpointer. It syncs the
+// LSN to postgres.
 type Checkpointer struct {
 	syncer lsnSyncer
 	parser replication.LSNParser
@@ -24,6 +26,7 @@ type lsnSyncer interface {
 	Close() error
 }
 
+// New returns a postgres checkpointer that syncs the LSN to postgres on demand.
 func New(syncer lsnSyncer) *Checkpointer {
 	return &Checkpointer{
 		syncer: syncer,

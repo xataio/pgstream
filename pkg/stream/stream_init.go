@@ -21,6 +21,8 @@ const (
 	pgstreamSchema = "pgstream"
 )
 
+// Init initialises the pgstream state in the postgres database provided, along
+// with creating the relevant replication slot.
 func Init(ctx context.Context, pgURL string) error {
 	conn, err := newPGConn(ctx, pgURL)
 	if err != nil {
@@ -55,6 +57,8 @@ func Init(ctx context.Context, pgURL string) error {
 	return nil
 }
 
+// TearDown removes the pgstream state from the postgres database provided,
+// as well as removing the replication slot.
 func TearDown(ctx context.Context, pgURL string) error {
 	conn, err := newPGConn(ctx, pgURL)
 	if err != nil {

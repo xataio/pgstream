@@ -14,6 +14,7 @@ import (
 	"github.com/xataio/pgstream/pkg/schemalog"
 )
 
+// StoreRetrier applies a retry strategy to failed search store operations.
 type StoreRetrier struct {
 	inner           Store
 	logger          loglib.Logger
@@ -72,6 +73,8 @@ func (s *StoreRetrier) DeleteTableDocuments(ctx context.Context, schemaName stri
 	return s.inner.DeleteTableDocuments(ctx, schemaName, tableIDs)
 }
 
+// SendDocuments will go over failed documents, identifying any with retriable
+// errors and retrying them with the configured backoff policy.
 func (s *StoreRetrier) SendDocuments(ctx context.Context, docs []Document) ([]DocumentError, error) {
 	docsToSend := docs
 	failedDocs := []DocumentError{}

@@ -8,6 +8,8 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/replication"
 )
 
+// PrimaryKeepAliveMessage contains no wal data and a flag to indicate if a
+// response is requested along with the message metadata (lsn and server time).
 type PrimaryKeepAliveMessage pglogrepl.PrimaryKeepaliveMessage
 
 func (pka *PrimaryKeepAliveMessage) GetData() *replication.MessageData {
@@ -18,6 +20,8 @@ func (pka *PrimaryKeepAliveMessage) GetData() *replication.MessageData {
 	}
 }
 
+// XLogDataMessage contains the wal data along with the message metadata (lsn
+// and server time)
 type XLogDataMessage pglogrepl.XLogData
 
 func (xld *XLogDataMessage) GetData() *replication.MessageData {

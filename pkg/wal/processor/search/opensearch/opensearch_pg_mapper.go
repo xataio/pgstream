@@ -57,12 +57,15 @@ const (
 	dateFormat        = "2006-01-02"
 )
 
+// NewPostgresMapper returns a mapper that maps between postgres and opensearch
+// types
 func NewPostgresMapper() *Mapper {
 	return &Mapper{
 		pgTypeMap: pgtype.NewMap(),
 	}
 }
 
+// ColumnToSearchMapping maps the column on input into the equivalent search mapping
 func (m *Mapper) ColumnToSearchMapping(column schemalog.Column) (map[string]any, error) {
 	searchField, err := m.columnToSearchField(column)
 	if err != nil {
@@ -114,7 +117,7 @@ func (m *Mapper) ColumnToSearchMapping(column schemalog.Column) (map[string]any,
 	}
 }
 
-// mapColumnValue maps a value emitted from PG into a value that OS can handle.
+// MapColumnValue maps a value emitted from PG into a value that OS can handle.
 // If the column is a timestamp: we need to parse it.
 // If the column is an array of any type except json, we need to map it to a Go slice.
 // If column type is unknown we return nil. This avoids dropping the whole record if one field type is unknown.

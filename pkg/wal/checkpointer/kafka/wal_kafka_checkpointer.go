@@ -13,6 +13,8 @@ import (
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
+// Checkpointer is a kafka implementation of the wal checkpointer. It commits
+// the message offsets to kafka.
 type Checkpointer struct {
 	committer       msgCommitter
 	backoffProvider backoff.Provider
@@ -32,6 +34,8 @@ type msgCommitter interface {
 
 type Option func(c *Checkpointer)
 
+// New returns a kafka checkpointer that commits the message offsets to kafka by
+// partition/topic on demand.
 func New(ctx context.Context, cfg Config, opts ...Option) (*Checkpointer, error) {
 	c := &Checkpointer{
 		logger:          loglib.NewNoopLogger(),
