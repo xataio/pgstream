@@ -93,10 +93,9 @@ The detailed SQL used can be found in the [migrations folder](https://github.com
 
 `pgstream` is constructed as a streaming pipeline, where data from one module streams into the next, eventually reaching the configured output plugins. It keeps track of schema changes and replicates them along with the data changes to ensure a consistent view of the source data downstream. It aims at providing a modular approach to replication where all the different stream components can be combined and used interchangeably as long as they are compatible. This modular approach makes adding and integrating output plugin implementations simple and painless. 
 
-At a high level the implementation is split into WAL listeners and WAL processors.
-
 ![pgstream_progress_black drawio](https://github.com/xataio/pgstream/assets/33323594/01047982-7118-4ac9-87da-40f80ca9d29c)
 
+At a high level the implementation is split into WAL listeners and WAL processors.
 
 ### WAL Listener
 
