@@ -127,7 +127,7 @@ In addition to the two implementations described above, there's an optional proc
 	- Adding pgstream IDs to all columns. This allows us to have a constant identifier for a column, so that if there are renames the column id doesn't change. This is particularly helpful for the search store, where a rename would require a reindex, which can be costly depending on the data.
 
 - Schema events:
-	- 	Acknolwedging the new incoming schema in the postgres `pgstream.schema_log` table.
+	- Acknolwedging the new incoming schema in the postgres `pgstream.schema_log` table.
 
 
 ## Limitations
