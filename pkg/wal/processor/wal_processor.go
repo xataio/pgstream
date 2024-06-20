@@ -12,6 +12,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
+// Processor is a general interface to receive and process a wal event
 type Processor interface {
 	ProcessWALEvent(ctx context.Context, walEvent *wal.Event) error
 	Name() string
@@ -22,10 +23,15 @@ var (
 	ErrIncompatibleWalData = errors.New("wal data event is not a schema log entry")
 )
 
+// IsSchemaLogEvent will return true if the wal event data originates from the
+// pgstream schema and the pgstream schema_log table.
 func IsSchemaLogEvent(d *wal.Data) bool {
 	return d.Schema == schemalog.SchemaName && d.Table == schemalog.TableName
 }
 
+// WalDataToLogEntry will convert the wal event data on input into the
+// equivalent schemalog entry. It will return an error if the wal event data is
+// not from the schema log table.
 func WalDataToLogEntry(d *wal.Data) (*schemalog.LogEntry, error) {
 	if !IsSchemaLogEvent(d) {
 		return nil, ErrIncompatibleWalData

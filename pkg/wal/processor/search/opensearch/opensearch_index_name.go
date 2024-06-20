@@ -6,6 +6,7 @@ import (
 	"fmt"
 )
 
+// IndexName represents an opensearch index name constructed from a schema name.
 type IndexName interface {
 	Name() string
 	Version() int

@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+// Handler manages the replication operations
 type Handler interface {
 	StartReplication(ctx context.Context) error
 	ReceiveMessage(ctx context.Context) (Message, error)
@@ -22,6 +23,7 @@ type Message interface {
 	GetData() *MessageData
 }
 
+// MessageData is the common data for all replication messages
 type MessageData struct {
 	LSN            LSN
 	Data           []byte
@@ -29,6 +31,7 @@ type MessageData struct {
 	ReplyRequested bool
 }
 
+// LSNParser handles the LSN type conversion
 type LSNParser interface {
 	ToString(LSN) string
 	FromString(string) (LSN, error)

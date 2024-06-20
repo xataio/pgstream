@@ -27,6 +27,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// Start will start the configured pgstream processes. This call is blocking.
 func Start(ctx context.Context, logger loglib.Logger, config *Config, meter metric.Meter) error {
 	if err := config.IsValid(); err != nil {
 		return fmt.Errorf("incompatible configuration: %w", err)

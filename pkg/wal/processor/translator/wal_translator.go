@@ -15,9 +15,9 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor"
 )
 
-// Translator is a decorator around a processor that populates the wal data with
-// the schemalog entry for the relevant schema (such as pgstream ids). This
-// allows following processors to have more information for processing the event
+// Translator is a decorator around a wal processor that populates the wal
+// metadata with the schemalog entry for the relevant schema. This allows
+// following processors to have more information for processing the event
 // effectively.
 type Translator struct {
 	logger               loglib.Logger
@@ -45,8 +45,9 @@ type (
 type Option func(t *Translator)
 
 // New will return a translator processor wrapper that will inject pgstream
-// metadata into the wal data events before passing them over the processor on
-// input. By default, all schemas are processed.
+// metadata into the wal data events before passing them over to the processor
+// on input. By default, all schemas are processed and the pgstream identity
+// will be the primary key/not null unique column if present.
 func New(cfg *Config, p processor.Processor, opts ...Option) (*Translator, error) {
 	var schemaLogStore schemalog.Store
 	var err error
@@ -98,6 +99,8 @@ func WithLogger(l loglib.Logger) Option {
 	}
 }
 
+// ProcessWALEvent populates the metadata of the wal event on input, before
+// passing it over to the configured wal processor.
 func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) error {
 	if event.Data == nil {
 		return t.processor.ProcessWALEvent(ctx, event)
