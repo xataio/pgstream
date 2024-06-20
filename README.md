@@ -7,7 +7,7 @@
 
 # :otter: pgstream - Postgres replication with DDL changes
 
-`pgstream` is an open source command-line tool and library that offers postgres replication with DDL changes to any provided output. 
+`pgstream` is an open source CDC command-line tool and library that offers postgres replication support with DDL changes to any provided output.
 
 ## Features
 
@@ -91,7 +91,7 @@ The detailed SQL used can be found in the [migrations folder](https://github.com
 
 ## Architecture
 
-`pgstream` is constructed as a streaming pipeline, where data from one module streams into the next, eventually reaching the configured output plugins. It keeps track of schema changes and replicates them along with the data changes to ensure a consistent view of the source data downstream. It aims at providing a modular approach to replication where all the different stream components can be combined and used interchangeably as long as they are compatible. This modular approach makes adding and integrating output plugin implementations simple and painless. 
+`pgstream` is constructed as a streaming pipeline, where data from one module streams into the next, eventually reaching the configured output plugins. It keeps track of schema changes and replicates them along with the data changes to ensure a consistent view of the source data downstream. It aims at providing a modular approach to replication where all the different stream components can be combined and used interchangeably as long as they are compatible. This modular approach makes adding and integrating output plugin implementations simple and painless.
 
 ![pgstream architecture v1](docs/img/pgstream_arch_v1.png)
 
@@ -135,7 +135,6 @@ In addition to the two implementations described above, there's an optional proc
 Some of the limitations of the initial release include:
 
 - Single Kafka topic support
-- State required for DDL changes support
 - Postgres plugin support limited to `wal2json`
 - Data filtering limited to schema level
 - No initial/automatic data replay
@@ -145,6 +144,7 @@ Some of the limitations of the initial release include:
 
 ## Glossary
 
+- [CDC](https://en.wikipedia.org/wiki/Change_data_capture): Change Data Capture
 - [WAL](https://www.postgresql.org/docs/current/wal-intro.html): Write Ahead Logging
 - [LSN](https://pgpedia.info/l/LSN-log-sequence-number.html): Log Sequence Number
 - [DDL](https://en.wikipedia.org/wiki/Data_definition_language): Data Definition Language
