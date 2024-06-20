@@ -14,6 +14,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
+// Reader is a kafka reader that listens to wal events.
 type Reader struct {
 	reader       kafkaReader
 	unmarshaler  func([]byte, any) error
@@ -37,6 +38,8 @@ type payloadProcessor func(context.Context, *wal.Event) error
 
 type Option func(*Reader)
 
+// NewReader returns a kafka reader that listens to wal events and calls the
+// processor on input.
 func NewReader(config ReaderConfig, processRecord payloadProcessor, opts ...Option) (*Reader, error) {
 	r := &Reader{
 		logger:        loglib.NewNoopLogger(),

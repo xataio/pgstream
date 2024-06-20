@@ -9,7 +9,7 @@ import (
 	"github.com/rs/xid"
 )
 
-// Event represents the WAL information. If the data is not set but there's a
+// Event represents the WAL information. If the data is nil but there's a
 // commit position present, it represents a keep alive event that needs to be
 // checkpointed.
 type Event struct {
@@ -17,6 +17,7 @@ type Event struct {
 	CommitPosition CommitPosition
 }
 
+// Data contains the wal data properties identifying the table operation.
 type Data struct {
 	Action    string   `json:"action"`    // "I" -- insert, "U" -- update, "D" -- delete, "T" -- truncate
 	Timestamp string   `json:"timestamp"` // ISO8601, i.e. 2019-12-29 04:58:34.806671
@@ -28,6 +29,9 @@ type Data struct {
 	Metadata  Metadata `json:"metadata"` // pgstream specific metadata
 }
 
+// Metadata is pgstream specific properties to help identify the id/version
+// within the wal event as well as some pgstream unique immutable ids for the
+// schema and the table it relates to.
 type Metadata struct {
 	SchemaID        xid.ID `json:"schema_id"`         // the schema ID the event was stamped with
 	TablePgstreamID string `json:"table_pgstream_id"` // the ID of the table to which the event belongs
@@ -61,7 +65,8 @@ func (d *Data) IsInsert() bool {
 	return d.Action == "I"
 }
 
-// IsEmpty is true if string fields are empty
+// IsEmpty returns true if the pgstream metadata hasn't been populated, false
+// otherwise.
 func (m Metadata) IsEmpty() bool {
 	if m.TablePgstreamID == "" && len(m.InternalColIDs) == 0 && m.InternalColVersion == "" {
 		return true
@@ -69,10 +74,14 @@ func (m Metadata) IsEmpty() bool {
 	return false
 }
 
+// IsVersionColumn returns true if the column id on input matches the pgstream
+// identified version column.
 func (m Metadata) IsVersionColumn(colID string) bool {
 	return m.InternalColVersion == colID
 }
 
+// IsIDColumn returns true if the column id on input is part of the pgstream
+// identified identity columns.
 func (m Metadata) IsIDColumn(colID string) bool {
 	return slices.Contains(m.InternalColIDs, colID)
 }

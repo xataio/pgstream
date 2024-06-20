@@ -12,6 +12,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 )
 
+// Adapter converts from/to search types and opensearch types
 type Adapter interface {
 	SchemaNameToIndex(schemaName string) IndexName
 	IndexToSchemaName(index string) string
@@ -24,12 +25,6 @@ type adapter struct {
 	marshaler   func(any) ([]byte, error)
 	unmarshaler func([]byte, any) error
 }
-
-const (
-	// OpenSearch has a limit of 512 bytes for the ID field. see here:
-	// https://www.elastic.co/guide/en/elasticsearch/reference/7.10/mapping-id-field.html
-	osIDFieldLengthLimit = 512
-)
 
 func newDefaultAdapter() *adapter {
 	return &adapter{

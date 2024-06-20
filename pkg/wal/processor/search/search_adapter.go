@@ -14,6 +14,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/replication"
 )
 
+// walAdapter converts wal events to search messages
 type walAdapter interface {
 	walEventToMsg(*wal.Event) (*msg, error)
 }

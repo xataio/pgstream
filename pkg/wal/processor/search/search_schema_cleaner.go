@@ -22,6 +22,8 @@ type store interface {
 	DeleteSchema(ctx context.Context, schemaName string) error
 }
 
+// schemaCleaner takes care of deleting schemas from the search store
+// asynchronously
 type schemaCleaner struct {
 	logger              loglib.Logger
 	deleteSchemaQueue   chan string

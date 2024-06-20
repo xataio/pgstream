@@ -35,6 +35,10 @@ const (
 	openSearchDefaultEFConstruction = 256
 	openSearchDefaultEFSearch       = 100
 
+	// OpenSearch has a limit of 512 bytes for the ID field. see here:
+	// https://www.elastic.co/guide/en/elasticsearch/reference/7.10/mapping-id-field.html
+	osIDFieldLengthLimit = 512
+
 	schemalogIndexName = "pgstream"
 )
 
