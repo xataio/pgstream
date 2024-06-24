@@ -17,6 +17,8 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/server"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
@@ -114,6 +116,7 @@ func parseProcessorConfig() stream.ProcessorConfig {
 	return stream.ProcessorConfig{
 		Kafka:      parseKafkaProcessorConfig(),
 		Search:     parseSearchProcessorConfig(),
+		Webhook:    parseWebhookProcessorConfig(),
 		Translator: parseTranslatorConfig(),
 	}
 }
@@ -167,6 +170,27 @@ func parseSearchProcessorConfig() *stream.SearchProcessorConfig {
 		},
 		Retrier: &search.StoreRetryConfig{
 			Backoff: parseBackoffConfig("PGSTREAM_SEARCH_STORE"),
+		},
+	}
+}
+
+func parseWebhookProcessorConfig() *stream.WebhookProcessorConfig {
+	subscriptionStore := viper.GetString("PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_URL")
+	if subscriptionStore == "" {
+		return nil
+	}
+
+	return &stream.WebhookProcessorConfig{
+		SubscriptionStoreURL: subscriptionStore,
+		Notifier: notifier.Config{
+			MaxQueueBytes:  viper.GetInt64("PGSTREAM_WEBHOOK_NOTIFIER_MAX_QUEUE_BYTES"),
+			URLWorkerCount: viper.GetUint("PGSTREAM_WEBHOOK_NOTIFIER_WORKER_COUNT"),
+			ClientTimeout:  viper.GetDuration("PGSTREAM_WEBHOOK_NOTIFIER_CLIENT_TIMEOUT"),
+		},
+		SubscriptionServer: server.Config{
+			Address:      viper.GetString("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_ADDRESS"),
+			ReadTimeout:  viper.GetDuration("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_READ_TIMEOUT"),
+			WriteTimeout: viper.GetDuration("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_WRITE_TIMEOUT"),
 		},
 	}
 }

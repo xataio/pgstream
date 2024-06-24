@@ -19,6 +19,10 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook"
+	webhooknotifier "github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
+	pgwebhook "github.com/xataio/pgstream/pkg/wal/processor/webhook/postgres"
+	webhookserver "github.com/xataio/pgstream/pkg/wal/processor/webhook/server"
 	"github.com/xataio/pgstream/pkg/wal/replication"
 	replicationinstrumentation "github.com/xataio/pgstream/pkg/wal/replication/instrumentation"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
@@ -127,6 +131,41 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config, meter metr
 			logger.Info("running search batch indexer...")
 			return searchIndexer.Send(ctx)
 		})
+
+	case config.Processor.Webhook != nil:
+		var subscriptionStore webhook.SubscriptionStore
+		var err error
+		subscriptionStore, err = pgwebhook.NewSubscriptionStore(ctx,
+			config.Processor.Webhook.SubscriptionStoreURL,
+			pgwebhook.WithLogger(logger),
+		)
+		if err != nil {
+			return err
+		}
+		notifier := webhooknotifier.New(
+			&config.Processor.Webhook.Notifier,
+			subscriptionStore,
+			webhooknotifier.WithLogger(logger),
+			webhooknotifier.WithCheckpoint(checkpoint))
+		defer notifier.Close()
+		processor = notifier
+
+		subscriptionServer := webhookserver.New(
+			&config.Processor.Webhook.SubscriptionServer,
+			subscriptionStore,
+			webhookserver.WithLogger(logger))
+
+		eg.Go(func() error {
+			logger.Info("running subscription server...")
+			go subscriptionServer.Serve()
+			<-ctx.Done()
+			return subscriptionServer.Shutdown(ctx)
+		})
+		eg.Go(func() error {
+			logger.Info("running webhook notifier...")
+			return notifier.Notify(ctx)
+		})
+
 	default:
 		return errors.New("no processor found")
 	}
