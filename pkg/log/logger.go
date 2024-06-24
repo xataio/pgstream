@@ -9,6 +9,7 @@ type Logger interface {
 	Warn(err error, msg string, fields ...Fields)
 	Error(err error, msg string, fields ...Fields)
 	Panic(msg string, fields ...Fields)
+	WithFields(fields Fields) Logger
 }
 
 type Fields map[string]any
@@ -21,6 +22,11 @@ func (l *NoopLogger) Info(msg string, fields ...Fields)             {}
 func (l *NoopLogger) Warn(err error, msg string, fields ...Fields)  {}
 func (l *NoopLogger) Error(err error, msg string, fields ...Fields) {}
 func (l *NoopLogger) Panic(msg string, fields ...Fields)            {}
+func (l *NoopLogger) WithFields(fields Fields) Logger {
+	return l
+}
+
+const ServiceField = "service"
 
 func NewNoopLogger() *NoopLogger {
 	return &NoopLogger{}
@@ -33,4 +39,15 @@ func NewLogger(l Logger) Logger {
 		return &NoopLogger{}
 	}
 	return l
+}
+
+func MergeFields(f1, f2 Fields) Fields {
+	allFields := make(Fields, len(f1)+len(f2))
+	fieldMaps := []Fields{f1, f2}
+	for _, fmap := range fieldMaps {
+		for k, v := range fmap {
+			allFields[k] = v
+		}
+	}
+	return allFields
 }

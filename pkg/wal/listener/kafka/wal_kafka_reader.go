@@ -63,7 +63,9 @@ func NewReader(config ReaderConfig, processRecord payloadProcessor, opts ...Opti
 
 func WithLogger(logger loglib.Logger) Option {
 	return func(r *Reader) {
-		r.logger = loglib.NewLogger(logger)
+		r.logger = loglib.NewLogger(logger).WithFields(loglib.Fields{
+			loglib.ServiceField: "wal_kafka_reader",
+		})
 	}
 }
 

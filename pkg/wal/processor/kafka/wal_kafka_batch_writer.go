@@ -92,7 +92,9 @@ func NewBatchWriter(config *Config, opts ...Option) (*BatchWriter, error) {
 
 func WithLogger(l loglib.Logger) Option {
 	return func(w *BatchWriter) {
-		w.logger = loglib.NewLogger(l)
+		w.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
+			loglib.ServiceField: "kafka_batch_writer",
+		})
 	}
 }
 
