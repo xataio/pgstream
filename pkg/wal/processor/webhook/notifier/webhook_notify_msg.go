@@ -22,7 +22,7 @@ func newNotifyMsg(event *wal.Event, subscriptions []*webhook.Subscription, seria
 	urls := make([]string, 0, len(subscriptions))
 	if len(subscriptions) > 0 {
 		var err error
-		payload, err = serialiser(&NotifyPayload{Data: event.Data})
+		payload, err = serialiser(&webhook.Payload{Data: event.Data})
 		if err != nil {
 			return nil, fmt.Errorf("serialising webhook payload: %w", err)
 		}

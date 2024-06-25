@@ -39,7 +39,7 @@ func TestNotifier_ProcessWALEvent(t *testing.T) {
 		return newTestSubscription(url, "", "", nil)
 	}
 
-	testPayload, err := json.Marshal(&NotifyPayload{Data: testEvent.Data})
+	testPayload, err := json.Marshal(&webhook.Payload{Data: testEvent.Data})
 	require.NoError(t, err)
 
 	tests := []struct {

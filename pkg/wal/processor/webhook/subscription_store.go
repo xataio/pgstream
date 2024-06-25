@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"slices"
+
+	"github.com/xataio/pgstream/pkg/wal"
 )
 
 type SubscriptionStore interface {
@@ -19,6 +21,10 @@ type Subscription struct {
 	EventTypes []string `json:"event_types"`
 	Schema     string   `json:"schema"`
 	Table      string   `json:"table"`
+}
+
+type Payload struct {
+	Data *wal.Data
 }
 
 func (s *Subscription) IsFor(action, schema, table string) bool {

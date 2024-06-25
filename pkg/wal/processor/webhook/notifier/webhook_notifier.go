@@ -37,10 +37,6 @@ type Notifier struct {
 	workerCount    uint
 }
 
-type NotifyPayload struct {
-	Data *wal.Data
-}
-
 type subscriptionRetriever interface {
 	GetSubscriptions(ctx context.Context, action, schema, table string) ([]*webhook.Subscription, error)
 }
