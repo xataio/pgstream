@@ -76,7 +76,9 @@ func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, erro
 
 func WithLogger(l loglib.Logger) Option {
 	return func(h *Handler) {
-		h.logger = loglib.NewLogger(l)
+		h.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
+			loglib.ServiceField: "postgres_replication_handler",
+		})
 	}
 }
 

@@ -61,7 +61,9 @@ func New(handler replicationHandler, processEvent listenerProcessWalEvent, opts 
 
 func WithLogger(logger loglib.Logger) Option {
 	return func(l *Listener) {
-		l.logger = loglib.NewLogger(logger)
+		l.logger = loglib.NewLogger(logger).WithFields(loglib.Fields{
+			loglib.ServiceField: "wal_postgres_listener",
+		})
 	}
 }
 

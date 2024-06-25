@@ -12,6 +12,7 @@ import (
 
 type Logger struct {
 	zerologger *zerolog.Logger
+	fields     loglib.Fields
 }
 
 // if we go over this limit the log will likely be truncated and it will not
@@ -25,27 +26,34 @@ func NewLogger(zl *zerolog.Logger) *Logger {
 }
 
 func (l *Logger) Trace(msg string, fields ...loglib.Fields) {
-	withFields(l.zerologger.Trace(), fields...).Msg(msg)
+	withFields(l.zerologger.Trace(), append(fields, l.fields)...).Msg(msg)
 }
 
 func (l *Logger) Debug(msg string, fields ...loglib.Fields) {
-	withFields(l.zerologger.Debug(), fields...).Msg(msg)
+	withFields(l.zerologger.Debug(), append(fields, l.fields)...).Msg(msg)
 }
 
 func (l *Logger) Info(msg string, fields ...loglib.Fields) {
-	withFields(l.zerologger.Info(), fields...).Msg(msg)
+	withFields(l.zerologger.Info(), append(fields, l.fields)...).Msg(msg)
 }
 
 func (l *Logger) Warn(err error, msg string, fields ...loglib.Fields) {
-	withFields(l.zerologger.Warn().Err(err), fields...).Msg(msg)
+	withFields(l.zerologger.Warn().Err(err), append(fields, l.fields)...).Msg(msg)
 }
 
 func (l *Logger) Error(err error, msg string, fields ...loglib.Fields) {
-	withFields(l.zerologger.Error().Err(err), fields...).Msg(msg)
+	withFields(l.zerologger.Error().Err(err), append(fields, l.fields)...).Msg(msg)
 }
 
 func (l *Logger) Panic(msg string, fields ...loglib.Fields) {
-	withFields(l.zerologger.Panic(), fields...).Msg(msg)
+	withFields(l.zerologger.Panic(), append(fields, l.fields)...).Msg(msg)
+}
+
+func (l *Logger) WithFields(fields loglib.Fields) loglib.Logger {
+	return &Logger{
+		zerologger: l.zerologger,
+		fields:     loglib.MergeFields(l.fields, fields),
+	}
 }
 
 func withFields(event *zerolog.Event, fieldMaps ...loglib.Fields) *zerolog.Event {

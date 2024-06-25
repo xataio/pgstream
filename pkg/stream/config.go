@@ -11,6 +11,8 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/server"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
@@ -36,6 +38,7 @@ type KafkaListenerConfig struct {
 type ProcessorConfig struct {
 	Kafka      *KafkaProcessorConfig
 	Search     *SearchProcessorConfig
+	Webhook    *WebhookProcessorConfig
 	Translator *translator.Config
 }
 
@@ -49,12 +52,18 @@ type SearchProcessorConfig struct {
 	Retrier *search.StoreRetryConfig
 }
 
+type WebhookProcessorConfig struct {
+	SubscriptionStoreURL string
+	Notifier             notifier.Config
+	SubscriptionServer   server.Config
+}
+
 func (c *Config) IsValid() error {
 	if c.Listener.Kafka == nil && c.Listener.Postgres == nil {
 		return errors.New("need at least one listener configured")
 	}
 
-	if c.Processor.Kafka == nil && c.Processor.Search == nil {
+	if c.Processor.Kafka == nil && c.Processor.Search == nil && c.Processor.Webhook == nil {
 		return errors.New("need at least one processor configured")
 	}
 
