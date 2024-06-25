@@ -118,8 +118,9 @@ There are currently two implementations of the processor:
 
 - **Search batch indexer**: it indexes the WAL events into an opensearch/elasticsearch compatible search store. It implements the same kind of mechanism than the kafka batch writer to ensure continuous processing from the listener, and it also uses a batching mechanism to minimise search store calls. The search mapping logic is configurable when used as a library. The WAL event identity is used as the search store document id, and if no other version is provided, the LSN is used as the document version. Events that do not have an identity are not indexed. Schema events are stored in a separate search store index (`pgstream`), where the schema log history is kept for use within the search store (i.e, read queries).
 
+- **Webhook notifier**: it sends a notification to any webhooks that have subscribed to the relevant wal event. It relies on a subscription HTTP server receiving the subscription requests and storing them in the shared subscription store which is accessed whenever a wal event is processed. It sends the notifications to the different subscribed webhook urls in parallel based on a configurable number of workers (client timeouts apply). Similar to the two previous processor implementations, it uses a memory guarded buffering system internally, which allows to separate the wal event processing from the webhook url sending, optimising the processor latency.
 
-In addition to the two implementations described above, there's an optional processor decorator, the **translator**, that injects some of the pgstream logic into the WAL event. This includes:
+In addition to the implementations described above, there's an optional processor decorator, the **translator**, that injects some of the pgstream logic into the WAL event. This includes:
 
 - Data events:
 	- Setting the WAL event identity. If provided, it will use the configured id finder (only available when used as a library), otherwise it will default to using the table primary key/unique not null column.
