@@ -12,6 +12,6 @@ type Client interface {
 }
 
 type Server interface {
-	ListenAndServe() error
+	Start(address string) error
 	Shutdown(context.Context) error
 }

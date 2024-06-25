@@ -4,9 +4,11 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 
 	httplib "github.com/xataio/pgstream/internal/http"
 	loglib "github.com/xataio/pgstream/pkg/log"
@@ -29,16 +31,17 @@ func New(cfg *Config, store webhook.SubscriptionStore, opts ...Option) *Subscrip
 		logger:  loglib.NewNoopLogger(),
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/webhooks/subscribe", s.subscribe)
-	mux.HandleFunc("/webhooks/unsubscribe", s.unsubscribe)
+	e := echo.New()
+	e.Server.ReadTimeout = cfg.readTimeout()
+	e.Server.WriteTimeout = cfg.writeTimeout()
 
-	s.server = &http.Server{
-		Handler:      mux,
-		Addr:         cfg.address(),
-		ReadTimeout:  cfg.readTimeout(),
-		WriteTimeout: cfg.writeTimeout(),
-	}
+	e.Use(middleware.Logger())
+	e.Use(middleware.Recover())
+
+	e.POST("/webhooks/subscribe", s.subscribe)
+	e.POST("/webhooks/unsubscribe", s.unsubscribe)
+
+	s.server = e
 
 	for _, opt := range opts {
 		opt(s)
@@ -55,55 +58,51 @@ func WithLogger(l loglib.Logger) Option {
 	}
 }
 
-// Serve will start the subscription server. This call is blocking.
-func (s *SubscriptionServer) Serve() error {
+// Start will start the subscription server. This call is blocking.
+func (s *SubscriptionServer) Start() error {
 	s.logger.Info(fmt.Sprintf("subscription server listening on: %s...", s.address))
-	return s.server.ListenAndServe()
+	return s.server.Start(s.address)
 }
 
 func (s *SubscriptionServer) Shutdown(ctx context.Context) error {
 	return s.server.Shutdown(ctx)
 }
 
-func (s *SubscriptionServer) subscribe(w http.ResponseWriter, r *http.Request) {
-	s.logger.Trace("request received on /subscribe endpoint")
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+func (s *SubscriptionServer) subscribe(c echo.Context) error {
+	if c.Request().Method != http.MethodPost {
+		return c.JSON(http.StatusMethodNotAllowed, nil)
 	}
+
+	s.logger.Trace("request received on /subscribe endpoint")
 
 	subscription := &webhook.Subscription{}
-	if err := json.NewDecoder(r.Body).Decode(subscription); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+	if err := c.Bind(subscription); err != nil {
+		return c.JSON(http.StatusBadRequest, err)
 	}
 
-	ctx := r.Context()
+	ctx := c.Request().Context()
 	if err := s.store.CreateSubscription(ctx, subscription); err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		return
+		return c.JSON(http.StatusServiceUnavailable, err)
 	}
 
-	w.WriteHeader(http.StatusCreated)
+	return c.JSON(http.StatusCreated, nil)
 }
 
-func (s *SubscriptionServer) unsubscribe(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+func (s *SubscriptionServer) unsubscribe(c echo.Context) error {
+	if c.Request().Method != http.MethodPost {
+		return c.JSON(http.StatusMethodNotAllowed, nil)
 	}
 
+	s.logger.Trace("request received on /unsubscribe endpoint")
 	subscription := &webhook.Subscription{}
-	if err := json.NewDecoder(r.Body).Decode(subscription); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+	if err := c.Bind(subscription); err != nil {
+		return c.JSON(http.StatusBadRequest, err)
 	}
 
-	ctx := r.Context()
+	ctx := c.Request().Context()
 	if err := s.store.DeleteSubscription(ctx, subscription); err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		return
+		return c.JSON(http.StatusServiceUnavailable, err)
 	}
 
-	w.WriteHeader(http.StatusOK)
+	return c.JSON(http.StatusOK, nil)
 }

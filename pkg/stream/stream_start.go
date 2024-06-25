@@ -157,7 +157,7 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config, meter metr
 
 		eg.Go(func() error {
 			logger.Info("running subscription server...")
-			go subscriptionServer.Serve()
+			go subscriptionServer.Start()
 			<-ctx.Done()
 			return subscriptionServer.Shutdown(ctx)
 		})

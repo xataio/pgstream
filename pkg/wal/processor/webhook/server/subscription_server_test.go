@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook"
@@ -98,9 +99,11 @@ func TestSubscriptionServer_subscribe(t *testing.T) {
 			}
 
 			req := httptest.NewRequest(tc.method, "/subscribe", tc.payload)
+			req.Header.Add(echo.HeaderContentType, echo.MIMEApplicationJSON)
 			w := httptest.NewRecorder()
+			echoCtx := echo.New().NewContext(req, w)
 
-			server.subscribe(w, req)
+			server.subscribe(echoCtx)
 			require.Equal(t, tc.wantStatusCode, w.Result().StatusCode)
 		})
 	}
@@ -186,9 +189,11 @@ func TestSubscriptionServer_unsubscribe(t *testing.T) {
 			}
 
 			req := httptest.NewRequest(tc.method, "/unsubscribe", tc.payload)
+			req.Header.Add(echo.HeaderContentType, echo.MIMEApplicationJSON)
 			w := httptest.NewRecorder()
+			echoCtx := echo.New().NewContext(req, w)
 
-			server.unsubscribe(w, req)
+			server.unsubscribe(echoCtx)
 			require.Equal(t, tc.wantStatusCode, w.Result().StatusCode)
 		})
 	}
