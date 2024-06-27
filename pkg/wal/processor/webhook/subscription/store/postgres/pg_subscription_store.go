@@ -9,19 +9,19 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	loglib "github.com/xataio/pgstream/pkg/log"
-	"github.com/xataio/pgstream/pkg/wal/processor/webhook"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription"
 )
 
-type SubscriptionStore struct {
+type Store struct {
 	conn   *pgx.Conn
 	logger loglib.Logger
 }
 
-type Option func(*SubscriptionStore)
+type Option func(*Store)
 
 const subscriptionsTable = "webhook_subscriptions"
 
-func NewSubscriptionStore(ctx context.Context, url string, opts ...Option) (*SubscriptionStore, error) {
+func NewSubscriptionStore(ctx context.Context, url string, opts ...Option) (*Store, error) {
 	pgCfg, err := pgx.ParseConfig(url)
 	if err != nil {
 		return nil, err
@@ -31,7 +31,7 @@ func NewSubscriptionStore(ctx context.Context, url string, opts ...Option) (*Sub
 		return nil, fmt.Errorf("create postgres client: %w", err)
 	}
 
-	ss := &SubscriptionStore{
+	ss := &Store{
 		conn: pgConn,
 	}
 
@@ -48,14 +48,14 @@ func NewSubscriptionStore(ctx context.Context, url string, opts ...Option) (*Sub
 }
 
 func WithLogger(l loglib.Logger) Option {
-	return func(ss *SubscriptionStore) {
+	return func(ss *Store) {
 		ss.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
 			loglib.ServiceField: "webhook_subscription_store",
 		})
 	}
 }
 
-func (s *SubscriptionStore) CreateSubscription(ctx context.Context, subscription *webhook.Subscription) error {
+func (s *Store) CreateSubscription(ctx context.Context, subscription *subscription.Subscription) error {
 	query := fmt.Sprintf(`
 	INSERT INTO %s(url, schema_name, table_name, event_types) VALUES($1, $2, $3, $4)
 	ON CONFLICT (url,schema_name,table_name) DO UPDATE SET event_types = EXCLUDED.event_types;`, subscriptionsTable)
@@ -63,15 +63,15 @@ func (s *SubscriptionStore) CreateSubscription(ctx context.Context, subscription
 	return err
 }
 
-func (s *SubscriptionStore) DeleteSubscription(ctx context.Context, subscription *webhook.Subscription) error {
+func (s *Store) DeleteSubscription(ctx context.Context, subscription *subscription.Subscription) error {
 	query := fmt.Sprintf(`DELETE FROM %s WHERE url=$1 AND schema_name=$2 AND table=$3;`, subscriptionsTable)
 	_, err := s.conn.Exec(ctx, query, subscription.URL, subscription.Schema, subscription.Table)
 	return err
 }
 
-func (s *SubscriptionStore) GetSubscriptions(ctx context.Context, action, schema, table string) ([]*webhook.Subscription, error) {
+func (s *Store) GetSubscriptions(ctx context.Context, action, schema, table string) ([]*subscription.Subscription, error) {
 	query, params := s.buildGetQuery(action, schema, table)
-	s.logger.Debug("getting subscriptions", loglib.Fields{
+	s.logger.Trace("getting subscriptions", loglib.Fields{
 		"query":  query,
 		"params": params,
 	})
@@ -81,9 +81,9 @@ func (s *SubscriptionStore) GetSubscriptions(ctx context.Context, action, schema
 	}
 	defer rows.Close()
 
-	subscriptions := []*webhook.Subscription{}
+	subscriptions := []*subscription.Subscription{}
 	for rows.Next() {
-		subscription := &webhook.Subscription{}
+		subscription := &subscription.Subscription{}
 		if err := rows.Scan(&subscription.URL, &subscription.Schema, &subscription.Table, &subscription.EventTypes); err != nil {
 			return nil, fmt.Errorf("scanning subscription row: %w", err)
 		}
@@ -94,7 +94,7 @@ func (s *SubscriptionStore) GetSubscriptions(ctx context.Context, action, schema
 	return subscriptions, nil
 }
 
-func (s *SubscriptionStore) createTable(ctx context.Context) error {
+func (s *Store) createTable(ctx context.Context) error {
 	query := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(
 	url TEXT,
 	schema_name TEXT,
@@ -105,7 +105,7 @@ func (s *SubscriptionStore) createTable(ctx context.Context) error {
 	return err
 }
 
-func (s *SubscriptionStore) buildGetQuery(action, schema, table string) (string, []any) {
+func (s *Store) buildGetQuery(action, schema, table string) (string, []any) {
 	query := fmt.Sprintf(`SELECT url, schema_name, table_name, event_types FROM %s`, subscriptionsTable)
 
 	separator := func(params []any) string {

@@ -19,10 +19,12 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
-	"github.com/xataio/pgstream/pkg/wal/processor/webhook"
 	webhooknotifier "github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
-	pgwebhook "github.com/xataio/pgstream/pkg/wal/processor/webhook/postgres"
-	webhookserver "github.com/xataio/pgstream/pkg/wal/processor/webhook/server"
+	subscriptionserver "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
+	webhookstore "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store"
+	subscriptionstorecache "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store/cache"
+	pgwebhook "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store/postgres"
+
 	"github.com/xataio/pgstream/pkg/wal/replication"
 	replicationinstrumentation "github.com/xataio/pgstream/pkg/wal/replication/instrumentation"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
@@ -133,15 +135,28 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config, meter metr
 		})
 
 	case config.Processor.Webhook != nil:
-		var subscriptionStore webhook.SubscriptionStore
+		var subscriptionStore webhookstore.Store
 		var err error
 		subscriptionStore, err = pgwebhook.NewSubscriptionStore(ctx,
-			config.Processor.Webhook.SubscriptionStoreURL,
+			config.Processor.Webhook.SubscriptionStore.URL,
 			pgwebhook.WithLogger(logger),
 		)
 		if err != nil {
 			return err
 		}
+
+		if config.Processor.Webhook.SubscriptionStore.CacheEnabled {
+			logger.Info("setting up subscription store cache...")
+			subscriptionStore, err = subscriptionstorecache.New(ctx, subscriptionStore,
+				&subscriptionstorecache.Config{
+					SyncInterval: config.Processor.Webhook.SubscriptionStore.CacheRefreshInterval,
+				},
+				subscriptionstorecache.WithLogger(logger))
+			if err != nil {
+				return err
+			}
+		}
+
 		notifier := webhooknotifier.New(
 			&config.Processor.Webhook.Notifier,
 			subscriptionStore,
@@ -150,10 +165,10 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config, meter metr
 		defer notifier.Close()
 		processor = notifier
 
-		subscriptionServer := webhookserver.New(
+		subscriptionServer := subscriptionserver.New(
 			&config.Processor.Webhook.SubscriptionServer,
 			subscriptionStore,
-			webhookserver.WithLogger(logger))
+			subscriptionserver.WithLogger(logger))
 
 		eg.Go(func() error {
 			logger.Info("running subscription server...")
