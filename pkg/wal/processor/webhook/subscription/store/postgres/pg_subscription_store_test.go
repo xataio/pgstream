@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSubscriptionStore_buildGetQuery(t *testing.T) {
+func TestStore_buildGetQuery(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -62,7 +62,7 @@ func TestSubscriptionStore_buildGetQuery(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			s := &SubscriptionStore{}
+			s := &Store{}
 			query, params := s.buildGetQuery(tc.action, tc.schema, tc.table)
 			require.Equal(t, tc.wantQuery, query)
 			require.Equal(t, tc.wantParams, params)

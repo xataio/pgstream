@@ -15,14 +15,15 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/pkg/log"
-	"github.com/xataio/pgstream/pkg/wal/processor/webhook"
-	"github.com/xataio/pgstream/pkg/wal/processor/webhook/mocks"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store/mocks"
 )
 
 func TestSubscriptionServer_subscribe(t *testing.T) {
 	t.Parallel()
 
-	testSubscription := &webhook.Subscription{
+	testSubscription := &subscription.Subscription{
 		URL:        "url-1",
 		Schema:     "test_schema",
 		Table:      "test_table",
@@ -35,7 +36,7 @@ func TestSubscriptionServer_subscribe(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		store   webhook.SubscriptionStore
+		store   store.Store
 		method  string
 		payload io.Reader
 
@@ -43,8 +44,8 @@ func TestSubscriptionServer_subscribe(t *testing.T) {
 	}{
 		{
 			name: "ok",
-			store: &mocks.SubscriptionStore{
-				CreateSubscriptionFn: func(ctx context.Context, s *webhook.Subscription) error {
+			store: &mocks.Store{
+				CreateSubscriptionFn: func(ctx context.Context, s *subscription.Subscription) error {
 					require.Equal(t, testSubscription, s)
 					return nil
 				},
@@ -55,8 +56,8 @@ func TestSubscriptionServer_subscribe(t *testing.T) {
 		},
 		{
 			name: "error - creating subscription",
-			store: &mocks.SubscriptionStore{
-				CreateSubscriptionFn: func(ctx context.Context, s *webhook.Subscription) error {
+			store: &mocks.Store{
+				CreateSubscriptionFn: func(ctx context.Context, s *subscription.Subscription) error {
 					return errTest
 				},
 			},
@@ -66,8 +67,8 @@ func TestSubscriptionServer_subscribe(t *testing.T) {
 		},
 		{
 			name: "error - method not allowed",
-			store: &mocks.SubscriptionStore{
-				CreateSubscriptionFn: func(ctx context.Context, s *webhook.Subscription) error {
+			store: &mocks.Store{
+				CreateSubscriptionFn: func(ctx context.Context, s *subscription.Subscription) error {
 					return errors.New("CreateSubscriptionFn: should not be called")
 				},
 			},
@@ -77,8 +78,8 @@ func TestSubscriptionServer_subscribe(t *testing.T) {
 		},
 		{
 			name: "error - invalid payload",
-			store: &mocks.SubscriptionStore{
-				CreateSubscriptionFn: func(ctx context.Context, s *webhook.Subscription) error {
+			store: &mocks.Store{
+				CreateSubscriptionFn: func(ctx context.Context, s *subscription.Subscription) error {
 					return errors.New("CreateSubscriptionFn: should not be called")
 				},
 			},
@@ -93,7 +94,7 @@ func TestSubscriptionServer_subscribe(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			server := &SubscriptionServer{
+			server := &Server{
 				logger: log.NewNoopLogger(),
 				store:  tc.store,
 			}
@@ -112,7 +113,7 @@ func TestSubscriptionServer_subscribe(t *testing.T) {
 func TestSubscriptionServer_unsubscribe(t *testing.T) {
 	t.Parallel()
 
-	testSubscription := &webhook.Subscription{
+	testSubscription := &subscription.Subscription{
 		URL:        "url-1",
 		Schema:     "test_schema",
 		Table:      "test_table",
@@ -125,7 +126,7 @@ func TestSubscriptionServer_unsubscribe(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		store   webhook.SubscriptionStore
+		store   store.Store
 		method  string
 		payload io.Reader
 
@@ -133,8 +134,8 @@ func TestSubscriptionServer_unsubscribe(t *testing.T) {
 	}{
 		{
 			name: "ok",
-			store: &mocks.SubscriptionStore{
-				DeleteSubscriptionFn: func(ctx context.Context, s *webhook.Subscription) error {
+			store: &mocks.Store{
+				DeleteSubscriptionFn: func(ctx context.Context, s *subscription.Subscription) error {
 					require.Equal(t, testSubscription, s)
 					return nil
 				},
@@ -145,8 +146,8 @@ func TestSubscriptionServer_unsubscribe(t *testing.T) {
 		},
 		{
 			name: "error - creating subscription",
-			store: &mocks.SubscriptionStore{
-				DeleteSubscriptionFn: func(ctx context.Context, s *webhook.Subscription) error {
+			store: &mocks.Store{
+				DeleteSubscriptionFn: func(ctx context.Context, s *subscription.Subscription) error {
 					return errTest
 				},
 			},
@@ -156,8 +157,8 @@ func TestSubscriptionServer_unsubscribe(t *testing.T) {
 		},
 		{
 			name: "error - method not allowed",
-			store: &mocks.SubscriptionStore{
-				DeleteSubscriptionFn: func(ctx context.Context, s *webhook.Subscription) error {
+			store: &mocks.Store{
+				DeleteSubscriptionFn: func(ctx context.Context, s *subscription.Subscription) error {
 					return errors.New("DeleteSubscriptionFn: should not be called")
 				},
 			},
@@ -167,8 +168,8 @@ func TestSubscriptionServer_unsubscribe(t *testing.T) {
 		},
 		{
 			name: "error - invalid payload",
-			store: &mocks.SubscriptionStore{
-				DeleteSubscriptionFn: func(ctx context.Context, s *webhook.Subscription) error {
+			store: &mocks.Store{
+				DeleteSubscriptionFn: func(ctx context.Context, s *subscription.Subscription) error {
 					return errors.New("DeleteSubscriptionFn: should not be called")
 				},
 			},
@@ -183,7 +184,7 @@ func TestSubscriptionServer_unsubscribe(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			server := &SubscriptionServer{
+			server := &Server{
 				logger: log.NewNoopLogger(),
 				store:  tc.store,
 			}

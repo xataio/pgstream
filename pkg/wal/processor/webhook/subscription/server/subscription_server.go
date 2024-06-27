@@ -12,20 +12,21 @@ import (
 
 	httplib "github.com/xataio/pgstream/internal/http"
 	loglib "github.com/xataio/pgstream/pkg/log"
-	"github.com/xataio/pgstream/pkg/wal/processor/webhook"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store"
 )
 
-type SubscriptionServer struct {
+type Server struct {
 	server  httplib.Server
 	logger  loglib.Logger
-	store   webhook.SubscriptionStore
+	store   store.Store
 	address string
 }
 
-type Option func(*SubscriptionServer)
+type Option func(*Server)
 
-func New(cfg *Config, store webhook.SubscriptionStore, opts ...Option) *SubscriptionServer {
-	s := &SubscriptionServer{
+func New(cfg *Config, store store.Store, opts ...Option) *Server {
+	s := &Server{
 		address: cfg.address(),
 		store:   store,
 		logger:  loglib.NewNoopLogger(),
@@ -51,7 +52,7 @@ func New(cfg *Config, store webhook.SubscriptionStore, opts ...Option) *Subscrip
 }
 
 func WithLogger(l loglib.Logger) Option {
-	return func(s *SubscriptionServer) {
+	return func(s *Server) {
 		s.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
 			loglib.ServiceField: "webhook_subscription_server",
 		})
@@ -59,23 +60,23 @@ func WithLogger(l loglib.Logger) Option {
 }
 
 // Start will start the subscription server. This call is blocking.
-func (s *SubscriptionServer) Start() error {
+func (s *Server) Start() error {
 	s.logger.Info(fmt.Sprintf("subscription server listening on: %s...", s.address))
 	return s.server.Start(s.address)
 }
 
-func (s *SubscriptionServer) Shutdown(ctx context.Context) error {
+func (s *Server) Shutdown(ctx context.Context) error {
 	return s.server.Shutdown(ctx)
 }
 
-func (s *SubscriptionServer) subscribe(c echo.Context) error {
+func (s *Server) subscribe(c echo.Context) error {
 	if c.Request().Method != http.MethodPost {
 		return c.JSON(http.StatusMethodNotAllowed, nil)
 	}
 
 	s.logger.Trace("request received on /subscribe endpoint")
 
-	subscription := &webhook.Subscription{}
+	subscription := &subscription.Subscription{}
 	if err := c.Bind(subscription); err != nil {
 		return c.JSON(http.StatusBadRequest, err)
 	}
@@ -88,13 +89,13 @@ func (s *SubscriptionServer) subscribe(c echo.Context) error {
 	return c.JSON(http.StatusCreated, nil)
 }
 
-func (s *SubscriptionServer) unsubscribe(c echo.Context) error {
+func (s *Server) unsubscribe(c echo.Context) error {
 	if c.Request().Method != http.MethodPost {
 		return c.JSON(http.StatusMethodNotAllowed, nil)
 	}
 
 	s.logger.Trace("request received on /unsubscribe endpoint")
-	subscription := &webhook.Subscription{}
+	subscription := &subscription.Subscription{}
 	if err := c.Bind(subscription); err != nil {
 		return c.JSON(http.StatusBadRequest, err)
 	}
