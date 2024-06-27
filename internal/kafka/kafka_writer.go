@@ -26,10 +26,16 @@ type Writer struct {
 type Message kafka.Message
 
 type WriterConfig struct {
-	Conn         ConnConfig
+	Conn ConnConfig
+	// BatchTimeout is the time limit on how often incomplete message batches
+	// will be flushed to kafka. Defaults to 1s.
 	BatchTimeout time.Duration
-	BatchBytes   int64
-	BatchSize    int
+	// BatchBytes limits the maximum size of a request in bytes before being
+	// sent to a partition. Defaults to 1048576 bytes.
+	BatchBytes int64
+	// BatchSize limits how many messages will be buffered before being sent to
+	// a partition. Defaults to 100 messages.
+	BatchSize int
 }
 
 // NewWriter returns a kafka writer that produces messages to the configured
@@ -88,8 +94,8 @@ func createTopic(cfg *ConnConfig) error {
 		topicConfigs := []kafka.TopicConfig{
 			{
 				Topic:             cfg.Topic.Name,
-				NumPartitions:     cfg.Topic.NumPartitions,
-				ReplicationFactor: cfg.Topic.ReplicationFactor,
+				NumPartitions:     cfg.Topic.numPartitions(),
+				ReplicationFactor: cfg.Topic.replicationFactor(),
 			},
 		}
 

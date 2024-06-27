@@ -163,6 +163,7 @@ func parseSearchProcessorConfig() *stream.SearchProcessorConfig {
 		Indexer: search.IndexerConfig{
 			BatchSize:      viper.GetInt("PGSTREAM_SEARCH_INDEXER_BATCH_SIZE"),
 			BatchTime:      viper.GetDuration("PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT"),
+			MaxQueueBytes:  viper.GetInt64("PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES"),
 			CleanupBackoff: parseBackoffConfig("PGSTREAM_SEARCH_INDEXER_CLEANUP"),
 		},
 		Store: opensearch.Config{
@@ -207,9 +208,9 @@ func parseBackoffConfig(prefix string) backoff.Config {
 }
 
 func parseExponentialBackoffConfig(prefix string) *backoff.ExponentialConfig {
-	initialInterval := viper.GetDuration(fmt.Sprintf("%s_BACKOFF_INITIAL_INTERVAL", prefix))
-	maxInterval := viper.GetDuration(fmt.Sprintf("%s_BACKOFF_MAX_INTERVAL", prefix))
-	maxRetries := viper.GetUint(fmt.Sprintf("%s_BACKOFF_MAX_RETRIES", prefix))
+	initialInterval := viper.GetDuration(fmt.Sprintf("%s_EXP_BACKOFF_INITIAL_INTERVAL", prefix))
+	maxInterval := viper.GetDuration(fmt.Sprintf("%s_EXP_BACKOFF_MAX_INTERVAL", prefix))
+	maxRetries := viper.GetUint(fmt.Sprintf("%s_EXP_BACKOFF_MAX_RETRIES", prefix))
 	if initialInterval == 0 && maxInterval == 0 && maxRetries == 0 {
 		return nil
 	}
