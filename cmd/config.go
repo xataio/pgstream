@@ -18,7 +18,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
-	"github.com/xataio/pgstream/pkg/wal/processor/webhook/server"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
@@ -181,7 +181,11 @@ func parseWebhookProcessorConfig() *stream.WebhookProcessorConfig {
 	}
 
 	return &stream.WebhookProcessorConfig{
-		SubscriptionStoreURL: subscriptionStore,
+		SubscriptionStore: stream.WebhookSubscriptionStoreConfig{
+			URL:                  subscriptionStore,
+			CacheEnabled:         viper.GetBool("PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_ENABLED"),
+			CacheRefreshInterval: viper.GetDuration("PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_REFRESH_INTERVAL"),
+		},
 		Notifier: notifier.Config{
 			MaxQueueBytes:  viper.GetInt64("PGSTREAM_WEBHOOK_NOTIFIER_MAX_QUEUE_BYTES"),
 			URLWorkerCount: viper.GetUint("PGSTREAM_WEBHOOK_NOTIFIER_WORKER_COUNT"),

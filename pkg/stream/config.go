@@ -4,6 +4,7 @@ package stream
 
 import (
 	"errors"
+	"time"
 
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
@@ -12,7 +13,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
-	"github.com/xataio/pgstream/pkg/wal/processor/webhook/server"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
@@ -53,9 +54,15 @@ type SearchProcessorConfig struct {
 }
 
 type WebhookProcessorConfig struct {
-	SubscriptionStoreURL string
-	Notifier             notifier.Config
-	SubscriptionServer   server.Config
+	Notifier           notifier.Config
+	SubscriptionServer server.Config
+	SubscriptionStore  WebhookSubscriptionStoreConfig
+}
+
+type WebhookSubscriptionStoreConfig struct {
+	URL                  string
+	CacheEnabled         bool
+	CacheRefreshInterval time.Duration
 }
 
 func (c *Config) IsValid() error {
