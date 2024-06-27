@@ -88,14 +88,14 @@ The start command will parse the configuration provided, and initialise the conf
 ### Listeners
 
 #### Postgres Listener
-| Environment Variable                               | Default     |   Required          | Description |
-| -------------------------------------------------- | ----------- | ------------------- | ----------- |
+| Environment Variable                               | Default     |   Required          | Description                                  |
+| -------------------------------------------------- | ----------- | ------------------- | -------------------------------------------- |
 | PGSTREAM_POSTGRES_LISTENER_URL                     | N/A         | Yes                 | URL of the Postgres database to connect to for replication purposes.
 
 #### Kafka Listener
 
-| Environment Variable                               | Default     |   Required          | Description |
-| -------------------------------------------------- | ----------- | ------------------- | ----------- |
+| Environment Variable                               | Default     |   Required          | Description                                  |
+| -------------------------------------------------- | ----------- | ------------------- | -------------------------------------------- |
 | PGSTREAM_KAFKA_SERVERS                             | N/A         | Yes                 | URLs for the Kafka servers to connect to.
 | PGSTREAM_KAFKA_TOPIC_NAME                          | N/A         | Yes                 | Name of the Kafka topic to read from.
 | PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID            | N/A         | Yes                 | Name of the Kafka consumer group for the WAL Kafka reader.
@@ -115,8 +115,8 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 ### Processors
 
 #### Kafka Batch Writer
-| Environment Variable                               | Default     |   Required          | Description |
-| -------------------------------------------------- | ----------- | ------------------- | ----------- |
+| Environment Variable                               | Default     |   Required          | Description                                      |
+| -------------------------------------------------- | ----------- | ------------------- | ------------------------------------------------ |
 | PGSTREAM_KAFKA_SERVERS                             | N/A         | Yes                 | URLs for the Kafka servers to connect to.
 | PGSTREAM_KAFKA_TOPIC_NAME                          | N/A         | Yes                 | Name of the Kafka topic to write to.
 | PGSTREAM_KAFKA_TOPIC_PARTITIONS                    | 1           | No                  | Number of partitions created for the Kafka topic if auto create is enabled.
@@ -134,8 +134,8 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 
 #### Search Batch Indexer
 
-| Environment Variable                                         | Default     |   Required          | Description |
-| ------------------------------------------------------------ | ----------- | ------------------- | ----------- |
+| Environment Variable                                         | Default     |   Required          | Description                                  |
+| ------------------------------------------------------------ | ----------- | ------------------- | -------------------------------------------- |
 | PGSTREAM_SEARCH_STORE_URL                                    | N/A         | Yes                 | URL for the search store to connect to.
 | PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT                        | 1s          | No                  | Max time interval at which the batch sending to the search store is triggered.
 | PGSTREAM_SEARCH_INDEXER_BATCH_SIZE                           | 100         | No                  | Max number of messages to be sent per batch. When this size is reached, the batch is sent to the search store.
@@ -156,8 +156,8 @@ One of exponential/constant backoff policies can be provided for the search inde
 One of exponential/constant backoff policies can be provided for the search store retry strategy. If none is provided, a default exponential backoff policy applies.
 
 #### Webhook Notifier
-| Environment Variable                                         | Default     |   Required          | Description |
-| ------------------------------------------------------------ | ----------- | ------------------- | ----------- |
+| Environment Variable                                         | Default     |   Required          | Description                                  |
+| ------------------------------------------------------------ | ----------- | ------------------- | -------------------------------------------- |
 | PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_URL                      | N/A         | Yes                 | URL for the webhook subscription store to connect to.
 | PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_ENABLED            | False       | No                  | Caching applied to the subscription store retrieval queries.
 | PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_REFRESH_INTERVAL   | 60s         | When cache enabled  | Interval at which the subscription store cache will be refreshed. Indicates max cache staleness.
@@ -170,8 +170,8 @@ One of exponential/constant backoff policies can be provided for the search stor
 
 
 #### Translator
-| Environment Variable                                         | Default     |   Required          | Description |
-| ------------------------------------------------------------ | ----------- | ------------------- | ----------- |
+| Environment Variable                                         | Default     |   Required          | Description                                  |
+| ------------------------------------------------------------ | ----------- | ------------------- | -------------------------------------------- |
 | PGSTREAM_TRANSLATOR_ENABLED                       | N/A         | Yes                 | URL for the postgres URL where the schema log table is stored.
 
 
