@@ -18,7 +18,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
-	"github.com/xataio/pgstream/pkg/wal/processor/webhook"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription"
 )
 
 // Notifier represents the process that notifies any subscribed webhooks when
@@ -38,7 +38,7 @@ type Notifier struct {
 }
 
 type subscriptionRetriever interface {
-	GetSubscriptions(ctx context.Context, action, schema, table string) ([]*webhook.Subscription, error)
+	GetSubscriptions(ctx context.Context, action, schema, table string) ([]*subscription.Subscription, error)
 }
 
 type Option func(*Notifier)
@@ -92,7 +92,7 @@ func (n *Notifier) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (er
 		}
 	}()
 
-	subscriptions := []*webhook.Subscription{}
+	subscriptions := []*subscription.Subscription{}
 	if walEvent.Data != nil {
 		data := walEvent.Data
 		subscriptions, err = n.subscriptionStore.GetSubscriptions(ctx, data.Action, data.Schema, data.Table)

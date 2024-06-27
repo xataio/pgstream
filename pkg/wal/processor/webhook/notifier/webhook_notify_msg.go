@@ -7,6 +7,7 @@ import (
 
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription"
 )
 
 type notifyMsg struct {
@@ -17,7 +18,7 @@ type notifyMsg struct {
 
 type serialiser func(any) ([]byte, error)
 
-func newNotifyMsg(event *wal.Event, subscriptions []*webhook.Subscription, serialiser serialiser) (*notifyMsg, error) {
+func newNotifyMsg(event *wal.Event, subscriptions []*subscription.Subscription, serialiser serialiser) (*notifyMsg, error) {
 	var payload []byte
 	urls := make([]string, 0, len(subscriptions))
 	if len(subscriptions) > 0 {

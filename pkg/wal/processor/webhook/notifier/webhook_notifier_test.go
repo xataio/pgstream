@@ -20,7 +20,8 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook"
-	"github.com/xataio/pgstream/pkg/wal/processor/webhook/mocks"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store/mocks"
 )
 
 func TestNotifier_ProcessWALEvent(t *testing.T) {
@@ -35,7 +36,7 @@ func TestNotifier_ProcessWALEvent(t *testing.T) {
 		CommitPosition: testCommitPos,
 	}
 
-	testSubscription := func(url string) *webhook.Subscription {
+	testSubscription := func(url string) *subscription.Subscription {
 		return newTestSubscription(url, "", "", nil)
 	}
 
@@ -54,9 +55,9 @@ func TestNotifier_ProcessWALEvent(t *testing.T) {
 	}{
 		{
 			name: "ok - no subscriptions for event",
-			store: &mocks.SubscriptionStore{
-				GetSubscriptionsFn: func(ctx context.Context, action, schema, table string) ([]*webhook.Subscription, error) {
-					return []*webhook.Subscription{}, nil
+			store: &mocks.Store{
+				GetSubscriptionsFn: func(ctx context.Context, action, schema, table string) ([]*subscription.Subscription, error) {
+					return []*subscription.Subscription{}, nil
 				},
 			},
 			weightedSemaphore: &syncmocks.WeightedSemaphore{
@@ -72,9 +73,9 @@ func TestNotifier_ProcessWALEvent(t *testing.T) {
 		},
 		{
 			name: "ok - subscriptions for event",
-			store: &mocks.SubscriptionStore{
-				GetSubscriptionsFn: func(ctx context.Context, action, schema, table string) ([]*webhook.Subscription, error) {
-					return []*webhook.Subscription{
+			store: &mocks.Store{
+				GetSubscriptionsFn: func(ctx context.Context, action, schema, table string) ([]*subscription.Subscription, error) {
+					return []*subscription.Subscription{
 						testSubscription("url-1"), testSubscription("url-2"),
 					}, nil
 				},
@@ -94,8 +95,8 @@ func TestNotifier_ProcessWALEvent(t *testing.T) {
 		},
 		{
 			name: "error - getting subscriptions",
-			store: &mocks.SubscriptionStore{
-				GetSubscriptionsFn: func(ctx context.Context, action, schema, table string) ([]*webhook.Subscription, error) {
+			store: &mocks.Store{
+				GetSubscriptionsFn: func(ctx context.Context, action, schema, table string) ([]*subscription.Subscription, error) {
 					return nil, errTest
 				},
 			},
@@ -106,9 +107,9 @@ func TestNotifier_ProcessWALEvent(t *testing.T) {
 		},
 		{
 			name: "error - serialising payload",
-			store: &mocks.SubscriptionStore{
-				GetSubscriptionsFn: func(ctx context.Context, action, schema, table string) ([]*webhook.Subscription, error) {
-					return []*webhook.Subscription{
+			store: &mocks.Store{
+				GetSubscriptionsFn: func(ctx context.Context, action, schema, table string) ([]*subscription.Subscription, error) {
+					return []*subscription.Subscription{
 						testSubscription("url-1"), testSubscription("url-2"),
 					}, nil
 				},
@@ -121,9 +122,9 @@ func TestNotifier_ProcessWALEvent(t *testing.T) {
 		},
 		{
 			name: "error - acquiring semaphore",
-			store: &mocks.SubscriptionStore{
-				GetSubscriptionsFn: func(ctx context.Context, action, schema, table string) ([]*webhook.Subscription, error) {
-					return []*webhook.Subscription{
+			store: &mocks.Store{
+				GetSubscriptionsFn: func(ctx context.Context, action, schema, table string) ([]*subscription.Subscription, error) {
+					return []*subscription.Subscription{
 						testSubscription("url-1"), testSubscription("url-2"),
 					}, nil
 				},
@@ -139,8 +140,8 @@ func TestNotifier_ProcessWALEvent(t *testing.T) {
 		},
 		{
 			name: "error - panic recovery",
-			store: &mocks.SubscriptionStore{
-				GetSubscriptionsFn: func(ctx context.Context, action, schema, table string) ([]*webhook.Subscription, error) {
+			store: &mocks.Store{
+				GetSubscriptionsFn: func(ctx context.Context, action, schema, table string) ([]*subscription.Subscription, error) {
 					panic(errTest)
 				},
 			},
@@ -299,7 +300,7 @@ func TestNotifier_Notify(t *testing.T) {
 			doneChan := make(chan struct{}, 1)
 			defer close(doneChan)
 
-			n := New(testCfg, &mocks.SubscriptionStore{})
+			n := New(testCfg, &mocks.Store{})
 			n.client = tc.client
 			n.queueBytesSema = tc.semaphore
 			n.checkpointer = tc.checkpointer(doneChan)

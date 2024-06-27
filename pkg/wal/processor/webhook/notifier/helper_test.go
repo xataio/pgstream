@@ -6,15 +6,16 @@ import (
 	"errors"
 
 	"github.com/xataio/pgstream/pkg/wal"
-	"github.com/xataio/pgstream/pkg/wal/processor/webhook"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription"
 )
 
-var testCommitPos = wal.CommitPosition("test-pos")
+var (
+	testCommitPos = wal.CommitPosition("test-pos")
+	errTest       = errors.New("oh noes")
+)
 
-var errTest = errors.New("oh noes")
-
-func newTestSubscription(url, schema, table string, eventTypes []string) *webhook.Subscription {
-	return &webhook.Subscription{
+func newTestSubscription(url, schema, table string, eventTypes []string) *subscription.Subscription {
+	return &subscription.Subscription{
 		URL:        url,
 		Schema:     schema,
 		Table:      table,
