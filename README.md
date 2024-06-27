@@ -142,6 +142,15 @@ Some of the limitations of the initial release include:
 - Primary key/unique not null column required for replication
 - Kafka serialisation support limited to JSON
 
+## Roadmap
+
+Besides solving the limitations mentioned above, the following features are planned for future releases:
+
+- [ ] Postgres output plugin for Postgres to Postgres replication support, including DDL
+- [ ] ClickHouse output plugin
+- [ ] Support for fast initial snapshot
+- [ ] Support for advanced data filtering
+- [ ] Snowflake output plugin
 
 ## Glossary
 
