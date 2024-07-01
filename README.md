@@ -87,14 +87,22 @@ The start command will parse the configuration provided, and initialise the conf
 
 ## Configuration
 
+Here's a list of all the environment variables that can be used to configure the individual modules, along with their descriptions and default values.
+
 ### Listeners
 
-#### Postgres Listener
+<details>
+  <summary>Postgres Listener</summary>
+
 | Environment Variable                               | Default     |   Required          | Description                                  |
 | -------------------------------------------------- | ----------- | ------------------- | -------------------------------------------- |
 | PGSTREAM_POSTGRES_LISTENER_URL                     | N/A         | Yes                 | URL of the Postgres database to connect to for replication purposes.
 
-#### Kafka Listener
+</details>
+
+
+<details>
+  <summary>Kafka Listener</summary>
 
 | Environment Variable                               | Default     |   Required          | Description                                  |
 | -------------------------------------------------- | ----------- | ------------------- | -------------------------------------------- |
@@ -114,9 +122,13 @@ The start command will parse the configuration provided, and initialise the conf
 
 One of exponential/constant backoff policies can be provided for the Kafka committing retry strategy. If none is provided, no retries apply.
 
+</details>
+
 ### Processors
 
-#### Kafka Batch Writer
+<details>
+  <summary>Kafka Batch Writer</summary>
+
 | Environment Variable                               | Default     |   Required          | Description                                      |
 | -------------------------------------------------- | ----------- | ------------------- | ------------------------------------------------ |
 | PGSTREAM_KAFKA_SERVERS                             | N/A         | Yes                 | URLs for the Kafka servers to connect to.
@@ -133,8 +145,11 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 | PGSTREAM_KAFKA_WRITER_BATCH_SIZE                   | 100         | No                  | Max number of messages to be sent per batch. When this size is reached, the batch is sent to Kafka.
 | PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES              | 100MiB      | No                  | Max memory used by the Kafka batch writer for inflight batches.
 
+</details>
 
-#### Search Batch Indexer
+
+<details>
+  <summary>Search Batch Indexer</summary>
 
 | Environment Variable                                         | Default     |   Required          | Description                                  |
 | ------------------------------------------------------------ | ----------- | ------------------- | -------------------------------------------- |
@@ -157,7 +172,11 @@ One of exponential/constant backoff policies can be provided for the search inde
 
 One of exponential/constant backoff policies can be provided for the search store retry strategy. If none is provided, a default exponential backoff policy applies.
 
-#### Webhook Notifier
+</details>
+
+<details>
+  <summary>Webhook Notifier</summary>
+
 | Environment Variable                                         | Default     |   Required          | Description                                  |
 | ------------------------------------------------------------ | ----------- | ------------------- | -------------------------------------------- |
 | PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_URL                      | N/A         | Yes                 | URL for the webhook subscription store to connect to.
@@ -170,12 +189,16 @@ One of exponential/constant backoff policies can be provided for the search stor
 | PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_READ_TIMEOUT            | 5s          | No                  | Max duration for reading an entire server request, including the body before timing out.
 | PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_WRITE_TIMEOUT           | 10s         | No                  | Max duration before timing out writes of the response. It is reset whenever a new request's header is read.
 
+</details>
 
-#### Translator
+<details>
+  <summary>Translator</summary>
+
 | Environment Variable                                         | Default     |   Required          | Description                                  |
 | ------------------------------------------------------------ | ----------- | ------------------- | -------------------------------------------- |
 | PGSTREAM_TRANSLATOR_ENABLED                       | N/A         | Yes                 | URL for the postgres URL where the schema log table is stored.
 
+</details>
 
 ## Tracking schema changes
 
