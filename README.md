@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="brand-kit/banner/pgstream-banner@2x.png" alt="pgstream logo" />
+</div>
+
 <p align="center">
   <a href="https://github.com/xataio/pgstream/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-green" alt="License - Apache 2.0"></a>&nbsp;
   <a href="https://github.com/xataio/pgstream/actions?query=branch%3Amain"><img src="https://github.com/xataio/pgstream/actions/workflows/build.yml/badge.svg" alt="CI Build"></a> &nbsp;
@@ -5,7 +9,7 @@
   <a href="https://twitter.com/xata"><img src="https://img.shields.io/twitter/follow/xata?style=flat" alt="X (formerly Twitter) Follow" /> </a>
 </p>
 
-# :otter: pgstream - Postgres replication with DDL changes
+# pgstream - Postgres replication with DDL changes
 
 `pgstream` is an open source CDC command-line tool and library that offers Postgres replication support with DDL changes to any provided output.
 
