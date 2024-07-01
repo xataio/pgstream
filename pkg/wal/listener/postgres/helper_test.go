@@ -20,33 +20,25 @@ func newMockReplicationHandler() *replicationmocks.Handler {
 		StartReplicationFn: func(context.Context) error { return nil },
 		GetLSNParserFn:     func() replication.LSNParser { return newMockLSNParser() },
 		SyncLSNFn:          func(ctx context.Context, lsn replication.LSN) error { return nil },
-		ReceiveMessageFn: func(ctx context.Context, i uint64) (replication.Message, error) {
+		ReceiveMessageFn: func(ctx context.Context, i uint64) (*replication.Message, error) {
 			return newMockMessage(), nil
 		},
 	}
 }
 
-func newMockMessage() *replicationmocks.Message {
-	return &replicationmocks.Message{
-		GetDataFn: func() *replication.MessageData {
-			return &replication.MessageData{
-				LSN:            testLSN,
-				Data:           []byte("test-data"),
-				ReplyRequested: false,
-				ServerTime:     time.Now(),
-			}
-		},
+func newMockMessage() *replication.Message {
+	return &replication.Message{
+		LSN:            testLSN,
+		Data:           []byte("test-data"),
+		ReplyRequested: false,
+		ServerTime:     time.Now(),
 	}
 }
 
-func newMockKeepAliveMessage(replyRequested bool) *replicationmocks.Message {
-	return &replicationmocks.Message{
-		GetDataFn: func() *replication.MessageData {
-			return &replication.MessageData{
-				LSN:            testLSN,
-				ReplyRequested: replyRequested,
-			}
-		},
+func newMockKeepAliveMessage(replyRequested bool) *replication.Message {
+	return &replication.Message{
+		LSN:            testLSN,
+		ReplyRequested: replyRequested,
 	}
 }
 

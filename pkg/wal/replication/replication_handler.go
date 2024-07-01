@@ -5,26 +5,21 @@ package replication
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 )
 
 // Handler manages the replication operations
 type Handler interface {
 	StartReplication(ctx context.Context) error
-	ReceiveMessage(ctx context.Context) (Message, error)
+	ReceiveMessage(ctx context.Context) (*Message, error)
 	SyncLSN(ctx context.Context, lsn LSN) error
 	GetReplicationLag(ctx context.Context) (int64, error)
 	GetLSNParser() LSNParser
 	Close() error
 }
 
-type Message interface {
-	GetData() *MessageData
-}
-
-// MessageData is the common data for all replication messages
-type MessageData struct {
+// Message contains the replication data
+type Message struct {
 	LSN            LSN
 	Data           []byte
 	ServerTime     time.Time
@@ -40,12 +35,3 @@ type LSNParser interface {
 type LSN uint64
 
 var ErrConnTimeout = errors.New("connection timeout")
-
-type Error struct {
-	Severity string
-	Msg      string
-}
-
-func (e *Error) Error() string {
-	return fmt.Sprintf("replication error: %s", e.Msg)
-}
