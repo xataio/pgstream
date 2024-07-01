@@ -14,19 +14,6 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-type ConnConfig struct {
-	Servers []string
-	Topic   TopicConfig
-	TLS     *tlslib.Config
-}
-
-type TopicConfig struct {
-	Name              string
-	NumPartitions     int
-	ReplicationFactor int
-	AutoCreate        bool
-}
-
 // withConnection creates a connection that can be used by the kafka operation
 // passed in the parameters. This ensures the cleanup of all connection resources.
 func withConnection(config *ConnConfig, kafkaOperation func(conn *kafka.Conn) error) error {
