@@ -12,11 +12,11 @@
 ## Features
 
 - Schema change tracking and replication of DDL changes
-- Optional fan out module support
-- Easy to deploy, only requires Postgres
+- Modular deployment configuration, only requires Postgres
 - Schema based message partitioning
 - Schema filtering
 - Elasticsearch/Opensearch replication output plugin support
+- Webhook support
 - Automatic discovery of table primary key/unique not null columns for use as event identity
 - Highly customisable modules when used as library
 - Core metrics available via opentelemetry
@@ -40,11 +40,13 @@
 
 ### CLI
 
-For now - `go build` to build the `pgstream` binary.
+```
+go install github.com/xataio/pgstream@latest
+```
 
 #### Environment setup
 
-If you have an environment locally available, with at least Postgres and whichever module resources you're planning on running, then you can skip this step. Otherwise, a docker setup is available in this repository that starts Postgres, Kafka and Opensearch (as well as Opensearch dashboards for easy visualisation).
+If you have an environment available, with at least Postgres and whichever module resources you're planning on running, then you can skip this step. Otherwise, a docker setup is available in this repository that starts Postgres, Kafka and Opensearch (as well as Opensearch dashboards for easy visualisation).
 
 ```
 docker-compose -f build/docker/docker-compose.yml up
@@ -177,14 +179,15 @@ One of exponential/constant backoff policies can be provided for the search stor
 
 ## Tracking schema changes
 
-In order to track schema changes, pgstream relies on functions and triggers that will populate a Postgres table (`pgstream.schema_log`) containing a history log of all DDL changes for a given schema.
+One of the main differentiators of pgstream is the fact that it tracks and replicates schema changes automatically. It relies on SQL triggers that will populate a Postgres table (`pgstream.schema_log`) containing a history log of all DDL changes for a given schema. Whenever a schema change occurs, this trigger creates a new row in the schema log table with the schema encoded as a JSON value. This table tracks all the schema changes, forming a linearised change log that is then parsed and used within the pgstream pipeline to identify modifications and push the relevant changes downstream.
 
 The detailed SQL used can be found in the [migrations folder](https://github.com/xataio/pgstream/tree/main/migrations/Postgres).
 
+The schema and data changes are part of the same linear stream - the downstream consumers always observe the schema changes as soon as they happen, before any data arrives that relies on the new schema. This prevents data loss and manual intervention.
 
 ## Architecture
 
-`pgstream` is constructed as a streaming pipeline, where data from one module streams into the next, eventually reaching the configured output plugins. It keeps track of schema changes and replicates them along with the data changes to ensure a consistent view of the source data downstream. It aims at providing a modular approach to replication where all the different stream components can be combined and used interchangeably as long as they are compatible. This modular approach makes adding and integrating output plugin implementations simple and painless.
+`pgstream` is constructed as a streaming pipeline, where data from one module streams into the next, eventually reaching the configured output plugins. It keeps track of schema changes and replicates them along with the data changes to ensure a consistent view of the source data downstream. This modular approach makes adding and integrating output plugin implementations simple and painless.
 
 ![pgstream architecture v1](docs/img/pgstream_arch_v1.png)
 
@@ -231,7 +234,7 @@ Some of the limitations of the initial release include:
 - Single Kafka topic support
 - Postgres plugin support limited to `wal2json`
 - Data filtering limited to schema level
-- No initial/automatic data replay
+- No initial/automatic data backfill
 - Primary key/unique not null column required for replication
 - Kafka serialisation support limited to JSON
 
