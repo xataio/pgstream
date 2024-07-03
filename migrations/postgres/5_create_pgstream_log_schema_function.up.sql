@@ -73,5 +73,3 @@ BEGIN
     END IF;
 END;
 $$;
-
-ALTER FUNCTION pgstream.log_schema() OWNER TO pgstreamrole;

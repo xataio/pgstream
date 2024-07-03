@@ -21,5 +21,3 @@ BEGIN
   END IF;
 END;
 $$;
-
-ALTER FUNCTION pgstream.refresh_schema(text) OWNER TO pgstreamrole;

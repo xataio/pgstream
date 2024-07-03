@@ -162,5 +162,3 @@ BEGIN
     return (_id[10] << 16) + (_id[11] << 8) + (_id[12]);
 END;
 $$;
-
-GRANT USAGE, SELECT ON SEQUENCE pgstream.xid_serial TO pgstreamrole;

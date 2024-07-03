@@ -11,4 +11,3 @@ CREATE TABLE IF NOT EXISTS pgstream.schema_log (
 -- `SELECT id, schema FROM pgstream.schema_log WHERE schema_name = 'foo' AND NOT acked ORDER BY id DESC LIMIT 1`
 CREATE INDEX IF NOT EXISTS schema_log_name_acked ON pgstream.schema_log (schema_name, acked, id);
 CREATE UNIQUE INDEX IF NOT EXISTS schema_log_version_uniq ON pgstream.schema_log(schema_name, version);
-GRANT SELECT, INSERT ON pgstream.schema_log TO pgstreamrole;

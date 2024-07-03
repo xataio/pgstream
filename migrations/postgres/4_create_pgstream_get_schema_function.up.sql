@@ -99,5 +99,3 @@ WITH table_oids AS (
      )
 SELECT v FROM as_json;
 $$;
-
-ALTER FUNCTION pgstream.get_schema(text) OWNER TO pgstreamrole;
