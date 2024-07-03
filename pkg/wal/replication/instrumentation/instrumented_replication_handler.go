@@ -39,7 +39,7 @@ func (h *Handler) StartReplication(ctx context.Context) error {
 	return h.inner.StartReplication(ctx)
 }
 
-func (h *Handler) ReceiveMessage(ctx context.Context) (msg replication.Message, err error) {
+func (h *Handler) ReceiveMessage(ctx context.Context) (*replication.Message, error) {
 	return h.inner.ReceiveMessage(ctx)
 }
 

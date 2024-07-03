@@ -29,7 +29,7 @@ type Listener struct {
 
 type replicationHandler interface {
 	StartReplication(ctx context.Context) error
-	ReceiveMessage(ctx context.Context) (replication.Message, error)
+	ReceiveMessage(ctx context.Context) (*replication.Message, error)
 	GetLSNParser() replication.LSNParser
 	Close() error
 }
@@ -89,46 +89,44 @@ func (l *Listener) listen(ctx context.Context) error {
 		default:
 			msg, err := l.replicationHandler.ReceiveMessage(ctx)
 			if err != nil {
-				replErr := &replication.Error{}
-				if errors.Is(err, replication.ErrConnTimeout) || (errors.As(err, &replErr) && replErr.Severity == "WARNING") {
+				if errors.Is(err, replication.ErrConnTimeout) {
 					continue
 				}
 				return fmt.Errorf("receiving message: %w", err)
 			}
 
-			msgData := msg.GetData()
-			if msgData == nil {
+			if msg == nil {
 				continue
 			}
 
 			l.logger.Trace("", loglib.Fields{
-				"wal_end":     l.lsnParser.ToString(msgData.LSN),
-				"server_time": msgData.ServerTime,
-				"wal_data":    msgData.Data,
+				"wal_end":     l.lsnParser.ToString(msg.LSN),
+				"server_time": msg.ServerTime,
+				"wal_data":    msg.Data,
 			})
 
-			if err := l.processWALEvent(ctx, msgData); err != nil {
+			if err := l.processWALEvent(ctx, msg); err != nil {
 				return err
 			}
 		}
 	}
 }
 
-func (l *Listener) processWALEvent(ctx context.Context, msgData *replication.MessageData) error {
+func (l *Listener) processWALEvent(ctx context.Context, msg *replication.Message) error {
 	// if there's no data, it's a keep alive. If a reply is not requested,
 	// no need to process this message.
-	if msgData.Data == nil && !msgData.ReplyRequested {
+	if msg.Data == nil && !msg.ReplyRequested {
 		return nil
 	}
 
 	event := &wal.Event{}
-	if msgData.Data != nil {
+	if msg.Data != nil {
 		event.Data = &wal.Data{}
-		if err := l.walDataDeserialiser(msgData.Data, event.Data); err != nil {
+		if err := l.walDataDeserialiser(msg.Data, event.Data); err != nil {
 			return fmt.Errorf("error unmarshaling wal data: %w", err)
 		}
 	}
-	event.CommitPosition = wal.CommitPosition(l.lsnParser.ToString(msgData.LSN))
+	event.CommitPosition = wal.CommitPosition(l.lsnParser.ToString(msg.LSN))
 
 	return l.processEvent(ctx, event)
 }

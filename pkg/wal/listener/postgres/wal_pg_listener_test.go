@@ -20,10 +20,8 @@ import (
 func TestListener_Listen(t *testing.T) {
 	t.Parallel()
 
-	emptyMessage := &replicationmocks.Message{
-		GetDataFn: func() *replication.MessageData {
-			return nil
-		},
+	emptyMessage := &replication.Message{
+		Data: nil,
 	}
 
 	testDeserialiser := func(_ []byte, out any) error {
@@ -60,7 +58,7 @@ func TestListener_Listen(t *testing.T) {
 			name: "ok - message received",
 			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
 				h := newMockReplicationHandler()
-				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (replication.Message, error) {
+				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (*replication.Message, error) {
 					defer func() {
 						if i == 1 {
 							doneChan <- struct{}{}
@@ -83,7 +81,7 @@ func TestListener_Listen(t *testing.T) {
 			name: "ok - timeout on receive message, retried",
 			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
 				h := newMockReplicationHandler()
-				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (replication.Message, error) {
+				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (*replication.Message, error) {
 					defer func() {
 						if i == 2 {
 							doneChan <- struct{}{}
@@ -108,7 +106,7 @@ func TestListener_Listen(t *testing.T) {
 			name: "ok - nil msg data",
 			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
 				h := newMockReplicationHandler()
-				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (replication.Message, error) {
+				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (*replication.Message, error) {
 					defer func() {
 						if i == 1 {
 							doneChan <- struct{}{}
@@ -126,7 +124,7 @@ func TestListener_Listen(t *testing.T) {
 			name: "ok - keep alive",
 			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
 				h := newMockReplicationHandler()
-				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (replication.Message, error) {
+				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (*replication.Message, error) {
 					defer func() {
 						if i == 1 {
 							doneChan <- struct{}{}
@@ -154,7 +152,7 @@ func TestListener_Listen(t *testing.T) {
 			name: "error - receiving message",
 			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
 				h := newMockReplicationHandler()
-				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (replication.Message, error) {
+				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (*replication.Message, error) {
 					defer func() {
 						if i == 1 {
 							doneChan <- struct{}{}
@@ -172,7 +170,7 @@ func TestListener_Listen(t *testing.T) {
 			name: "error - processing wal event",
 			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
 				h := newMockReplicationHandler()
-				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (replication.Message, error) {
+				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (*replication.Message, error) {
 					defer func() {
 						if i == 1 {
 							doneChan <- struct{}{}
@@ -190,7 +188,7 @@ func TestListener_Listen(t *testing.T) {
 			name: "error - deserialising wal event",
 			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
 				h := newMockReplicationHandler()
-				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (replication.Message, error) {
+				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (*replication.Message, error) {
 					defer func() {
 						if i == 1 {
 							doneChan <- struct{}{}
