@@ -3,7 +3,6 @@ CREATE TABLE IF NOT EXISTS pgstream.table_ids (
     id pgstream.xid PRIMARY KEY DEFAULT pgstream.xid(),
     oid BIGINT NOT NULL UNIQUE
 );
-GRANT SELECT, INSERT, DELETE ON pgstream.table_ids TO pgstreamrole;
 
 CREATE OR REPLACE FUNCTION pgstream.create_table_mapping(table_oid oid) RETURNS pgstream.xid
     LANGUAGE SQL
@@ -11,4 +10,3 @@ CREATE OR REPLACE FUNCTION pgstream.create_table_mapping(table_oid oid) RETURNS 
     AS $$
     INSERT INTO pgstream.table_ids (oid) VALUES (table_oid) RETURNING id;
 $$;
-ALTER FUNCTION pgstream.create_table_mapping(oid) OWNER TO pgstreamrole;
