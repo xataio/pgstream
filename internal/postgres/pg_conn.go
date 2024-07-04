@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type Conn struct {
@@ -15,6 +16,14 @@ type Conn struct {
 
 type Row interface {
 	pgx.Row
+}
+
+type Rows interface {
+	pgx.Rows
+}
+
+type CommandTag struct {
+	pgconn.CommandTag
 }
 
 func NewConn(ctx context.Context, url string) (*Conn, error) {
@@ -33,6 +42,15 @@ func NewConn(ctx context.Context, url string) (*Conn, error) {
 
 func (c *Conn) QueryRow(ctx context.Context, query string, args ...any) Row {
 	return c.conn.QueryRow(ctx, query, args...)
+}
+
+func (c *Conn) Query(ctx context.Context, query string, args ...any) (Rows, error) {
+	return c.conn.Query(ctx, query, args...)
+}
+
+func (c *Conn) Exec(ctx context.Context, query string, args ...any) (CommandTag, error) {
+	tag, err := c.conn.Exec(ctx, query, args...)
+	return CommandTag{tag}, err
 }
 
 func (c *Conn) Close(ctx context.Context) error {

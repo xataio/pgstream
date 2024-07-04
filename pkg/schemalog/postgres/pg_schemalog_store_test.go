@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
+	pglib "github.com/xataio/pgstream/internal/postgres"
+	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 	"github.com/xataio/pgstream/pkg/schemalog"
 )
 
@@ -27,7 +29,7 @@ func TestStore_Fetch(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		querier   querier
+		querier   pglib.Querier
 		ackedOnly bool
 
 		wantLogEntry *schemalog.LogEntry
@@ -35,8 +37,8 @@ func TestStore_Fetch(t *testing.T) {
 	}{
 		{
 			name: "ok - without acked",
-			querier: &mockQuerier{
-				queryRowFn: func(_ context.Context, query string, args ...any) pgx.Row {
+			querier: &pgmocks.Querier{
+				QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
 					require.Len(t, args, 1)
 					require.Equal(t, args[0], testSchema)
 					require.Equal(t,
@@ -51,8 +53,8 @@ func TestStore_Fetch(t *testing.T) {
 		},
 		{
 			name: "ok - with acked",
-			querier: &mockQuerier{
-				queryRowFn: func(_ context.Context, query string, args ...any) pgx.Row {
+			querier: &pgmocks.Querier{
+				QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
 					require.Len(t, args, 1)
 					require.Equal(t, args[0], testSchema)
 					require.Equal(t,
@@ -68,8 +70,8 @@ func TestStore_Fetch(t *testing.T) {
 		},
 		{
 			name: "error - querying rows",
-			querier: &mockQuerier{
-				queryRowFn: func(context.Context, string, ...any) pgx.Row {
+			querier: &pgmocks.Querier{
+				QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
 					return &mockRow{scanFn: func(...any) error { return errTest }}
 				},
 			},
@@ -106,22 +108,22 @@ func TestStore_Ack(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		querier  querier
+		querier  pglib.Querier
 		logEntry *schemalog.LogEntry
 
 		wantErr error
 	}{
 		{
 			name: "ok",
-			querier: &mockQuerier{
-				execFn: func(_ context.Context, query string, args ...any) (pgconn.CommandTag, error) {
+			querier: &pgmocks.Querier{
+				ExecFn: func(_ context.Context, query string, args ...any) (pglib.CommandTag, error) {
 					require.Len(t, args, 2)
 					require.Equal(t, args[0], testID.String())
 					require.Equal(t, args[1], testSchema)
 					require.Equal(t,
 						fmt.Sprintf(`update %s.%s set acked = true where id = $1 and schema_name = $2`, schemalog.SchemaName, schemalog.TableName),
 						query)
-					return pgconn.NewCommandTag("1"), nil
+					return pglib.CommandTag{CommandTag: pgconn.NewCommandTag("1")}, nil
 				},
 			},
 			logEntry: testLogEntry,
@@ -130,9 +132,9 @@ func TestStore_Ack(t *testing.T) {
 		},
 		{
 			name: "error - executing update query",
-			querier: &mockQuerier{
-				execFn: func(_ context.Context, query string, args ...any) (pgconn.CommandTag, error) {
-					return pgconn.NewCommandTag(""), errTest
+			querier: &pgmocks.Querier{
+				ExecFn: func(_ context.Context, query string, args ...any) (pglib.CommandTag, error) {
+					return pglib.CommandTag{CommandTag: pgconn.NewCommandTag("")}, errTest
 				},
 			},
 			logEntry: testLogEntry,

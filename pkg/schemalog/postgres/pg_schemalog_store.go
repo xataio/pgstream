@@ -7,42 +7,32 @@ import (
 	"errors"
 	"fmt"
 
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/schemalog"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // Store is a postgres implementation of the schemalog.Store interface
 type Store struct {
-	querier querier
+	querier pglib.Querier
 }
 
 type Config struct {
 	URL string
 }
 
-type querier interface {
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-	Exec(ctx context.Context, sql string, args ...any) (tag pgconn.CommandTag, err error)
-	Close(ctx context.Context)
-}
-
 func NewStore(ctx context.Context, cfg Config) (*Store, error) {
-	pgCfg, err := pgx.ParseConfig(cfg.URL)
+	pool, err := pglib.NewConnPool(ctx, cfg.URL)
 	if err != nil {
 		return nil, err
 	}
-	pgConn, err := pgx.ConnectConfig(ctx, pgCfg)
-	if err != nil {
-		return nil, fmt.Errorf("create postgres client: %w", err)
-	}
 	return &Store{
-		querier: &pgxConn{Conn: pgConn},
+		querier: pool,
 	}, nil
 }
 
-func NewStoreWithQuerier(querier querier) *Store {
+func NewStoreWithQuerier(querier pglib.Querier) *Store {
 	return &Store{
 		querier: querier,
 	}
@@ -78,16 +68,6 @@ func (s *Store) Ack(ctx context.Context, logEntry *schemalog.LogEntry) error {
 func (s *Store) Close() error {
 	s.querier.Close(context.Background())
 	return nil
-}
-
-// pgxConn is a wrapper around the pgx.Conn to implement the same interface all
-// other pg packages use for pool/connections
-type pgxConn struct {
-	*pgx.Conn
-}
-
-func (c *pgxConn) Close(ctx context.Context) {
-	c.Conn.Close(ctx)
 }
 
 func mapError(err error) error {

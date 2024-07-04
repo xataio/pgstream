@@ -18,14 +18,9 @@ type Handler struct {
 
 	pgReplicationConn     pgReplicationConn
 	pgReplicationSlotName string
-	pgConnBuilder         func() (pgConn, error)
+	pgConnBuilder         func() (pglib.Querier, error)
 
 	lsnParser replication.LSNParser
-}
-
-type pgConn interface {
-	QueryRow(ctx context.Context, query string, args ...any) pglib.Row
-	Close(context.Context) error
 }
 
 type pgReplicationConn interface {
@@ -63,7 +58,7 @@ var pluginArguments = []string{
 
 // NewHandler returns a new postgres replication handler for the database on input.
 func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, error) {
-	connBuilder := func() (pgConn, error) {
+	connBuilder := func() (pglib.Querier, error) {
 		return pglib.NewConn(ctx, cfg.PostgresURL)
 	}
 
@@ -221,7 +216,7 @@ func (h *Handler) Close() error {
 // getRestartLSN returns the absolute earliest possible LSN we can support. If
 // the consumer's LSN is earlier than this, we cannot (easily) catch the
 // consumer back up.
-func (h *Handler) getRestartLSN(ctx context.Context, conn pgConn, slotName string) (replication.LSN, error) {
+func (h *Handler) getRestartLSN(ctx context.Context, conn pglib.Querier, slotName string) (replication.LSN, error) {
 	var restartLSN string
 	err := conn.QueryRow(
 		ctx,
@@ -237,7 +232,7 @@ func (h *Handler) getRestartLSN(ctx context.Context, conn pgConn, slotName strin
 
 // getLastSyncedLSN gets the `confirmed_flush_lsn` from PG. This is the last LSN
 // that the consumer confirmed it had completed.
-func (h *Handler) getLastSyncedLSN(ctx context.Context, conn pgConn) (replication.LSN, error) {
+func (h *Handler) getLastSyncedLSN(ctx context.Context, conn pglib.Querier) (replication.LSN, error) {
 	var confirmedFlushLSN string
 	err := conn.QueryRow(ctx, `select confirmed_flush_lsn from pg_replication_slots where slot_name=$1`, h.pgReplicationSlotName).Scan(&confirmedFlushLSN)
 	if err != nil {
