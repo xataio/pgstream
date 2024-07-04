@@ -20,28 +20,31 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	ctx := context.Background()
-	pgcleanup, err := setupPostgresContainer(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer pgcleanup()
+	// if integration tests are not enabled, nothing to setup
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") != "" {
+		ctx := context.Background()
+		pgcleanup, err := setupPostgresContainer(ctx)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer pgcleanup()
 
-	if err := stream.Init(ctx, pgurl); err != nil {
-		log.Fatal(err)
-	}
+		if err := stream.Init(ctx, pgurl); err != nil {
+			log.Fatal(err)
+		}
 
-	kafkacleanup, err := setupKafkaContainer(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer kafkacleanup()
+		kafkacleanup, err := setupKafkaContainer(ctx)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer kafkacleanup()
 
-	oscleanup, err := setupOpenSearchContainer(ctx)
-	if err != nil {
-		log.Fatal(err)
+		oscleanup, err := setupOpenSearchContainer(ctx)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer oscleanup()
 	}
-	defer oscleanup()
 
 	os.Exit(m.Run())
 }
