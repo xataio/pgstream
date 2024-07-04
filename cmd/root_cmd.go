@@ -44,7 +44,7 @@ func Execute() error {
 	// register subcommands
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(tearDownCmd)
-	rootCmd.AddCommand(startCmd)
+	rootCmd.AddCommand(runCmd)
 
 	return rootCmd.Execute()
 }

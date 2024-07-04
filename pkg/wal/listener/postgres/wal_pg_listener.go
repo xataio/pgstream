@@ -78,7 +78,7 @@ func (l *Listener) Listen(ctx context.Context) error {
 
 // Close closes the listener internal resources
 func (l *Listener) Close() error {
-	return l.replicationHandler.Close()
+	return nil
 }
 
 func (l *Listener) listen(ctx context.Context) error {

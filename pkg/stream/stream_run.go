@@ -24,7 +24,6 @@ import (
 	webhookstore "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store"
 	subscriptionstorecache "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store/cache"
 	pgwebhook "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store/postgres"
-
 	"github.com/xataio/pgstream/pkg/wal/replication"
 	replicationinstrumentation "github.com/xataio/pgstream/pkg/wal/replication/instrumentation"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
@@ -33,8 +32,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// Start will start the configured pgstream processes. This call is blocking.
-func Start(ctx context.Context, logger loglib.Logger, config *Config, meter metric.Meter) error {
+// Run will run the configured pgstream processes. This call is blocking.
+func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric.Meter) error {
 	if err := config.IsValid(); err != nil {
 		return fmt.Errorf("incompatible configuration: %w", err)
 	}
@@ -50,6 +49,7 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config, meter metr
 		if err != nil {
 			return fmt.Errorf("error setting up postgres replication handler")
 		}
+		defer replicationHandler.Close()
 	}
 
 	if replicationHandler != nil && meter != nil {
