@@ -23,7 +23,7 @@ func TestHandler_StartReplication(t *testing.T) {
 	tests := []struct {
 		name            string
 		replicationConn pgReplicationConn
-		connBuilder     func() (pgConn, error)
+		connBuilder     func() (pglib.Querier, error)
 		slotName        string
 
 		wantErr error
@@ -48,8 +48,8 @@ func TestHandler_StartReplication(t *testing.T) {
 					return nil
 				},
 			},
-			connBuilder: func() (pgConn, error) {
-				return &pgmocks.Conn{
+			connBuilder: func() (pglib.Querier, error) {
+				return &pgmocks.Querier{
 					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
@@ -89,8 +89,8 @@ func TestHandler_StartReplication(t *testing.T) {
 					return nil
 				},
 			},
-			connBuilder: func() (pgConn, error) {
-				return &pgmocks.Conn{
+			connBuilder: func() (pglib.Querier, error) {
+				return &pgmocks.Querier{
 					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
@@ -130,8 +130,8 @@ func TestHandler_StartReplication(t *testing.T) {
 					return nil
 				},
 			},
-			connBuilder: func() (pgConn, error) {
-				return &pgmocks.Conn{
+			connBuilder: func() (pglib.Querier, error) {
+				return &pgmocks.Querier{
 					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], defaultSlot)
@@ -171,7 +171,7 @@ func TestHandler_StartReplication(t *testing.T) {
 					}, nil
 				},
 			},
-			connBuilder: func() (pgConn, error) {
+			connBuilder: func() (pglib.Querier, error) {
 				return nil, errTest
 			},
 			slotName: testSlot,
@@ -188,8 +188,8 @@ func TestHandler_StartReplication(t *testing.T) {
 					}, nil
 				},
 			},
-			connBuilder: func() (pgConn, error) {
-				return &pgmocks.Conn{
+			connBuilder: func() (pglib.Querier, error) {
+				return &pgmocks.Querier{
 					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
@@ -217,8 +217,8 @@ func TestHandler_StartReplication(t *testing.T) {
 					}, nil
 				},
 			},
-			connBuilder: func() (pgConn, error) {
-				return &pgmocks.Conn{
+			connBuilder: func() (pglib.Querier, error) {
+				return &pgmocks.Querier{
 					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
@@ -251,8 +251,8 @@ func TestHandler_StartReplication(t *testing.T) {
 					return errTest
 				},
 			},
-			connBuilder: func() (pgConn, error) {
-				return &pgmocks.Conn{
+			connBuilder: func() (pglib.Querier, error) {
+				return &pgmocks.Querier{
 					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
@@ -289,8 +289,8 @@ func TestHandler_StartReplication(t *testing.T) {
 					return errTest
 				},
 			},
-			connBuilder: func() (pgConn, error) {
-				return &pgmocks.Conn{
+			connBuilder: func() (pglib.Querier, error) {
+				return &pgmocks.Querier{
 					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
@@ -410,15 +410,15 @@ func TestHandler_GetReplicationLag(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		connBuilder func() (pgConn, error)
+		connBuilder func() (pglib.Querier, error)
 
 		wantLag int64
 		wantErr error
 	}{
 		{
 			name: "ok",
-			connBuilder: func() (pgConn, error) {
-				return &pgmocks.Conn{
+			connBuilder: func() (pglib.Querier, error) {
+				return &pgmocks.Querier{
 					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
@@ -438,7 +438,7 @@ func TestHandler_GetReplicationLag(t *testing.T) {
 		},
 		{
 			name: "error - building connection",
-			connBuilder: func() (pgConn, error) {
+			connBuilder: func() (pglib.Querier, error) {
 				return nil, errTest
 			},
 
@@ -447,8 +447,8 @@ func TestHandler_GetReplicationLag(t *testing.T) {
 		},
 		{
 			name: "error - getting lag",
-			connBuilder: func() (pgConn, error) {
-				return &pgmocks.Conn{
+			connBuilder: func() (pglib.Querier, error) {
+				return &pgmocks.Querier{
 					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 						return &mockRow{scanFn: func(args ...any) error { return errTest }}
 					},
