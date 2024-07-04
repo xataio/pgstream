@@ -11,16 +11,16 @@ import (
 	"github.com/xataio/pgstream/pkg/stream"
 )
 
-var startCmd = &cobra.Command{
-	Use:   "start",
-	Short: "Starts the configured pgstream modules",
-	RunE:  withSignalWatcher(start),
+var runCmd = &cobra.Command{
+	Use:   "run",
+	Short: "Run starts all the configured pgstream modules",
+	RunE:  withSignalWatcher(run),
 }
 
-func start(ctx context.Context) error {
+func run(ctx context.Context) error {
 	logger := zerolog.NewLogger(&zerolog.Config{
 		LogLevel: viper.GetString("PGSTREAM_LOG_LEVEL"),
 	})
 	zerolog.SetGlobalLogger(logger)
-	return stream.Start(ctx, zerolog.NewStdLogger(logger), parseStreamConfig(), nil)
+	return stream.Run(ctx, zerolog.NewStdLogger(logger), parseStreamConfig(), nil)
 }

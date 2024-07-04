@@ -28,11 +28,7 @@ func Test_PostgresToKafka(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	// start the configured stream listener/processor
-	go func() {
-		err := stream.Start(ctx, testLogger(), cfg, nil)
-		require.NoError(t, err)
-	}()
+	runStream(t, ctx, cfg)
 
 	// use a mock processor and a kafka reader to validate the kafka messages
 	// are properly sent to the topic

@@ -72,6 +72,14 @@ func (m *mockWebhookServer) close() {
 	m.Server.Close()
 }
 
+func runStream(t *testing.T, ctx context.Context, cfg *stream.Config) {
+	// start the configured stream listener/processor
+	go func() {
+		err := stream.Run(ctx, testLogger(), cfg, nil)
+		require.NoError(t, err)
+	}()
+}
+
 func execQuery(t *testing.T, ctx context.Context, query string) {
 	conn, err := pglib.NewConn(ctx, pgurl)
 	require.NoError(t, err)

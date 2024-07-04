@@ -35,11 +35,7 @@ func Test_PostgresToOpensearch(t *testing.T) {
 	testSchema := "pg2os_integration_test"
 	execQuery(t, ctx, fmt.Sprintf("create schema %s", testSchema))
 
-	// start the configured stream listener/processor
-	go func() {
-		err := stream.Start(ctx, testLogger(), cfg, nil)
-		require.NoError(t, err)
-	}()
+	runStream(t, ctx, cfg)
 
 	client, err := es.NewClient(searchURL)
 	require.NoError(t, err)
