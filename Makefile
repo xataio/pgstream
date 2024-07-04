@@ -8,6 +8,10 @@ lint: ## Lint source code
 test:
 	@go test -timeout 10m -race -cover -failfast ./...
 
+.PHONY: integration-test
+integration-test:
+	PGSTREAM_INTEGRATION_TESTS=true go test -timeout 60s github.com/xataio/pgstream/pkg/stream/integration
+
 .PHONY: license-check
 license-check:
 	@curl -s https://raw.githubusercontent.com/lluissm/license-header-checker/master/install.sh | bash
