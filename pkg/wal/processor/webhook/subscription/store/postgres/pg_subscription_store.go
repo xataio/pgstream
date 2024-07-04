@@ -6,14 +6,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription"
 )
 
 type Store struct {
-	conn   *pgx.Conn
+	conn   pglib.Querier
 	logger loglib.Logger
 }
 
@@ -22,17 +21,12 @@ type Option func(*Store)
 const subscriptionsTable = "webhook_subscriptions"
 
 func NewSubscriptionStore(ctx context.Context, url string, opts ...Option) (*Store, error) {
-	pgCfg, err := pgx.ParseConfig(url)
+	pgpool, err := pglib.NewConnPool(ctx, url)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create postgres connection pool: %w", err)
 	}
-	pgConn, err := pgx.ConnectConfig(ctx, pgCfg)
-	if err != nil {
-		return nil, fmt.Errorf("create postgres client: %w", err)
-	}
-
 	ss := &Store{
-		conn: pgConn,
+		conn: pgpool,
 	}
 
 	for _, opt := range opts {
