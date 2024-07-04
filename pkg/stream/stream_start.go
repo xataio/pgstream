@@ -24,7 +24,6 @@ import (
 	webhookstore "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store"
 	subscriptionstorecache "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store/cache"
 	pgwebhook "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store/postgres"
-
 	"github.com/xataio/pgstream/pkg/wal/replication"
 	replicationinstrumentation "github.com/xataio/pgstream/pkg/wal/replication/instrumentation"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
@@ -50,6 +49,7 @@ func Start(ctx context.Context, logger loglib.Logger, config *Config, meter metr
 		if err != nil {
 			return fmt.Errorf("error setting up postgres replication handler")
 		}
+		defer replicationHandler.Close()
 	}
 
 	if replicationHandler != nil && meter != nil {
