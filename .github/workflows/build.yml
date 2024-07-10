@@ -74,73 +74,46 @@ jobs:
       - name: Ensure .go files have a license reference
         run: make license-check
 
-  build:
+  release:
     runs-on: ubuntu-latest
-    needs: [test, lint, integration-test]
+    needs: [test, integration-test, lint, license-check]
+    if: startsWith(github.ref, 'refs/tags/')
+    env:
+      DOCKER_CLI_EXPERIMENTAL: "enabled"
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - run: git fetch --force --tags
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version-file: "go.mod"
 
-      - name: Build pgstream (Linux amd64)
-        run: GOOS=linux GOARCH=amd64 go build -o pgstream.linux.amd64
-
-      - name: Build pgstream (Linux arm64)
-        run: GOOS=linux GOARCH=arm64 go build -o pgstream.linux.arm64
-
-      - name: Build pgstream (MacOS amd64)
-        run: GOOS=darwin GOARCH=amd64 go build -o pgstream.macos.amd64
-
-      - name: Build pgstream (MacOS arm64)
-        run: GOOS=darwin GOARCH=arm64 go build -o pgstream.macos.arm64
-
-      - name: Build pgstream (Windows)
-        run: GOOS=windows GOARCH=amd64 go build -o pgstream.win.amd64
-
-      - uses: actions/upload-artifact@v3
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v5
         with:
-          name: pgstream.linux.amd64
-          path: pgstream.linux.amd64
-
-      - uses: actions/upload-artifact@v3
-        with:
-          name: pgstream.linux.arm64
-          path: pgstream.linux.arm64
-
-      - uses: actions/upload-artifact@v3
-        with:
-          name: pgstream.macos.amd64
-          path: pgstream.macos.amd64
-
-      - uses: actions/upload-artifact@v3
-        with:
-          name: pgstream.macos.arm64
-          path: pgstream.macos.arm64
-
-      - uses: actions/upload-artifact@v3
-        with:
-          name: pgstream.win.amd64
-          path: pgstream.win.amd64
-
-  release:
-    runs-on: ubuntu-latest
-    needs: [build]
-    if: startsWith(github.ref, 'refs/tags/')
-    steps:
-      - uses: actions/download-artifact@v3
-        with:
-          path: artifacts
-
-      - name: Release
-        uses: softprops/action-gh-release@v1
-        with:
-          fail_on_unmatched_files: true
-          files: |
-            artifacts/pgstream.linux.amd64/pgstream.linux.amd64
-            artifacts/pgstream.linux.arm64/pgstream.linux.arm64
-            artifacts/pgstream.macos.amd64/pgstream.macos.amd64
-            artifacts/pgstream.macos.arm64/pgstream.macos.arm64
-            artifacts/pgstream.win.amd64/pgstream.win.amd64
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          # We use two github tokens here:
+          # * The actions-bound `GITHUB_TOKEN` with permissions to write packages.
+          # * The org level `GIT_TOKEN` to be able to publish the brew tap file.
+          # See: https://goreleaser.com/errors/resource-not-accessible-by-integration/
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_GITHUB_TOKEN: ${{ secrets.GIT_TOKEN }}
+          GITHUB_USERNAME: ${{ github.repository_owner }}
+          DOCKER_USERNAME: ghcr.io/${{ github.repository_owner }}
