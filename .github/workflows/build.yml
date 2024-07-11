@@ -73,3 +73,47 @@ jobs:
 
       - name: Ensure .go files have a license reference
         run: make license-check
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [test, integration-test, lint, license-check]
+    if: startsWith(github.ref, 'refs/tags/')
+    env:
+      DOCKER_CLI_EXPERIMENTAL: "enabled"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - run: git fetch --force --tags
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v5
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          # We use two github tokens here:
+          # * The actions-bound `GITHUB_TOKEN` with permissions to write packages.
+          # * The org level `GIT_TOKEN` to be able to publish the brew tap file.
+          # See: https://goreleaser.com/errors/resource-not-accessible-by-integration/
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_GITHUB_TOKEN: ${{ secrets.GIT_TOKEN }}
+          GITHUB_USERNAME: ${{ github.repository_owner }}
+          DOCKER_USERNAME: ghcr.io/${{ github.repository_owner }}
