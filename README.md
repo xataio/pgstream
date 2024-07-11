@@ -105,11 +105,11 @@ pgstream run -c pg2os.env --log-level trace
 
 Example running pgstream with Postgres -> Kafka, and in a separate terminal, Kafka->OpenSearch:
 ```
-./pgstream start -c pg2kafka.env --log-level trace
-./pgstream start -c kafka2os.env --log-level trace
+pgstream run -c pg2kafka.env --log-level trace
+pgstream run -c kafka2os.env --log-level trace
 ```
 
-The start command will parse the configuration provided, and initialise the configured modules. It requires at least one listener and one processor.
+The run command will parse the configuration provided, and initialise the configured modules. It requires at least one listener and one processor.
 
 ## Configuration
 
