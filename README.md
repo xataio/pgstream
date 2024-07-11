@@ -20,7 +20,7 @@
 - Modular deployment configuration, only requires Postgres
 - Schema based message partitioning
 - Schema filtering
-- Elasticsearch/Opensearch replication output plugin support
+- Elasticsearch/OpenSearch replication output plugin support
 - Webhook support
 - Automatic discovery of table primary key/unique not null columns for use as event identity
 - Highly customisable modules when used as library
@@ -39,19 +39,40 @@
 - [License](#license)
 - [Support](#support)
 
+
 ## Usage
 
 `pgstream` can be used via the readily available CLI or as a library.
 
 ### CLI
 
-```
+#### Installation
+
+##### Binaries
+
+Binaries are available for Linux, macOS & Windows, check our [Releases](https://github.com/xataio/pgstream/releases).
+
+##### From source
+
+To install `pgstream` from the source, run the following command:
+
+```sh
 go install github.com/xataio/pgstream@latest
+```
+
+##### From package manager - Homebrew
+
+To install `pgstream` with homebrew, run the following command:
+
+```sh
+# macOS or Linux
+brew tap xataio/pgstream
+brew install pgstream
 ```
 
 #### Environment setup
 
-If you have an environment available, with at least Postgres and whichever module resources you're planning on running, then you can skip this step. Otherwise, a docker setup is available in this repository that starts Postgres, Kafka and Opensearch (as well as Opensearch dashboards for easy visualisation).
+If you have an environment available, with at least Postgres and whichever module resources you're planning on running, then you can skip this step. Otherwise, a docker setup is available in this repository that starts Postgres, Kafka and OpenSearch (as well as OpenSearch dashboards for easy visualisation).
 
 ```
 docker-compose -f build/docker/docker-compose.yml up
@@ -62,27 +83,27 @@ docker-compose -f build/docker/docker-compose.yml up
 This will create the `pgstream` schema in the configured Postgres database, along with the tables/functions/triggers required to keep track of the schema changes. See [Tracking schema changes](#tracking-schema-changes) section for more details. It will also create a replication slot for the configured database which will be used by the pgstream service.
 
 ```
-./pgstream init --pgurl Postgres://pgstream:pgstream@localhost?sslmode=disable
+pgstream init --pgurl Postgres://pgstream:pgstream@localhost?sslmode=disable
 ```
 
 If there are any issues or if you want to clean up the pgstream setup, you can run the following.
 
 ```
-./pgstream tear-down --pgurl Postgres://pgstream:pgstream@localhost?sslmode=disable
+pgstream tear-down --pgurl Postgres://pgstream:pgstream@localhost?sslmode=disable
 ```
 
 This command will clean up all pgstream state.
 
-#### Start pgstream
+#### Run pgstream
 
-Start will require the configuration to be provided, either via environment variables, config file or a combination of both. There are some sample configuration files provided in the repo that can be used as guidelines.
+Run will require the configuration to be provided, either via environment variables, config file or a combination of both. There are some sample configuration files provided in the repo that can be used as guidelines.
 
-Example running pgstream with Postgres -> Opensearch:
+Example running pgstream with Postgres -> OpenSearch:
 ```
-./pgstream start -c pg2os.env --log-level trace
+pgstream run -c pg2os.env --log-level trace
 ```
 
-Example running pgstream with Postgres -> Kafka, and in a separate terminal, Kafka->Opensearch:
+Example running pgstream with Postgres -> Kafka, and in a separate terminal, Kafka->OpenSearch:
 ```
 ./pgstream start -c pg2kafka.env --log-level trace
 ./pgstream start -c kafka2os.env --log-level trace
@@ -240,7 +261,7 @@ There are currently two implementations of the processor:
 
 - **Kafka batch writer**: it writes the WAL events into a Kafka topic, using the event schema as the Kafka key for partitioning. This implementation allows to fan-out the sequential WAL events, while acting as an intermediate buffer to avoid the replication slot to grow when there are slow consumers. It has a memory guarded buffering system internally to limit the memory usage of the buffer. The buffer is sent to Kafka based on the configured linger time and maximum size. It treats both data and schema events equally, since it doesn't care about the content.
 
-- **Search batch indexer**: it indexes the WAL events into an Opensearch/elasticsearch compatible search store. It implements the same kind of mechanism than the Kafka batch writer to ensure continuous processing from the listener, and it also uses a batching mechanism to minimise search store calls. The search mapping logic is configurable when used as a library. The WAL event identity is used as the search store document id, and if no other version is provided, the LSN is used as the document version. Events that do not have an identity are not indexed. Schema events are stored in a separate search store index (`pgstream`), where the schema log history is kept for use within the search store (i.e, read queries).
+- **Search batch indexer**: it indexes the WAL events into an OpenSearch/Elasticsearch compatible search store. It implements the same kind of mechanism than the Kafka batch writer to ensure continuous processing from the listener, and it also uses a batching mechanism to minimise search store calls. The search mapping logic is configurable when used as a library. The WAL event identity is used as the search store document id, and if no other version is provided, the LSN is used as the document version. Events that do not have an identity are not indexed. Schema events are stored in a separate search store index (`pgstream`), where the schema log history is kept for use within the search store (i.e, read queries).
 
 - **Webhook notifier**: it sends a notification to any webhooks that have subscribed to the relevant wal event. It relies on a subscription HTTP server receiving the subscription requests and storing them in the shared subscription store which is accessed whenever a wal event is processed. It sends the notifications to the different subscribed webhook urls in parallel based on a configurable number of workers (client timeouts apply). Similar to the two previous processor implementations, it uses a memory guarded buffering system internally, which allows to separate the wal event processing from the webhook url sending, optimising the processor latency.
 
