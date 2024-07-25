@@ -83,13 +83,13 @@ docker-compose -f build/docker/docker-compose.yml up
 This will create the `pgstream` schema in the configured Postgres database, along with the tables/functions/triggers required to keep track of the schema changes. See [Tracking schema changes](#tracking-schema-changes) section for more details. It will also create a replication slot for the configured database which will be used by the pgstream service.
 
 ```
-pgstream init --pgurl Postgres://pgstream:pgstream@localhost?sslmode=disable
+pgstream init --pgurl "postgres://postgres:postgres@localhost?sslmode=disable"
 ```
 
 If there are any issues or if you want to clean up the pgstream setup, you can run the following.
 
 ```
-pgstream tear-down --pgurl Postgres://pgstream:pgstream@localhost?sslmode=disable
+pgstream tear-down --pgurl "postgres://postgres:postgres@localhost?sslmode=disable"
 ```
 
 This command will clean up all pgstream state.
@@ -230,7 +230,7 @@ One of exponential/constant backoff policies can be provided for the search stor
 
 One of the main differentiators of pgstream is the fact that it tracks and replicates schema changes automatically. It relies on SQL triggers that will populate a Postgres table (`pgstream.schema_log`) containing a history log of all DDL changes for a given schema. Whenever a schema change occurs, this trigger creates a new row in the schema log table with the schema encoded as a JSON value. This table tracks all the schema changes, forming a linearised change log that is then parsed and used within the pgstream pipeline to identify modifications and push the relevant changes downstream.
 
-The detailed SQL used can be found in the [migrations folder](https://github.com/xataio/pgstream/tree/main/migrations/Postgres).
+The detailed SQL used can be found in the [migrations folder](https://github.com/xataio/pgstream/tree/main/migrations/postgres).
 
 The schema and data changes are part of the same linear stream - the downstream consumers always observe the schema changes as soon as they happen, before any data arrives that relies on the new schema. This prevents data loss and manual intervention.
 
