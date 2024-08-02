@@ -169,7 +169,7 @@ func parseSearchProcessorConfig() *stream.SearchProcessorConfig {
 		Store: opensearch.Config{
 			URL: searchStore,
 		},
-		Retrier: &search.StoreRetryConfig{
+		Retrier: search.StoreRetryConfig{
 			Backoff: parseBackoffConfig("PGSTREAM_SEARCH_STORE"),
 		},
 	}

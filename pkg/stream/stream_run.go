@@ -112,10 +112,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric
 		if err != nil {
 			return err
 		}
-		if config.Processor.Search.Retrier != nil {
-			logger.Debug("using retry logic with search store...")
-			searchStore = search.NewStoreRetrier(searchStore, config.Processor.Search.Retrier, search.WithStoreLogger(logger))
-		}
+		searchStore = search.NewStoreRetrier(searchStore, config.Processor.Search.Retrier, search.WithStoreLogger(logger))
 
 		searchIndexer := search.NewBatchIndexer(ctx,
 			config.Processor.Search.Indexer,

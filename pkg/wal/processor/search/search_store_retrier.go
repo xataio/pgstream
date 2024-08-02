@@ -37,7 +37,7 @@ const (
 
 var errPartialDocumentSend = errors.New("failed to send some or all documents")
 
-func NewStoreRetrier(s Store, cfg *StoreRetryConfig, opts ...StoreOption) *StoreRetrier {
+func NewStoreRetrier(s Store, cfg StoreRetryConfig, opts ...StoreOption) *StoreRetrier {
 	sr := &StoreRetrier{
 		inner:           s,
 		logger:          loglib.NewNoopLogger(),
