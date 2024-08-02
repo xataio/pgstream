@@ -6,20 +6,20 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io"
 	"os"
+	"strings"
 )
 
 type Config struct {
 	// Enabled determines if TLS should be used. Defaults to false.
 	Enabled bool
-	// File path to the CA PEM certificate to be used for TLS connection. If TLS is
-	// enabled and no CA cert file is provided, the system certificate pool is
-	// used as default.
+	// File path to the CA PEM certificate or PEM certificate to be used for TLS
+	// connection. If TLS is enabled and no CA cert file is provided, the system
+	// certificate pool is used as default.
 	CaCertFile string
-	// File path to the client PEM certificate
+	// File path to the client PEM certificate or client PEM certificate
 	ClientCertFile string
-	// File path to the client PEM key
+	// File path to the client PEM key or client PEM key content
 	ClientKeyFile string
 }
 
@@ -48,7 +48,7 @@ func NewConfig(cfg *Config) (*tls.Config, error) {
 
 func getCertPool(caCertFile string) (*x509.CertPool, error) {
 	if caCertFile != "" {
-		pemCertBytes, err := readFile(caCertFile)
+		pemCertBytes, err := readPEMBytes(caCertFile)
 		if err != nil {
 			return nil, fmt.Errorf("reading CA certificate file: %w", err)
 		}
@@ -62,7 +62,15 @@ func getCertPool(caCertFile string) (*x509.CertPool, error) {
 
 func getCertificates(clientCertFile, clientKeyFile string) ([]tls.Certificate, error) {
 	if clientCertFile != "" && clientKeyFile != "" {
-		cert, err := tls.LoadX509KeyPair(clientCertFile, clientKeyFile)
+		pemCertBytes, err := readPEMBytes(clientCertFile)
+		if err != nil {
+			return nil, err
+		}
+		pemKeyBytes, err := readPEMBytes(clientKeyFile)
+		if err != nil {
+			return nil, err
+		}
+		cert, err := tls.X509KeyPair(pemCertBytes, pemKeyBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -72,12 +80,23 @@ func getCertificates(clientCertFile, clientKeyFile string) ([]tls.Certificate, e
 	return []tls.Certificate{}, nil
 }
 
-func readFile(path string) ([]byte, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
+// readPEMBytes will parse the certificate on input and return the pem byte
+// content. It accepts a pem certificate or the file path to a pem certificate.
+func readPEMBytes(cert string) ([]byte, error) {
+	if isPEMString(cert) {
+		return []byte(cert), nil
 	}
-	defer file.Close()
 
-	return io.ReadAll(file)
+	return os.ReadFile(cert)
+}
+
+// isPEMString returns true if the provided string match a PEM formatted certificate.
+func isPEMString(s string) bool {
+	// trim the certificates to make sure we tolerate any yaml weirdness
+	trimmedStr := strings.TrimSpace(s)
+
+	// we assume that the string starts with "-" and let further validation
+	// verifies the PEM format. When migrating from pkcs12 to PEM a "Bag
+	// Attributes" header is added.
+	return strings.HasPrefix(trimmedStr, "-") || strings.HasPrefix(trimmedStr, "Bag Attributes")
 }
