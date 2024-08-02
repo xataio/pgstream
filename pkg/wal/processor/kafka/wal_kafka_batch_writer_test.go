@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/xataio/pgstream/internal/kafka"
-	kafkamocks "github.com/xataio/pgstream/internal/kafka/mocks"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	syncmocks "github.com/xataio/pgstream/internal/sync/mocks"
+	"github.com/xataio/pgstream/pkg/kafka"
+	kafkamocks "github.com/xataio/pgstream/pkg/kafka/mocks"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"

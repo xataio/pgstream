@@ -10,13 +10,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	kafkalib "github.com/xataio/pgstream/internal/kafka"
 	"github.com/xataio/pgstream/internal/log/zerolog"
 	pglib "github.com/xataio/pgstream/internal/postgres"
-	"github.com/xataio/pgstream/internal/tls"
+	kafkalib "github.com/xataio/pgstream/pkg/kafka"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/stream"
+	"github.com/xataio/pgstream/pkg/tls"
 	"github.com/xataio/pgstream/pkg/wal"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
@@ -174,7 +174,7 @@ func testKafkaCfg() kafkalib.ConnConfig {
 			Name:       "integration-tests",
 			AutoCreate: true,
 		},
-		TLS: &tls.Config{
+		TLS: tls.Config{
 			Enabled: false,
 		},
 	}

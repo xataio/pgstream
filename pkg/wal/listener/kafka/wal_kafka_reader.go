@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"runtime/debug"
 
-	"github.com/xataio/pgstream/internal/kafka"
+	"github.com/xataio/pgstream/pkg/kafka"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 )

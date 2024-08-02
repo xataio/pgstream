@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
-	tlslib "github.com/xataio/pgstream/internal/tls"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	tlslib "github.com/xataio/pgstream/pkg/tls"
 )
 
 type MessageWriter interface {
@@ -56,7 +56,7 @@ func NewWriter(config WriterConfig, logger loglib.Logger) (*Writer, error) {
 		}
 	}
 
-	transport, err := buildTransport(config.Conn.TLS)
+	transport, err := buildTransport(&config.Conn.TLS)
 	if err != nil {
 		return nil, err
 	}

@@ -2,12 +2,12 @@
 
 package kafka
 
-import tlslib "github.com/xataio/pgstream/internal/tls"
+import tlslib "github.com/xataio/pgstream/pkg/tls"
 
 type ConnConfig struct {
 	Servers []string
 	Topic   TopicConfig
-	TLS     *tlslib.Config
+	TLS     tlslib.Config
 }
 
 type TopicConfig struct {

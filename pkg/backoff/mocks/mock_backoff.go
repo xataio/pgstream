@@ -2,7 +2,7 @@
 
 package mocks
 
-import "github.com/xataio/pgstream/internal/backoff"
+import "github.com/xataio/pgstream/pkg/backoff"
 
 type Backoff struct {
 	RetryNotifyFn func(backoff.Operation, backoff.Notify) error
