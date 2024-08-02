@@ -64,8 +64,6 @@ func (m *LogEntry) UnmarshalJSON(b []byte) error {
 			if err := json.Unmarshal([]byte(schemaStr), &m.Schema); err != nil {
 				return err
 			}
-		default:
-			panic(fmt.Sprintf("unmarshal LogEntry, got unexpected key when unmarshalling: %s", k))
 		}
 	}
 
