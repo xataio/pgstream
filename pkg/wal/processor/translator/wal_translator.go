@@ -23,7 +23,8 @@ type Translator struct {
 	logger               loglib.Logger
 	processor            processor.Processor
 	walToLogEntryAdapter walToLogEntryAdapter
-	skipSchema           schemaFilter
+	skipDataEvent        dataEventFilter
+	skipSchemaEvent      schemaEventFilter
 	schemaLogStore       schemalog.Store
 	idFinder             columnFinder
 	versionFinder        columnFinder
@@ -38,8 +39,9 @@ type Config struct {
 // configurable filters that allow the user of this library to have flexibility
 // when processing and translating the wal event data
 type (
-	schemaFilter func(string) bool
-	columnFinder func(*schemalog.Column, *schemalog.Table) bool
+	dataEventFilter   func(*wal.Data) bool
+	schemaEventFilter func(*schemalog.LogEntry) bool
+	columnFinder      func(*schemalog.Column, *schemalog.Table) bool
 )
 
 type Option func(t *Translator)
@@ -62,8 +64,9 @@ func New(cfg *Config, p processor.Processor, opts ...Option) (*Translator, error
 		processor:            p,
 		schemaLogStore:       schemaLogStore,
 		walToLogEntryAdapter: processor.WalDataToLogEntry,
-		// by default all schemas are processed
-		skipSchema: func(s string) bool { return false },
+		// by default all events are processed
+		skipDataEvent:   func(*wal.Data) bool { return false },
+		skipSchemaEvent: func(*schemalog.LogEntry) bool { return false },
 		// by default we look for the primary key to use as identity column
 		idFinder: primaryKeyFinder,
 	}
@@ -87,9 +90,15 @@ func WithVersionFinder(versionFinder columnFinder) Option {
 	}
 }
 
-func WithSkipSchema(skipSchema schemaFilter) Option {
+func WithSkipSchemaEvent(skip schemaEventFilter) Option {
 	return func(t *Translator) {
-		t.skipSchema = skipSchema
+		t.skipSchemaEvent = skip
+	}
+}
+
+func WithSkipDataEvent(skip dataEventFilter) Option {
+	return func(t *Translator) {
+		t.skipDataEvent = skip
 	}
 }
 
@@ -109,7 +118,7 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) erro
 	}
 
 	data := event.Data
-	if t.skipSchema(data.Schema) {
+	if t.skipDataEvent(data) {
 		return nil
 	}
 
@@ -125,7 +134,7 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) erro
 			return err
 		}
 
-		if t.skipSchema(logEntry.SchemaName) {
+		if t.skipSchemaEvent(logEntry) {
 			return nil
 		}
 
