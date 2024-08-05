@@ -44,7 +44,7 @@ func NewReader(config ReaderConfig, logger loglib.Logger) (*Reader, error) {
 		return nil, fmt.Errorf("unsupported start offset [%s], must be one of [%s, %s]", config.ConsumerGroupStartOffset, earliestOffset, latestOffset)
 	}
 
-	dialer, err := buildDialer(config.Conn.TLS)
+	dialer, err := buildDialer(&config.Conn.TLS)
 	if err != nil {
 		return nil, err
 	}

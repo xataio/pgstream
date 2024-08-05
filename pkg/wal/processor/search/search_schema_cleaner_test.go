@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/xataio/pgstream/internal/backoff"
-	"github.com/xataio/pgstream/internal/backoff/mocks"
+	"github.com/xataio/pgstream/pkg/backoff"
+	"github.com/xataio/pgstream/pkg/backoff/mocks"
 	loglib "github.com/xataio/pgstream/pkg/log"
 )
 

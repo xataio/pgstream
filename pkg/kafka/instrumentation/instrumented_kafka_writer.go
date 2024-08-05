@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/xataio/pgstream/internal/kafka"
+	"github.com/xataio/pgstream/pkg/kafka"
 
 	"go.opentelemetry.io/otel/metric"
 )

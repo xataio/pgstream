@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/xataio/pgstream/internal/kafka"
+	"github.com/xataio/pgstream/pkg/kafka"
 )
 
 type Config struct {
