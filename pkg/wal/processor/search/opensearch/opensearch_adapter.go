@@ -5,7 +5,6 @@ package opensearch
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/xataio/pgstream/internal/es"
 	"github.com/xataio/pgstream/pkg/schemalog"
@@ -13,36 +12,28 @@ import (
 )
 
 // Adapter converts from/to search types and opensearch types
-type Adapter interface {
-	SchemaNameToIndex(schemaName string) IndexName
-	IndexToSchemaName(index string) string
+type SearchAdapter interface {
 	SearchDocToBulkItem(docs search.Document) es.BulkItem
 	BulkItemsToSearchDocErrs(items []es.BulkItem) []search.DocumentError
 	RecordToLogEntry(rec map[string]any) (*schemalog.LogEntry, error)
 }
 
 type adapter struct {
-	marshaler   func(any) ([]byte, error)
-	unmarshaler func([]byte, any) error
+	indexNameAdapter IndexNameAdapter
+	marshaler        func(any) ([]byte, error)
+	unmarshaler      func([]byte, any) error
 }
 
-func newDefaultAdapter() *adapter {
+func newDefaultAdapter(indexNameAdapter IndexNameAdapter) *adapter {
 	return &adapter{
-		marshaler:   json.Marshal,
-		unmarshaler: json.Unmarshal,
+		indexNameAdapter: indexNameAdapter,
+		marshaler:        json.Marshal,
+		unmarshaler:      json.Unmarshal,
 	}
 }
 
-func (a *adapter) SchemaNameToIndex(schemaName string) IndexName {
-	return newDefaultIndexName(schemaName)
-}
-
-func (a *adapter) IndexToSchemaName(index string) string {
-	return strings.TrimSuffix(index, "-1")
-}
-
 func (a *adapter) SearchDocToBulkItem(doc search.Document) es.BulkItem {
-	indexName := a.SchemaNameToIndex(doc.Schema)
+	indexName := a.indexNameAdapter.SchemaNameToIndex(doc.Schema)
 	item := es.BulkItem{
 		Doc: doc.Data,
 	}
@@ -94,13 +85,13 @@ func (a *adapter) bulkItemToSearchDocErr(item es.BulkItem) search.DocumentError 
 	}
 	switch {
 	case item.Index != nil:
-		doc.Document.Schema = a.IndexToSchemaName(item.Index.Index)
+		doc.Document.Schema = a.indexNameAdapter.IndexToSchemaName(item.Index.Index)
 		doc.Document.ID = item.Index.ID
 		if item.Index.Version != nil {
 			doc.Document.Version = *item.Index.Version
 		}
 	case item.Delete != nil:
-		doc.Document.Schema = a.IndexToSchemaName(item.Delete.Index)
+		doc.Document.Schema = a.indexNameAdapter.IndexToSchemaName(item.Delete.Index)
 		doc.Document.ID = item.Delete.ID
 		if item.Delete.Version != nil {
 			doc.Document.Version = *item.Delete.Version

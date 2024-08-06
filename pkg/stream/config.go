@@ -50,7 +50,7 @@ type KafkaProcessorConfig struct {
 type SearchProcessorConfig struct {
 	Indexer search.IndexerConfig
 	Store   opensearch.Config
-	Retrier *search.StoreRetryConfig
+	Retrier search.StoreRetryConfig
 }
 
 type WebhookProcessorConfig struct {
