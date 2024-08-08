@@ -6,11 +6,11 @@ import (
 	"fmt"
 
 	"github.com/spf13/viper"
-	"github.com/xataio/pgstream/internal/backoff"
-	"github.com/xataio/pgstream/internal/kafka"
-	"github.com/xataio/pgstream/internal/tls"
+	"github.com/xataio/pgstream/pkg/backoff"
+	"github.com/xataio/pgstream/pkg/kafka"
 	pgschemalog "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/stream"
+	"github.com/xataio/pgstream/pkg/tls"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
@@ -169,7 +169,7 @@ func parseSearchProcessorConfig() *stream.SearchProcessorConfig {
 		Store: opensearch.Config{
 			URL: searchStore,
 		},
-		Retrier: &search.StoreRetryConfig{
+		Retrier: search.StoreRetryConfig{
 			Backoff: parseBackoffConfig("PGSTREAM_SEARCH_STORE"),
 		},
 	}
@@ -245,8 +245,8 @@ func parseTranslatorConfig() *translator.Config {
 	}
 }
 
-func parseTLSConfig(prefix string) *tls.Config {
-	return &tls.Config{
+func parseTLSConfig(prefix string) tls.Config {
+	return tls.Config{
 		Enabled:        viper.GetBool(fmt.Sprintf("%s_TLS_ENABLED", prefix)),
 		CaCertFile:     viper.GetString(fmt.Sprintf("%s_TLS_CA_CERT_FILE", prefix)),
 		ClientCertFile: viper.GetString(fmt.Sprintf("%s_TLS_CLIENT_CERT_FILE", prefix)),

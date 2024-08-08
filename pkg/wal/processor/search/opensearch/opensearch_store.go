@@ -16,11 +16,12 @@ import (
 )
 
 type Store struct {
-	logger    loglib.Logger
-	client    es.SearchClient
-	mapper    search.Mapper
-	adapter   Adapter
-	marshaler func(any) ([]byte, error)
+	logger           loglib.Logger
+	client           es.SearchClient
+	mapper           search.Mapper
+	adapter          SearchAdapter
+	indexNameAdapter IndexNameAdapter
+	marshaler        func(any) ([]byte, error)
 }
 
 type Config struct {
@@ -57,18 +58,33 @@ func NewStore(cfg Config, opts ...Option) (*Store, error) {
 }
 
 func NewStoreWithClient(client es.SearchClient) *Store {
+	indexNameAdapter := newDefaultIndexNameAdapter()
 	return &Store{
-		logger:    loglib.NewNoopLogger(),
-		client:    client,
-		adapter:   newDefaultAdapter(),
-		mapper:    NewPostgresMapper(),
-		marshaler: json.Marshal,
+		logger:           loglib.NewNoopLogger(),
+		client:           client,
+		indexNameAdapter: indexNameAdapter,
+		adapter:          newDefaultAdapter(indexNameAdapter),
+		mapper:           NewPostgresMapper(),
+		marshaler:        json.Marshal,
 	}
 }
 
 func WithLogger(l loglib.Logger) Option {
 	return func(s *Store) {
 		s.logger = loglib.NewLogger(l)
+	}
+}
+
+func WithMapper(m search.Mapper) Option {
+	return func(s *Store) {
+		s.mapper = m
+	}
+}
+
+func WithIndexNameAdapter(a IndexNameAdapter) Option {
+	return func(s *Store) {
+		s.indexNameAdapter = a
+		s.adapter = newDefaultAdapter(a)
 	}
 }
 
@@ -154,7 +170,7 @@ func (s *Store) SendDocuments(ctx context.Context, docs []search.Document) ([]se
 }
 
 func (s *Store) DeleteSchema(ctx context.Context, schemaName string) error {
-	index := s.adapter.SchemaNameToIndex(schemaName)
+	index := s.indexNameAdapter.SchemaNameToIndex(schemaName)
 	exists, err := s.client.IndexExists(ctx, index.NameWithVersion())
 	if err != nil {
 		return mapError(err)
@@ -184,7 +200,7 @@ func (s *Store) DeleteSchema(ctx context.Context, schemaName string) error {
 }
 
 func (s *Store) DeleteTableDocuments(ctx context.Context, schemaName string, tableIDs []string) error {
-	index := s.adapter.SchemaNameToIndex(schemaName)
+	index := s.indexNameAdapter.SchemaNameToIndex(schemaName)
 	if err := s.deleteTableDocuments(ctx, index, tableIDs); err != nil {
 		return mapError(err)
 	}
@@ -241,7 +257,7 @@ func (s *Store) getLastSchemaLogEntry(ctx context.Context, schemaName string) (*
 }
 
 func (s *Store) schemaExists(ctx context.Context, schemaName string) (bool, error) {
-	indexName := s.adapter.SchemaNameToIndex(schemaName)
+	indexName := s.indexNameAdapter.SchemaNameToIndex(schemaName)
 	exists, err := s.client.IndexExists(ctx, indexName.NameWithVersion())
 	if err != nil {
 		return false, mapError(err)
@@ -250,7 +266,7 @@ func (s *Store) schemaExists(ctx context.Context, schemaName string) (bool, erro
 }
 
 func (s *Store) createSchema(ctx context.Context, schemaName string) error {
-	index := s.adapter.SchemaNameToIndex(schemaName)
+	index := s.indexNameAdapter.SchemaNameToIndex(schemaName)
 	err := s.client.CreateIndex(ctx, index.NameWithVersion(), map[string]any{
 		"mappings": map[string]any{
 			"dynamic": "strict",
@@ -284,7 +300,7 @@ func (s *Store) createSchema(ctx context.Context, schemaName string) error {
 }
 
 func (s *Store) updateMapping(ctx context.Context, schemaName string, logEntry *schemalog.LogEntry, diff *schemalog.SchemaDiff) error {
-	index := s.adapter.SchemaNameToIndex(schemaName)
+	index := s.indexNameAdapter.SchemaNameToIndex(schemaName)
 	if diff != nil {
 		if err := s.updateMappingAddNewColumns(ctx, index, diff.ColumnsToAdd); err != nil {
 			return fmt.Errorf("failed to add new columns: %w", mapError(err))

@@ -506,7 +506,7 @@ func TestStore_getLastSchemaLogEntry(t *testing.T) {
 	tests := []struct {
 		name      string
 		client    es.SearchClient
-		adapter   Adapter
+		adapter   SearchAdapter
 		marshaler func(any) ([]byte, error)
 
 		wantLogEntry *schemalog.LogEntry

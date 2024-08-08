@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/xataio/pgstream/internal/backoff"
+	"github.com/xataio/pgstream/pkg/backoff"
 	loglib "github.com/xataio/pgstream/pkg/log"
 )
 

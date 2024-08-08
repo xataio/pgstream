@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/xataio/pgstream/internal/backoff"
+	"github.com/xataio/pgstream/pkg/backoff"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 )
@@ -37,7 +37,7 @@ const (
 
 var errPartialDocumentSend = errors.New("failed to send some or all documents")
 
-func NewStoreRetrier(s Store, cfg *StoreRetryConfig, opts ...StoreOption) *StoreRetrier {
+func NewStoreRetrier(s Store, cfg StoreRetryConfig, opts ...StoreOption) *StoreRetrier {
 	sr := &StoreRetrier{
 		inner:           s,
 		logger:          loglib.NewNoopLogger(),

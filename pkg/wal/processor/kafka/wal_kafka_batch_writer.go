@@ -10,9 +10,9 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/xataio/pgstream/internal/kafka"
-	kafkainstrumentation "github.com/xataio/pgstream/internal/kafka/instrumentation"
 	synclib "github.com/xataio/pgstream/internal/sync"
+	"github.com/xataio/pgstream/pkg/kafka"
+	kafkainstrumentation "github.com/xataio/pgstream/pkg/kafka/instrumentation"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"

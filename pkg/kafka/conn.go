@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	tlslib "github.com/xataio/pgstream/internal/tls"
+	tlslib "github.com/xataio/pgstream/pkg/tls"
 
 	"github.com/segmentio/kafka-go"
 )
@@ -17,7 +17,7 @@ import (
 // withConnection creates a connection that can be used by the kafka operation
 // passed in the parameters. This ensures the cleanup of all connection resources.
 func withConnection(config *ConnConfig, kafkaOperation func(conn *kafka.Conn) error) error {
-	dialer, err := buildDialer(config.TLS)
+	dialer, err := buildDialer(&config.TLS)
 	if err != nil {
 		return err
 	}

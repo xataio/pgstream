@@ -22,27 +22,28 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 	testLogEntry := newTestLogEntry()
 
 	tests := []struct {
-		name       string
-		event      *wal.Event
-		store      schemalog.Store
-		adapter    walToLogEntryAdapter
-		skipSchema schemaFilter
-		idFinder   columnFinder
-		processor  processor.Processor
+		name            string
+		event           *wal.Event
+		store           schemalog.Store
+		adapter         walToLogEntryAdapter
+		skipDataEvent   dataEventFilter
+		skipSchemaEvent schemaEventFilter
+		idFinder        columnFinder
+		processor       processor.Processor
 
 		wantErr error
 	}{
 		{
-			name:       "ok - skip schema",
-			event:      newTestDataEvent("I"),
-			skipSchema: func(s string) bool { return true },
+			name:          "ok - skip schema",
+			event:         newTestDataEvent("I"),
+			skipDataEvent: func(*wal.Data) bool { return true },
 
 			wantErr: nil,
 		},
 		{
-			name:       "ok - skip log entry schema log",
-			event:      newTestSchemaChangeEvent("I"),
-			skipSchema: func(s string) bool { return s == testSchemaName },
+			name:            "ok - skip log entry schema log",
+			event:           newTestSchemaChangeEvent("I"),
+			skipSchemaEvent: func(s *schemalog.LogEntry) bool { return s.SchemaName == testSchemaName },
 
 			wantErr: nil,
 		},
@@ -189,7 +190,8 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 				logger:               loglib.NewNoopLogger(),
 				processor:            tc.processor,
 				schemaLogStore:       tc.store,
-				skipSchema:           func(s string) bool { return false },
+				skipDataEvent:        func(d *wal.Data) bool { return false },
+				skipSchemaEvent:      func(*schemalog.LogEntry) bool { return false },
 				idFinder:             func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-1" },
 				versionFinder:        func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-2" },
 				walToLogEntryAdapter: func(d *wal.Data) (*schemalog.LogEntry, error) { return testLogEntry, nil },
@@ -203,8 +205,12 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 				translator.walToLogEntryAdapter = tc.adapter
 			}
 
-			if tc.skipSchema != nil {
-				translator.skipSchema = tc.skipSchema
+			if tc.skipSchemaEvent != nil {
+				translator.skipSchemaEvent = tc.skipSchemaEvent
+			}
+
+			if tc.skipDataEvent != nil {
+				translator.skipDataEvent = tc.skipDataEvent
 			}
 
 			err := translator.ProcessWALEvent(context.Background(), tc.event)

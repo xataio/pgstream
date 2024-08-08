@@ -10,10 +10,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/xataio/pgstream/internal/backoff"
-	backoffmocks "github.com/xataio/pgstream/internal/backoff/mocks"
-	"github.com/xataio/pgstream/internal/kafka"
-	kafkamocks "github.com/xataio/pgstream/internal/kafka/mocks"
+	"github.com/xataio/pgstream/pkg/backoff"
+	backoffmocks "github.com/xataio/pgstream/pkg/backoff/mocks"
+	"github.com/xataio/pgstream/pkg/kafka"
+	kafkamocks "github.com/xataio/pgstream/pkg/kafka/mocks"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 )

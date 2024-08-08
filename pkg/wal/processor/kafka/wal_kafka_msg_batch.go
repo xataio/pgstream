@@ -3,7 +3,7 @@
 package kafka
 
 import (
-	"github.com/xataio/pgstream/internal/kafka"
+	"github.com/xataio/pgstream/pkg/kafka"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
