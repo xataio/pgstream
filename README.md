@@ -39,7 +39,6 @@
 - [License](#license)
 - [Support](#support)
 
-
 ## Usage
 
 `pgstream` can be used via the readily available CLI or as a library.
@@ -99,11 +98,13 @@ This command will clean up all pgstream state.
 Run will require the configuration to be provided, either via environment variables, config file or a combination of both. There are some sample configuration files provided in the repo that can be used as guidelines.
 
 Example running pgstream with Postgres -> OpenSearch:
+
 ```
 pgstream run -c pg2os.env --log-level trace
 ```
 
 Example running pgstream with Postgres -> Kafka, and in a separate terminal, Kafka->OpenSearch:
+
 ```
 pgstream run -c pg2kafka.env --log-level trace
 pgstream run -c kafka2os.env --log-level trace
@@ -120,31 +121,30 @@ Here's a list of all the environment variables that can be used to configure the
 <details>
   <summary>Postgres Listener</summary>
 
-| Environment Variable                               | Default     |   Required          | Description                                  |
-| -------------------------------------------------- | ----------- | ------------------- | -------------------------------------------- |
-| PGSTREAM_POSTGRES_LISTENER_URL                     | N/A         | Yes                 | URL of the Postgres database to connect to for replication purposes.
+| Environment Variable           | Default | Required | Description                                                          |
+| ------------------------------ | ------- | -------- | -------------------------------------------------------------------- |
+| PGSTREAM_POSTGRES_LISTENER_URL | N/A     | Yes      | URL of the Postgres database to connect to for replication purposes. |
 
 </details>
-
 
 <details>
   <summary>Kafka Listener</summary>
 
-| Environment Variable                               | Default     |   Required          | Description                                  |
-| -------------------------------------------------- | ----------- | ------------------- | -------------------------------------------- |
-| PGSTREAM_KAFKA_SERVERS                             | N/A         | Yes                 | URLs for the Kafka servers to connect to.
-| PGSTREAM_KAFKA_TOPIC_NAME                          | N/A         | Yes                 | Name of the Kafka topic to read from.
-| PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID            | N/A         | Yes                 | Name of the Kafka consumer group for the WAL Kafka reader.
-| PGSTREAM_KAFKA_READER_CONSUMER_GROUP_START_OFFSET  | Earliest    | No                  | Kafka offset from which the consumer will start if there's no offset available for the consumer group.
-| PGSTREAM_KAFKA_TLS_ENABLED                         | False       | No                  | Enable TLS connection to the Kafka servers.
-| PGSTREAM_KAFKA_TLS_CA_CERT_FILE                    | ""          | When TLS enabled    | Path to the CA PEM certificate to use for Kafka TLS authentication.
-| PGSTREAM_KAFKA_TLS_CLIENT_CERT_FILE                | ""          | No                  | Path to the client PEM certificate to use for Kafka TLS client authentication.
-| PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE                 | ""          | No                  | Path to the client PEM private key to use for Kafka TLS client authentication.
-| PGSTREAM_KAFKA_COMMIT_EXP_BACKOFF_INITIAL_INTERVAL | 0           | No                  | Initial interval for the exponential backoff policy to be applied to the Kafka commit retries.
-| PGSTREAM_KAFKA_COMMIT_EXP_BACKOFF_MAX_INTERVAL     | 0           | No                  | Max interval for the exponential backoff policy to be applied to the Kafka commit retries.
-| PGSTREAM_KAFKA_COMMIT_EXP_BACKOFF_MAX_RETRIES      | 0           | No                  | Max retries for the exponential backoff policy to be applied to the Kafka commit retries.
-| PGSTREAM_KAFKA_COMMIT_BACKOFF_INTERVAL             | 0           | No                  | Constant interval for the backoff policy to be applied to the Kafka commit retries.
-| PGSTREAM_KAFKA_COMMIT_BACKOFF_MAX_RETRIES          | 0           | No                  | Max retries for the backoff policy to be applied to the Kafka commit retries.
+| Environment Variable                               | Default  | Required         | Description                                                                                            |
+| -------------------------------------------------- | -------- | ---------------- | ------------------------------------------------------------------------------------------------------ |
+| PGSTREAM_KAFKA_SERVERS                             | N/A      | Yes              | URLs for the Kafka servers to connect to.                                                              |
+| PGSTREAM_KAFKA_TOPIC_NAME                          | N/A      | Yes              | Name of the Kafka topic to read from.                                                                  |
+| PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID            | N/A      | Yes              | Name of the Kafka consumer group for the WAL Kafka reader.                                             |
+| PGSTREAM_KAFKA_READER_CONSUMER_GROUP_START_OFFSET  | Earliest | No               | Kafka offset from which the consumer will start if there's no offset available for the consumer group. |
+| PGSTREAM_KAFKA_TLS_ENABLED                         | False    | No               | Enable TLS connection to the Kafka servers.                                                            |
+| PGSTREAM_KAFKA_TLS_CA_CERT_FILE                    | ""       | When TLS enabled | Path to the CA PEM certificate to use for Kafka TLS authentication.                                    |
+| PGSTREAM_KAFKA_TLS_CLIENT_CERT_FILE                | ""       | No               | Path to the client PEM certificate to use for Kafka TLS client authentication.                         |
+| PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE                 | ""       | No               | Path to the client PEM private key to use for Kafka TLS client authentication.                         |
+| PGSTREAM_KAFKA_COMMIT_EXP_BACKOFF_INITIAL_INTERVAL | 0        | No               | Initial interval for the exponential backoff policy to be applied to the Kafka commit retries.         |
+| PGSTREAM_KAFKA_COMMIT_EXP_BACKOFF_MAX_INTERVAL     | 0        | No               | Max interval for the exponential backoff policy to be applied to the Kafka commit retries.             |
+| PGSTREAM_KAFKA_COMMIT_EXP_BACKOFF_MAX_RETRIES      | 0        | No               | Max retries for the exponential backoff policy to be applied to the Kafka commit retries.              |
+| PGSTREAM_KAFKA_COMMIT_BACKOFF_INTERVAL             | 0        | No               | Constant interval for the backoff policy to be applied to the Kafka commit retries.                    |
+| PGSTREAM_KAFKA_COMMIT_BACKOFF_MAX_RETRIES          | 0        | No               | Max retries for the backoff policy to be applied to the Kafka commit retries.                          |
 
 One of exponential/constant backoff policies can be provided for the Kafka committing retry strategy. If none is provided, no retries apply.
 
@@ -155,44 +155,43 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 <details>
   <summary>Kafka Batch Writer</summary>
 
-| Environment Variable                               | Default     |   Required          | Description                                      |
-| -------------------------------------------------- | ----------- | ------------------- | ------------------------------------------------ |
-| PGSTREAM_KAFKA_SERVERS                             | N/A         | Yes                 | URLs for the Kafka servers to connect to.
-| PGSTREAM_KAFKA_TOPIC_NAME                          | N/A         | Yes                 | Name of the Kafka topic to write to.
-| PGSTREAM_KAFKA_TOPIC_PARTITIONS                    | 1           | No                  | Number of partitions created for the Kafka topic if auto create is enabled.
-| PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR            | 1           | No                  | Replication factor used when creating the Kafka topic if auto create is enabled.
-| PGSTREAM_KAFKA_TOPIC_AUTO_CREATE                   | False       | No                  | Auto creation of configured Kafka topic if it doesn't exist.
-| PGSTREAM_KAFKA_TLS_ENABLED                         | False       | No                  | Enable TLS connection to the Kafka servers.
-| PGSTREAM_KAFKA_TLS_CA_CERT_FILE                    | ""          | When TLS enabled    | Path to the CA PEM certificate to use for Kafka TLS authentication.
-| PGSTREAM_KAFKA_TLS_CLIENT_CERT_FILE                | ""          | No                  | Path to the client PEM certificate to use for Kafka TLS client authentication.
-| PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE                 | ""          | No                  | Path to the client PEM private key to use for Kafka TLS client authentication.
-| PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT                | 1s          | No                  | Max time interval at which the batch sending to Kafka is triggered.
-| PGSTREAM_KAFKA_WRITER_BATCH_BYTES                  | 1572864     | No                  | Max size in bytes for a given batch. When this size is reached, the batch is sent to Kafka.
-| PGSTREAM_KAFKA_WRITER_BATCH_SIZE                   | 100         | No                  | Max number of messages to be sent per batch. When this size is reached, the batch is sent to Kafka.
-| PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES              | 100MiB      | No                  | Max memory used by the Kafka batch writer for inflight batches.
+| Environment Variable                    | Default | Required         | Description                                                                                         |
+| --------------------------------------- | ------- | ---------------- | --------------------------------------------------------------------------------------------------- |
+| PGSTREAM_KAFKA_SERVERS                  | N/A     | Yes              | URLs for the Kafka servers to connect to.                                                           |
+| PGSTREAM_KAFKA_TOPIC_NAME               | N/A     | Yes              | Name of the Kafka topic to write to.                                                                |
+| PGSTREAM_KAFKA_TOPIC_PARTITIONS         | 1       | No               | Number of partitions created for the Kafka topic if auto create is enabled.                         |
+| PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR | 1       | No               | Replication factor used when creating the Kafka topic if auto create is enabled.                    |
+| PGSTREAM_KAFKA_TOPIC_AUTO_CREATE        | False   | No               | Auto creation of configured Kafka topic if it doesn't exist.                                        |
+| PGSTREAM_KAFKA_TLS_ENABLED              | False   | No               | Enable TLS connection to the Kafka servers.                                                         |
+| PGSTREAM_KAFKA_TLS_CA_CERT_FILE         | ""      | When TLS enabled | Path to the CA PEM certificate to use for Kafka TLS authentication.                                 |
+| PGSTREAM_KAFKA_TLS_CLIENT_CERT_FILE     | ""      | No               | Path to the client PEM certificate to use for Kafka TLS client authentication.                      |
+| PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE      | ""      | No               | Path to the client PEM private key to use for Kafka TLS client authentication.                      |
+| PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT     | 1s      | No               | Max time interval at which the batch sending to Kafka is triggered.                                 |
+| PGSTREAM_KAFKA_WRITER_BATCH_BYTES       | 1572864 | No               | Max size in bytes for a given batch. When this size is reached, the batch is sent to Kafka.         |
+| PGSTREAM_KAFKA_WRITER_BATCH_SIZE        | 100     | No               | Max number of messages to be sent per batch. When this size is reached, the batch is sent to Kafka. |
+| PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES   | 100MiB  | No               | Max memory used by the Kafka batch writer for inflight batches.                                     |
 
 </details>
-
 
 <details>
   <summary>Search Batch Indexer</summary>
 
-| Environment Variable                                         | Default     |   Required          | Description                                  |
-| ------------------------------------------------------------ | ----------- | ------------------- | -------------------------------------------- |
-| PGSTREAM_SEARCH_STORE_URL                                    | N/A         | Yes                 | URL for the search store to connect to.
-| PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT                        | 1s          | No                  | Max time interval at which the batch sending to the search store is triggered.
-| PGSTREAM_SEARCH_INDEXER_BATCH_SIZE                           | 100         | No                  | Max number of messages to be sent per batch. When this size is reached, the batch is sent to the search store.
-| PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES                      | 100MiB      | No                  | Max memory used by the search batch indexer for inflight batches.
-| PGSTREAM_SEARCH_INDEXER_CLEANUP_EXP_BACKOFF_INITIAL_INTERVAL | 0           | No                  | Initial interval for the exponential backoff policy to be applied to the search indexer cleanup retries.
-| PGSTREAM_SEARCH_INDEXER_CLEANUP_EXP_BACKOFF_MAX_INTERVAL     | 0           | No                  | Max interval for the exponential backoff policy to be applied to the search indexer cleanup retries.
-| PGSTREAM_SEARCH_INDEXER_CLEANUP_EXP_BACKOFF_MAX_RETRIES      | 0           | No                  | Max retries for the exponential backoff policy to be applied to the search indexer cleanup retries.
-| PGSTREAM_SEARCH_INDEXER_CLEANUP_BACKOFF_INTERVAL             | 0           | No                  | Constant interval for the backoff policy to be applied to the search indexer cleanup retries.
-| PGSTREAM_SEARCH_INDEXER_CLEANUP_BACKOFF_MAX_RETRIES          | 0           | No                  | Max retries for the backoff policy to be applied to the search indexer cleanup retries.
-| PGSTREAM_SEARCH_STORE_EXP_BACKOFF_INITIAL_INTERVAL           | 1s          | No                  | Initial interval for the exponential backoff policy to be applied to the search store operation retries.
-| PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_INTERVAL               | 1min        | No                  | Max interval for the exponential backoff policy to be applied to the search store operation retries.
-| PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_RETRIES                | 0           | No                  | Max retries for the exponential backoff policy to be applied to the search store operation retries.
-| PGSTREAM_SEARCH_STORE_BACKOFF_INTERVAL                       | 0           | No                  | Constant interval for the backoff policy to be applied to the search store operation retries.
-| PGSTREAM_SEARCH_STORE_BACKOFF_MAX_RETRIES                    | 0           | No                  | Max retries for the backoff policy to be applied to the search store operation retries.
+| Environment Variable                                         | Default | Required | Description                                                                                                    |
+| ------------------------------------------------------------ | ------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| PGSTREAM_SEARCH_STORE_URL                                    | N/A     | Yes      | URL for the search store to connect to.                                                                        |
+| PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT                        | 1s      | No       | Max time interval at which the batch sending to the search store is triggered.                                 |
+| PGSTREAM_SEARCH_INDEXER_BATCH_SIZE                           | 100     | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to the search store. |
+| PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES                      | 100MiB  | No       | Max memory used by the search batch indexer for inflight batches.                                              |
+| PGSTREAM_SEARCH_INDEXER_CLEANUP_EXP_BACKOFF_INITIAL_INTERVAL | 0       | No       | Initial interval for the exponential backoff policy to be applied to the search indexer cleanup retries.       |
+| PGSTREAM_SEARCH_INDEXER_CLEANUP_EXP_BACKOFF_MAX_INTERVAL     | 0       | No       | Max interval for the exponential backoff policy to be applied to the search indexer cleanup retries.           |
+| PGSTREAM_SEARCH_INDEXER_CLEANUP_EXP_BACKOFF_MAX_RETRIES      | 0       | No       | Max retries for the exponential backoff policy to be applied to the search indexer cleanup retries.            |
+| PGSTREAM_SEARCH_INDEXER_CLEANUP_BACKOFF_INTERVAL             | 0       | No       | Constant interval for the backoff policy to be applied to the search indexer cleanup retries.                  |
+| PGSTREAM_SEARCH_INDEXER_CLEANUP_BACKOFF_MAX_RETRIES          | 0       | No       | Max retries for the backoff policy to be applied to the search indexer cleanup retries.                        |
+| PGSTREAM_SEARCH_STORE_EXP_BACKOFF_INITIAL_INTERVAL           | 1s      | No       | Initial interval for the exponential backoff policy to be applied to the search store operation retries.       |
+| PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_INTERVAL               | 1min    | No       | Max interval for the exponential backoff policy to be applied to the search store operation retries.           |
+| PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_RETRIES                | 0       | No       | Max retries for the exponential backoff policy to be applied to the search store operation retries.            |
+| PGSTREAM_SEARCH_STORE_BACKOFF_INTERVAL                       | 0       | No       | Constant interval for the backoff policy to be applied to the search store operation retries.                  |
+| PGSTREAM_SEARCH_STORE_BACKOFF_MAX_RETRIES                    | 0       | No       | Max retries for the backoff policy to be applied to the search store operation retries.                        |
 
 One of exponential/constant backoff policies can be provided for the search indexer cleanup retry strategy. If none is provided, no retries apply.
 
@@ -203,26 +202,26 @@ One of exponential/constant backoff policies can be provided for the search stor
 <details>
   <summary>Webhook Notifier</summary>
 
-| Environment Variable                                         | Default     |   Required          | Description                                  |
-| ------------------------------------------------------------ | ----------- | ------------------- | -------------------------------------------- |
-| PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_URL                      | N/A         | Yes                 | URL for the webhook subscription store to connect to.
-| PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_ENABLED            | False       | No                  | Caching applied to the subscription store retrieval queries.
-| PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_REFRESH_INTERVAL   | 60s         | When cache enabled  | Interval at which the subscription store cache will be refreshed. Indicates max cache staleness.
-| PGSTREAM_WEBHOOK_NOTIFIER_MAX_QUEUE_BYTES                    | 100MiB      | No                  | Max memory used by the webhook notifier for inflight notifications.
-| PGSTREAM_WEBHOOK_NOTIFIER_WORKER_COUNT                       | 10          | No                  | Max number of concurrent workers that will send webhook notifications for a given WAL event.
-| PGSTREAM_WEBHOOK_NOTIFIER_CLIENT_TIMEOUT                     | 10s         | No                  | Max time the notifier will wait for a response from a webhook URL before timing out.
-| PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_ADDRESS                 | ":9900"     | No                  | Address for the subscription server to listen on.
-| PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_READ_TIMEOUT            | 5s          | No                  | Max duration for reading an entire server request, including the body before timing out.
-| PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_WRITE_TIMEOUT           | 10s         | No                  | Max duration before timing out writes of the response. It is reset whenever a new request's header is read.
+| Environment Variable                                       | Default | Required           | Description                                                                                                 |
+| ---------------------------------------------------------- | ------- | ------------------ | ----------------------------------------------------------------------------------------------------------- |
+| PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_URL                    | N/A     | Yes                | URL for the webhook subscription store to connect to.                                                       |
+| PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_ENABLED          | False   | No                 | Caching applied to the subscription store retrieval queries.                                                |
+| PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_REFRESH_INTERVAL | 60s     | When cache enabled | Interval at which the subscription store cache will be refreshed. Indicates max cache staleness.            |
+| PGSTREAM_WEBHOOK_NOTIFIER_MAX_QUEUE_BYTES                  | 100MiB  | No                 | Max memory used by the webhook notifier for inflight notifications.                                         |
+| PGSTREAM_WEBHOOK_NOTIFIER_WORKER_COUNT                     | 10      | No                 | Max number of concurrent workers that will send webhook notifications for a given WAL event.                |
+| PGSTREAM_WEBHOOK_NOTIFIER_CLIENT_TIMEOUT                   | 10s     | No                 | Max time the notifier will wait for a response from a webhook URL before timing out.                        |
+| PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_ADDRESS               | ":9900" | No                 | Address for the subscription server to listen on.                                                           |
+| PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_READ_TIMEOUT          | 5s      | No                 | Max duration for reading an entire server request, including the body before timing out.                    |
+| PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_WRITE_TIMEOUT         | 10s     | No                 | Max duration before timing out writes of the response. It is reset whenever a new request's header is read. |
 
 </details>
 
 <details>
   <summary>Translator</summary>
 
-| Environment Variable                                         | Default     |   Required          | Description                                  |
-| ------------------------------------------------------------ | ----------- | ------------------- | -------------------------------------------- |
-| PGSTREAM_TRANSLATOR_ENABLED                       | N/A         | Yes                 | URL for the postgres URL where the schema log table is stored.
+| Environment Variable                   | Default | Required | Description                                                    |
+| -------------------------------------- | ------- | -------- | -------------------------------------------------------------- |
+| PGSTREAM_TRANSLATOR_STORE_POSTGRES_URL | N/A     | Yes      | URL for the postgres URL where the schema log table is stored. |
 
 </details>
 
@@ -252,7 +251,6 @@ There are currently two implementations of the listener:
 
 - **Kafka reader**: reads WAL events from a Kafka topic. It can be configured to run concurrently by using partitions and Kafka consumer groups, applying a fan-out strategy to the WAL events. The data will be partitioned by database schema by default, but can be configured when using `pgstream` as a library. The associated Kafka checkpointer will commit the message offsets per topic/partition so that the consumer group doesn't process the same message twice.
 
-
 ### WAL Processor
 
 A processor processes a WAL event. Depending on the implementation it might also be required to checkpoint the event once it's done processing it as described above.
@@ -268,13 +266,13 @@ There are currently two implementations of the processor:
 In addition to the implementations described above, there's an optional processor decorator, the **translator**, that injects some of the pgstream logic into the WAL event. This includes:
 
 - Data events:
-	- Setting the WAL event identity. If provided, it will use the configured id finder (only available when used as a library), otherwise it will default to using the table primary key/unique not null column.
-	- Setting the WAL event version. If provided, it will use the configured version finder (only available when used as a library), otherwise it will default to using the event LSN.
-	- Adding pgstream IDs to all columns. This allows us to have a constant identifier for a column, so that if there are renames the column id doesn't change. This is particularly helpful for the search store, where a rename would require a reindex, which can be costly depending on the data.
+
+  - Setting the WAL event identity. If provided, it will use the configured id finder (only available when used as a library), otherwise it will default to using the table primary key/unique not null column.
+  - Setting the WAL event version. If provided, it will use the configured version finder (only available when used as a library), otherwise it will default to using the event LSN.
+  - Adding pgstream IDs to all columns. This allows us to have a constant identifier for a column, so that if there are renames the column id doesn't change. This is particularly helpful for the search store, where a rename would require a reindex, which can be costly depending on the data.
 
 - Schema events:
-	- Acknolwedging the new incoming schema in the Postgres `pgstream.schema_log` table.
-
+  - Acknolwedging the new incoming schema in the Postgres `pgstream.schema_log` table.
 
 ## Limitations
 
@@ -287,7 +285,6 @@ Some of the limitations of the initial release include:
 - Primary key/unique not null column required for replication
 - Kafka serialisation support limited to JSON
 
-
 ## Glossary
 
 - [CDC](https://en.wikipedia.org/wiki/Change_data_capture): Change Data Capture
@@ -298,19 +295,20 @@ Some of the limitations of the initial release include:
 ## Contributing
 
 We welcome contributions from the community! If you'd like to contribute to pgstream, please follow these guidelines:
+
 - Create an issue for any questions, bug reports, or feature requests.
 - Check the documentation and existing issues before opening a new issue.
 
 ### Contributing Code
+
 1. Fork the repository.
 2. Create a new branch for your feature or bug fix.
 3. Make your changes and write tests if applicable.
 4. Ensure your code passes linting and tests.
-	- There's a [pre-commit](https://pre-commit.com/) configuration available on the root directory (`.pre-commit-config.yaml`), which can be used to validate the CI checks locally.
+   - There's a [pre-commit](https://pre-commit.com/) configuration available on the root directory (`.pre-commit-config.yaml`), which can be used to validate the CI checks locally.
 5. Submit a pull request.
 
 For this project, we pledge to act and interact in ways that contribute to an open, welcoming, diverse, inclusive, and healthy community.
-
 
 ## License
 
@@ -319,7 +317,6 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 ## Support
 
 If you have any questions, encounter issues, or need assistance, open an issue in this repository our join our [Discord](https://xata.io/discord), and our community will be happy to help.
-
 
 <br>
 <p align="right">Made with :heart: by <a href="https://xata.io">Xata 🦋</a></p>
