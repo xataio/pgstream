@@ -18,7 +18,10 @@ type Store struct {
 
 type Option func(*Store)
 
-const subscriptionsTable = "webhook_subscriptions"
+const (
+	subscriptionsTableName = "webhook_subscriptions"
+	pgstreamSchema         = "pgstream"
+)
 
 func NewSubscriptionStore(ctx context.Context, url string, opts ...Option) (*Store, error) {
 	pgpool, err := pglib.NewConnPool(ctx, url)
@@ -52,13 +55,13 @@ func WithLogger(l loglib.Logger) Option {
 func (s *Store) CreateSubscription(ctx context.Context, subscription *subscription.Subscription) error {
 	query := fmt.Sprintf(`
 	INSERT INTO %s(url, schema_name, table_name, event_types) VALUES($1, $2, $3, $4)
-	ON CONFLICT (url,schema_name,table_name) DO UPDATE SET event_types = EXCLUDED.event_types;`, subscriptionsTable)
+	ON CONFLICT (url,schema_name,table_name) DO UPDATE SET event_types = EXCLUDED.event_types;`, subscriptionsTable())
 	_, err := s.conn.Exec(ctx, query, subscription.URL, subscription.Schema, subscription.Table, subscription.EventTypes)
 	return err
 }
 
 func (s *Store) DeleteSubscription(ctx context.Context, subscription *subscription.Subscription) error {
-	query := fmt.Sprintf(`DELETE FROM %s WHERE url=$1 AND schema_name=$2 AND table=$3;`, subscriptionsTable)
+	query := fmt.Sprintf(`DELETE FROM %s WHERE url=$1 AND schema_name=$2 AND table=$3;`, subscriptionsTable())
 	_, err := s.conn.Exec(ctx, query, subscription.URL, subscription.Schema, subscription.Table)
 	return err
 }
@@ -94,13 +97,13 @@ func (s *Store) createTable(ctx context.Context) error {
 	schema_name TEXT,
 	table_name TEXT,
 	event_types TEXT[],
-	PRIMARY KEY(url,schema_name,table_name))`, subscriptionsTable)
+	PRIMARY KEY(url,schema_name,table_name))`, subscriptionsTable())
 	_, err := s.conn.Exec(ctx, query)
 	return err
 }
 
 func (s *Store) buildGetQuery(action, schema, table string) (string, []any) {
-	query := fmt.Sprintf(`SELECT url, schema_name, table_name, event_types FROM %s`, subscriptionsTable)
+	query := fmt.Sprintf(`SELECT url, schema_name, table_name, event_types FROM %s`, subscriptionsTable())
 
 	separator := func(params []any) string {
 		if len(params) == 0 {
@@ -123,4 +126,8 @@ func (s *Store) buildGetQuery(action, schema, table string) (string, []any) {
 	}
 
 	return fmt.Sprintf("%s LIMIT 1000", query), params
+}
+
+func subscriptionsTable() string {
+	return fmt.Sprintf("%s.%s", pgstreamSchema, subscriptionsTableName)
 }
