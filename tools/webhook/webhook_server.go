@@ -3,16 +3,17 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/xataio/pgstream/internal/log/zerolog"
 	loglib "github.com/xataio/pgstream/pkg/log"
-	"github.com/xataio/pgstream/pkg/wal/processor/webhook"
 )
 
 var logger loglib.Logger
@@ -51,18 +52,19 @@ func processWebhook(w http.ResponseWriter, r *http.Request) {
 
 	logger.Debug("got /webhook request")
 
-	payload := webhook.Payload{}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	defer r.Body.Close()
 
-	if payload.Data != nil {
-		logger.Debug("webhook request payload received", loglib.Fields{
-			"event_action": payload.Data.Action,
-			"event_schema": payload.Data.Schema,
-			"event_table":  payload.Data.Table,
-		})
+	var prettyJSON bytes.Buffer
+	if err = json.Indent(&prettyJSON, bodyBytes, "", "    "); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
+	logger.Info(prettyJSON.String())
+
 	w.WriteHeader(http.StatusOK)
 }
