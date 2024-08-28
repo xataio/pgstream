@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/xataio/pgstream/pkg/kafka"
+	"github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/stream"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -98,10 +100,15 @@ func Test_PostgresToKafka(t *testing.T) {
 }
 
 func startKafkaReader(t *testing.T, ctx context.Context, processor func(context.Context, *wal.Event) error) {
-	reader, err := kafkalistener.NewReader(testKafkaListenerCfg().Kafka.Reader, processor)
+	kafkaReader, err := kafka.NewReader(testKafkaListenerCfg().Kafka.Reader, log.NewNoopLogger())
+	require.NoError(t, err)
+	reader, err := kafkalistener.NewWALReader(kafkaReader, processor)
 	require.NoError(t, err)
 	go func() {
-		defer reader.Close()
+		defer func() {
+			reader.Close()
+			kafkaReader.Close()
+		}()
 		reader.Listen(ctx)
 	}()
 }

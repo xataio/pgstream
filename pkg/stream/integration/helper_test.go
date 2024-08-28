@@ -19,7 +19,6 @@ import (
 	"github.com/xataio/pgstream/pkg/tls"
 	"github.com/xataio/pgstream/pkg/wal"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
-	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
@@ -105,18 +104,13 @@ func testPostgresListenerCfg() stream.ListenerConfig {
 }
 
 func testKafkaListenerCfg() stream.ListenerConfig {
-	readerCfg := kafkalistener.ReaderConfig{
-		Kafka: kafkalib.ReaderConfig{
-			Conn:            testKafkaCfg(),
-			ConsumerGroupID: "integration-test-group",
-		},
-	}
 	return stream.ListenerConfig{
 		Kafka: &stream.KafkaListenerConfig{
-			Reader: readerCfg,
-			Checkpointer: kafkacheckpoint.Config{
-				Reader: readerCfg.Kafka,
+			Reader: kafkalib.ReaderConfig{
+				Conn:            testKafkaCfg(),
+				ConsumerGroupID: "integration-test-group",
 			},
+			Checkpointer: kafkacheckpoint.Config{},
 		},
 	}
 }

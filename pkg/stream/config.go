@@ -6,8 +6,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/xataio/pgstream/pkg/kafka"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
-	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
@@ -32,7 +32,7 @@ type PostgresListenerConfig struct {
 }
 
 type KafkaListenerConfig struct {
-	Reader       kafkalistener.ReaderConfig
+	Reader       kafka.ReaderConfig
 	Checkpointer kafkacheckpoint.Config
 }
 

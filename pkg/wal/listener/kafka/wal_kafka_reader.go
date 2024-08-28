@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"runtime/debug"
 
 	"github.com/xataio/pgstream/pkg/kafka"
 	loglib "github.com/xataio/pgstream/pkg/log"
@@ -25,13 +24,8 @@ type Reader struct {
 	processRecord payloadProcessor
 }
 
-type ReaderConfig struct {
-	Kafka kafka.ReaderConfig
-}
-
 type kafkaReader interface {
 	FetchMessage(context.Context) (*kafka.Message, error)
-	Close() error
 }
 
 type payloadProcessor func(context.Context, *wal.Event) error
@@ -40,22 +34,17 @@ type Option func(*Reader)
 
 // NewReader returns a kafka reader that listens to wal events and calls the
 // processor on input.
-func NewReader(config ReaderConfig, processRecord payloadProcessor, opts ...Option) (*Reader, error) {
+func NewWALReader(kafkaReader kafkaReader, processRecord payloadProcessor, opts ...Option) (*Reader, error) {
 	r := &Reader{
 		logger:        loglib.NewNoopLogger(),
 		processRecord: processRecord,
 		unmarshaler:   json.Unmarshal,
 		offsetParser:  kafka.NewOffsetParser(),
+		reader:        kafkaReader,
 	}
 
 	for _, opt := range opts {
 		opt(r)
-	}
-
-	var err error
-	r.reader, err = kafka.NewReader(config.Kafka, r.logger)
-	if err != nil {
-		return nil, err
 	}
 
 	return r, nil
@@ -117,14 +106,5 @@ func (r *Reader) Listen(ctx context.Context) error {
 }
 
 func (r *Reader) Close() error {
-	// Cleanly closing the connection to Kafka is important
-	// in order for the consumer's partitions to be re-allocated
-	// quickly.
-	if err := r.reader.Close(); err != nil {
-		r.logger.Error(err, "error closing connection to kafka", loglib.Fields{
-			"stack_trace": debug.Stack(),
-		})
-		return err
-	}
 	return nil
 }

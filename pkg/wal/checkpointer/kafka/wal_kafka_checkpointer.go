@@ -16,18 +16,17 @@ import (
 // Checkpointer is a kafka implementation of the wal checkpointer. It commits
 // the message offsets to kafka.
 type Checkpointer struct {
-	committer       msgCommitter
+	committer       kafkaCommitter
 	backoffProvider backoff.Provider
 	logger          loglib.Logger
 	offsetParser    kafka.OffsetParser
 }
 
 type Config struct {
-	Reader        kafka.ReaderConfig
 	CommitBackoff backoff.Config
 }
 
-type msgCommitter interface {
+type kafkaCommitter interface {
 	CommitOffsets(ctx context.Context, offsets ...*kafka.Offset) error
 	Close() error
 }
@@ -36,21 +35,16 @@ type Option func(c *Checkpointer)
 
 // New returns a kafka checkpointer that commits the message offsets to kafka by
 // partition/topic on demand.
-func New(ctx context.Context, cfg Config, opts ...Option) (*Checkpointer, error) {
+func New(ctx context.Context, cfg Config, committer kafkaCommitter, opts ...Option) (*Checkpointer, error) {
 	c := &Checkpointer{
 		logger:          loglib.NewNoopLogger(),
 		backoffProvider: backoff.NewProvider(&cfg.CommitBackoff),
 		offsetParser:    kafka.NewOffsetParser(),
+		committer:       committer,
 	}
 
 	for _, opt := range opts {
 		opt(c)
-	}
-
-	var err error
-	c.committer, err = kafka.NewReader(cfg.Reader, c.logger)
-	if err != nil {
-		return nil, err
 	}
 
 	return c, nil
@@ -58,7 +52,9 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Checkpointer, error)
 
 func WithLogger(l loglib.Logger) Option {
 	return func(c *Checkpointer) {
-		c.logger = loglib.NewLogger(l)
+		c.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
+			loglib.ServiceField: "wal_kafka_checkpointer",
+		})
 	}
 }
 
@@ -99,7 +95,7 @@ func (c *Checkpointer) CommitOffsets(ctx context.Context, positions []wal.Commit
 }
 
 func (c *Checkpointer) Close() error {
-	return c.committer.Close()
+	return nil
 }
 
 func (c *Checkpointer) commitOffsetsWithRetry(ctx context.Context, offsets []*kafka.Offset) error {
