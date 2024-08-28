@@ -12,7 +12,6 @@ import (
 	"github.com/xataio/pgstream/pkg/stream"
 	"github.com/xataio/pgstream/pkg/tls"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
-	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
@@ -79,33 +78,28 @@ func parseKafkaListenerConfig() *stream.KafkaListenerConfig {
 		return nil
 	}
 
-	readerCfg := parseKafkaReaderConfig(kafkaServers, kafkaTopic, consumerGroupID)
-
 	return &stream.KafkaListenerConfig{
-		Reader:       readerCfg,
-		Checkpointer: parseKafkaCheckpointConfig(&readerCfg),
+		Reader:       parseKafkaReaderConfig(kafkaServers, kafkaTopic, consumerGroupID),
+		Checkpointer: parseKafkaCheckpointConfig(),
 	}
 }
 
-func parseKafkaReaderConfig(kafkaServers []string, kafkaTopic, consumerGroupID string) kafkalistener.ReaderConfig {
-	return kafkalistener.ReaderConfig{
-		Kafka: kafka.ReaderConfig{
-			Conn: kafka.ConnConfig{
-				Servers: kafkaServers,
-				Topic: kafka.TopicConfig{
-					Name: kafkaTopic,
-				},
-				TLS: parseTLSConfig("PGSTREAM_KAFKA"),
+func parseKafkaReaderConfig(kafkaServers []string, kafkaTopic, consumerGroupID string) kafka.ReaderConfig {
+	return kafka.ReaderConfig{
+		Conn: kafka.ConnConfig{
+			Servers: kafkaServers,
+			Topic: kafka.TopicConfig{
+				Name: kafkaTopic,
 			},
-			ConsumerGroupID:          consumerGroupID,
-			ConsumerGroupStartOffset: viper.GetString("PGSTREAM_KAFKA_READER_CONSUMER_GROUP_START_OFFSET"),
+			TLS: parseTLSConfig("PGSTREAM_KAFKA"),
 		},
+		ConsumerGroupID:          consumerGroupID,
+		ConsumerGroupStartOffset: viper.GetString("PGSTREAM_KAFKA_READER_CONSUMER_GROUP_START_OFFSET"),
 	}
 }
 
-func parseKafkaCheckpointConfig(readerCfg *kafkalistener.ReaderConfig) kafkacheckpoint.Config {
+func parseKafkaCheckpointConfig() kafkacheckpoint.Config {
 	return kafkacheckpoint.Config{
-		Reader:        readerCfg.Kafka,
 		CommitBackoff: parseBackoffConfig("PGSTREAM_KAFKA_COMMIT"),
 	}
 }

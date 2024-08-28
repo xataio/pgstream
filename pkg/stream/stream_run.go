@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/xataio/pgstream/pkg/kafka"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
@@ -47,7 +48,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric
 			config.Listener.Postgres.Replication,
 			pgreplication.WithLogger(logger))
 		if err != nil {
-			return fmt.Errorf("error setting up postgres replication handler")
+			return fmt.Errorf("error setting up postgres replication handler: %w", err)
 		}
 		defer replicationHandler.Close()
 	}
@@ -60,6 +61,16 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric
 		}
 	}
 
+	var kafkaReader *kafka.Reader
+	if config.Listener.Kafka != nil {
+		var err error
+		kafkaReader, err = kafka.NewReader(config.Listener.Kafka.Reader, logger)
+		if err != nil {
+			return fmt.Errorf("error setting up kafka reader: %w", err)
+		}
+		defer kafkaReader.Close()
+	}
+
 	// Checkpointer
 
 	var checkpoint checkpointer.Checkpoint
@@ -67,6 +78,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric
 	case config.Listener.Kafka != nil:
 		kafkaCheckpointer, err := kafkacheckpoint.New(ctx,
 			config.Listener.Kafka.Checkpointer,
+			kafkaReader,
 			kafkacheckpoint.WithLogger(logger))
 		if err != nil {
 			return fmt.Errorf("error setting up kafka checkpointer:%w", err)
@@ -215,7 +227,8 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric
 		})
 	case config.Listener.Kafka != nil:
 		var err error
-		listener, err := kafkalistener.NewReader(config.Listener.Kafka.Reader,
+		listener, err := kafkalistener.NewWALReader(
+			kafkaReader,
 			processor.ProcessWALEvent,
 			kafkalistener.WithLogger(logger))
 		if err != nil {
