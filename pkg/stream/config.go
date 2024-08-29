@@ -10,7 +10,7 @@ import (
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
-	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
+	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
@@ -49,7 +49,7 @@ type KafkaProcessorConfig struct {
 
 type SearchProcessorConfig struct {
 	Indexer search.IndexerConfig
-	Store   opensearch.Config
+	Store   store.Config
 	Retrier search.StoreRetryConfig
 }
 
