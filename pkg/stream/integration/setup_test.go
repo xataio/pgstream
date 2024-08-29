@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/elasticsearch"
 	"github.com/testcontainers/testcontainers-go/modules/kafka"
 	"github.com/testcontainers/testcontainers-go/modules/opensearch"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -44,6 +45,12 @@ func TestMain(m *testing.M) {
 			log.Fatal(err)
 		}
 		defer oscleanup()
+
+		escleanup, err := setupElasticsearchContainer(ctx)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer escleanup()
 	}
 
 	os.Exit(m.Run())
@@ -108,10 +115,24 @@ func setupOpenSearchContainer(ctx context.Context) (cleanup, error) {
 		return nil, fmt.Errorf("failed to start opensearch container: %w", err)
 	}
 
-	searchURL, err = ctr.Address(ctx)
+	opensearchURL, err = ctr.Address(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving url for opensearch container: %w", err)
 	}
+
+	return func() error {
+		return ctr.Terminate(ctx)
+	}, nil
+}
+
+func setupElasticsearchContainer(ctx context.Context) (cleanup, error) {
+	ctr, err := elasticsearch.Run(ctx, "docker.elastic.co/elasticsearch/elasticsearch:8.9.0",
+		testcontainers.WithEnv(map[string]string{"xpack.security.enabled": "false"})) // disable TLS
+	if err != nil {
+		return nil, fmt.Errorf("failed to start elasticsearch container: %w", err)
+	}
+
+	elasticsearchURL = ctr.Settings.Address
 
 	return func() error {
 		return ctr.Terminate(ctx)
