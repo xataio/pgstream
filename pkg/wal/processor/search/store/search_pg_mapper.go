@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package opensearch
+package store
 
 import (
 	"encoding/json"
@@ -11,140 +11,71 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/xataio/pgstream/internal/searchstore"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 )
 
-type Mapper struct {
-	pgTypeMap *pgtype.Map
-}
-
-type searchType uint
-
-const (
-	searchTypeInteger searchType = iota
-	searchTypeFloat
-	searchTypeBool
-	searchTypeString
-	searchTypeDateTimeTZ
-	searchTypeDateTime
-	searchTypeDate
-	searchTypeTime
-	searchTypeJSON
-	searchTypeText
-	searchTypePGVector
-)
-
-type searchField struct {
-	searchType searchType
-	isArray    bool
-	metadata   metadata
-}
-
-type metadata struct {
-	vectorDimension int
+type PgMapper struct {
+	searchMapper searchstore.Mapper
+	pgTypeMap    *pgtype.Map
 }
 
 const (
-	// Lucene’s term byte-length limit is 32766. To cover for the use of UTF-8
-	// text with many non-ASCII characters, the maximum value should be 32766 /
-	// 4 = 8191 since UTF-8 characters may occupy at most 4 bytes.
-	termByteLengthLimit = 32766
-
-	// Default ES date_time pattern
+	// Default date_time pattern
 	timestampTZFormat = "2006-01-02T15:04:05.000Z"
 	timestampFormat   = "2006-01-02T15:04:05.000"
 	dateFormat        = "2006-01-02"
 )
 
-// NewPostgresMapper returns a mapper that maps between postgres and opensearch
-// types
-func NewPostgresMapper() *Mapper {
-	return &Mapper{
-		pgTypeMap: pgtype.NewMap(),
+// NewPostgresMapper returns a mapper that maps between postgres and search
+// store types
+func NewPostgresMapper(mapper searchstore.Mapper) *PgMapper {
+	return &PgMapper{
+		searchMapper: mapper,
+		pgTypeMap:    pgtype.NewMap(),
 	}
 }
 
 // ColumnToSearchMapping maps the column on input into the equivalent search mapping
-func (m *Mapper) ColumnToSearchMapping(column schemalog.Column) (map[string]any, error) {
+func (m *PgMapper) ColumnToSearchMapping(column schemalog.Column) (map[string]any, error) {
 	searchField, err := m.columnToSearchField(column)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse pg type (%s): %w", column.DataType, err)
 	}
 
-	switch searchField.searchType {
-	case searchTypeInteger:
-		return map[string]any{"type": "long"}, nil
-	case searchTypeFloat:
-		return map[string]any{"type": "double"}, nil
-	case searchTypeBool:
-		return map[string]any{"type": "boolean"}, nil
-	case searchTypeText, searchTypeJSON:
-		return map[string]any{"type": "text"}, nil
-	case searchTypeString:
-		return map[string]any{
-			"type":         "keyword",
-			"ignore_above": termByteLengthLimit,
-			"fields": map[string]any{
-				"text": map[string]any{
-					"type": "text",
-				},
-			},
-		}, nil
-	case searchTypeTime:
-		return map[string]any{
-			"type":   "date",
-			"format": "HH:mm:ss[.SS][x][Z]||HH:mm:ss[.SSS][x][Z]||HH:mm:ss[.SSSSSS][x][Z]",
-		}, nil
-	case searchTypeDate:
-		return map[string]any{
-			"type":   "date",
-			"format": "date",
-		}, nil
-	case searchTypeDateTime, searchTypeDateTimeTZ:
-		return map[string]any{
-			"type":   "date",
-			"format": "yyyy-MM-dd HH:mm:ss[.SSS][x]||yyyy-MM-dd HH:mm:ss[.SS][x]||yyyy-MM-dd HH:mm:ss[.S][x]||yyyy-MM-dd'T'HH:mm:ss[.SSS][X]",
-		}, nil
-	case searchTypePGVector:
-		vectorSettings := map[string]any{
-			"type":      "knn_vector",
-			"dimension": searchField.metadata.vectorDimension,
-		}
-		return vectorSettings, nil
-	default:
-		return nil, err
-	}
+	return m.searchMapper.FieldMapping(searchField)
 }
 
-// MapColumnValue maps a value emitted from PG into a value that OS can handle.
-// If the column is a timestamp: we need to parse it.
-// If the column is an array of any type except json, we need to map it to a Go slice.
-// If column type is unknown we return nil. This avoids dropping the whole record if one field type is unknown.
-func (m *Mapper) MapColumnValue(column schemalog.Column, value any) (any, error) {
+// MapColumnValue maps a value emitted from PG into a value that the search
+// store can handle. If the column is a timestamp: we need to parse it. If the
+// column is an array of any type except json, we need to map it to a Go slice.
+// If column type is unknown we return nil. This avoids dropping the whole
+// record if one field type is unknown.
+func (m *PgMapper) MapColumnValue(column schemalog.Column, value any) (any, error) {
 	searchField, err := m.columnToSearchField(column)
 	if err != nil {
-		return nil, fmt.Errorf("mapping column from pg to os: %w", err)
+		return nil, fmt.Errorf("mapping column from pg to search store: %w", err)
 	}
 
 	if value == nil {
 		return nil, nil
 	}
 
-	switch searchField.searchType {
-	case searchTypeDateTimeTZ, searchTypeDateTime:
-		if searchField.isArray {
+	switch searchField.SearchType {
+	case searchstore.DateTimeTZType, searchstore.DateTimeType:
+		if searchField.IsArray {
 			return m.mapDateTimeArray(searchField, value)
 		} else {
 			return m.mapDateTime(searchField, value)
 		}
-	case searchTypeDate:
+	case searchstore.DateType:
 		var d pgtype.Date
 		if err := d.Scan(value); err != nil {
-			return nil, fmt.Errorf("mapping date from pg to ES failed: %w (value: %s)", err, value)
+			return nil, fmt.Errorf("mapping date from pg to search store failed: %w (value: %s)", err, value)
 		}
 		return d.Time.Format(dateFormat), nil
-	case searchTypePGVector:
+	case searchstore.PGVectorType:
 		// pgvector vectors come as strings. We need to parse them into arrays of floats.
 		stringContent, ok := value.(string)
 		if !ok {
@@ -157,30 +88,30 @@ func (m *Mapper) MapColumnValue(column schemalog.Column, value any) (any, error)
 		}
 		return array, nil
 	default:
-		if searchField.isArray { // catches all other array types
+		if searchField.IsArray { // catches all other array types
 			// handle arrays
-			switch searchField.searchType {
-			case searchTypeInteger:
+			switch searchField.SearchType {
+			case searchstore.IntegerType:
 				var a pgtype.FlatArray[int64]
 				err := m.pgTypeMap.SQLScanner(&a).Scan(value)
 				return []int64(a), err
-			case searchTypeFloat:
+			case searchstore.FloatType:
 				var a pgtype.FlatArray[float64]
 				err := m.pgTypeMap.SQLScanner(&a).Scan(value)
 				return []float64(a), err
-			case searchTypeBool:
+			case searchstore.BoolType:
 				var a pgtype.FlatArray[bool]
 				err := m.pgTypeMap.SQLScanner(&a).Scan(value)
 				return []bool(a), err
-			case searchTypeString:
+			case searchstore.StringType:
 				var a pgtype.FlatArray[string]
 				err := m.pgTypeMap.SQLScanner(&a).Scan(value)
 				return []string(a), err
-			case searchTypeJSON:
+			case searchstore.JSONType:
 				// nothing to do for json array types
 			default:
 				// should never get here
-				panic(fmt.Sprintf("indexer: unexpected array type: %v", searchField.searchType))
+				panic(fmt.Sprintf("indexer: unexpected array type: %v", searchField.SearchType))
 			}
 		}
 	}
@@ -189,40 +120,40 @@ func (m *Mapper) MapColumnValue(column schemalog.Column, value any) (any, error)
 	return value, nil
 }
 
-func (m *Mapper) columnToSearchField(column schemalog.Column) (*searchField, error) {
+func (m *PgMapper) columnToSearchField(column schemalog.Column) (*searchstore.Field, error) {
 	pgTypeName := column.DataType
 	typeName, isArray, err := m.parsePGType(pgTypeName)
 	if err != nil {
 		return nil, fmt.Errorf("pg to search type: failed to parse pg type: %w", err)
 	}
 
-	metadata := metadata{}
+	metadata := searchstore.Metadata{}
 
-	var searchType searchType
+	var searchType searchstore.Type
 	switch typeName {
 	case "int8", "int2", "int4", "integer", "smallint", "bigint":
-		searchType = searchTypeInteger
+		searchType = searchstore.IntegerType
 	case "float4", "float8", "real", "double precision", "float", "numeric":
-		searchType = searchTypeFloat
+		searchType = searchstore.FloatType
 	case "boolean":
-		searchType = searchTypeBool
+		searchType = searchstore.BoolType
 	case "bytea", "char", "name", "text", "varchar", "bpchar", "xml", "uuid", "character varying", "character", "cidr", "inet", "macaddr", "macaddr8", "interval":
-		searchType = searchTypeString
+		searchType = searchstore.StringType
 	case "jsonb", "json":
-		searchType = searchTypeJSON
+		searchType = searchstore.JSONType
 	case "date":
-		searchType = searchTypeDate
+		searchType = searchstore.DateType
 	case "time", "time with time zone", "time without time zone":
-		searchType = searchTypeTime
+		searchType = searchstore.TimeType
 	case "timestamp", "timestamp without time zone":
-		searchType = searchTypeDateTime
+		searchType = searchstore.DateTimeType
 	case "timestamptz", "timetz", "timestamp with time zone":
-		searchType = searchTypeDateTimeTZ
+		searchType = searchstore.DateTimeTZType
 	default:
 		// pgvector includes the schema (sometimes? seems only a problem when testing locally)
 		if isPGVector(typeName) {
-			searchType = searchTypePGVector
-			metadata.vectorDimension, err = getPGVectorDimension(typeName)
+			searchType = searchstore.PGVectorType
+			metadata.VectorDimension, err = getPGVectorDimension(typeName)
 			if err != nil {
 				return nil, search.ErrTypeInvalid{Input: pgTypeName}
 			}
@@ -231,20 +162,20 @@ func (m *Mapper) columnToSearchField(column schemalog.Column) (*searchField, err
 		}
 	}
 
-	return &searchField{
-		searchType: searchType,
-		isArray:    isArray,
-		metadata:   metadata,
+	return &searchstore.Field{
+		SearchType: searchType,
+		IsArray:    isArray,
+		Metadata:   metadata,
 	}, nil
 }
 
-func (m *Mapper) mapDateTimeArray(searchField *searchField, value any) (any, error) {
-	switch searchField.searchType {
-	case searchTypeDateTimeTZ:
+func (m *PgMapper) mapDateTimeArray(searchField *searchstore.Field, value any) (any, error) {
+	switch searchField.SearchType {
+	case searchstore.DateTimeTZType:
 		var a pgtype.FlatArray[pgtype.Timestamptz]
 		err := m.pgTypeMap.SQLScanner(&a).Scan(value)
 		if err != nil {
-			return nil, fmt.Errorf("mapping timestamptz array from pg to ES failed: %w (value: %s)", err, value)
+			return nil, fmt.Errorf("mapping timestamptz array from pg to search store failed: %w (value: %s)", err, value)
 		}
 
 		dts := make([]string, len(a))
@@ -254,11 +185,11 @@ func (m *Mapper) mapDateTimeArray(searchField *searchField, value any) (any, err
 		}
 
 		return dts, nil
-	case searchTypeDateTime:
+	case searchstore.DateTimeType:
 		var a pgtype.FlatArray[pgtype.Timestamp]
 		err := m.pgTypeMap.SQLScanner(&a).Scan(value)
 		if err != nil {
-			return nil, fmt.Errorf("mapping timestampt array from pg to ES failed: %w (value: %s)", err, value)
+			return nil, fmt.Errorf("mapping timestampt array from pg to search store failed: %w (value: %s)", err, value)
 		}
 
 		dts := make([]string, len(a))
@@ -272,25 +203,25 @@ func (m *Mapper) mapDateTimeArray(searchField *searchField, value any) (any, err
 	return value, nil
 }
 
-func (m *Mapper) mapDateTime(searchField *searchField, value any) (any, error) {
-	switch searchField.searchType {
-	case searchTypeDateTimeTZ:
+func (m *PgMapper) mapDateTime(searchField *searchstore.Field, value any) (any, error) {
+	switch searchField.SearchType {
+	case searchstore.DateTimeTZType:
 		var ts pgtype.Timestamptz
 		if err := ts.Scan(value); err != nil {
-			return nil, fmt.Errorf("mapping timestamptz from pg to ES failed: %w (value: %s)", err, value)
+			return nil, fmt.Errorf("mapping timestamptz from pg to search store failed: %w (value: %s)", err, value)
 		}
 		return ts.Time.Truncate(time.Millisecond).Format(timestampTZFormat), nil
-	case searchTypeDateTime:
+	case searchstore.DateTimeType:
 		var ts pgtype.Timestamp
 		if err := ts.Scan(value); err != nil {
-			return nil, fmt.Errorf("mapping timestamp from pg to ES failed: %w (value: %s)", err, value)
+			return nil, fmt.Errorf("mapping timestamp from pg to search store failed: %w (value: %s)", err, value)
 		}
 		return ts.Time.Truncate(time.Millisecond).Format(timestampFormat), nil
 	}
 	return value, nil
 }
 
-func (m *Mapper) parsePGType(name string) (typeName string, isArray bool, err error) {
+func (m *PgMapper) parsePGType(name string) (typeName string, isArray bool, err error) {
 	inputName := name
 
 	if strings.HasSuffix(name, "[]") { // detect and strip array suffix. this is always last.

@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package opensearch
+package store
 
 import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/xataio/pgstream/internal/es"
+	"github.com/xataio/pgstream/internal/searchstore"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 )
 
 // Adapter converts from/to search types and opensearch types
 type SearchAdapter interface {
-	SearchDocToBulkItem(docs search.Document) es.BulkItem
-	BulkItemsToSearchDocErrs(items []es.BulkItem) []search.DocumentError
+	SearchDocToBulkItem(docs search.Document) searchstore.BulkItem
+	BulkItemsToSearchDocErrs(items []searchstore.BulkItem) []search.DocumentError
 	RecordToLogEntry(rec map[string]any) (*schemalog.LogEntry, error)
 }
 
@@ -32,12 +32,12 @@ func newDefaultAdapter(indexNameAdapter IndexNameAdapter) *adapter {
 	}
 }
 
-func (a *adapter) SearchDocToBulkItem(doc search.Document) es.BulkItem {
+func (a *adapter) SearchDocToBulkItem(doc search.Document) searchstore.BulkItem {
 	indexName := a.indexNameAdapter.SchemaNameToIndex(doc.Schema)
-	item := es.BulkItem{
+	item := searchstore.BulkItem{
 		Doc: doc.Data,
 	}
-	bulkIndex := &es.BulkIndex{
+	bulkIndex := &searchstore.BulkIndex{
 		Index:       indexName.Name(),
 		ID:          doc.ID,
 		Version:     &doc.Version,
@@ -51,7 +51,7 @@ func (a *adapter) SearchDocToBulkItem(doc search.Document) es.BulkItem {
 	return item
 }
 
-func (a *adapter) BulkItemsToSearchDocErrs(items []es.BulkItem) []search.DocumentError {
+func (a *adapter) BulkItemsToSearchDocErrs(items []searchstore.BulkItem) []search.DocumentError {
 	if items == nil {
 		return nil
 	}
@@ -76,7 +76,7 @@ func (a *adapter) RecordToLogEntry(rec map[string]any) (*schemalog.LogEntry, err
 	return &log, nil
 }
 
-func (a *adapter) bulkItemToSearchDocErr(item es.BulkItem) search.DocumentError {
+func (a *adapter) bulkItemToSearchDocErr(item searchstore.BulkItem) search.DocumentError {
 	doc := search.DocumentError{
 		Document: search.Document{
 			Data: item.Doc,

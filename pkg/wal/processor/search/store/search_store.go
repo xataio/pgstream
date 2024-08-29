@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package opensearch
+package store
 
 import (
 	"bytes"
@@ -9,47 +9,57 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/xataio/pgstream/internal/es"
+	"github.com/xataio/pgstream/internal/searchstore"
+	elasticsearchstore "github.com/xataio/pgstream/internal/searchstore/elasticsearch"
+	opensearchstore "github.com/xataio/pgstream/internal/searchstore/opensearch"
+
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 )
 
 type Store struct {
-	logger           loglib.Logger
-	client           es.SearchClient
-	mapper           search.Mapper
-	adapter          SearchAdapter
-	indexNameAdapter IndexNameAdapter
-	marshaler        func(any) ([]byte, error)
+	logger               loglib.Logger
+	client               searchstore.Client
+	mapper               search.Mapper
+	adapter              SearchAdapter
+	indexNameAdapter     IndexNameAdapter
+	marshaler            func(any) ([]byte, error)
+	defaultIndexSettings map[string]any
 }
 
 type Config struct {
-	URL string
+	OpenSearchURL    string
+	ElasticsearchURL string
 }
 
 type Option func(*Store)
 
 const (
-	openSearchDefaultANNEngine      = "nmslib"
-	openSearchDefaultM              = 48
-	openSearchDefaultEFConstruction = 256
-	openSearchDefaultEFSearch       = 100
-
-	// OpenSearch has a limit of 512 bytes for the ID field. see here:
+	// OpenSearch/Elasticsearch have a limit of 512 bytes for the ID field. see here:
 	// https://www.elastic.co/guide/en/elasticsearch/reference/7.10/mapping-id-field.html
-	osIDFieldLengthLimit = 512
+	idFieldLengthLimit = 512
 
 	schemalogIndexName = "pgstream"
 )
 
 func NewStore(cfg Config, opts ...Option) (*Store, error) {
-	os, err := es.NewClient(cfg.URL)
+	var searchStore searchstore.Client
+	var err error
+	switch {
+	case cfg.OpenSearchURL != "":
+		searchStore, err = opensearchstore.NewClient(cfg.OpenSearchURL)
+	case cfg.ElasticsearchURL != "":
+		searchStore, err = elasticsearchstore.NewClient(cfg.ElasticsearchURL)
+	default:
+		return nil, errors.New("invalid search store configuration provided")
+	}
 	if err != nil {
-		return nil, fmt.Errorf("create elasticsearch client: %w", err)
+		return nil, fmt.Errorf("create search store client: %w", err)
 	}
 
-	s := NewStoreWithClient(os)
+	s := NewStoreWithClient(searchStore)
+
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -57,15 +67,17 @@ func NewStore(cfg Config, opts ...Option) (*Store, error) {
 	return s, nil
 }
 
-func NewStoreWithClient(client es.SearchClient) *Store {
+func NewStoreWithClient(client searchstore.Client) *Store {
+	mapper := client.GetMapper()
 	indexNameAdapter := newDefaultIndexNameAdapter()
 	return &Store{
-		logger:           loglib.NewNoopLogger(),
-		client:           client,
-		indexNameAdapter: indexNameAdapter,
-		adapter:          newDefaultAdapter(indexNameAdapter),
-		mapper:           NewPostgresMapper(),
-		marshaler:        json.Marshal,
+		logger:               loglib.NewNoopLogger(),
+		client:               client,
+		indexNameAdapter:     indexNameAdapter,
+		adapter:              newDefaultAdapter(indexNameAdapter),
+		mapper:               NewPostgresMapper(mapper),
+		marshaler:            json.Marshal,
+		defaultIndexSettings: mapper.GetDefaultIndexSettings(),
 	}
 }
 
@@ -111,7 +123,7 @@ func (s *Store) ApplySchemaChange(ctx context.Context, newEntry *schemalog.LogEn
 
 	// make sure the index and the mapping for the schema exist, and if it
 	// doesn't, align it with latest schema log mapping. This check will allow
-	// us to self recover in case of schema OS index deletion
+	// us to self recover in case of schema search index deletion
 	if err := s.ensureSchemaMapping(ctx, newEntry.SchemaName, existingLogEntry); err != nil {
 		return fmt.Errorf("ensuring schema mapping: %w", err)
 	}
@@ -150,10 +162,10 @@ func (s *Store) ApplySchemaChange(ctx context.Context, newEntry *schemalog.LogEn
 }
 
 func (s *Store) SendDocuments(ctx context.Context, docs []search.Document) ([]search.DocumentError, error) {
-	items := make([]es.BulkItem, 0, len(docs))
+	items := make([]searchstore.BulkItem, 0, len(docs))
 	for _, doc := range docs {
-		if len(doc.ID) > osIDFieldLengthLimit {
-			s.logger.Error(errors.New("ID is longer than 512 bytes"), "opensearch store adapter: error processing document, skipping", loglib.Fields{
+		if len(doc.ID) > idFieldLengthLimit {
+			s.logger.Error(errors.New("ID is longer than 512 bytes"), "error processing document, skipping", loglib.Fields{
 				"severity": "DATALOSS",
 				"id":       doc.ID,
 			})
@@ -183,7 +195,7 @@ func (s *Store) DeleteSchema(ctx context.Context, schemaName string) error {
 	}
 
 	// delete the schema from the schema log index
-	if err := s.client.DeleteByQuery(ctx, &es.DeleteByQueryRequest{
+	if err := s.client.DeleteByQuery(ctx, &searchstore.DeleteByQueryRequest{
 		Index: []string{schemalogIndexName},
 		Query: map[string]any{
 			"query": map[string]any{
@@ -211,10 +223,10 @@ func (s *Store) DeleteTableDocuments(ctx context.Context, schemaName string, tab
 // schema on input. A nil LogEntry will be returned when there's no existing
 // associated logs
 func (s *Store) getLastSchemaLogEntry(ctx context.Context, schemaName string) (*schemalog.LogEntry, error) {
-	query := es.QueryBody{
-		Query: &es.Query{
-			Bool: &es.BoolFilter{
-				Filter: []es.Condition{
+	query := searchstore.QueryBody{
+		Query: &searchstore.Query{
+			Bool: &searchstore.BoolFilter{
+				Filter: []searchstore.Condition{
 					{
 						Term: map[string]any{
 							"schema_name": schemaName,
@@ -230,14 +242,14 @@ func (s *Store) getLastSchemaLogEntry(ctx context.Context, schemaName string) (*
 		return nil, fmt.Errorf("failed to marshal to JSON: %+v, %w", query, err)
 	}
 
-	res, err := s.client.Search(ctx, &es.SearchRequest{
-		Index: es.Ptr(schemalogIndexName),
-		Size:  es.Ptr(1),
-		Sort:  es.Ptr("version:desc"),
+	res, err := s.client.Search(ctx, &searchstore.SearchRequest{
+		Index: searchstore.Ptr(schemalogIndexName),
+		Size:  searchstore.Ptr(1),
+		Sort:  searchstore.Ptr("version:desc"),
 		Query: bytes.NewBuffer(bodyJSON),
 	})
 	if err != nil {
-		if errors.Is(err, es.ErrResourceNotFound) {
+		if errors.Is(err, searchstore.ErrResourceNotFound) {
 			s.logger.Warn(err, "index not found, trying to create it", loglib.Fields{"index": schemalogIndexName})
 			// Create the pgstream index if it was not found.
 			err = s.createSchemaLogIndex(ctx, schemalogIndexName)
@@ -246,7 +258,7 @@ func (s *Store) getLastSchemaLogEntry(ctx context.Context, schemaName string) (*
 			}
 			return nil, search.ErrSchemaNotFound{SchemaName: schemaName}
 		}
-		return nil, fmt.Errorf("get latest schema, failed to search os: %w", mapError(err))
+		return nil, fmt.Errorf("get latest schema, failed to search: %w", mapError(err))
 	}
 
 	if len(res.Hits.Hits) == 0 {
@@ -276,16 +288,10 @@ func (s *Store) createSchema(ctx context.Context, schemaName string) error {
 				},
 			},
 		},
-		"settings": map[string]any{
-			"number_of_shards":                 1,
-			"number_of_replicas":               1,
-			"index.mapping.total_fields.limit": 2000,
-			"index.knn":                        true,
-			"knn.algo_param.ef_search":         openSearchDefaultEFSearch,
-		},
+		"settings": s.defaultIndexSettings,
 	})
 	if err != nil {
-		if errors.As(err, &es.ErrResourceAlreadyExists{}) {
+		if errors.As(err, &searchstore.ErrResourceAlreadyExists{}) {
 			return &search.ErrSchemaAlreadyExists{
 				SchemaName: schemaName,
 			}
@@ -329,7 +335,7 @@ func (s *Store) deleteTableDocuments(ctx context.Context, index IndexName, table
 		return nil
 	}
 
-	req := &es.DeleteByQueryRequest{
+	req := &searchstore.DeleteByQueryRequest{
 		Index: []string{index.Name()},
 		Query: map[string]any{
 			"query": map[string]any{
@@ -417,10 +423,10 @@ func (s *Store) updateMappingAddNewColumns(ctx context.Context, indexName IndexN
 func (s *Store) insertNewSchemaLog(ctx context.Context, m *schemalog.LogEntry) error {
 	logBytes, err := json.Marshal(m)
 	if err != nil {
-		return fmt.Errorf("insert schema log, failed to marshal es doc: %w", err)
+		return fmt.Errorf("insert schema log, failed to marshal search doc: %w", err)
 	}
 
-	err = s.client.IndexWithID(ctx, &es.IndexWithIDRequest{
+	err = s.client.IndexWithID(ctx, &searchstore.IndexWithIDRequest{
 		Index:   schemalogIndexName,
 		ID:      m.ID.String(),
 		Body:    logBytes,
@@ -461,7 +467,7 @@ func (s *Store) ensureSchemaMapping(ctx context.Context, schemaName string, meta
 }
 
 func mapError(err error) error {
-	if errors.As(err, &es.RetryableError{}) {
+	if errors.As(err, &searchstore.RetryableError{}) {
 		return fmt.Errorf("%w: %v", search.ErrRetriable, err.Error())
 	}
 	return err

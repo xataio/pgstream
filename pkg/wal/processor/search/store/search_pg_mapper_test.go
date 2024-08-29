@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package opensearch
+package store
 
 import (
 	"errors"
@@ -9,9 +9,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/xataio/pgstream/internal/searchstore/opensearch"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 )
+
+const termByteLengthLimit = 32766
 
 func TestMapper_ColumnToSearchMapping(t *testing.T) {
 	tests := map[string]struct {
@@ -174,7 +177,7 @@ func TestMapper_ColumnToSearchMapping(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			m := NewPostgresMapper()
+			m := NewPostgresMapper(opensearch.NewMapper())
 			mapping, err := m.ColumnToSearchMapping(schemalog.Column{
 				DataType: test.pg,
 				Metadata: test.columnMetadata,
@@ -197,7 +200,7 @@ func TestMapper_ColumnToSearchMapping(t *testing.T) {
 
 	for name, test := range errorTests {
 		t.Run(name, func(t *testing.T) {
-			m := NewPostgresMapper()
+			m := NewPostgresMapper(opensearch.NewMapper())
 			_, err := m.ColumnToSearchMapping(schemalog.Column{DataType: test.pg})
 			require.Error(t, err)
 
@@ -279,7 +282,7 @@ func TestMapper_MapColumnValue(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			mapper := NewPostgresMapper()
+			mapper := NewPostgresMapper(opensearch.NewMapper())
 			value, err := mapper.MapColumnValue(tc.column, tc.value)
 			if !errors.Is(err, tc.wantErr) {
 				require.Error(t, err, tc.wantErr.Error())
