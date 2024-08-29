@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package es
+package elasticsearch
 
 import (
 	"bufio"
@@ -14,38 +14,14 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/elastic/go-elasticsearch/v8/esapi"
+	"github.com/xataio/pgstream/internal/searchstore"
 )
-
-type SearchClient interface {
-	CloseIndex(ctx context.Context, index string) error
-	Count(ctx context.Context, index string) (int, error)
-	CreateIndex(ctx context.Context, index string, body map[string]any) error
-	DeleteByQuery(ctx context.Context, req *DeleteByQueryRequest) error
-	DeleteIndex(ctx context.Context, index []string) error
-	GetIndexAlias(ctx context.Context, name string) (map[string]any, error)
-	GetIndexMappings(ctx context.Context, index string) (*Mappings, error)
-	GetIndicesStats(ctx context.Context, indexPattern string) ([]IndexStats, error)
-	Index(ctx context.Context, req *IndexRequest) error
-	IndexWithID(ctx context.Context, req *IndexWithIDRequest) error
-	IndexExists(ctx context.Context, index string) (bool, error)
-	ListIndices(ctx context.Context, indices []string) ([]string, error)
-	Perform(req *http.Request) (*http.Response, error)
-	PutIndexAlias(ctx context.Context, index []string, name string) error
-	PutIndexMappings(ctx context.Context, index string, body map[string]any) error
-	PutIndexSettings(ctx context.Context, index string, body map[string]any) error
-	RefreshIndex(ctx context.Context, index string) error
-	Search(ctx context.Context, req *SearchRequest) (*SearchResponse, error)
-	SendBulkRequest(ctx context.Context, items []BulkItem) ([]BulkItem, error)
-}
 
 type Client struct {
 	client *elasticsearch.Client
 }
 
-var (
-	ErrResourceNotFound      = errors.New("elasticsearch resource not found")
-	errInvalidSearchEnvelope = errors.New("invalid search response")
-)
+var errInvalidSearchEnvelope = errors.New("invalid search response")
 
 func NewClient(url string) (*Client, error) {
 	es, err := newClient(url)
@@ -85,7 +61,7 @@ func (ec *Client) Count(ctx context.Context, index string) (int, error) {
 		return 0, fmt.Errorf("[Count] error response from Elasticsearch: %w", err)
 	}
 
-	count := &countResponse{}
+	count := &searchstore.CountResponse{}
 	if err := json.NewDecoder(res.Body).Decode(count); err != nil {
 		return 0, fmt.Errorf("[Count] error decoding Elasticsearch response: %w", err)
 	}
@@ -94,7 +70,7 @@ func (ec *Client) Count(ctx context.Context, index string) (int, error) {
 }
 
 func (ec *Client) CreateIndex(ctx context.Context, index string, body map[string]any) error {
-	reader, err := createReader(body)
+	reader, err := searchstore.CreateReader(body)
 	if err != nil {
 		return err
 	}
@@ -114,8 +90,8 @@ func (ec *Client) CreateIndex(ctx context.Context, index string, body map[string
 	return nil
 }
 
-func (ec *Client) DeleteByQuery(ctx context.Context, req *DeleteByQueryRequest) error {
-	reader, err := createReader(req.Query)
+func (ec *Client) DeleteByQuery(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
+	reader, err := searchstore.CreateReader(req.Query)
 	if err != nil {
 		return err
 	}
@@ -156,7 +132,7 @@ func (ec *Client) DeleteIndex(ctx context.Context, index []string) error {
 	return nil
 }
 
-func (ec *Client) Index(ctx context.Context, req *IndexRequest) error {
+func (ec *Client) Index(ctx context.Context, req *searchstore.IndexRequest) error {
 	res, err := ec.client.Index(req.Index,
 		bytes.NewReader(req.Body),
 		ec.client.Index.WithContext(ctx),
@@ -174,7 +150,7 @@ func (ec *Client) Index(ctx context.Context, req *IndexRequest) error {
 	return nil
 }
 
-func (ec *Client) IndexWithID(ctx context.Context, req *IndexWithIDRequest) error {
+func (ec *Client) IndexWithID(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
 	res, err := ec.client.Index(req.Index,
 		bytes.NewReader(req.Body),
 		ec.client.Index.WithContext(ctx),
@@ -235,7 +211,7 @@ func (ec *Client) GetIndexAlias(ctx context.Context, name string) (map[string]an
 	return resMap, nil
 }
 
-func (ec *Client) GetIndexMappings(ctx context.Context, index string) (*Mappings, error) {
+func (ec *Client) GetIndexMappings(ctx context.Context, index string) (*searchstore.Mappings, error) {
 	res, err := ec.client.Indices.GetMapping(
 		ec.client.Indices.GetMapping.WithIndex(index),
 		ec.client.Indices.GetMapping.WithContext(ctx))
@@ -248,7 +224,7 @@ func (ec *Client) GetIndexMappings(ctx context.Context, index string) (*Mappings
 		return nil, fmt.Errorf("[GetIndexMapping] error response from Elasticsearch: %w", err)
 	}
 
-	var indexMappings mappingResponse
+	var indexMappings searchstore.MappingResponse
 	if err = json.NewDecoder(res.Body).Decode(&indexMappings); err != nil {
 		return nil, err
 	}
@@ -260,7 +236,7 @@ func (ec *Client) GetIndexMappings(ctx context.Context, index string) (*Mappings
 
 // GetIndicesStats uses the index stats API to fetch statistics about indices. indexPattern is a
 // wildcard pattern used to select the indices we care about.
-func (ec *Client) GetIndicesStats(ctx context.Context, indexPattern string) ([]IndexStats, error) {
+func (ec *Client) GetIndicesStats(ctx context.Context, indexPattern string) ([]searchstore.IndexStats, error) {
 	res, err := ec.client.Indices.Stats(
 		ec.client.Indices.Stats.WithContext(ctx),
 		ec.client.Indices.Stats.WithIndex(indexPattern),
@@ -270,14 +246,14 @@ func (ec *Client) GetIndicesStats(ctx context.Context, indexPattern string) ([]I
 	}
 	defer res.Body.Close()
 
-	var response indexStatsResponse
+	var response searchstore.IndexStatsResponse
 	if err = json.NewDecoder(res.Body).Decode(&response); err != nil {
 		return nil, fmt.Errorf("[GetIndicesStats] decoding response body: %w", err)
 	}
 
-	usage := make([]IndexStats, 0, len(response.Indices))
+	usage := make([]searchstore.IndexStats, 0, len(response.Indices))
 	for index, r := range response.Indices {
-		usage = append(usage, IndexStats{
+		usage = append(usage, searchstore.IndexStats{
 			Index:            index,
 			TotalSizeBytes:   uint64(r.Total.Store.SizeInBytes),
 			PrimarySizeBytes: uint64(r.Primaries.Store.SizeInBytes),
@@ -341,7 +317,7 @@ func (ec *Client) PutIndexAlias(ctx context.Context, index []string, name string
 // PutIndexMappings add field type mapping data to a previously created ES index
 // Dynamic mapping is disabled upon index creation, so it is a requirement to explicitly define mappings for each column
 func (ec *Client) PutIndexMappings(ctx context.Context, index string, mapping map[string]any) error {
-	reader, err := createReader(mapping)
+	reader, err := searchstore.CreateReader(mapping)
 	if err != nil {
 		return err
 	}
@@ -362,7 +338,7 @@ func (ec *Client) PutIndexMappings(ctx context.Context, index string, mapping ma
 }
 
 func (ec *Client) PutIndexSettings(ctx context.Context, index string, settings map[string]any) error {
-	reader, err := createReader(settings)
+	reader, err := searchstore.CreateReader(settings)
 	if err != nil {
 		return err
 	}
@@ -403,7 +379,7 @@ func (ec *Client) Perform(req *http.Request) (*http.Response, error) {
 	return ec.client.Transport.Perform(req)
 }
 
-func (ec *Client) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, error) {
+func (ec *Client) Search(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
 	res, err := ec.client.Search(ec.parseSearchRequest(ctx, req)...)
 	if err != nil {
 		return nil, fmt.Errorf("[Search] error from Elasticsearch: %w", err)
@@ -413,7 +389,7 @@ func (ec *Client) Search(ctx context.Context, req *SearchRequest) (*SearchRespon
 		return nil, fmt.Errorf("[Search] error response from Elasticsearch: %w", err)
 	}
 
-	var response SearchResponse
+	var response searchstore.SearchResponse
 	err = json.NewDecoder(res.Body).Decode(&response)
 	if err != nil {
 		return nil, fmt.Errorf("[Search] decoding response body: %w: %w", errInvalidSearchEnvelope, err)
@@ -423,10 +399,10 @@ func (ec *Client) Search(ctx context.Context, req *SearchRequest) (*SearchRespon
 }
 
 // SendBulkRequest can perform multiple indexing or delete operations in a single call
-func (ec *Client) SendBulkRequest(ctx context.Context, items []BulkItem) ([]BulkItem, error) {
+func (ec *Client) SendBulkRequest(ctx context.Context, items []searchstore.BulkItem) ([]searchstore.BulkItem, error) {
 	buffer := new(bytes.Buffer)
 
-	if err := encodeBulkItems(buffer, items); err != nil {
+	if err := searchstore.EncodeBulkItems(buffer, items); err != nil {
 		return nil, err
 	}
 
@@ -450,10 +426,10 @@ func (ec *Client) SendBulkRequest(ctx context.Context, items []BulkItem) ([]Bulk
 		return nil, fmt.Errorf("error from Elasticsearch: %d: %s", resp.StatusCode, bodyBytes)
 	}
 
-	return verifyResponse(bodyBytes, items)
+	return searchstore.VerifyResponse(bodyBytes, items)
 }
 
-func (ec *Client) parseSearchRequest(ctx context.Context, req *SearchRequest) []func(*esapi.SearchRequest) {
+func (ec *Client) parseSearchRequest(ctx context.Context, req *searchstore.SearchRequest) []func(*esapi.SearchRequest) {
 	opts := []func(*esapi.SearchRequest){
 		ec.client.Search.WithContext(ctx),
 	}
@@ -483,14 +459,7 @@ func (ec *Client) parseSearchRequest(ctx context.Context, req *SearchRequest) []
 }
 
 func (ec *Client) isErrResponse(res *esapi.Response) error {
-	if res.IsError() {
-		if res.StatusCode == http.StatusNotFound {
-			return fmt.Errorf("%w: %w", ErrResourceNotFound, extractResponseError(res))
-		}
-		return extractResponseError(res)
-	}
-
-	return nil
+	return searchstore.IsErrResponse(newAPIResponse(res))
 }
 
 func newClient(address string) (*elasticsearch.Client, error) {
@@ -508,44 +477,18 @@ func newClient(address string) (*elasticsearch.Client, error) {
 	return elasticsearch.NewClient(cfg)
 }
 
-// createReader returns a reader on the JSON representation of the given value.
-func createReader(value any) (*bytes.Reader, error) {
-	bytesValue, err := json.Marshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("unexpected marshaling error: %w", err)
-	}
-	return bytes.NewReader(bytesValue), nil
+type apiResponse struct {
+	*esapi.Response
 }
 
-func verifyResponse(bodyBytes []byte, items []BulkItem) (failed []BulkItem, err error) {
-	var esResponse BulkResponse
-
-	if err := json.Unmarshal(bodyBytes, &esResponse); err != nil {
-		return nil, fmt.Errorf("error unmarshaling response from es: %w (%s)", err, bodyBytes)
-	}
-
-	if !esResponse.Errors {
-		return []BulkItem{}, nil
-	}
-
-	failed = []BulkItem{}
-	for i, respItem := range esResponse.Items {
-		if items[i].Index != nil {
-			if respItem.Index.Status > 299 {
-				items[i].Status = respItem.Index.Status
-				items[i].Error = respItem.Index.Error
-				failed = append(failed, items[i])
-			}
-		} else if items[i].Delete != nil {
-			if respItem.Delete.Status > 299 {
-				items[i].Status = respItem.Delete.Status
-				items[i].Error = respItem.Delete.Error
-				failed = append(failed, items[i])
-			}
-		}
-	}
-
-	return failed, nil
+func newAPIResponse(res *esapi.Response) *apiResponse {
+	return &apiResponse{Response: res}
 }
 
-func Ptr[T any](i T) *T { return &i }
+func (r *apiResponse) GetBody() io.ReadCloser {
+	return r.Body
+}
+
+func (r *apiResponse) GetStatusCode() int {
+	return r.StatusCode
+}

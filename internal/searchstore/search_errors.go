@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package es
+package searchstore
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
-	"github.com/elastic/go-elasticsearch/v8/esapi"
 	"github.com/mitchellh/mapstructure"
 )
 
@@ -79,15 +79,34 @@ const (
 )
 
 var (
-	ErrTooManyRequests      = errors.New("too many requests")
-	ErrTooManyBuckets       = errors.New("too many buckets")
-	ErrTooManyNestedClauses = errors.New("too many nested clauses")
-	ErrTooManyClauses       = errors.New("too many clauses")
+	ErrTooManyRequests            = errors.New("too many requests")
+	ErrTooManyBuckets             = errors.New("too many buckets")
+	ErrTooManyNestedClauses       = errors.New("too many nested clauses")
+	ErrTooManyClauses             = errors.New("too many clauses")
+	ErrUnsupportedSearchFieldType = errors.New("unsupported search field type")
+	ErrResourceNotFound           = errors.New("search resource not found")
 )
 
-func extractResponseError(res *esapi.Response) error {
+type apiResponse interface {
+	GetBody() io.ReadCloser
+	GetStatusCode() int
+	IsError() bool
+}
+
+func IsErrResponse(res apiResponse) error {
+	if res.IsError() {
+		if res.GetStatusCode() == http.StatusNotFound {
+			return fmt.Errorf("%w: %w", ErrResourceNotFound, extractResponseError(res))
+		}
+		return extractResponseError(res)
+	}
+
+	return nil
+}
+
+func extractResponseError(res apiResponse) error {
 	var e map[string]any
-	if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
+	if err := json.NewDecoder(res.GetBody()).Decode(&e); err != nil {
 		return fmt.Errorf("decoding error response: %w", err)
 	}
 
@@ -131,21 +150,22 @@ func extractResponseError(res *esapi.Response) error {
 		}
 	}
 
-	if err, ok := getRetryableError(res.StatusCode); ok {
+	statusCode := res.GetStatusCode()
+	if err, ok := getRetryableError(statusCode); ok {
 		return RetryableError{Cause: err}
 	}
 
-	if res.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("%w: [%d]: %s: %s", ErrResourceNotFound, res.StatusCode, errType, errReason)
+	if statusCode == http.StatusNotFound {
+		return fmt.Errorf("%w: [%d]: %s: %s", ErrResourceNotFound, statusCode, errType, errReason)
 	}
 
-	if res.StatusCode == http.StatusBadRequest {
+	if statusCode == http.StatusBadRequest {
 		switch errType {
 		case ResourceAlreadyExistsException:
 			reason, _ := errReason.(string)
 			return ErrResourceAlreadyExists{Reason: reason}
 		case SnapshotInProgressException:
-			return RetryableError{Cause: fmt.Errorf("[%d] %s: %s", res.StatusCode, errType, errReason)}
+			return RetryableError{Cause: fmt.Errorf("[%d] %s: %s", statusCode, errType, errReason)}
 		default:
 			// Generic bad request
 			return ErrQueryInvalid{
@@ -154,7 +174,7 @@ func extractResponseError(res *esapi.Response) error {
 		}
 	}
 
-	return fmt.Errorf("[%d] %s: %s", res.StatusCode, errType, errReason)
+	return fmt.Errorf("[%d] %s: %s", statusCode, errType, errReason)
 }
 
 func getRetryableError(statusCode int) (error, bool) {
