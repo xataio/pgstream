@@ -30,6 +30,7 @@ type Client interface {
 	RefreshIndex(ctx context.Context, index string) error
 	Search(ctx context.Context, req *SearchRequest) (*SearchResponse, error)
 	SendBulkRequest(ctx context.Context, items []BulkItem) ([]BulkItem, error)
+	GetMapper() Mapper
 }
 
 func Ptr[T any](i T) *T { return &i }

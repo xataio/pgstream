@@ -29,6 +29,7 @@ type Client struct {
 	RefreshIndexFn     func(ctx context.Context, index string) error
 	SearchFn           func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error)
 	SendBulkRequestFn  func(ctx context.Context, items []searchstore.BulkItem) ([]searchstore.BulkItem, error)
+	GetMapperFn        func() searchstore.Mapper
 }
 
 func (m *Client) CloseIndex(ctx context.Context, index string) error {
@@ -105,4 +106,8 @@ func (m *Client) Search(ctx context.Context, req *searchstore.SearchRequest) (*s
 
 func (m *Client) SendBulkRequest(ctx context.Context, items []searchstore.BulkItem) ([]searchstore.BulkItem, error) {
 	return m.SendBulkRequestFn(ctx, items)
+}
+
+func (m *Client) GetMapper() searchstore.Mapper {
+	return m.GetMapperFn()
 }

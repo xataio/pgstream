@@ -31,6 +31,10 @@ func NewClient(url string) (*Client, error) {
 	return &Client{client: es}, nil
 }
 
+func (ec *Client) GetMapper() searchstore.Mapper {
+	return NewMapper()
+}
+
 func (ec *Client) CloseIndex(ctx context.Context, index string) error {
 	res, err := ec.client.Indices.Close(
 		[]string{index},
