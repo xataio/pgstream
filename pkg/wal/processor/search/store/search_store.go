@@ -47,12 +47,14 @@ func NewStore(cfg Config, opts ...Option) (*Store, error) {
 	var searchStore searchstore.Client
 	var err error
 	switch {
+	case cfg.OpenSearchURL != "" && cfg.ElasticsearchURL != "":
+		return nil, errors.New("only one store URL must be provided")
+	case cfg.OpenSearchURL == "" && cfg.ElasticsearchURL == "":
+		return nil, errors.New("a store URL must be provided")
 	case cfg.OpenSearchURL != "":
 		searchStore, err = opensearchstore.NewClient(cfg.OpenSearchURL)
 	case cfg.ElasticsearchURL != "":
 		searchStore, err = elasticsearchstore.NewClient(cfg.ElasticsearchURL)
-	default:
-		return nil, errors.New("invalid search store configuration provided")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("create search store client: %w", err)
