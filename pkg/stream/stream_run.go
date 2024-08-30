@@ -18,7 +18,7 @@ import (
 	processinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/instrumentation"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
-	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
+	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
 	webhooknotifier "github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
 	subscriptionserver "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
@@ -120,7 +120,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric
 	case config.Processor.Search != nil:
 		var searchStore search.Store
 		var err error
-		searchStore, err = opensearch.NewStore(config.Processor.Search.Store, opensearch.WithLogger(logger))
+		searchStore, err = store.NewStore(config.Processor.Search.Store, store.WithLogger(logger))
 		if err != nil {
 			return err
 		}

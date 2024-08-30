@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package opensearch
+package store
 
 import (
 	"fmt"

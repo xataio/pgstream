@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package opensearch
+package store
 
 import (
 	"bytes"
@@ -12,8 +12,8 @@ import (
 
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
-	"github.com/xataio/pgstream/internal/es"
-	esmocks "github.com/xataio/pgstream/internal/es/mocks"
+	"github.com/xataio/pgstream/internal/searchstore"
+	searchstoremocks "github.com/xataio/pgstream/internal/searchstore/mocks"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	searchmocks "github.com/xataio/pgstream/pkg/wal/processor/search/mocks"
@@ -35,9 +35,9 @@ func TestStore_ApplySchemaChange(t *testing.T) {
 		Version:    1,
 	}
 
-	testSearchResponse := &es.SearchResponse{
-		Hits: es.Hits{
-			Hits: []es.Hit{
+	testSearchResponse := &searchstore.SearchResponse{
+		Hits: searchstore.Hits{
+			Hits: []searchstore.Hit{
 				{ID: "doc-1"},
 			},
 		},
@@ -62,26 +62,33 @@ func TestStore_ApplySchemaChange(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		client   es.SearchClient
+		client   searchstore.Client
 		logEntry *schemalog.LogEntry
 
 		wantErr error
 	}{
 		{
-			name:     "ok - nil entry",
-			client:   &esmocks.Client{},
+			name: "ok - nil entry",
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+			},
 			logEntry: nil,
 
 			wantErr: nil,
 		},
 		{
 			name: "ok",
-			client: &esmocks.Client{
-				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
 					return testSearchResponse, nil
 				},
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) { return true, nil },
-				IndexWithIDFn: func(ctx context.Context, req *es.IndexWithIDRequest) error {
+				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
 					return nil
 				},
 			},
@@ -91,14 +98,17 @@ func TestStore_ApplySchemaChange(t *testing.T) {
 		},
 		{
 			name: "ok - index doesn't exist",
-			client: &esmocks.Client{
-				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
-					return nil, es.ErrResourceNotFound
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
+					return nil, searchstore.ErrResourceNotFound
 				},
 				IndexExistsFn:   func(ctx context.Context, index string) (bool, error) { return false, nil },
 				CreateIndexFn:   func(ctx context.Context, index string, body map[string]any) error { return nil },
 				PutIndexAliasFn: func(ctx context.Context, index []string, name string) error { return nil },
-				IndexWithIDFn: func(ctx context.Context, req *es.IndexWithIDRequest) error {
+				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
 					return nil
 				},
 			},
@@ -108,9 +118,12 @@ func TestStore_ApplySchemaChange(t *testing.T) {
 		},
 		{
 			name: "error - ensuring schema exists",
-			client: &esmocks.Client{
-				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
-					return nil, es.ErrResourceNotFound
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
+					return nil, searchstore.ErrResourceNotFound
 				},
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
 					if index == schemalogIndexName {
@@ -126,8 +139,11 @@ func TestStore_ApplySchemaChange(t *testing.T) {
 		},
 		{
 			name: "error - getting last schema",
-			client: &esmocks.Client{
-				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
 					return nil, errTest
 				},
 			},
@@ -137,12 +153,15 @@ func TestStore_ApplySchemaChange(t *testing.T) {
 		},
 		{
 			name: "error - schema out of order",
-			client: &esmocks.Client{
-				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
 					return testSearchResponse, nil
 				},
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) { return true, nil },
-				IndexWithIDFn: func(ctx context.Context, req *es.IndexWithIDRequest) error {
+				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
 					return nil
 				},
 			},
@@ -157,12 +176,15 @@ func TestStore_ApplySchemaChange(t *testing.T) {
 		},
 		{
 			name: "error - updating mapping",
-			client: &esmocks.Client{
-				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
 					return testSearchResponse, nil
 				},
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) { return true, nil },
-				IndexWithIDFn: func(ctx context.Context, req *es.IndexWithIDRequest) error { return errTest },
+				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error { return errTest },
 			},
 			logEntry: newLogEntry,
 
@@ -170,8 +192,11 @@ func TestStore_ApplySchemaChange(t *testing.T) {
 		},
 		{
 			name: "error - ensuring schema mapping",
-			client: &esmocks.Client{
-				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
 					return testSearchResponse, nil
 				},
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) { return false, nil },
@@ -212,15 +237,18 @@ func TestStore_SendDocuments(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		client es.SearchClient
+		client searchstore.Client
 
 		wantErrDocs []search.DocumentError
 		wantErr     error
 	}{
 		{
 			name: "ok - no failed documents",
-			client: &esmocks.Client{
-				SendBulkRequestFn: func(ctx context.Context, items []es.BulkItem) ([]es.BulkItem, error) {
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SendBulkRequestFn: func(ctx context.Context, items []searchstore.BulkItem) ([]searchstore.BulkItem, error) {
 					return nil, nil
 				},
 			},
@@ -230,11 +258,14 @@ func TestStore_SendDocuments(t *testing.T) {
 		},
 		{
 			name: "ok - with failed documents",
-			client: &esmocks.Client{
-				SendBulkRequestFn: func(ctx context.Context, items []es.BulkItem) ([]es.BulkItem, error) {
-					return []es.BulkItem{
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SendBulkRequestFn: func(ctx context.Context, items []searchstore.BulkItem) ([]searchstore.BulkItem, error) {
+					return []searchstore.BulkItem{
 						{
-							Index: &es.BulkIndex{
+							Index: &searchstore.BulkIndex{
 								Index: testSchemaName,
 								ID:    "doc-1",
 							},
@@ -259,8 +290,11 @@ func TestStore_SendDocuments(t *testing.T) {
 		},
 		{
 			name: "error - sending bulk request",
-			client: &esmocks.Client{
-				SendBulkRequestFn: func(ctx context.Context, items []es.BulkItem) ([]es.BulkItem, error) {
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SendBulkRequestFn: func(ctx context.Context, items []searchstore.BulkItem) ([]searchstore.BulkItem, error) {
 					return nil, errTest
 				},
 			},
@@ -293,13 +327,16 @@ func TestStore_DeleteSchema(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		client es.SearchClient
+		client searchstore.Client
 
 		wantErr error
 	}{
 		{
 			name: "ok",
-			client: &esmocks.Client{
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
 					require.Equal(t, testIndexWithVersion, index)
 					return true, nil
@@ -308,7 +345,7 @@ func TestStore_DeleteSchema(t *testing.T) {
 					require.Equal(t, []string{testIndexWithVersion}, index)
 					return nil
 				},
-				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
 					require.Equal(t, []string{schemalogIndexName}, req.Index)
 					require.Equal(t, map[string]any{
 						"query": map[string]any{
@@ -326,7 +363,10 @@ func TestStore_DeleteSchema(t *testing.T) {
 		},
 		{
 			name: "ok - index doesn't exist",
-			client: &esmocks.Client{
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
 					require.Equal(t, testIndexWithVersion, index)
 					return false, nil
@@ -334,7 +374,7 @@ func TestStore_DeleteSchema(t *testing.T) {
 				DeleteIndexFn: func(ctx context.Context, index []string) error {
 					return errors.New("DeleteIndexFn: should not be called")
 				},
-				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
 					require.Equal(t, []string{schemalogIndexName}, req.Index)
 					require.Equal(t, map[string]any{
 						"query": map[string]any{
@@ -352,14 +392,17 @@ func TestStore_DeleteSchema(t *testing.T) {
 		},
 		{
 			name: "error - checking index exists",
-			client: &esmocks.Client{
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
 					return false, errTest
 				},
 				DeleteIndexFn: func(ctx context.Context, index []string) error {
 					return errors.New("DeleteIndexFn: should not be called")
 				},
-				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
 					return errors.New("DeleteByQueryFn: should not be called")
 				},
 			},
@@ -368,14 +411,17 @@ func TestStore_DeleteSchema(t *testing.T) {
 		},
 		{
 			name: "error - deleting index",
-			client: &esmocks.Client{
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
 					return true, nil
 				},
 				DeleteIndexFn: func(ctx context.Context, index []string) error {
 					return errTest
 				},
-				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
 					return errors.New("DeleteByQueryFn: should not be called")
 				},
 			},
@@ -384,14 +430,17 @@ func TestStore_DeleteSchema(t *testing.T) {
 		},
 		{
 			name: "error - deleting schema from schema log",
-			client: &esmocks.Client{
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
 					return false, nil
 				},
 				DeleteIndexFn: func(ctx context.Context, index []string) error {
 					return errTest
 				},
-				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
 					return errTest
 				},
 			},
@@ -421,15 +470,18 @@ func TestStore_DeleteTableDocuments(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		client   es.SearchClient
+		client   searchstore.Client
 		tableIDs []string
 
 		wantErr error
 	}{
 		{
 			name: "ok",
-			client: &esmocks.Client{
-				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
 					require.Equal(t, []string{testSchemaName}, req.Index)
 					require.Equal(t, map[string]any{
 						"query": map[string]any{
@@ -448,8 +500,11 @@ func TestStore_DeleteTableDocuments(t *testing.T) {
 		},
 		{
 			name: "ok - no tables",
-			client: &esmocks.Client{
-				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
 					require.Equal(t, []string{testSchemaName}, req.Index)
 					require.Equal(t, map[string]any{
 						"query": map[string]any{
@@ -468,8 +523,11 @@ func TestStore_DeleteTableDocuments(t *testing.T) {
 		},
 		{
 			name: "error - deleting by query",
-			client: &esmocks.Client{
-				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
 					return errTest
 				},
 			},
@@ -505,7 +563,7 @@ func TestStore_getLastSchemaLogEntry(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		client    es.SearchClient
+		client    searchstore.Client
 		adapter   SearchAdapter
 		marshaler func(any) ([]byte, error)
 
@@ -514,17 +572,20 @@ func TestStore_getLastSchemaLogEntry(t *testing.T) {
 	}{
 		{
 			name: "ok",
-			client: &esmocks.Client{
-				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
-					require.Equal(t, &es.SearchRequest{
-						Index: es.Ptr(schemalogIndexName),
-						Size:  es.Ptr(1),
-						Sort:  es.Ptr("version:desc"),
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
+					require.Equal(t, &searchstore.SearchRequest{
+						Index: searchstore.Ptr(schemalogIndexName),
+						Size:  searchstore.Ptr(1),
+						Sort:  searchstore.Ptr("version:desc"),
 						Query: bytes.NewBuffer(testBody),
 					}, req)
-					return &es.SearchResponse{
-						Hits: es.Hits{
-							Hits: []es.Hit{
+					return &searchstore.SearchResponse{
+						Hits: searchstore.Hits{
+							Hits: []searchstore.Hit{
 								{ID: "doc-1"},
 							},
 						},
@@ -543,8 +604,11 @@ func TestStore_getLastSchemaLogEntry(t *testing.T) {
 		},
 		{
 			name: "error - marshaling search query",
-			client: &esmocks.Client{
-				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
 					return nil, errors.New("SearchFn: should not be called")
 				},
 			},
@@ -560,10 +624,13 @@ func TestStore_getLastSchemaLogEntry(t *testing.T) {
 		},
 		{
 			name: "error - no hits in response",
-			client: &esmocks.Client{
-				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
-					return &es.SearchResponse{
-						Hits: es.Hits{},
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
+					return &searchstore.SearchResponse{
+						Hits: searchstore.Hits{},
 					}, nil
 				},
 			},
@@ -578,9 +645,12 @@ func TestStore_getLastSchemaLogEntry(t *testing.T) {
 		},
 		{
 			name: "error - schema not found",
-			client: &esmocks.Client{
-				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
-					return nil, es.ErrResourceNotFound
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
+					return nil, searchstore.ErrResourceNotFound
 				},
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
 					require.Equal(t, schemalogIndexName, index)
@@ -598,8 +668,11 @@ func TestStore_getLastSchemaLogEntry(t *testing.T) {
 		},
 		{
 			name: "error - retrieving schema",
-			client: &esmocks.Client{
-				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
 					return nil, errTest
 				},
 			},
@@ -614,9 +687,12 @@ func TestStore_getLastSchemaLogEntry(t *testing.T) {
 		},
 		{
 			name: "error - schema not found with pgstream index creation",
-			client: &esmocks.Client{
-				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
-					return nil, es.ErrResourceNotFound
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
+					return nil, searchstore.ErrResourceNotFound
 				},
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
 					require.Equal(t, schemalogIndexName, index)
@@ -638,9 +714,12 @@ func TestStore_getLastSchemaLogEntry(t *testing.T) {
 		},
 		{
 			name: "error - schema not found, failed to create schemalog index",
-			client: &esmocks.Client{
-				SearchFn: func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
-					return nil, es.ErrResourceNotFound
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
+					return nil, searchstore.ErrResourceNotFound
 				},
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
 					require.Equal(t, schemalogIndexName, index)
@@ -689,13 +768,16 @@ func TestStore_createSchema(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		client es.SearchClient
+		client searchstore.Client
 
 		wantErr error
 	}{
 		{
 			name: "ok",
-			client: &esmocks.Client{
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
 				CreateIndexFn: func(ctx context.Context, index string, body map[string]any) error {
 					return nil
 				},
@@ -710,7 +792,10 @@ func TestStore_createSchema(t *testing.T) {
 		},
 		{
 			name: "error - creating index",
-			client: &esmocks.Client{
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
 				CreateIndexFn: func(ctx context.Context, index string, body map[string]any) error {
 					return errTest
 				},
@@ -723,7 +808,10 @@ func TestStore_createSchema(t *testing.T) {
 		},
 		{
 			name: "error - putting index alias",
-			client: &esmocks.Client{
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
 				CreateIndexFn: func(ctx context.Context, index string, body map[string]any) error {
 					return nil
 				},
@@ -767,7 +855,7 @@ func TestStore_updateMapping(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		client es.SearchClient
+		client searchstore.Client
 		diff   *schemalog.SchemaDiff
 		mapper search.Mapper
 
@@ -775,14 +863,17 @@ func TestStore_updateMapping(t *testing.T) {
 	}{
 		{
 			name: "ok - no diff",
-			client: &esmocks.Client{
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
 				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
 					return errors.New("PutIndexMappingsFn: should not be called")
 				},
-				IndexWithIDFn: func(ctx context.Context, req *es.IndexWithIDRequest) error {
+				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
 					return nil
 				},
-				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
 					return errors.New("DeleteByQueryFn: should not be called")
 				},
 			},
@@ -791,7 +882,10 @@ func TestStore_updateMapping(t *testing.T) {
 		},
 		{
 			name: "ok - diff with columns to add",
-			client: &esmocks.Client{
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
 				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
 					require.Equal(t, testIndexName, index)
 					require.Equal(t, map[string]any{
@@ -801,10 +895,10 @@ func TestStore_updateMapping(t *testing.T) {
 					}, body)
 					return nil
 				},
-				IndexWithIDFn: func(ctx context.Context, req *es.IndexWithIDRequest) error {
+				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
 					return nil
 				},
-				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
 					return errors.New("DeleteByQueryFn: should not be called")
 				},
 			},
@@ -823,14 +917,17 @@ func TestStore_updateMapping(t *testing.T) {
 		},
 		{
 			name: "ok - diff with tables to remove",
-			client: &esmocks.Client{
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
 				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
 					return errors.New("PutIndexMappingsFn: should not be called")
 				},
-				IndexWithIDFn: func(ctx context.Context, req *es.IndexWithIDRequest) error {
+				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
 					return nil
 				},
-				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
 					require.Equal(t, []string{testIndexName}, req.Index)
 					require.Equal(t, map[string]any{
 						"query": map[string]any{
@@ -854,14 +951,17 @@ func TestStore_updateMapping(t *testing.T) {
 		},
 		{
 			name: "error - updating mapping",
-			client: &esmocks.Client{
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
 				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
 					return errTest
 				},
-				IndexWithIDFn: func(ctx context.Context, req *es.IndexWithIDRequest) error {
+				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
 					return errors.New("IndexWithIDFn: should not be called")
 				},
-				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
 					return errors.New("DeleteByQueryFn: should not be called")
 				},
 			},
@@ -875,14 +975,17 @@ func TestStore_updateMapping(t *testing.T) {
 		},
 		{
 			name: "error - deleting tables",
-			client: &esmocks.Client{
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
 				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
 					return errors.New("PutIndexMappingsFn: should not be called")
 				},
-				IndexWithIDFn: func(ctx context.Context, req *es.IndexWithIDRequest) error {
+				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
 					return errors.New("IndexWithIDFn: should not be called")
 				},
-				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
 					return errTest
 				},
 			},
@@ -897,14 +1000,17 @@ func TestStore_updateMapping(t *testing.T) {
 		},
 		{
 			name: "error - inserting schemalog",
-			client: &esmocks.Client{
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
 				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
 					return errors.New("PutIndexMappingsFn: should not be called")
 				},
-				IndexWithIDFn: func(ctx context.Context, req *es.IndexWithIDRequest) error {
+				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
 					return errTest
 				},
-				DeleteByQueryFn: func(ctx context.Context, req *es.DeleteByQueryRequest) error {
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
 					return errors.New("DeleteByQueryFn: should not be called")
 				},
 			},

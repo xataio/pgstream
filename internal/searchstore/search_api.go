@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package es
+package searchstore
 
 import (
 	"bytes"
@@ -250,11 +250,11 @@ type Mappings struct {
 	Dynamic    string
 }
 
-type mappingResponse map[string]struct {
+type MappingResponse map[string]struct {
 	Mappings Mappings
 }
 
-type indexStatsResponse struct {
+type IndexStatsResponse struct {
 	Indices map[string]struct {
 		Primaries struct {
 			Store struct {
@@ -269,11 +269,11 @@ type indexStatsResponse struct {
 	} `json:"indices"`
 }
 
-type countResponse struct {
+type CountResponse struct {
 	Count int `json:"count"`
 }
 
-func encodeBulkItems(buffer *bytes.Buffer, items []BulkItem) error {
+func EncodeBulkItems(buffer *bytes.Buffer, items []BulkItem) error {
 	encoder := json.NewEncoder(buffer)
 
 	for _, item := range items {

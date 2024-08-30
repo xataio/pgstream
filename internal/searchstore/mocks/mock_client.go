@@ -6,20 +6,20 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/xataio/pgstream/internal/es"
+	"github.com/xataio/pgstream/internal/searchstore"
 )
 
 type Client struct {
 	CloseIndexFn       func(ctx context.Context, index string) error
 	CountFn            func(ctx context.Context, index string) (int, error)
 	CreateIndexFn      func(ctx context.Context, index string, body map[string]any) error
-	DeleteByQueryFn    func(ctx context.Context, req *es.DeleteByQueryRequest) error
+	DeleteByQueryFn    func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error
 	DeleteIndexFn      func(ctx context.Context, index []string) error
 	GetIndexAliasFn    func(ctx context.Context, name string) (map[string]any, error)
-	GetIndexMappingsFn func(ctx context.Context, index string) (*es.Mappings, error)
-	GetIndicesStatsFn  func(ctx context.Context, pattern string) ([]es.IndexStats, error)
-	IndexFn            func(ctx context.Context, req *es.IndexRequest) error
-	IndexWithIDFn      func(ctx context.Context, req *es.IndexWithIDRequest) error
+	GetIndexMappingsFn func(ctx context.Context, index string) (*searchstore.Mappings, error)
+	GetIndicesStatsFn  func(ctx context.Context, pattern string) ([]searchstore.IndexStats, error)
+	IndexFn            func(ctx context.Context, req *searchstore.IndexRequest) error
+	IndexWithIDFn      func(ctx context.Context, req *searchstore.IndexWithIDRequest) error
 	IndexExistsFn      func(ctx context.Context, index string) (bool, error)
 	ListIndicesFn      func(ctx context.Context, indices []string) ([]string, error)
 	PerformFn          func(req *http.Request) (*http.Response, error)
@@ -27,8 +27,9 @@ type Client struct {
 	PutIndexMappingsFn func(ctx context.Context, index string, body map[string]any) error
 	PutIndexSettingsFn func(ctx context.Context, index string, body map[string]any) error
 	RefreshIndexFn     func(ctx context.Context, index string) error
-	SearchFn           func(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error)
-	SendBulkRequestFn  func(ctx context.Context, items []es.BulkItem) ([]es.BulkItem, error)
+	SearchFn           func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error)
+	SendBulkRequestFn  func(ctx context.Context, items []searchstore.BulkItem) ([]searchstore.BulkItem, error)
+	GetMapperFn        func() searchstore.Mapper
 }
 
 func (m *Client) CloseIndex(ctx context.Context, index string) error {
@@ -43,7 +44,7 @@ func (m *Client) CreateIndex(ctx context.Context, index string, body map[string]
 	return m.CreateIndexFn(ctx, index, body)
 }
 
-func (m *Client) DeleteByQuery(ctx context.Context, req *es.DeleteByQueryRequest) error {
+func (m *Client) DeleteByQuery(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
 	return m.DeleteByQueryFn(ctx, req)
 }
 
@@ -55,19 +56,19 @@ func (m *Client) GetIndexAlias(ctx context.Context, name string) (map[string]any
 	return m.GetIndexAliasFn(ctx, name)
 }
 
-func (m *Client) GetIndexMappings(ctx context.Context, index string) (*es.Mappings, error) {
+func (m *Client) GetIndexMappings(ctx context.Context, index string) (*searchstore.Mappings, error) {
 	return m.GetIndexMappingsFn(ctx, index)
 }
 
-func (m *Client) GetIndicesStats(ctx context.Context, pattern string) ([]es.IndexStats, error) {
+func (m *Client) GetIndicesStats(ctx context.Context, pattern string) ([]searchstore.IndexStats, error) {
 	return m.GetIndicesStatsFn(ctx, pattern)
 }
 
-func (m *Client) Index(ctx context.Context, req *es.IndexRequest) error {
+func (m *Client) Index(ctx context.Context, req *searchstore.IndexRequest) error {
 	return m.IndexFn(ctx, req)
 }
 
-func (m *Client) IndexWithID(ctx context.Context, req *es.IndexWithIDRequest) error {
+func (m *Client) IndexWithID(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
 	return m.IndexWithIDFn(ctx, req)
 }
 
@@ -99,10 +100,14 @@ func (m *Client) RefreshIndex(ctx context.Context, index string) error {
 	return m.RefreshIndexFn(ctx, index)
 }
 
-func (m *Client) Search(ctx context.Context, req *es.SearchRequest) (*es.SearchResponse, error) {
+func (m *Client) Search(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
 	return m.SearchFn(ctx, req)
 }
 
-func (m *Client) SendBulkRequest(ctx context.Context, items []es.BulkItem) ([]es.BulkItem, error) {
+func (m *Client) SendBulkRequest(ctx context.Context, items []searchstore.BulkItem) ([]searchstore.BulkItem, error) {
 	return m.SendBulkRequestFn(ctx, items)
+}
+
+func (m *Client) GetMapper() searchstore.Mapper {
+	return m.GetMapperFn()
 }

@@ -20,7 +20,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
-	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
+	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
@@ -28,9 +28,10 @@ import (
 )
 
 var (
-	pgurl        string
-	kafkaBrokers []string
-	searchURL    string
+	pgurl            string
+	kafkaBrokers     []string
+	opensearchURL    string
+	elasticsearchURL string
 )
 
 type mockProcessor struct {
@@ -130,12 +131,10 @@ func testKafkaProcessorCfg() stream.ProcessorConfig {
 	}
 }
 
-func testSearchProcessorCfg() stream.ProcessorConfig {
+func testSearchProcessorCfg(storeCfg store.Config) stream.ProcessorConfig {
 	return stream.ProcessorConfig{
 		Search: &stream.SearchProcessorConfig{
-			Store: opensearch.Config{
-				URL: searchURL,
-			},
+			Store: storeCfg,
 		},
 		Translator: &translator.Config{
 			Store: schemalogpg.Config{

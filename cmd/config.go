@@ -14,7 +14,7 @@ import (
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
-	"github.com/xataio/pgstream/pkg/wal/processor/search/opensearch"
+	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
@@ -148,8 +148,9 @@ func parseKafkaWriterConfig(kafkaServers []string, kafkaTopic string) *kafkaproc
 }
 
 func parseSearchProcessorConfig() *stream.SearchProcessorConfig {
-	searchStore := viper.GetString("PGSTREAM_SEARCH_STORE_URL")
-	if searchStore == "" {
+	opensearchStore := viper.GetString("PGSTREAM_OPENSEARCH_STORE_URL")
+	elasticsearchStore := viper.GetString("PGSTREAM_ELASTICSEARCH_STORE_URL")
+	if opensearchStore == "" && elasticsearchStore == "" {
 		return nil
 	}
 
@@ -160,8 +161,9 @@ func parseSearchProcessorConfig() *stream.SearchProcessorConfig {
 			MaxQueueBytes:  viper.GetInt64("PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES"),
 			CleanupBackoff: parseBackoffConfig("PGSTREAM_SEARCH_INDEXER_CLEANUP"),
 		},
-		Store: opensearch.Config{
-			URL: searchStore,
+		Store: store.Config{
+			OpenSearchURL:    opensearchStore,
+			ElasticsearchURL: elasticsearchStore,
 		},
 		Retrier: search.StoreRetryConfig{
 			Backoff: parseBackoffConfig("PGSTREAM_SEARCH_STORE"),
