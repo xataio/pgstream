@@ -8,13 +8,16 @@ import (
 	"time"
 
 	"github.com/xataio/pgstream/pkg/kafka"
+	"github.com/xataio/pgstream/pkg/otel"
 
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Writer struct {
 	inner   kafka.MessageWriter
 	meter   metric.Meter
+	tracer  trace.Tracer
 	metrics *writerMetrics
 }
 
@@ -24,10 +27,15 @@ type writerMetrics struct {
 	writeLatency metric.Int64Histogram
 }
 
-func NewWriter(inner kafka.MessageWriter, meter metric.Meter) (*Writer, error) {
+func NewWriter(inner kafka.MessageWriter, instrumentation *otel.Instrumentation) (kafka.MessageWriter, error) {
+	if instrumentation == nil {
+		return inner, nil
+	}
+
 	i := &Writer{
 		inner:   inner,
-		meter:   meter,
+		meter:   instrumentation.Meter,
+		tracer:  instrumentation.Tracer,
 		metrics: &writerMetrics{},
 	}
 
@@ -39,6 +47,10 @@ func NewWriter(inner kafka.MessageWriter, meter metric.Meter) (*Writer, error) {
 }
 
 func (i *Writer) initMetrics() error {
+	if i.meter == nil {
+		return nil
+	}
+
 	var err error
 	i.metrics.batchSize, err = i.meter.Int64Histogram("pgstream.kafka.writer.batch.size",
 		metric.WithUnit("messages"),
@@ -65,19 +77,24 @@ func (i *Writer) initMetrics() error {
 }
 
 func (i *Writer) WriteMessages(ctx context.Context, msgs ...kafka.Message) (err error) {
-	startTime := time.Now()
-	defer func() {
-		i.metrics.writeLatency.Record(ctx, time.Since(startTime).Milliseconds())
-	}()
-	i.metrics.batchSize.Record(ctx, int64(len(msgs)))
+	ctx, span := otel.StartSpan(ctx, i.tracer, "kafka.WriteMessages")
+	defer otel.CloseSpan(span, err)
 
-	go func() {
-		batchBytes := 0
-		for _, msg := range msgs {
-			batchBytes += len(msg.Value)
-		}
-		i.metrics.batchBytes.Record(ctx, int64(batchBytes))
-	}()
+	if i.meter != nil {
+		startTime := time.Now()
+		defer func() {
+			i.metrics.writeLatency.Record(ctx, time.Since(startTime).Milliseconds())
+		}()
+		i.metrics.batchSize.Record(ctx, int64(len(msgs)))
+
+		go func() {
+			batchBytes := 0
+			for _, msg := range msgs {
+				batchBytes += len(msg.Value)
+			}
+			i.metrics.batchBytes.Record(ctx, int64(batchBytes))
+		}()
+	}
 
 	return i.inner.WriteMessages(ctx, msgs...)
 }

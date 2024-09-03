@@ -7,14 +7,17 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Processor struct {
 	inner   processor.Processor
+	tracer  trace.Tracer
 	meter   metric.Meter
 	metrics *metrics
 }
@@ -24,11 +27,16 @@ type metrics struct {
 	processingLatency metric.Int64Histogram
 }
 
-func NewProcessor(p processor.Processor, meter metric.Meter) (*Processor, error) {
+func NewProcessor(p processor.Processor, instrumentation *otel.Instrumentation) (processor.Processor, error) {
+	if instrumentation == nil {
+		return p, nil
+	}
+
 	processor := &Processor{
 		inner:   p,
+		tracer:  instrumentation.Tracer,
+		meter:   instrumentation.Meter,
 		metrics: &metrics{},
-		meter:   meter,
 	}
 
 	if err := processor.initMetrics(); err != nil {
@@ -38,16 +46,21 @@ func NewProcessor(p processor.Processor, meter metric.Meter) (*Processor, error)
 	return processor, nil
 }
 
-func (i *Processor) ProcessWALEvent(ctx context.Context, event *wal.Event) error {
-	startTime := time.Now()
-	defer func() {
-		i.metrics.processingLatency.Record(ctx, int64(time.Since(startTime).Milliseconds()))
-	}()
+func (i *Processor) ProcessWALEvent(ctx context.Context, event *wal.Event) (err error) {
+	ctx, span := otel.StartSpan(ctx, i.tracer, "processor.ProcessWALEvent")
+	defer otel.CloseSpan(span, err)
 
-	if event.Data != nil {
-		timestamp, err := event.Data.GetTimestamp()
-		if err == nil {
-			i.metrics.processLag.Record(ctx, time.Since(timestamp).Milliseconds())
+	if i.meter != nil {
+		startTime := time.Now()
+		defer func() {
+			i.metrics.processingLatency.Record(ctx, int64(time.Since(startTime).Milliseconds()))
+		}()
+
+		if event.Data != nil {
+			timestamp, err := event.Data.GetTimestamp()
+			if err == nil {
+				i.metrics.processLag.Record(ctx, time.Since(timestamp).Milliseconds())
+			}
 		}
 	}
 	return i.inner.ProcessWALEvent(ctx, event)
@@ -58,6 +71,10 @@ func (i *Processor) Name() string {
 }
 
 func (i *Processor) initMetrics() error {
+	if i.meter == nil {
+		return nil
+	}
+
 	var err error
 	i.metrics.processLag, err = i.meter.Int64Histogram(fmt.Sprintf("pgstream.%s.processing.lag", i.inner.Name()),
 		metric.WithUnit("ms"),

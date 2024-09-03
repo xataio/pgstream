@@ -9,6 +9,7 @@ import (
 
 	"github.com/xataio/pgstream/pkg/kafka"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	pgcheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/postgres"
@@ -29,12 +30,11 @@ import (
 	replicationinstrumentation "github.com/xataio/pgstream/pkg/wal/replication/instrumentation"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 
-	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/errgroup"
 )
 
 // Run will run the configured pgstream processes. This call is blocking.
-func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric.Meter) error {
+func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentation *otel.Instrumentation) error {
 	if err := config.IsValid(); err != nil {
 		return fmt.Errorf("incompatible configuration: %w", err)
 	}
@@ -53,9 +53,9 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric
 		defer replicationHandler.Close()
 	}
 
-	if replicationHandler != nil && meter != nil {
+	if replicationHandler != nil && instrumentation.IsEnabled() {
 		var err error
-		replicationHandler, err = replicationinstrumentation.NewHandler(replicationHandler, meter)
+		replicationHandler, err = replicationinstrumentation.NewHandler(replicationHandler, instrumentation)
 		if err != nil {
 			return err
 		}
@@ -101,8 +101,8 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric
 			kafkaprocessor.WithCheckpoint(checkpoint),
 			kafkaprocessor.WithLogger(logger),
 		}
-		if meter != nil {
-			opts = append(opts, kafkaprocessor.WithInstrumentation(meter))
+		if instrumentation.IsEnabled() {
+			opts = append(opts, kafkaprocessor.WithInstrumentation(instrumentation))
 		}
 		kafkaWriter, err := kafkaprocessor.NewBatchWriter(config.Processor.Kafka.Writer, opts...)
 		if err != nil {
@@ -204,9 +204,9 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric
 		processor = translator
 	}
 
-	if processor != nil && meter != nil {
+	if processor != nil && instrumentation.IsEnabled() {
 		var err error
-		processor, err = processinstrumentation.NewProcessor(processor, meter)
+		processor, err = processinstrumentation.NewProcessor(processor, instrumentation)
 		if err != nil {
 			return err
 		}

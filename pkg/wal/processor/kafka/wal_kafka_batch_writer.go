@@ -14,10 +14,10 @@ import (
 	"github.com/xataio/pgstream/pkg/kafka"
 	kafkainstrumentation "github.com/xataio/pgstream/pkg/kafka/instrumentation"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // BatchWriter is a kafka writer that uses batches to send the data to the
@@ -104,9 +104,9 @@ func WithCheckpoint(c checkpointer.Checkpoint) Option {
 	}
 }
 
-func WithInstrumentation(m metric.Meter) Option {
+func WithInstrumentation(i *otel.Instrumentation) Option {
 	return func(w *BatchWriter) {
-		instrumentedWriter, err := kafkainstrumentation.NewWriter(w.writer, m)
+		instrumentedWriter, err := kafkainstrumentation.NewWriter(w.writer, i)
 		if err != nil {
 			w.logger.Error(err, "initialising kafka writer instrumentation")
 			return
