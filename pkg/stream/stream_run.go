@@ -8,7 +8,9 @@ import (
 	"fmt"
 
 	"github.com/xataio/pgstream/pkg/kafka"
+	kafkainstrumentation "github.com/xataio/pgstream/pkg/kafka/instrumentation"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	pgcheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/postgres"
@@ -18,6 +20,7 @@ import (
 	processinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/instrumentation"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
+	searchinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/search/instrumentation"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
 	webhooknotifier "github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
@@ -29,12 +32,11 @@ import (
 	replicationinstrumentation "github.com/xataio/pgstream/pkg/wal/replication/instrumentation"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 
-	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/errgroup"
 )
 
 // Run will run the configured pgstream processes. This call is blocking.
-func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric.Meter) error {
+func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentation *otel.Instrumentation) error {
 	if err := config.IsValid(); err != nil {
 		return fmt.Errorf("incompatible configuration: %w", err)
 	}
@@ -53,15 +55,15 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric
 		defer replicationHandler.Close()
 	}
 
-	if replicationHandler != nil && meter != nil {
+	if replicationHandler != nil && instrumentation.IsEnabled() {
 		var err error
-		replicationHandler, err = replicationinstrumentation.NewHandler(replicationHandler, meter)
+		replicationHandler, err = replicationinstrumentation.NewHandler(replicationHandler, instrumentation)
 		if err != nil {
 			return err
 		}
 	}
 
-	var kafkaReader *kafka.Reader
+	var kafkaReader kafka.MessageReader
 	if config.Listener.Kafka != nil {
 		var err error
 		kafkaReader, err = kafka.NewReader(config.Listener.Kafka.Reader, logger)
@@ -69,6 +71,14 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric
 			return fmt.Errorf("error setting up kafka reader: %w", err)
 		}
 		defer kafkaReader.Close()
+	}
+
+	if kafkaReader != nil && instrumentation.IsEnabled() {
+		var err error
+		kafkaReader, err = kafkainstrumentation.NewReader(kafkaReader, instrumentation)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Checkpointer
@@ -101,8 +111,8 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric
 			kafkaprocessor.WithCheckpoint(checkpoint),
 			kafkaprocessor.WithLogger(logger),
 		}
-		if meter != nil {
-			opts = append(opts, kafkaprocessor.WithInstrumentation(meter))
+		if instrumentation.IsEnabled() {
+			opts = append(opts, kafkaprocessor.WithInstrumentation(instrumentation))
 		}
 		kafkaWriter, err := kafkaprocessor.NewBatchWriter(config.Processor.Kafka.Writer, opts...)
 		if err != nil {
@@ -125,6 +135,12 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric
 			return err
 		}
 		searchStore = search.NewStoreRetrier(searchStore, config.Processor.Search.Retrier, search.WithStoreLogger(logger))
+		if instrumentation.IsEnabled() {
+			searchStore, err = searchinstrumentation.NewStore(searchStore, instrumentation)
+			if err != nil {
+				return err
+			}
+		}
 
 		searchIndexer := search.NewBatchIndexer(ctx,
 			config.Processor.Search.Indexer,
@@ -196,7 +212,13 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric
 
 	if config.Processor.Translator != nil {
 		logger.Info("adding translation to processor...")
-		translator, err := translator.New(config.Processor.Translator, processor, translator.WithLogger(logger))
+		opts := []translator.Option{
+			translator.WithLogger(logger),
+		}
+		if instrumentation.IsEnabled() {
+			opts = append(opts, translator.WithInstrumentation(instrumentation))
+		}
+		translator, err := translator.New(config.Processor.Translator, processor, opts...)
 		if err != nil {
 			return fmt.Errorf("error creating processor translation layer: %w", err)
 		}
@@ -204,9 +226,9 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, meter metric
 		processor = translator
 	}
 
-	if processor != nil && meter != nil {
+	if processor != nil && instrumentation.IsEnabled() {
 		var err error
-		processor, err = processinstrumentation.NewProcessor(processor, meter)
+		processor, err = processinstrumentation.NewProcessor(processor, instrumentation)
 		if err != nil {
 			return err
 		}

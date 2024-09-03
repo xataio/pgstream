@@ -6,14 +6,17 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/wal/replication"
 
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Handler struct {
 	inner   replication.Handler
 	meter   metric.Meter
+	tracer  trace.Tracer
 	metrics *metrics
 }
 
@@ -21,10 +24,15 @@ type metrics struct {
 	replicationLag metric.Int64ObservableGauge
 }
 
-func NewHandler(inner replication.Handler, meter metric.Meter) (*Handler, error) {
+func NewHandler(inner replication.Handler, instrumentation *otel.Instrumentation) (replication.Handler, error) {
+	if instrumentation == nil {
+		return inner, nil
+	}
+
 	h := &Handler{
 		inner:   inner,
-		meter:   meter,
+		meter:   instrumentation.Meter,
+		tracer:  instrumentation.Tracer,
 		metrics: &metrics{},
 	}
 
@@ -39,11 +47,15 @@ func (h *Handler) StartReplication(ctx context.Context) error {
 	return h.inner.StartReplication(ctx)
 }
 
-func (h *Handler) ReceiveMessage(ctx context.Context) (*replication.Message, error) {
+func (h *Handler) ReceiveMessage(ctx context.Context) (msg *replication.Message, err error) {
+	ctx, span := otel.StartSpan(ctx, h.tracer, "replicationhandler.ReceiveMessage")
+	defer otel.CloseSpan(span, err)
 	return h.inner.ReceiveMessage(ctx)
 }
 
 func (h *Handler) SyncLSN(ctx context.Context, lsn replication.LSN) (err error) {
+	ctx, span := otel.StartSpan(ctx, h.tracer, "replicationhandler.SyncLSN")
+	defer otel.CloseSpan(span, err)
 	return h.inner.SyncLSN(ctx, lsn)
 }
 
@@ -60,6 +72,10 @@ func (h *Handler) Close() error {
 }
 
 func (h *Handler) initMetrics() error {
+	if h.meter == nil {
+		return nil
+	}
+
 	var err error
 	h.metrics.replicationLag, err = h.meter.Int64ObservableGauge("pgstream.replication.lag",
 		metric.WithUnit("bytes"),
