@@ -16,7 +16,7 @@ type Instrumentation struct {
 }
 
 func (i *Instrumentation) IsEnabled() bool {
-	return i.Meter != nil || i.Tracer != nil
+	return i != nil && (i.Meter != nil || i.Tracer != nil)
 }
 
 // StartSpan will start a span using the tracer on input. If the tracer is nil,
