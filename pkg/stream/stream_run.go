@@ -20,6 +20,7 @@ import (
 	processinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/instrumentation"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
+	searchinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/search/instrumentation"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
 	"github.com/xataio/pgstream/pkg/wal/processor/translator"
 	webhooknotifier "github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
@@ -134,6 +135,12 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 			return err
 		}
 		searchStore = search.NewStoreRetrier(searchStore, config.Processor.Search.Retrier, search.WithStoreLogger(logger))
+		if instrumentation.IsEnabled() {
+			searchStore, err = searchinstrumentation.NewStore(searchStore, instrumentation)
+			if err != nil {
+				return err
+			}
+		}
 
 		searchIndexer := search.NewBatchIndexer(ctx,
 			config.Processor.Search.Indexer,
