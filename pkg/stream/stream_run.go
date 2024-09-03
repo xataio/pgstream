@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/xataio/pgstream/pkg/kafka"
+	kafkainstrumentation "github.com/xataio/pgstream/pkg/kafka/instrumentation"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
@@ -61,7 +62,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 		}
 	}
 
-	var kafkaReader *kafka.Reader
+	var kafkaReader kafka.MessageReader
 	if config.Listener.Kafka != nil {
 		var err error
 		kafkaReader, err = kafka.NewReader(config.Listener.Kafka.Reader, logger)
@@ -69,6 +70,14 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 			return fmt.Errorf("error setting up kafka reader: %w", err)
 		}
 		defer kafkaReader.Close()
+	}
+
+	if kafkaReader != nil && instrumentation.IsEnabled() {
+		var err error
+		kafkaReader, err = kafkainstrumentation.NewReader(kafkaReader, instrumentation)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Checkpointer

@@ -10,6 +10,12 @@ import (
 	loglib "github.com/xataio/pgstream/pkg/log"
 )
 
+type MessageReader interface {
+	FetchMessage(ctx context.Context) (*Message, error)
+	CommitOffsets(ctx context.Context, offsets ...*Offset) error
+	Close() error
+}
+
 type Reader struct {
 	reader *kafka.Reader
 }
