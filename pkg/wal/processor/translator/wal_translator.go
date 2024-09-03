@@ -9,7 +9,9 @@ import (
 	"slices"
 
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/schemalog"
+	schemaloginstrumentation "github.com/xataio/pgstream/pkg/schemalog/instrumentation"
 	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -107,6 +109,12 @@ func WithLogger(l loglib.Logger) Option {
 		t.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
 			loglib.ServiceField: "wal_translator",
 		})
+	}
+}
+
+func WithInstrumentation(i *otel.Instrumentation) Option {
+	return func(t *Translator) {
+		t.schemaLogStore = schemaloginstrumentation.NewStore(t.schemaLogStore, i)
 	}
 }
 

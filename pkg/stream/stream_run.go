@@ -212,7 +212,13 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 
 	if config.Processor.Translator != nil {
 		logger.Info("adding translation to processor...")
-		translator, err := translator.New(config.Processor.Translator, processor, translator.WithLogger(logger))
+		opts := []translator.Option{
+			translator.WithLogger(logger),
+		}
+		if instrumentation.IsEnabled() {
+			opts = append(opts, translator.WithInstrumentation(instrumentation))
+		}
+		translator, err := translator.New(config.Processor.Translator, processor, opts...)
 		if err != nil {
 			return fmt.Errorf("error creating processor translation layer: %w", err)
 		}
