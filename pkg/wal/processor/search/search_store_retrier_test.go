@@ -47,7 +47,7 @@ func TestStoreRetrier_SendDocuments(t *testing.T) {
 					return nil, nil
 				},
 			},
-			wantFailedDocs: nil,
+			wantFailedDocs: []DocumentError{},
 			wantErr:        nil,
 		},
 		{
@@ -66,7 +66,26 @@ func TestStoreRetrier_SendDocuments(t *testing.T) {
 					}
 				},
 			},
-			wantFailedDocs: nil,
+			wantFailedDocs: []DocumentError{},
+			wantErr:        nil,
+		},
+		{
+			name: "ok - failed and dropped documents",
+			store: &mockStore{
+				sendDocumentsFn: func(ctx context.Context, i uint, docs []Document) ([]DocumentError, error) {
+					switch i {
+					case 1:
+						require.Equal(t, testDocs, docs)
+						return append(failedDocs(SeverityDataLoss), failedDocs(SeverityRetriable)...), nil
+					case 2, 3:
+						require.Equal(t, []Document{*newTestDocument(withID("1"))}, docs)
+						return failedDocs(SeverityRetriable), nil
+					default:
+						return nil, fmt.Errorf("sendDocumentsFn: unexpected call %d", i)
+					}
+				},
+			},
+			wantFailedDocs: append(failedDocs(SeverityRetriable), failedDocs(SeverityDataLoss)...),
 			wantErr:        nil,
 		},
 		{
@@ -82,11 +101,11 @@ func TestStoreRetrier_SendDocuments(t *testing.T) {
 					}
 				},
 			},
-			wantFailedDocs: nil,
+			wantFailedDocs: failedDocs(SeverityDataLoss),
 			wantErr:        nil,
 		},
 		{
-			name: "error - some failed documents",
+			name: "ok - some failed documents",
 			store: &mockStore{
 				sendDocumentsFn: func(ctx context.Context, i uint, docs []Document) ([]DocumentError, error) {
 					switch i {

@@ -78,6 +78,7 @@ func (s *StoreRetrier) DeleteTableDocuments(ctx context.Context, schemaName stri
 func (s *StoreRetrier) SendDocuments(ctx context.Context, docs []Document) ([]DocumentError, error) {
 	docsToSend := docs
 	failedDocs := []DocumentError{}
+	docsDropped := []DocumentError{}
 	send := func(ctx context.Context) error {
 		total := len(docsToSend)
 		var err error
@@ -86,7 +87,9 @@ func (s *StoreRetrier) SendDocuments(ctx context.Context, docs []Document) ([]Do
 			return err
 		}
 
-		docsToSend = s.getRetriableDocs(failedDocs)
+		var dropped []DocumentError
+		docsToSend, dropped = s.getRetriableDocs(failedDocs)
+		docsDropped = append(docsDropped, dropped...)
 		// nothing to retry
 		if len(docsToSend) == 0 {
 			return nil
@@ -114,27 +117,27 @@ func (s *StoreRetrier) SendDocuments(ctx context.Context, docs []Document) ([]Do
 	if err != nil {
 		// some documents failed to send - return back whatever failed
 		if errors.Is(err, errPartialDocumentSend) {
-			return failedDocs, nil
+			return append(failedDocs, docsDropped...), nil
 		}
 		// internal search store error points to something wrong, return the error
 		// along with the failed documents
-		return failedDocs, err
+		return append(failedDocs, docsDropped...), err
 	}
 
-	return nil, nil
+	return docsDropped, nil
 }
 
-func (s *StoreRetrier) getRetriableDocs(failedDocs []DocumentError) []Document {
+func (s *StoreRetrier) getRetriableDocs(failedDocs []DocumentError) ([]Document, []DocumentError) {
 	if len(failedDocs) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	dropped := 0
 	docsToRetry := make([]Document, 0, len(failedDocs))
+	docsDropped := make([]DocumentError, 0, len(failedDocs))
 	for _, f := range failedDocs {
 		switch f.Severity {
 		case SeverityDataLoss:
-			dropped++
+			docsDropped = append(docsDropped, f)
 		case SeverityRetriable:
 			docsToRetry = append(docsToRetry, f.Document)
 		}
@@ -143,14 +146,14 @@ func (s *StoreRetrier) getRetriableDocs(failedDocs []DocumentError) []Document {
 		}
 	}
 
-	if dropped > 0 {
+	if len(docsDropped) > 0 {
 		s.logger.Warn(nil, "search store retrier: documents dropped", loglib.Fields{
 			"docs_failed":  len(failedDocs),
-			"docs_dropped": dropped,
+			"docs_dropped": len(docsDropped),
 		})
 	}
 
-	return docsToRetry
+	return docsToRetry, docsDropped
 }
 
 func (s *StoreRetrier) logFailure(docErr DocumentError) {
