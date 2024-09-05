@@ -62,10 +62,6 @@ func NewBatchWriter(config *Config, opts ...Option) (*BatchWriter, error) {
 	}
 	w.queueBytesSema = synclib.NewWeightedSemaphore(int64(maxQueueBytes))
 
-	for _, opt := range opts {
-		opt(w)
-	}
-
 	// Since the batch kafka writer handles the batching, we don't want to have
 	// a timeout configured in the underlying kafka-go writer or the latency for
 	// the send will increase unnecessarily. Instead, we set the kafka-go writer
@@ -85,6 +81,10 @@ func NewBatchWriter(config *Config, opts ...Option) (*BatchWriter, error) {
 	}, w.logger)
 	if err != nil {
 		return nil, err
+	}
+
+	for _, opt := range opts {
+		opt(w)
 	}
 
 	return w, nil
