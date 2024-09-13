@@ -54,7 +54,7 @@ func New(cfg *Config, store store.Store, opts ...Option) *Server {
 func WithLogger(l loglib.Logger) Option {
 	return func(s *Server) {
 		s.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
-			loglib.ServiceField: "webhook_subscription_server",
+			loglib.ModuleField: "webhook_subscription_server",
 		})
 	}
 }

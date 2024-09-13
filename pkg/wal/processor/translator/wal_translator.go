@@ -107,7 +107,7 @@ func WithSkipDataEvent(skip dataEventFilter) Option {
 func WithLogger(l loglib.Logger) Option {
 	return func(t *Translator) {
 		t.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
-			loglib.ServiceField: "wal_translator",
+			loglib.ModuleField: "wal_translator",
 		})
 	}
 }

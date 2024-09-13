@@ -69,7 +69,7 @@ func New(cfg *Config, store subscriptionRetriever, opts ...Option) *Notifier {
 func WithLogger(l loglib.Logger) Option {
 	return func(n *Notifier) {
 		n.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
-			loglib.ServiceField: "webhook_notifier",
+			loglib.ModuleField: "webhook_notifier",
 		})
 	}
 }
