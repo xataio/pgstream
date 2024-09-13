@@ -41,16 +41,18 @@ func NewConn(ctx context.Context, url string) (*Conn, error) {
 }
 
 func (c *Conn) QueryRow(ctx context.Context, query string, args ...any) Row {
-	return c.conn.QueryRow(ctx, query, args...)
+	row := c.conn.QueryRow(ctx, query, args...)
+	return &mappedRow{inner: row}
 }
 
 func (c *Conn) Query(ctx context.Context, query string, args ...any) (Rows, error) {
-	return c.conn.Query(ctx, query, args...)
+	rows, err := c.conn.Query(ctx, query, args...)
+	return rows, mapError(err)
 }
 
 func (c *Conn) Exec(ctx context.Context, query string, args ...any) (CommandTag, error) {
 	tag, err := c.conn.Exec(ctx, query, args...)
-	return CommandTag{tag}, err
+	return CommandTag{tag}, mapError(err)
 }
 
 func (c *Conn) Close(ctx context.Context) error {
