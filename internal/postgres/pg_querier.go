@@ -26,7 +26,9 @@ type Rows interface {
 }
 
 type Tx interface {
-	pgx.Tx
+	Query(ctx context.Context, query string, args ...any) (Rows, error)
+	QueryRow(ctx context.Context, query string, args ...any) Row
+	Exec(ctx context.Context, query string, args ...any) (CommandTag, error)
 }
 
 type CommandTag struct {

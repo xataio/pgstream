@@ -48,7 +48,7 @@ func (c *Conn) ExecInTx(ctx context.Context, fn func(Tx) error) error {
 		return mapError(err)
 	}
 
-	if err := fn(tx); err != nil {
+	if err := fn(&Txn{Tx: tx}); err != nil {
 		tx.Rollback(ctx)
 		return mapError(err)
 	}
