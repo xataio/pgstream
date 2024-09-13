@@ -76,7 +76,7 @@ func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, lsn
 func WithLogger(l loglib.Logger) Option {
 	return func(i *BatchIndexer) {
 		i.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
-			loglib.ServiceField: "search_batch_indexer",
+			loglib.ModuleField: "search_batch_indexer",
 		})
 	}
 }

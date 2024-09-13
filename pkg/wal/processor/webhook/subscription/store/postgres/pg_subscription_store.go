@@ -47,7 +47,7 @@ func NewSubscriptionStore(ctx context.Context, url string, opts ...Option) (*Sto
 func WithLogger(l loglib.Logger) Option {
 	return func(ss *Store) {
 		ss.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
-			loglib.ServiceField: "webhook_subscription_store",
+			loglib.ModuleField: "webhook_subscription_store",
 		})
 	}
 }

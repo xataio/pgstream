@@ -61,7 +61,7 @@ func New(ctx context.Context, store store.Store, cfg *Config, opts ...Option) (*
 func WithLogger(l loglib.Logger) Option {
 	return func(sc *Store) {
 		sc.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
-			loglib.ServiceField: "subscription_store_cache",
+			loglib.ModuleField: "subscription_store_cache",
 		})
 	}
 }

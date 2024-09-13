@@ -53,7 +53,7 @@ func New(ctx context.Context, cfg Config, committer kafkaCommitter, opts ...Opti
 func WithLogger(l loglib.Logger) Option {
 	return func(c *Checkpointer) {
 		c.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
-			loglib.ServiceField: "wal_kafka_checkpointer",
+			loglib.ModuleField: "wal_kafka_checkpointer",
 		})
 	}
 }

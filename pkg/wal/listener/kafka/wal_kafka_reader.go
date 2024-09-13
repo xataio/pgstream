@@ -53,7 +53,7 @@ func NewWALReader(kafkaReader kafkaReader, processRecord payloadProcessor, opts 
 func WithLogger(logger loglib.Logger) Option {
 	return func(r *Reader) {
 		r.logger = loglib.NewLogger(logger).WithFields(loglib.Fields{
-			loglib.ServiceField: "wal_kafka_reader",
+			loglib.ModuleField: "wal_kafka_reader",
 		})
 	}
 }

@@ -26,7 +26,7 @@ func (l *NoopLogger) WithFields(fields Fields) Logger {
 	return l
 }
 
-const ServiceField = "service"
+const ModuleField = "module"
 
 func NewNoopLogger() *NoopLogger {
 	return &NoopLogger{}
