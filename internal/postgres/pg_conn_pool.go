@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -40,6 +41,20 @@ func (c *Pool) Query(ctx context.Context, query string, args ...any) (Rows, erro
 func (c *Pool) Exec(ctx context.Context, query string, args ...any) (CommandTag, error) {
 	tag, err := c.Pool.Exec(ctx, query, args...)
 	return CommandTag{tag}, mapError(err)
+}
+
+func (c *Pool) ExecInTx(ctx context.Context, fn func(Tx) error) error {
+	tx, err := c.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return mapError(err)
+	}
+
+	if err := fn(tx); err != nil {
+		tx.Rollback(ctx)
+		return mapError(err)
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (c *Pool) Close(_ context.Context) error {
