@@ -7,23 +7,10 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type Conn struct {
 	conn *pgx.Conn
-}
-
-type Row interface {
-	pgx.Row
-}
-
-type Rows interface {
-	pgx.Rows
-}
-
-type CommandTag struct {
-	pgconn.CommandTag
 }
 
 func NewConn(ctx context.Context, url string) (*Conn, error) {
@@ -41,16 +28,32 @@ func NewConn(ctx context.Context, url string) (*Conn, error) {
 }
 
 func (c *Conn) QueryRow(ctx context.Context, query string, args ...any) Row {
-	return c.conn.QueryRow(ctx, query, args...)
+	row := c.conn.QueryRow(ctx, query, args...)
+	return &mappedRow{inner: row}
 }
 
 func (c *Conn) Query(ctx context.Context, query string, args ...any) (Rows, error) {
-	return c.conn.Query(ctx, query, args...)
+	rows, err := c.conn.Query(ctx, query, args...)
+	return rows, mapError(err)
 }
 
 func (c *Conn) Exec(ctx context.Context, query string, args ...any) (CommandTag, error) {
 	tag, err := c.conn.Exec(ctx, query, args...)
-	return CommandTag{tag}, err
+	return CommandTag{tag}, mapError(err)
+}
+
+func (c *Conn) ExecInTx(ctx context.Context, fn func(Tx) error) error {
+	tx, err := c.conn.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return mapError(err)
+	}
+
+	if err := fn(&Txn{Tx: tx}); err != nil {
+		tx.Rollback(ctx)
+		return mapError(err)
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (c *Conn) Close(ctx context.Context) error {
