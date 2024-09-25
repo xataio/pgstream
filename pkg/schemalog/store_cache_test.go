@@ -169,9 +169,74 @@ func TestStoreCache_Ack(t *testing.T) {
 	}
 }
 
+func TestStoreCache_Insert(t *testing.T) {
+	t.Parallel()
+
+	const testSchema = "test-schema"
+	testLogEntry := &LogEntry{
+		ID:         xid.New(),
+		SchemaName: testSchema,
+		Version:    1,
+	}
+
+	errTest := errors.New("oh noes")
+
+	tests := []struct {
+		name  string
+		store Store
+		cache map[string]*LogEntry
+
+		wantCache map[string]*LogEntry
+		wantErr   error
+	}{
+		{
+			name: "ok",
+			store: &mockStore{
+				insertFn: func(schemaName string) (*LogEntry, error) {
+					require.Equal(t, testSchema, schemaName)
+					return testLogEntry, nil
+				},
+			},
+			wantCache: map[string]*LogEntry{},
+			wantErr:   nil,
+		},
+		{
+			name: "error - inserting",
+			store: &mockStore{
+				insertFn: func(schemaName string) (*LogEntry, error) {
+					return nil, errTest
+				},
+			},
+			wantCache: map[string]*LogEntry{},
+			wantErr:   errTest,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := NewStoreCache(tc.store)
+			if tc.cache != nil {
+				s.cache = tc.cache
+			}
+
+			_, err := s.Insert(context.Background(), testSchema)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, s.cache, tc.wantCache)
+		})
+	}
+}
+
 type mockStore struct {
-	fetchFn func(schemaName string, ackedOnly bool) (*LogEntry, error)
-	ackFn   func(le *LogEntry) error
+	insertFn func(schemaName string) (*LogEntry, error)
+	fetchFn  func(schemaName string, ackedOnly bool) (*LogEntry, error)
+	ackFn    func(le *LogEntry) error
+}
+
+func (m *mockStore) Insert(_ context.Context, schemaName string) (*LogEntry, error) {
+	return m.insertFn(schemaName)
 }
 
 func (m *mockStore) Fetch(_ context.Context, schemaName string, ackedOnly bool) (*LogEntry, error) {
