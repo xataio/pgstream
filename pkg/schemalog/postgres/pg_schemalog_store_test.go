@@ -6,9 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
@@ -42,7 +42,7 @@ func TestStore_Fetch(t *testing.T) {
 					require.Len(t, args, 1)
 					require.Equal(t, args[0], testSchema)
 					require.Equal(t,
-						fmt.Sprintf("select id, version, schema_name, schema, created_at, acked from %s.%s where schema_name = $1  order by version desc limit 1", schemalog.SchemaName, schemalog.TableName),
+						fmt.Sprintf("select id, version, schema_name, schema, created_at, acked from %q.%q where schema_name = $1  order by version desc limit 1", schemalog.SchemaName, schemalog.TableName),
 						query)
 					return &mockRow{logEntry: testLogEntry}
 				},
@@ -58,7 +58,7 @@ func TestStore_Fetch(t *testing.T) {
 					require.Len(t, args, 1)
 					require.Equal(t, args[0], testSchema)
 					require.Equal(t,
-						fmt.Sprintf("select id, version, schema_name, schema, created_at, acked from %s.%s where schema_name = $1 and acked order by version desc limit 1", schemalog.SchemaName, schemalog.TableName),
+						fmt.Sprintf("select id, version, schema_name, schema, created_at, acked from %q.%q where schema_name = $1 and acked order by version desc limit 1", schemalog.SchemaName, schemalog.TableName),
 						query)
 					return &mockRow{logEntry: testLogEntry}
 				},
@@ -121,7 +121,7 @@ func TestStore_Ack(t *testing.T) {
 					require.Equal(t, args[0], testID.String())
 					require.Equal(t, args[1], testSchema)
 					require.Equal(t,
-						fmt.Sprintf(`update %s.%s set acked = true where id = $1 and schema_name = $2`, schemalog.SchemaName, schemalog.TableName),
+						fmt.Sprintf(`update %q.%q set acked = true where id = $1 and schema_name = $2`, schemalog.SchemaName, schemalog.TableName),
 						query)
 					return pglib.CommandTag{CommandTag: pgconn.NewCommandTag("1")}, nil
 				},
@@ -156,6 +156,129 @@ func TestStore_Ack(t *testing.T) {
 	}
 }
 
+func TestStore_Insert(t *testing.T) {
+	t.Parallel()
+
+	testSchema := "test_schema"
+	testID := xid.New()
+	testLogEntry := &schemalog.LogEntry{
+		ID: testID,
+	}
+	errTest := errors.New("oh noes")
+	initialVersion := 1
+
+	tests := []struct {
+		name    string
+		querier pglib.Querier
+
+		wantLogEntry *schemalog.LogEntry
+		wantErr      error
+	}{
+		{
+			name: "ok",
+			querier: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					mockTx := &pgmocks.Tx{
+						QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
+							if strings.HasPrefix(query, "select coalesce") {
+								return &mockRow{
+									version: &initialVersion,
+								}
+							}
+							if strings.HasPrefix(query, "insert into") {
+								return &mockRow{
+									logEntry: testLogEntry,
+								}
+							}
+							return &mockRow{
+								scanFn: func(args ...any) error {
+									return fmt.Errorf("unexpected query received: %v", query)
+								},
+							}
+						},
+					}
+					return f(mockTx)
+				},
+			},
+
+			wantLogEntry: testLogEntry,
+			wantErr:      nil,
+		},
+		{
+			name: "error - querying next version",
+			querier: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					mockTx := &pgmocks.Tx{
+						QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
+							if strings.HasPrefix(query, "select coalesce") {
+								return &mockRow{
+									scanFn: func(args ...any) error {
+										return errTest
+									},
+								}
+							}
+							return &mockRow{
+								scanFn: func(args ...any) error {
+									return fmt.Errorf("unexpected query received: %v", query)
+								},
+							}
+						},
+					}
+					return f(mockTx)
+				},
+			},
+
+			wantLogEntry: nil,
+			wantErr:      errTest,
+		},
+		{
+			name: "error - inserting",
+			querier: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					mockTx := &pgmocks.Tx{
+						QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
+							if strings.HasPrefix(query, "select coalesce") {
+								return &mockRow{
+									version: &initialVersion,
+								}
+							}
+							if strings.HasPrefix(query, "insert into") {
+								return &mockRow{
+									scanFn: func(args ...any) error {
+										return errTest
+									},
+								}
+							}
+							return &mockRow{
+								scanFn: func(args ...any) error {
+									return fmt.Errorf("unexpected query received: %v", query)
+								},
+							}
+						},
+					}
+					return f(mockTx)
+				},
+			},
+
+			wantLogEntry: nil,
+			wantErr:      errTest,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := NewStoreWithQuerier(tc.querier)
+
+			logEntry, err := s.Insert(context.Background(), testSchema)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantLogEntry, logEntry)
+		})
+	}
+}
+
 func Test_mapError(t *testing.T) {
 	t.Parallel()
 
@@ -170,7 +293,7 @@ func Test_mapError(t *testing.T) {
 			wantErr: errTest,
 		},
 		{
-			err:     fmt.Errorf("another error: %w", pgx.ErrNoRows),
+			err:     fmt.Errorf("another error: %w", pglib.ErrNoRows),
 			wantErr: schemalog.ErrNoRows,
 		},
 	}

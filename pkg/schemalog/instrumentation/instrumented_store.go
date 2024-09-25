@@ -27,6 +27,12 @@ func NewStore(inner schemalog.Store, instrumentation *otel.Instrumentation) sche
 	}
 }
 
+func (s *Store) Insert(ctx context.Context, schemaName string) (le *schemalog.LogEntry, err error) {
+	ctx, span := otel.StartSpan(ctx, s.tracer, "schemalogstore.Insert", trace.WithAttributes(attribute.String("schema", schemaName)))
+	defer otel.CloseSpan(span, err)
+	return s.inner.Insert(ctx, schemaName)
+}
+
 func (s *Store) Fetch(ctx context.Context, schemaName string, acked bool) (le *schemalog.LogEntry, err error) {
 	ctx, span := otel.StartSpan(ctx, s.tracer, "schemalogstore.Fetch", trace.WithAttributes(attribute.String("schema", schemaName)))
 	defer otel.CloseSpan(span, err)

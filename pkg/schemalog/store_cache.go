@@ -22,6 +22,10 @@ func NewStoreCache(store Store) *StoreCache {
 	}
 }
 
+func (s *StoreCache) Insert(ctx context.Context, schemaName string) (*LogEntry, error) {
+	return s.store.Insert(ctx, schemaName)
+}
+
 func (s *StoreCache) Fetch(ctx context.Context, schemaName string, ackedOnly bool) (*LogEntry, error) {
 	logEntry := s.cache[schemaName]
 	if logEntry == nil {
