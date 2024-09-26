@@ -227,6 +227,9 @@ func (i *BatchIndexer) sendBatch(ctx context.Context, batch *msgBatch) error {
 				return err
 			}
 			if err := i.applySchemaChange(ctx, msg.schemaChange); err != nil {
+				if errors.Is(err, context.Canceled) {
+					return err
+				}
 				i.logDataLoss(msg.schemaChange, err)
 				return nil
 			}
