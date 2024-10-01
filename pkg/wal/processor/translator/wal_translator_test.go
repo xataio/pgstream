@@ -193,7 +193,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 				skipDataEvent:        func(d *wal.Data) bool { return false },
 				skipSchemaEvent:      func(*schemalog.LogEntry) bool { return false },
 				idFinder:             func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-1" },
-				versionFinder:        func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-2" },
+				versionFinder:        func(c *schemalog.Column, _ *schemalog.Table) (bool, error) { return c.Name == "col-2", nil },
 				walToLogEntryAdapter: func(d *wal.Data) (*schemalog.LogEntry, error) { return testLogEntry, nil },
 			}
 
@@ -227,7 +227,7 @@ func TestTranslator_translate(t *testing.T) {
 		data          *wal.Data
 		store         schemalog.Store
 		idFinder      columnFinder
-		versionFinder columnFinder
+		versionFinder columnFinderWithErr
 
 		wantData *wal.Data
 		wantErr  error
@@ -249,7 +249,7 @@ func TestTranslator_translate(t *testing.T) {
 			},
 			data:          newTestDataEvent("I").Data,
 			idFinder:      primaryKeyFinder,
-			versionFinder: func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-2" },
+			versionFinder: func(c *schemalog.Column, _ *schemalog.Table) (bool, error) { return c.Name == "col-2", nil },
 
 			wantData: newTestDataEventWithMetadata("I").Data,
 			wantErr:  nil,
@@ -264,7 +264,7 @@ func TestTranslator_translate(t *testing.T) {
 			},
 			data:          newTestDataEvent("I").Data,
 			idFinder:      func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-1" },
-			versionFinder: func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-2" },
+			versionFinder: func(c *schemalog.Column, _ *schemalog.Table) (bool, error) { return c.Name == "col-2", nil },
 
 			wantData: newTestDataEventWithMetadata("I").Data,
 			wantErr:  nil,
@@ -279,6 +279,25 @@ func TestTranslator_translate(t *testing.T) {
 			},
 			data:     newTestDataEvent("I").Data,
 			idFinder: func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-1" },
+
+			wantData: func() *wal.Data {
+				d := newTestDataEventWithMetadata("I").Data
+				d.Metadata.InternalColVersion = ""
+				return d
+			}(),
+			wantErr: nil,
+		},
+		{
+			name: "ok - version finder provided with use LSN error",
+			store: &schemalogmocks.Store{
+				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+					require.Equal(t, testSchemaName, schemaName)
+					return newTestLogEntry(), nil
+				},
+			},
+			data:          newTestDataEvent("I").Data,
+			idFinder:      func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-1" },
+			versionFinder: func(c *schemalog.Column, _ *schemalog.Table) (bool, error) { return false, ErrUseLSN },
 
 			wantData: func() *wal.Data {
 				d := newTestDataEventWithMetadata("I").Data
@@ -342,7 +361,7 @@ func TestTranslator_translate(t *testing.T) {
 			},
 			data:          newTestDataEvent("I").Data,
 			idFinder:      func(c *schemalog.Column, _ *schemalog.Table) bool { return false },
-			versionFinder: func(c *schemalog.Column, _ *schemalog.Table) bool { return false },
+			versionFinder: func(c *schemalog.Column, _ *schemalog.Table) (bool, error) { return false, nil },
 
 			wantData: func() *wal.Data {
 				d := newTestDataEvent("I").Data
@@ -364,7 +383,7 @@ func TestTranslator_translate(t *testing.T) {
 			},
 			data:          newTestDataEvent("I").Data,
 			idFinder:      func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-1" },
-			versionFinder: func(c *schemalog.Column, _ *schemalog.Table) bool { return false },
+			versionFinder: func(c *schemalog.Column, _ *schemalog.Table) (bool, error) { return false, nil },
 
 			wantData: func() *wal.Data {
 				d := newTestDataEvent("I").Data
@@ -393,7 +412,7 @@ func TestTranslator_translate(t *testing.T) {
 				return d
 			}(),
 			idFinder:      func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-1" },
-			versionFinder: func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-2" },
+			versionFinder: func(c *schemalog.Column, _ *schemalog.Table) (bool, error) { return c.Name == "col-2", nil },
 
 			wantData: func() *wal.Data {
 				d := newTestDataEventWithMetadata("I").Data
