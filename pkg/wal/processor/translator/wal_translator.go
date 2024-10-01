@@ -49,7 +49,7 @@ type (
 
 type Option func(t *Translator)
 
-var ErrUseLSN = errors.New("use LSN for as event version")
+var ErrUseLSN = errors.New("use LSN as event version")
 
 // New will return a translator processor wrapper that will inject pgstream
 // metadata into the wal data events before passing them over to the processor
