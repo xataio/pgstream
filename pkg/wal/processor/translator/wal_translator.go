@@ -29,7 +29,7 @@ type Translator struct {
 	skipSchemaEvent      schemaEventFilter
 	schemaLogStore       schemalog.Store
 	idFinder             columnFinder
-	versionFinder        columnFinder
+	versionFinder        columnFinderWithErr
 }
 
 type walToLogEntryAdapter func(*wal.Data) (*schemalog.LogEntry, error)
@@ -41,12 +41,15 @@ type Config struct {
 // configurable filters that allow the user of this library to have flexibility
 // when processing and translating the wal event data
 type (
-	dataEventFilter   func(*wal.Data) bool
-	schemaEventFilter func(*schemalog.LogEntry) bool
-	columnFinder      func(*schemalog.Column, *schemalog.Table) bool
+	dataEventFilter     func(*wal.Data) bool
+	schemaEventFilter   func(*schemalog.LogEntry) bool
+	columnFinder        func(*schemalog.Column, *schemalog.Table) bool
+	columnFinderWithErr func(*schemalog.Column, *schemalog.Table) (bool, error)
 )
 
 type Option func(t *Translator)
+
+var ErrUseLSN = errors.New("use LSN for as event version")
 
 // New will return a translator processor wrapper that will inject pgstream
 // metadata into the wal data events before passing them over to the processor
@@ -86,7 +89,7 @@ func WithIDFinder(idFinder columnFinder) Option {
 	}
 }
 
-func WithVersionFinder(versionFinder columnFinder) Option {
+func WithVersionFinder(versionFinder columnFinderWithErr) Option {
 	return func(t *Translator) {
 		t.versionFinder = versionFinder
 	}
@@ -231,10 +234,18 @@ func (t *Translator) fillEventMetadata(event *wal.Data, log *schemalog.LogEntry,
 			continue
 		}
 
-		if t.versionFinder != nil && t.versionFinder(col, tbl) && !foundVersion {
-			foundVersion = true
-			event.Metadata.InternalColVersion = col.PgstreamID
-			continue
+		if t.versionFinder != nil && !foundVersion {
+			isVersionCol, err := t.versionFinder(col, tbl)
+			if err != nil && errors.Is(err, ErrUseLSN) {
+				foundVersion = true
+				event.Metadata.InternalColVersion = ""
+				continue
+			}
+			if isVersionCol {
+				foundVersion = true
+				event.Metadata.InternalColVersion = col.PgstreamID
+				continue
+			}
 		}
 	}
 
