@@ -11,9 +11,10 @@ import (
 type Querier struct {
 	QueryRowFn func(ctx context.Context, query string, args ...any) postgres.Row
 	QueryFn    func(ctx context.Context, query string, args ...any) (postgres.Rows, error)
-	ExecFn     func(context.Context, string, ...any) (postgres.CommandTag, error)
+	ExecFn     func(context.Context, uint, string, ...any) (postgres.CommandTag, error)
 	ExecInTxFn func(context.Context, func(tx postgres.Tx) error) error
 	CloseFn    func(context.Context) error
+	execCalls  uint
 }
 
 func (m *Querier) QueryRow(ctx context.Context, query string, args ...any) postgres.Row {
@@ -25,7 +26,8 @@ func (m *Querier) Query(ctx context.Context, query string, args ...any) (postgre
 }
 
 func (m *Querier) Exec(ctx context.Context, query string, args ...any) (postgres.CommandTag, error) {
-	return m.ExecFn(ctx, query, args...)
+	m.execCalls++
+	return m.ExecFn(ctx, m.execCalls, query, args...)
 }
 
 func (m *Querier) ExecInTx(ctx context.Context, fn func(tx postgres.Tx) error) error {

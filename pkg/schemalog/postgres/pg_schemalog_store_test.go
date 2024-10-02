@@ -116,7 +116,7 @@ func TestStore_Ack(t *testing.T) {
 		{
 			name: "ok",
 			querier: &pgmocks.Querier{
-				ExecFn: func(_ context.Context, query string, args ...any) (pglib.CommandTag, error) {
+				ExecFn: func(_ context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 					require.Len(t, args, 2)
 					require.Equal(t, args[0], testID.String())
 					require.Equal(t, args[1], testSchema)
@@ -133,7 +133,7 @@ func TestStore_Ack(t *testing.T) {
 		{
 			name: "error - executing update query",
 			querier: &pgmocks.Querier{
-				ExecFn: func(_ context.Context, query string, args ...any) (pglib.CommandTag, error) {
+				ExecFn: func(_ context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 					return pglib.CommandTag{CommandTag: pgconn.NewCommandTag("")}, errTest
 				},
 			},
