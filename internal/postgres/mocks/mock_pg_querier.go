@@ -9,16 +9,18 @@ import (
 )
 
 type Querier struct {
-	QueryRowFn func(ctx context.Context, query string, args ...any) postgres.Row
-	QueryFn    func(ctx context.Context, query string, args ...any) (postgres.Rows, error)
-	ExecFn     func(context.Context, uint, string, ...any) (postgres.CommandTag, error)
-	ExecInTxFn func(context.Context, func(tx postgres.Tx) error) error
-	CloseFn    func(context.Context) error
-	execCalls  uint
+	QueryRowFn    func(ctx context.Context, i uint, query string, args ...any) postgres.Row
+	QueryFn       func(ctx context.Context, query string, args ...any) (postgres.Rows, error)
+	ExecFn        func(context.Context, uint, string, ...any) (postgres.CommandTag, error)
+	ExecInTxFn    func(context.Context, func(tx postgres.Tx) error) error
+	CloseFn       func(context.Context) error
+	execCalls     uint
+	queryRowCalls uint
 }
 
 func (m *Querier) QueryRow(ctx context.Context, query string, args ...any) postgres.Row {
-	return m.QueryRowFn(ctx, query, args...)
+	m.queryRowCalls++
+	return m.QueryRowFn(ctx, m.queryRowCalls, query, args...)
 }
 
 func (m *Querier) Query(ctx context.Context, query string, args ...any) (postgres.Rows, error) {

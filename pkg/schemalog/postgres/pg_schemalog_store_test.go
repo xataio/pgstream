@@ -38,7 +38,7 @@ func TestStore_Fetch(t *testing.T) {
 		{
 			name: "ok - without acked",
 			querier: &pgmocks.Querier{
-				QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
+				QueryRowFn: func(_ context.Context, _ uint, query string, args ...any) pglib.Row {
 					require.Len(t, args, 1)
 					require.Equal(t, args[0], testSchema)
 					require.Equal(t,
@@ -54,7 +54,7 @@ func TestStore_Fetch(t *testing.T) {
 		{
 			name: "ok - with acked",
 			querier: &pgmocks.Querier{
-				QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
+				QueryRowFn: func(_ context.Context, _ uint, query string, args ...any) pglib.Row {
 					require.Len(t, args, 1)
 					require.Equal(t, args[0], testSchema)
 					require.Equal(t,
@@ -71,7 +71,7 @@ func TestStore_Fetch(t *testing.T) {
 		{
 			name: "error - querying rows",
 			querier: &pgmocks.Querier{
-				QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
+				QueryRowFn: func(_ context.Context, _ uint, query string, args ...any) pglib.Row {
 					return &mockRow{scanFn: func(...any) error { return errTest }}
 				},
 			},

@@ -3,9 +3,11 @@
 package mocks
 
 type Row struct {
-	ScanFn func(args ...any) error
+	ScanFn    func(i uint, args ...any) error
+	scanCalls uint
 }
 
 func (m *Row) Scan(args ...any) error {
-	return m.ScanFn(args)
+	m.scanCalls++
+	return m.ScanFn(m.scanCalls, args...)
 }
