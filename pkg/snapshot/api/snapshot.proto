@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package snapshot.v1;
+
+option go_package = "./pkg/snapshot/api";
+
+import "google/protobuf/empty.proto";
+
+service SnapshotAPI {
+  rpc RequestSnapshot(SnapshotRequest) returns (google.protobuf.Empty) {};
+}
+
+message SnapshotRequest {
+  string schema_name = 1;
+  string table_name = 2;
+  repeated string identity_column_names = 3;
+}

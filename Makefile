@@ -21,3 +21,7 @@ license-check:
 gen-migrations:
 	@go install github.com/go-bindata/go-bindata/...
 	@go-bindata -o migrations/postgres/migrations.go -pkg pgmigrations -ignore migrations.go -prefix "migrations/postgres/" migrations/postgres/
+
+.PHONY: protoc-gen
+protoc-gen:
+	@protoc ./pkg/snapshot/api/*.proto --go_out=. --go-grpc_out=. --go_opt=paths=source_relative
