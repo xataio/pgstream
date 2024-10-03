@@ -171,6 +171,7 @@ func (s *StoreRetrier) logFailure(docErr DocumentError) {
 		"operation": op,
 		"doc_id":    docErr.Document.ID,
 		"doc":       docBytes,
+		"schema":    docErr.Document.Schema,
 	})
 }
 
