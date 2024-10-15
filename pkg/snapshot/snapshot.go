@@ -13,9 +13,9 @@ type Snapshot struct {
 type Status string
 
 const (
-	StatusRequested = Status("requested")
-	StatusStarted   = Status("started")
-	StatusCompleted = Status("completed")
+	StatusRequested  = Status("requested")
+	StatusInProgress = Status("in progress")
+	StatusCompleted  = Status("completed")
 )
 
 func (s *Snapshot) IsValid() bool {
@@ -27,6 +27,6 @@ func (s *Snapshot) MarkCompleted(err error) {
 	s.Error = err
 }
 
-func (s *Snapshot) MarkStarted() {
-	s.Status = StatusStarted
+func (s *Snapshot) MarkInProgress() {
+	s.Status = StatusInProgress
 }

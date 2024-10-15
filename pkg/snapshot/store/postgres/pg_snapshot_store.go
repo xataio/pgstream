@@ -94,7 +94,7 @@ func (s *Store) createTable(ctx context.Context) error {
 	identity_column_names TEXT[],
 	created_at TIMESTAMP WITH TIME ZONE,
 	updated_at TIMESTAMP WITH TIME ZONE,
-	status TEXT CHECK (status IN ('requested', 'started', 'completed')),
+	status TEXT CHECK (status IN ('requested', 'in progress', 'completed')),
 	error TEXT )`, snapshotsTable())
 	_, err := s.conn.Exec(ctx, createQuery)
 	if err != nil {

@@ -80,7 +80,7 @@ func TestStore_UpdateSnapshotRequest(t *testing.T) {
 		SchemaName:          "test-schema",
 		TableName:           "test-table",
 		IdentityColumnNames: []string{"id"},
-		Status:              snapshot.StatusStarted,
+		Status:              snapshot.StatusInProgress,
 	}
 
 	errTest := errors.New("oh noes")
@@ -98,7 +98,7 @@ func TestStore_UpdateSnapshotRequest(t *testing.T) {
 				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (postgres.CommandTag, error) {
 					wantQuery := fmt.Sprintf(`UPDATE %s SET status = '%s', error = '%s', updated_at = 'now()'
 	WHERE schema_name = '%s' and table_name = '%s' and status != 'completed'`,
-						snapshotsTable(), snapshot.StatusStarted, "", testSnapshot.SchemaName, testSnapshot.TableName)
+						snapshotsTable(), snapshot.StatusInProgress, "", testSnapshot.SchemaName, testSnapshot.TableName)
 					require.Equal(t, wantQuery, s)
 					require.Empty(t, a)
 					return postgres.CommandTag{}, nil
@@ -114,7 +114,7 @@ func TestStore_UpdateSnapshotRequest(t *testing.T) {
 				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (postgres.CommandTag, error) {
 					wantQuery := fmt.Sprintf(`UPDATE %s SET status = '%s', error = '%s', updated_at = 'now()'
 	WHERE schema_name = '%s' and table_name = '%s' and status != 'completed'`,
-						snapshotsTable(), snapshot.StatusStarted, errTest.Error(), testSnapshot.SchemaName, testSnapshot.TableName)
+						snapshotsTable(), snapshot.StatusInProgress, errTest.Error(), testSnapshot.SchemaName, testSnapshot.TableName)
 					require.Equal(t, wantQuery, s)
 					require.Empty(t, a)
 					return postgres.CommandTag{}, nil
@@ -162,7 +162,7 @@ func TestStore_GetSnapshotRequests(t *testing.T) {
 		SchemaName:          "test-schema",
 		TableName:           "test-table",
 		IdentityColumnNames: []string{"id"},
-		Status:              snapshot.StatusStarted,
+		Status:              snapshot.StatusInProgress,
 	}
 
 	errTest := errors.New("oh noes")
@@ -179,7 +179,7 @@ func TestStore_GetSnapshotRequests(t *testing.T) {
 			querier: &postgresmocks.Querier{
 				QueryFn: func(ctx context.Context, query string, args ...any) (postgres.Rows, error) {
 					wantQuery := fmt.Sprintf(`SELECT schema_name,table_name,identity_column_names,status FROM %s
-	WHERE status = '%s' ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), snapshot.StatusStarted, queryLimit)
+	WHERE status = '%s' ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), snapshot.StatusInProgress, queryLimit)
 					require.Equal(t, wantQuery, query)
 					return &postgresmocks.Rows{
 						CloseFn: func() {},
@@ -196,7 +196,7 @@ func TestStore_GetSnapshotRequests(t *testing.T) {
 			querier: &postgresmocks.Querier{
 				QueryFn: func(ctx context.Context, query string, args ...any) (postgres.Rows, error) {
 					wantQuery := fmt.Sprintf(`SELECT schema_name,table_name,identity_column_names,status FROM %s
-	WHERE status = '%s' ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), snapshot.StatusStarted, queryLimit)
+	WHERE status = '%s' ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), snapshot.StatusInProgress, queryLimit)
 					require.Equal(t, wantQuery, query)
 					return &postgresmocks.Rows{
 						CloseFn: func() {},
@@ -245,7 +245,7 @@ func TestStore_GetSnapshotRequests(t *testing.T) {
 			querier: &postgresmocks.Querier{
 				QueryFn: func(ctx context.Context, query string, args ...any) (postgres.Rows, error) {
 					wantQuery := fmt.Sprintf(`SELECT schema_name,table_name,identity_column_names,status FROM %s
-	WHERE status = '%s' ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), snapshot.StatusStarted, queryLimit)
+	WHERE status = '%s' ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), snapshot.StatusInProgress, queryLimit)
 					require.Equal(t, wantQuery, query)
 					return &postgresmocks.Rows{
 						CloseFn: func() {},
@@ -270,7 +270,7 @@ func TestStore_GetSnapshotRequests(t *testing.T) {
 			store := &Store{
 				conn: tc.querier,
 			}
-			snapshots, err := store.GetSnapshotRequests(context.Background(), snapshot.StatusStarted)
+			snapshots, err := store.GetSnapshotRequests(context.Background(), snapshot.StatusInProgress)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantSnapshots, snapshots)
 		})
@@ -301,7 +301,7 @@ func TestStore_createTable(t *testing.T) {
 	identity_column_names TEXT[],
 	created_at TIMESTAMP WITH TIME ZONE,
 	updated_at TIMESTAMP WITH TIME ZONE,
-	status TEXT CHECK (status IN ('requested', 'started', 'completed')),
+	status TEXT CHECK (status IN ('requested', 'in progress', 'completed')),
 	error TEXT )`, snapshotsTable())
 						require.Equal(t, wantQuery, s)
 						require.Empty(t, a)
