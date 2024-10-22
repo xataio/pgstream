@@ -144,10 +144,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 			processor: &mocks.Processor{
 				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
 					wantEvent := newTestDataEvent("I")
-					wantEvent.Data.Metadata = wal.Metadata{
-						SchemaID:        testSchemaID,
-						TablePgstreamID: testTableID,
-					}
+					wantEvent.Data = nil
 					require.Equal(t, wantEvent, walEvent)
 					return nil
 				},

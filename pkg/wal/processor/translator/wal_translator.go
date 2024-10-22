@@ -161,11 +161,13 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) erro
 			// data loss, since we don't expect to replicate tables that do not
 			// have these fields
 			if errors.Is(err, processor.ErrIDNotFound) || errors.Is(err, processor.ErrVersionNotFound) {
-				t.logger.Warn(err, "ignoring event", loglib.Fields{
+				t.logger.Debug(fmt.Sprintf("ignoring event: %v", err), loglib.Fields{
 					"schema": data.Schema,
 					"table":  data.Table,
 				})
-				return nil
+				// treat the event as a keep alive, so that the event data is
+				// ignored, but the commit position is checkpointed
+				event.Data = nil
 			} else {
 				t.logger.Error(err, "", loglib.Fields{
 					"severity": "DATALOSS",
