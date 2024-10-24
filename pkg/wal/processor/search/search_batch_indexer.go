@@ -38,8 +38,6 @@ type BatchIndexer struct {
 
 	// checkpoint callback to mark what was safely stored
 	checkpoint checkpointer.Checkpoint
-
-	cleaner cleaner
 }
 
 type Option func(*BatchIndexer)
@@ -66,10 +64,6 @@ func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, lsn
 		opt(indexer)
 	}
 
-	indexer.cleaner = newSchemaCleaner(&config.CleanupBackoff, store, indexer.logger)
-	// start a goroutine for processing schema deletes asynchronously.
-	// routine ends when the internal channel is closed.
-	go indexer.cleaner.start(ctx)
 	return indexer
 }
 
@@ -191,7 +185,6 @@ func (i *BatchIndexer) Name() string {
 
 func (i *BatchIndexer) Close() error {
 	close(i.msgChan)
-	i.cleaner.stop()
 	return nil
 }
 
@@ -270,8 +263,8 @@ func (i *BatchIndexer) applySchemaChange(ctx context.Context, new *schemalog.Log
 	}
 
 	if new.Schema.Dropped {
-		if err := i.cleaner.deleteSchema(ctx, new.SchemaName); err != nil {
-			return fmt.Errorf("register schema for delete: %w", err)
+		if err := i.store.DeleteSchema(ctx, new.SchemaName); err != nil {
+			return fmt.Errorf("deleting schema: %w", err)
 		}
 		return nil
 	}

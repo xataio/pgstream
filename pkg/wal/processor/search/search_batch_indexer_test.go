@@ -401,7 +401,6 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		checkpoint checkpointer.Checkpoint
 		batch      *msgBatch
 		skipSchema func(string) bool
-		cleaner    cleaner
 
 		wantErr error
 	}{
@@ -517,9 +516,8 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 				},
 				positions: []wal.CommitPosition{testCommitPos},
 			},
-			store: &mockStore{},
-			cleaner: &mockCleaner{
-				deleteSchemaFn: func(ctx context.Context, s string) error {
+			store: &mockStore{
+				deleteSchemaFn: func(ctx context.Context, _ uint, s string) error {
 					require.Equal(t, testSchemaName, s)
 					return nil
 				},
@@ -557,9 +555,8 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 				},
 				positions: []wal.CommitPosition{testCommitPos},
 			},
-			store: &mockStore{},
-			cleaner: &mockCleaner{
-				deleteSchemaFn: func(ctx context.Context, s string) error {
+			store: &mockStore{
+				deleteSchemaFn: func(ctx context.Context, _ uint, s string) error {
 					return errTest
 				},
 			},
@@ -678,10 +675,6 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 
 			if tc.skipSchema != nil {
 				indexer.skipSchema = tc.skipSchema
-			}
-
-			if tc.cleaner != nil {
-				indexer.cleaner = tc.cleaner
 			}
 
 			err := indexer.sendBatch(context.Background(), tc.batch)

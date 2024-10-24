@@ -24,10 +24,11 @@ func (m *mockAdapter) walEventToMsg(e *wal.Event) (*msg, error) {
 type mockStore struct {
 	getMapperFn            func() Mapper
 	applySchemaChangeFn    func(ctx context.Context, le *schemalog.LogEntry) error
-	deleteSchemaFn         func(ctx context.Context, schemaName string) error
+	deleteSchemaFn         func(ctx context.Context, i uint, schemaName string) error
 	deleteTableDocumentsFn func(ctx context.Context, schemaName string, tableIDs []string) error
 	sendDocumentsFn        func(ctx context.Context, i uint, docs []Document) ([]DocumentError, error)
 	sendDocumentsCalls     uint
+	deleteSchemaCalls      uint
 }
 
 func (m *mockStore) GetMapper() Mapper {
@@ -39,7 +40,8 @@ func (m *mockStore) ApplySchemaChange(ctx context.Context, le *schemalog.LogEntr
 }
 
 func (m *mockStore) DeleteSchema(ctx context.Context, schemaName string) error {
-	return m.deleteSchemaFn(ctx, schemaName)
+	m.deleteSchemaCalls++
+	return m.deleteSchemaFn(ctx, m.deleteSchemaCalls, schemaName)
 }
 
 func (m *mockStore) DeleteTableDocuments(ctx context.Context, schemaName string, tableIDs []string) error {
@@ -49,24 +51,6 @@ func (m *mockStore) DeleteTableDocuments(ctx context.Context, schemaName string,
 func (m *mockStore) SendDocuments(ctx context.Context, docs []Document) ([]DocumentError, error) {
 	m.sendDocumentsCalls++
 	return m.sendDocumentsFn(ctx, m.sendDocumentsCalls, docs)
-}
-
-type mockCleaner struct {
-	deleteSchemaFn func(context.Context, string) error
-	startFn        func(context.Context)
-	stopFn         func()
-}
-
-func (m *mockCleaner) deleteSchema(ctx context.Context, schema string) error {
-	return m.deleteSchemaFn(ctx, schema)
-}
-
-func (m *mockCleaner) start(ctx context.Context) {
-	m.startFn(ctx)
-}
-
-func (m *mockCleaner) stop() {
-	m.stopFn()
 }
 
 const (

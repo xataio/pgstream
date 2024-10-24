@@ -66,7 +66,21 @@ func (s *StoreRetrier) ApplySchemaChange(ctx context.Context, logEntry *schemalo
 }
 
 func (s *StoreRetrier) DeleteSchema(ctx context.Context, schemaName string) error {
-	return s.inner.DeleteSchema(ctx, schemaName)
+	bo := s.backoffProvider(ctx)
+	err := bo.RetryNotify(
+		func() error {
+			return getRetryError(s.inner.DeleteSchema(ctx, schemaName))
+		},
+		func(err error, duration time.Duration) {
+			s.logger.Warn(err, "delete schema retry failed", loglib.Fields{
+				"backoff": duration,
+				"schema":  schemaName,
+			})
+		})
+	if err != nil {
+		s.logger.Error(err, "delete schema", loglib.Fields{"schema": schemaName})
+	}
+	return err
 }
 
 func (s *StoreRetrier) DeleteTableDocuments(ctx context.Context, schemaName string, tableIDs []string) error {
@@ -186,4 +200,16 @@ func (c *StoreRetryConfig) backoffConfig() *backoff.Config {
 			MaxRetries:      defaultStoreRetryMaxRetries,
 		},
 	}
+}
+
+// getRetryError returns a backoff permanent error if the given error is not
+// retryable
+func getRetryError(err error) error {
+	if err != nil {
+		if errors.Is(err, ErrRetriable) {
+			return err
+		}
+		return fmt.Errorf("%w: %w", err, backoff.ErrPermanent)
+	}
+	return nil
 }
