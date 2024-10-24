@@ -136,13 +136,15 @@ func (t *Table) IsEqual(other *Table) bool {
 	}
 }
 
-func (t *Table) GetColumnByName(name string) *Column {
+// GetColumnByName returns the table column for the name on input and a boolean
+// to indicate if it was found.
+func (t *Table) GetColumnByName(name string) (Column, bool) {
 	for _, c := range t.Columns {
 		if c.Name == name {
-			return &c
+			return c, true
 		}
 	}
-	return nil
+	return Column{}, false
 }
 
 // GetFirstUniqueNotNullColumn will return the first unique not null column in
