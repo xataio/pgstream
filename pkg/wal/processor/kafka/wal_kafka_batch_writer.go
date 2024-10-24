@@ -4,12 +4,12 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime/debug"
 	"time"
 
+	json "github.com/bytedance/sonic"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	"github.com/xataio/pgstream/pkg/kafka"
 	kafkainstrumentation "github.com/xataio/pgstream/pkg/kafka/instrumentation"
