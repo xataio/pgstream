@@ -4,8 +4,6 @@ package search
 
 import (
 	"time"
-
-	"github.com/xataio/pgstream/pkg/backoff"
 )
 
 type IndexerConfig struct {
@@ -18,9 +16,6 @@ type IndexerConfig struct {
 	// MaxQueueBytes is the max memory used by the batch indexer for inflight
 	// batches. Defaults to 100MiB
 	MaxQueueBytes int64
-	// CleanupBackoff is the retry policy to follow for the async index
-	// deletion. If no config is provided, no retry policy is applied.
-	CleanupBackoff backoff.Config
 }
 
 const (

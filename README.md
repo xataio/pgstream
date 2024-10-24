@@ -176,23 +176,18 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 <details>
   <summary>Search Batch Indexer</summary>
 
-| Environment Variable                                         | Default | Required | Description                                                                                                    |
-| ------------------------------------------------------------ | ------- | -------- | -------------------------------------------------------------------------------------------------------------- |
-| PGSTREAM_OPENSEARCH_STORE_URL                                | N/A     | Yes      | URL for the opensearch store to connect to (at least one of the URLs must be provided).                        |
-| PGSTREAM_ELASTICSEARCH_STORE_URL                             | N/A     | Yes      | URL for the elasticsearch store to connect to (at least one of the URLs must be provided).                     |
-| PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT                        | 1s      | No       | Max time interval at which the batch sending to the search store is triggered.                                 |
-| PGSTREAM_SEARCH_INDEXER_BATCH_SIZE                           | 100     | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to the search store. |
-| PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES                      | 100MiB  | No       | Max memory used by the search batch indexer for inflight batches.                                              |
-| PGSTREAM_SEARCH_INDEXER_CLEANUP_EXP_BACKOFF_INITIAL_INTERVAL | 0       | No       | Initial interval for the exponential backoff policy to be applied to the search indexer cleanup retries.       |
-| PGSTREAM_SEARCH_INDEXER_CLEANUP_EXP_BACKOFF_MAX_INTERVAL     | 0       | No       | Max interval for the exponential backoff policy to be applied to the search indexer cleanup retries.           |
-| PGSTREAM_SEARCH_INDEXER_CLEANUP_EXP_BACKOFF_MAX_RETRIES      | 0       | No       | Max retries for the exponential backoff policy to be applied to the search indexer cleanup retries.            |
-| PGSTREAM_SEARCH_INDEXER_CLEANUP_BACKOFF_INTERVAL             | 0       | No       | Constant interval for the backoff policy to be applied to the search indexer cleanup retries.                  |
-| PGSTREAM_SEARCH_INDEXER_CLEANUP_BACKOFF_MAX_RETRIES          | 0       | No       | Max retries for the backoff policy to be applied to the search indexer cleanup retries.                        |
-| PGSTREAM_SEARCH_STORE_EXP_BACKOFF_INITIAL_INTERVAL           | 1s      | No       | Initial interval for the exponential backoff policy to be applied to the search store operation retries.       |
-| PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_INTERVAL               | 1min    | No       | Max interval for the exponential backoff policy to be applied to the search store operation retries.           |
-| PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_RETRIES                | 0       | No       | Max retries for the exponential backoff policy to be applied to the search store operation retries.            |
-| PGSTREAM_SEARCH_STORE_BACKOFF_INTERVAL                       | 0       | No       | Constant interval for the backoff policy to be applied to the search store operation retries.                  |
-| PGSTREAM_SEARCH_STORE_BACKOFF_MAX_RETRIES                    | 0       | No       | Max retries for the backoff policy to be applied to the search store operation retries.                        |
+| Environment Variable                               | Default | Required | Description                                                                                                    |
+| -------------------------------------------------- | ------- | -------- | -------------------------------------------------------------------------------------------------------------- | --- |
+| PGSTREAM_OPENSEARCH_STORE_URL                      | N/A     | Yes      | URL for the opensearch store to connect to (at least one of the URLs must be provided).                        |
+| PGSTREAM_ELASTICSEARCH_STORE_URL                   | N/A     | Yes      | URL for the elasticsearch store to connect to (at least one of the URLs must be provided).                     |
+| PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT              | 1s      | No       | Max time interval at which the batch sending to the search store is triggered.                                 |
+| PGSTREAM_SEARCH_INDEXER_BATCH_SIZE                 | 100     | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to the search store. |
+| PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES            | 100MiB  | No       | Max memory used by the search batch indexer for inflight batches.                                              |     |
+| PGSTREAM_SEARCH_STORE_EXP_BACKOFF_INITIAL_INTERVAL | 1s      | No       | Initial interval for the exponential backoff policy to be applied to the search store operation retries.       |
+| PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_INTERVAL     | 1min    | No       | Max interval for the exponential backoff policy to be applied to the search store operation retries.           |
+| PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_RETRIES      | 0       | No       | Max retries for the exponential backoff policy to be applied to the search store operation retries.            |
+| PGSTREAM_SEARCH_STORE_BACKOFF_INTERVAL             | 0       | No       | Constant interval for the backoff policy to be applied to the search store operation retries.                  |
+| PGSTREAM_SEARCH_STORE_BACKOFF_MAX_RETRIES          | 0       | No       | Max retries for the backoff policy to be applied to the search store operation retries.                        |
 
 One of exponential/constant backoff policies can be provided for the search indexer cleanup retry strategy. If none is provided, no retries apply.
 

@@ -12,6 +12,91 @@ import (
 	loglib "github.com/xataio/pgstream/pkg/log"
 )
 
+func TestStoreRetrier_DeleteSchema(t *testing.T) {
+	t.Parallel()
+
+	const testSchema = "test-schema"
+	tests := []struct {
+		name  string
+		store *mockStore
+
+		wantErr error
+	}{
+		{
+			name: "ok",
+			store: &mockStore{
+				deleteSchemaFn: func(ctx context.Context, _ uint, schemaName string) error {
+					require.Equal(t, testSchema, schemaName)
+					return nil
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - retriable error",
+			store: &mockStore{
+				deleteSchemaFn: func(ctx context.Context, i uint, schemaName string) error {
+					require.Equal(t, testSchema, schemaName)
+					switch i {
+					case 1:
+						return ErrRetriable
+					case 2:
+						return nil
+					default:
+						return fmt.Errorf("unexpected call to deleteSchema: %d", i)
+					}
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "err - retriable error backoff exhausted",
+			store: &mockStore{
+				deleteSchemaFn: func(ctx context.Context, i uint, schemaName string) error {
+					require.Equal(t, testSchema, schemaName)
+					switch i {
+					case 1, 2, 3:
+						return ErrRetriable
+					default:
+						return fmt.Errorf("unexpected call to deleteSchema: %d", i)
+					}
+				},
+			},
+			wantErr: ErrRetriable,
+		},
+		{
+			name: "err - permanent error",
+			store: &mockStore{
+				deleteSchemaFn: func(ctx context.Context, i uint, schemaName string) error {
+					require.Equal(t, testSchema, schemaName)
+					switch i {
+					case 1:
+						return errTest
+					default:
+						return fmt.Errorf("unexpected call to deleteSchema: %d", i)
+					}
+				},
+			},
+			wantErr: errTest,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			retrier := StoreRetrier{
+				inner:           tc.store,
+				logger:          loglib.NewNoopLogger(),
+				backoffProvider: newMockBackoffProvider(),
+			}
+			err := retrier.DeleteSchema(context.Background(), testSchema)
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
 func TestStoreRetrier_SendDocuments(t *testing.T) {
 	t.Parallel()
 
