@@ -268,16 +268,16 @@ func (t *Translator) fillEventMetadata(event *wal.Data, log *schemalog.LogEntry,
 // exist in the relevant schemalog entry.
 func (t *Translator) translateColumnNames(event *wal.Data, schemaTable *schemalog.Table) error {
 	for i, col := range event.Columns {
-		schemaCol := schemaTable.GetColumnByName(col.Name)
-		if schemaCol == nil {
+		schemaCol, found := schemaTable.GetColumnByName(col.Name)
+		if !found {
 			return fmt.Errorf("failed to find column in table %s: %w", schemaTable.Name, processor.ErrColumnNotFound)
 		}
 		event.Columns[i].ID = schemaCol.PgstreamID
 	}
 
 	for i, col := range event.Identity { // should only be filled if event.Type is "D" or "U"
-		schemaCol := schemaTable.GetColumnByName(col.Name)
-		if schemaCol == nil {
+		schemaCol, found := schemaTable.GetColumnByName(col.Name)
+		if !found {
 			return fmt.Errorf("failed to find column in table: %s: %w", schemaTable.Name, processor.ErrColumnNotFound)
 		}
 		event.Identity[i].ID = schemaCol.PgstreamID
