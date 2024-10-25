@@ -3,7 +3,6 @@
 package store
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/xataio/pgstream/internal/json"
 	"github.com/xataio/pgstream/internal/searchstore"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
@@ -19,6 +19,7 @@ import (
 type PgMapper struct {
 	searchMapper searchstore.Mapper
 	pgTypeMap    *pgtype.Map
+	unmarshaler  func([]byte, any) error
 }
 
 const (
@@ -34,6 +35,7 @@ func NewPostgresMapper(mapper searchstore.Mapper) *PgMapper {
 	return &PgMapper{
 		searchMapper: mapper,
 		pgTypeMap:    pgtype.NewMap(),
+		unmarshaler:  json.Unmarshal,
 	}
 }
 
@@ -82,7 +84,7 @@ func (m *PgMapper) MapColumnValue(column schemalog.Column, value any) (any, erro
 			return nil, fmt.Errorf("unexpected value type for jsonb column")
 		}
 		var array []float64
-		err := json.Unmarshal([]byte(stringContent), &array)
+		err := m.unmarshaler([]byte(stringContent), &array)
 		if err != nil {
 			return nil, fmt.Errorf("vector value is not array: %w", err)
 		}

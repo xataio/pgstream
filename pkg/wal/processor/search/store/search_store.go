@@ -5,14 +5,13 @@ package store
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
+	"github.com/xataio/pgstream/internal/json"
 	"github.com/xataio/pgstream/internal/searchstore"
 	elasticsearchstore "github.com/xataio/pgstream/internal/searchstore/elasticsearch"
 	opensearchstore "github.com/xataio/pgstream/internal/searchstore/opensearch"
-
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
@@ -423,7 +422,7 @@ func (s *Store) updateMappingAddNewColumns(ctx context.Context, indexName IndexN
 }
 
 func (s *Store) insertNewSchemaLog(ctx context.Context, m *schemalog.LogEntry) error {
-	logBytes, err := json.Marshal(m)
+	logBytes, err := s.marshaler(m)
 	if err != nil {
 		return fmt.Errorf("insert schema log, failed to marshal search doc: %w", err)
 	}

@@ -4,6 +4,7 @@ package search
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -229,6 +230,7 @@ func TestStoreRetrier_SendDocuments(t *testing.T) {
 				inner:           tc.store,
 				logger:          loglib.NewNoopLogger(),
 				backoffProvider: newMockBackoffProvider(),
+				marshaler:       json.Marshal,
 			}
 
 			failedDocs, err := retrier.SendDocuments(context.Background(), testDocs)

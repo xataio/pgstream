@@ -5,9 +5,10 @@ package searchstore
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/xataio/pgstream/internal/json"
 )
 
 type Client interface {

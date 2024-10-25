@@ -4,11 +4,11 @@ package search
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/xataio/pgstream/internal/json"
 	"github.com/xataio/pgstream/pkg/backoff"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
@@ -19,6 +19,7 @@ type StoreRetrier struct {
 	inner           Store
 	logger          loglib.Logger
 	backoffProvider backoff.Provider
+	marshaler       func(any) ([]byte, error)
 }
 
 type StoreRetryConfig struct {
@@ -42,6 +43,7 @@ func NewStoreRetrier(s Store, cfg StoreRetryConfig, opts ...StoreOption) *StoreR
 		inner:           s,
 		logger:          loglib.NewNoopLogger(),
 		backoffProvider: backoff.NewProvider(cfg.backoffConfig()),
+		marshaler:       json.Marshal,
 	}
 
 	for _, opt := range opts {
@@ -171,7 +173,7 @@ func (s *StoreRetrier) getRetriableDocs(failedDocs []DocumentError) ([]Document,
 }
 
 func (s *StoreRetrier) logFailure(docErr DocumentError) {
-	docBytes, err := json.Marshal(docErr.Document.Data)
+	docBytes, err := s.marshaler(docErr.Document.Data)
 	if err != nil {
 		docBytes = []byte(fmt.Sprintf("failed to marshal document data: %s", err))
 	}

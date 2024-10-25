@@ -3,9 +3,9 @@
 package store
 
 import (
-	"encoding/json"
 	"fmt"
 
+	"github.com/xataio/pgstream/internal/json"
 	"github.com/xataio/pgstream/internal/searchstore"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"

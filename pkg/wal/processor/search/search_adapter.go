@@ -3,11 +3,11 @@
 package search
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
 
+	"github.com/xataio/pgstream/internal/json"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
