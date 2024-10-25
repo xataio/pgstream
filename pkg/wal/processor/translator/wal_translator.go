@@ -203,16 +203,16 @@ func (t *Translator) translate(ctx context.Context, data *wal.Data) error {
 		return fmt.Errorf("failed to retrieve schema for translate %w", err)
 	}
 
-	table := logEntry.GetTableByName(data.Table)
-	if table == nil {
+	table, found := logEntry.GetTableByName(data.Table)
+	if !found {
 		return processor.ErrTableNotFound
 	}
 
-	if err = t.fillEventMetadata(data, logEntry, table); err != nil {
+	if err = t.fillEventMetadata(data, logEntry, &table); err != nil {
 		return fmt.Errorf("failed to fill event metadata: %w", err)
 	}
 
-	if err = t.translateColumnNames(data, table); err != nil {
+	if err = t.translateColumnNames(data, &table); err != nil {
 		return fmt.Errorf("failed to translate column names: %w", err)
 	}
 
