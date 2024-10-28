@@ -5,7 +5,6 @@ package notifier
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"sync"
 
 	httplib "github.com/xataio/pgstream/internal/http"
+	"github.com/xataio/pgstream/internal/json"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"

@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	json "github.com/bytedance/sonic"
+	"github.com/xataio/pgstream/internal/json"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/replication"

@@ -96,7 +96,7 @@ func (m *LogEntry) Diff(previous *LogEntry) *SchemaDiff {
 	return m.Schema.Diff(&previous.Schema)
 }
 
-func (m *LogEntry) GetTableByName(tableName string) *Table {
+func (m *LogEntry) GetTableByName(tableName string) (Table, bool) {
 	return m.Schema.getTableByName(tableName)
 }
 

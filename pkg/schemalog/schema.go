@@ -3,8 +3,9 @@
 package schemalog
 
 import (
-	"encoding/json"
 	"slices"
+
+	"github.com/xataio/pgstream/internal/json"
 )
 
 type Schema struct {
@@ -95,13 +96,13 @@ func (s *Schema) Diff(previous *Schema) *SchemaDiff {
 	return &d
 }
 
-func (s *Schema) getTableByName(tableName string) *Table {
+func (s *Schema) getTableByName(tableName string) (Table, bool) {
 	for _, t := range s.Tables {
 		if t.Name == tableName {
-			return &t
+			return t, true
 		}
 	}
-	return nil
+	return Table{}, false
 }
 
 func (s *Schema) getTableByID(pgstreamID string) *Table {

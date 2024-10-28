@@ -9,7 +9,7 @@ import (
 	"runtime/debug"
 	"time"
 
-	json "github.com/bytedance/sonic"
+	"github.com/xataio/pgstream/internal/json"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	"github.com/xataio/pgstream/pkg/kafka"
 	kafkainstrumentation "github.com/xataio/pgstream/pkg/kafka/instrumentation"
