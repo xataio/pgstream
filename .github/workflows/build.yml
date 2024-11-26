@@ -66,6 +66,22 @@ jobs:
           # Note: By default, the `.golangci.yml` file should be at the root of the repository.
           # The location of the configuration file can be changed by using `--config=`
           args: --timeout=30m --out-format=colored-line-number --config=.golangci.yml
+  coverage:
+    if: github.event_name == 'pull_request' # Do not run when workflow is triggered by push to main branch
+    runs-on:
+      group: large-runners
+      labels: ubuntu-latest-8core
+    needs: test # Depends on the artifact uploaded by the "test" job
+    permissions:
+      contents: read
+      actions: read # to download code coverage results from "test" job
+      pull-requests: write # write permission needed to comment on PR
+    steps:
+      - uses: fgrosse/go-coverage-report@v1.2.0
+        with:
+          coverage-artifact-name: "code-coverage"
+          coverage-file-name: "coverage"
+          root-package: "pgstream"
 
   license-check:
     name: license check

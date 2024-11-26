@@ -6,7 +6,7 @@ lint: ## Lint source code
 
 .PHONY: test
 test:
-	@go test -timeout 10m -race -cover -failfast ./...
+	@go test -coverprofile=coverage -timeout 10m -race -cover -failfast ./...
 
 .PHONY: integration-test
 integration-test:
