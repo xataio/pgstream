@@ -68,9 +68,7 @@ jobs:
           args: --timeout=30m --out-format=colored-line-number --config=.golangci.yml
   coverage:
     if: github.event_name == 'pull_request' # Do not run when workflow is triggered by push to main branch
-    runs-on:
-      group: large-runners
-      labels: ubuntu-latest-8core
+    runs-on: ubuntu-latest
     needs: test # Depends on the artifact uploaded by the "test" job
     permissions:
       contents: read
