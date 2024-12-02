@@ -23,7 +23,7 @@ const (
 
 // Init initialises the pgstream state in the postgres database provided, along
 // with creating the relevant replication slot.
-func Init(ctx context.Context, pgURL string) error {
+func Init(ctx context.Context, pgURL, replicationSlotName string) error {
 	conn, err := newPGConn(ctx, pgURL)
 	if err != nil {
 		return err
@@ -45,9 +45,11 @@ func Init(ctx context.Context, pgURL string) error {
 		return fmt.Errorf("failed to run internal pgstream migrations: %w", err)
 	}
 
-	replicationSlotName, err := getReplicationSlotName(pgURL)
-	if err != nil {
-		return err
+	if replicationSlotName == "" {
+		replicationSlotName, err = getReplicationSlotName(pgURL)
+		if err != nil {
+			return err
+		}
 	}
 
 	if err := createReplicationSlot(ctx, conn, replicationSlotName); err != nil {
@@ -59,16 +61,18 @@ func Init(ctx context.Context, pgURL string) error {
 
 // TearDown removes the pgstream state from the postgres database provided,
 // as well as removing the replication slot.
-func TearDown(ctx context.Context, pgURL string) error {
+func TearDown(ctx context.Context, pgURL, replicationSlotName string) error {
 	conn, err := newPGConn(ctx, pgURL)
 	if err != nil {
 		return err
 	}
 	defer conn.Close(ctx)
 
-	replicationSlotName, err := getReplicationSlotName(pgURL)
-	if err != nil {
-		return err
+	if replicationSlotName == "" {
+		replicationSlotName, err = getReplicationSlotName(pgURL)
+		if err != nil {
+			return err
+		}
 	}
 
 	if err := dropReplicationSlot(ctx, conn, replicationSlotName); err != nil {

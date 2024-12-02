@@ -41,6 +41,14 @@ func pgURL() string {
 	return viper.GetString("PGSTREAM_POSTGRES_LISTENER_URL")
 }
 
+func replicationSlotName() string {
+	replicationslot := viper.GetString("replication-slot")
+	if replicationslot != "" {
+		return replicationslot
+	}
+	return viper.GetString("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME")
+}
+
 func parseStreamConfig() *stream.Config {
 	return &stream.Config{
 		Listener:  parseListenerConfig(),
@@ -65,7 +73,8 @@ func parsePostgresListenerConfig() *stream.PostgresListenerConfig {
 
 	return &stream.PostgresListenerConfig{
 		Replication: pgreplication.Config{
-			PostgresURL: pgURL,
+			PostgresURL:         pgURL,
+			ReplicationSlotName: replicationSlotName(),
 		},
 	}
 }

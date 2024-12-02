@@ -22,10 +22,12 @@ func init() {
 	viper.AutomaticEnv()
 
 	rootCmd.PersistentFlags().String("pgurl", "postgres://postgres:postgres@localhost?sslmode=disable", "Postgres URL")
+	rootCmd.PersistentFlags().String("replication-slot", "", "Name of the postgres replication slot to be created")
 	rootCmd.PersistentFlags().StringP("config", "c", "", ".env config file to use if any")
 	rootCmd.PersistentFlags().String("log-level", "debug", "log level for the application")
 
 	viper.BindPFlag("pgurl", rootCmd.PersistentFlags().Lookup("pgurl"))
+	viper.BindPFlag("replication-slot", rootCmd.PersistentFlags().Lookup("replication-slot"))
 	viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config"))
 	viper.BindPFlag("PGSTREAM_LOG_LEVEL", rootCmd.PersistentFlags().Lookup("log-level"))
 }

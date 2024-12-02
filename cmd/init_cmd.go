@@ -18,7 +18,7 @@ var initCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sp, _ := pterm.DefaultSpinner.WithText("initialising pgstream...").Start()
 
-		if err := stream.Init(context.Background(), pgURL()); err != nil {
+		if err := stream.Init(context.Background(), pgURL(), replicationSlotName()); err != nil {
 			sp.Fail(err.Error())
 			return err
 		}
@@ -34,7 +34,7 @@ var tearDownCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sp, _ := pterm.DefaultSpinner.WithText("tearing down pgstream...").Start()
 
-		if err := stream.TearDown(context.Background(), pgURL()); err != nil {
+		if err := stream.TearDown(context.Background(), pgURL(), replicationSlotName()); err != nil {
 			sp.Fail(err.Error())
 			return err
 		}
