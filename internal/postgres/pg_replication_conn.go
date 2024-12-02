@@ -120,6 +120,10 @@ func (c *ReplicationConn) Close(ctx context.Context) error {
 	return mapError(c.conn.Close(ctx))
 }
 
+func DefaultReplicationSlotName(dbName string) string {
+	return "pgstream_" + dbName + "_slot"
+}
+
 type Error struct {
 	Severity string
 	Msg      string

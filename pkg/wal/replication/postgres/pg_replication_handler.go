@@ -101,7 +101,7 @@ func (h *Handler) StartReplication(ctx context.Context) error {
 	}
 
 	if h.pgReplicationSlotName == "" {
-		h.pgReplicationSlotName = fmt.Sprintf("pgstream_%s_slot", sysID.DBName)
+		h.pgReplicationSlotName = pglib.DefaultReplicationSlotName(sysID.DBName)
 	}
 
 	logFields := loglib.Fields{

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmigrations "github.com/xataio/pgstream/migrations/postgres"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -166,5 +167,5 @@ func getReplicationSlotName(pgURL string) (string, error) {
 	if cfg.Database != "" {
 		dbName = cfg.Database
 	}
-	return fmt.Sprintf("pgstream_%s_slot", dbName), nil
+	return pglib.DefaultReplicationSlotName(dbName), nil
 }
