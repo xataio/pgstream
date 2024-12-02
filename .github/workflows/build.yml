@@ -85,7 +85,7 @@ jobs:
         with:
           coverage-artifact-name: "code-coverage"
           coverage-file-name: "coverage"
-          root-package: "pgstream"
+          root-package: "github.com/xataio/pgstream"
 
   license-check:
     name: license check
