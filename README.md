@@ -85,6 +85,12 @@ This will create the `pgstream` schema in the configured Postgres database, alon
 pgstream init --pgurl "postgres://postgres:postgres@localhost?sslmode=disable"
 ```
 
+If you want to provide the name of the replication slot to be created instead of using the default value (`pgstream_<dbname>_slot`), you can use the `--replication-slot` flag or set the environment variable `PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME`.
+
+```
+pgstream init --pgurl "postgres://postgres:postgres@localhost?sslmode=disable" --replication-slot test
+```
+
 If there are any issues or if you want to clean up the pgstream setup, you can run the following.
 
 ```
@@ -121,9 +127,10 @@ Here's a list of all the environment variables that can be used to configure the
 <details>
   <summary>Postgres Listener</summary>
 
-| Environment Variable           | Default | Required | Description                                                          |
-| ------------------------------ | ------- | -------- | -------------------------------------------------------------------- |
-| PGSTREAM_POSTGRES_LISTENER_URL | N/A     | Yes      | URL of the Postgres database to connect to for replication purposes. |
+| Environment Variable                    | Default                    | Required | Description                                                          |
+| --------------------------------------- | -------------------------- | -------- | -------------------------------------------------------------------- |
+| PGSTREAM_POSTGRES_LISTENER_URL          | N/A                        | Yes      | URL of the Postgres database to connect to for replication purposes. |
+| PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME | "pgstream\_<dbname>\_slot" | No       | Name of the Postgres replication slot name.                          |
 
 </details>
 
