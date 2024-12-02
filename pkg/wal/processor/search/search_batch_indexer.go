@@ -30,6 +30,7 @@ type BatchIndexer struct {
 	// size messages, while preventing the process from running oom
 	queueBytesSema synclib.WeightedSemaphore
 	msgChan        chan (*msg)
+	sendDone       chan (error)
 
 	batchSize         int
 	batchSendInterval time.Duration
@@ -54,6 +55,7 @@ func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, lsn
 		batchSendInterval: config.batchTime(),
 		adapter:           newAdapter(store.GetMapper(), lsnParser),
 		msgChan:           make(chan *msg),
+		sendDone:          make(chan error, 1),
 	}
 
 	// this allows us to bound and configure the memory used by the internal msg
@@ -124,7 +126,13 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, event *wal.Event) (e
 			return err
 		}
 	}
-	i.msgChan <- msg
+
+	select {
+	case i.msgChan <- msg:
+	case sendDoneErr := <-i.sendDone:
+		i.logger.Error(sendDoneErr, "stop processing, sending has stopped")
+		return fmt.Errorf("stop processing, sending has stopped: %w", sendDoneErr)
+	}
 
 	return nil
 }
@@ -150,33 +158,55 @@ func (i *BatchIndexer) Send(ctx context.Context) error {
 		}
 	}()
 
-	ticker := time.NewTicker(i.batchSendInterval)
-	defer ticker.Stop()
-	msgBatch := &msgBatch{}
-	for {
+	drainBatch := func(batch *msgBatch) error {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case batchChan <- batch.drain():
 		case sendErr := <-sendErrChan:
-			// if there's an error while sending the batch, return the error and
-			// stop sending batches
 			return sendErr
-		case <-ticker.C:
-			if !msgBatch.isEmpty() {
-				batchChan <- msgBatch.drain()
-			}
-		case msg := <-i.msgChan:
-			msgBatch.add(msg)
-			// trigger a send if we reached the configured batch size or if the
-			// event was for a schema change/keep alive. We need to make sure
-			// any events following a schema change are processed using the
-			// right schema version, and any keep alive messages are
-			// checkpointed as soon as possible.
-			if msgBatch.size() >= i.batchSize || msg.isSchemaChange() || msg.isKeepAlive() {
-				batchChan <- msgBatch.drain()
+		}
+		return nil
+	}
+
+	batchMsgLoop := func() error {
+		ticker := time.NewTicker(i.batchSendInterval)
+		defer ticker.Stop()
+		msgBatch := &msgBatch{}
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case sendErr := <-sendErrChan:
+				// if there's an error while sending the batch, return the error and
+				// stop sending batches
+				return sendErr
+			case <-ticker.C:
+				if !msgBatch.isEmpty() {
+					if err := drainBatch(msgBatch); err != nil {
+						return err
+					}
+				}
+			case msg := <-i.msgChan:
+				msgBatch.add(msg)
+				// trigger a send if we reached the configured batch size or if the
+				// event was for a schema change/keep alive. We need to make sure
+				// any events following a schema change are processed using the
+				// right schema version, and any keep alive messages are
+				// checkpointed as soon as possible.
+				if msgBatch.size() >= i.batchSize || msg.isSchemaChange() || msg.isKeepAlive() {
+					if err := drainBatch(msgBatch); err != nil {
+						return err
+					}
+				}
 			}
 		}
 	}
+
+	err := batchMsgLoop()
+	if err != nil && !errors.Is(err, context.Canceled) {
+		i.logger.Error(err, "sending stopped")
+	}
+	i.sendDone <- err
+	return err
 }
 
 func (i *BatchIndexer) Name() string {
@@ -185,6 +215,7 @@ func (i *BatchIndexer) Name() string {
 
 func (i *BatchIndexer) Close() error {
 	close(i.msgChan)
+	close(i.sendDone)
 	return nil
 }
 

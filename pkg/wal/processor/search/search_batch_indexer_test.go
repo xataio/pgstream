@@ -16,6 +16,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/rs/xid"
@@ -203,6 +204,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				queueBytesSema: tc.weightedSemaphore,
 				msgChan:        make(chan *msg, 100),
 				adapter:        tc.adapter,
+				sendDone:       make(chan error, 1),
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -346,6 +348,7 @@ func TestBatchIndexer_Send(t *testing.T) {
 				queueBytesSema: &syncmocks.WeightedSemaphore{
 					ReleaseFn: func(_ uint64, _ int64) {},
 				},
+				sendDone: make(chan error, 1),
 			}
 
 			if tc.semaphore != nil {
@@ -680,5 +683,61 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 			err := indexer.sendBatch(context.Background(), tc.batch)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
+	}
+}
+
+func TestBatchIndexer(t *testing.T) {
+	t.Parallel()
+
+	indexer := BatchIndexer{
+		logger:  loglib.NewNoopLogger(),
+		msgChan: make(chan *msg, 100),
+		store: &mockStore{
+			sendDocumentsFn: func(ctx context.Context, _ uint, docs []Document) ([]DocumentError, error) {
+				time.Sleep(time.Second)
+				return nil, errTest
+			},
+		},
+		adapter: &mockAdapter{
+			walEventToMsgFn: func(*wal.Event) (*msg, error) {
+				return &msg{
+					write: newTestDocument(),
+				}, nil
+			},
+		},
+		batchSendInterval: 100 * time.Millisecond,
+		batchSize:         10,
+		skipSchema:        func(schemaName string) bool { return false },
+		queueBytesSema:    semaphore.NewWeighted(defaultMaxQueueBytes),
+		sendDone:          make(chan error, 1),
+	}
+
+	doneChan := make(chan struct{}, 1)
+	go func() {
+		err := indexer.Send(context.Background())
+		require.ErrorIs(t, err, errTest)
+		doneChan <- struct{}{}
+		close(doneChan)
+	}()
+
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	var processErr error
+	for {
+		select {
+		case <-doneChan:
+			require.ErrorIs(t, processErr, errTest)
+			return
+		case <-timer.C:
+			t.Error("test timeout")
+			return
+		default:
+			processErr = indexer.ProcessWALEvent(context.Background(), &wal.Event{
+				CommitPosition: wal.CommitPosition("1"),
+				Data: &wal.Data{
+					Action: "I",
+				},
+			})
+		}
 	}
 }
