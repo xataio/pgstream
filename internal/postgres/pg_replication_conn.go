@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pglogrepl"
@@ -121,6 +122,9 @@ func (c *ReplicationConn) Close(ctx context.Context) error {
 }
 
 func DefaultReplicationSlotName(dbName string) string {
+	// sanitise the dbName before creating the replication slot name to ensure
+	// the name does not contain invalid characters.
+	dbName = strings.ReplaceAll(dbName, ".", "_")
 	return "pgstream_" + dbName + "_slot"
 }
 
