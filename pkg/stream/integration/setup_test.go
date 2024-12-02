@@ -30,7 +30,7 @@ func TestMain(m *testing.M) {
 		}
 		defer pgcleanup()
 
-		if err := stream.Init(ctx, pgurl); err != nil {
+		if err := stream.Init(ctx, pgurl, ""); err != nil {
 			log.Fatal(err)
 		}
 
