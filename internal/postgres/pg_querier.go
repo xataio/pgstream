@@ -14,6 +14,7 @@ type Querier interface {
 	QueryRow(ctx context.Context, query string, args ...any) Row
 	Exec(ctx context.Context, query string, args ...any) (CommandTag, error)
 	ExecInTx(ctx context.Context, fn func(tx Tx) error) error
+	ExecInTxWithOptions(ctx context.Context, fn func(tx Tx) error, txOpts TxOptions) error
 	Close(ctx context.Context) error
 }
 

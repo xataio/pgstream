@@ -15,13 +15,13 @@ type Tx struct {
 }
 
 func (m *Tx) QueryRow(ctx context.Context, query string, args ...any) postgres.Row {
-	return m.QueryRowFn(ctx, query, args)
+	return m.QueryRowFn(ctx, query, args...)
 }
 
 func (m *Tx) Query(ctx context.Context, query string, args ...any) (postgres.Rows, error) {
-	return m.QueryFn(ctx, query, args)
+	return m.QueryFn(ctx, query, args...)
 }
 
 func (m *Tx) Exec(ctx context.Context, query string, args ...any) (postgres.CommandTag, error) {
-	return m.ExecFn(ctx, query, args)
+	return m.ExecFn(ctx, query, args...)
 }

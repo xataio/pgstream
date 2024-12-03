@@ -43,7 +43,11 @@ func (c *Conn) Exec(ctx context.Context, query string, args ...any) (CommandTag,
 }
 
 func (c *Conn) ExecInTx(ctx context.Context, fn func(Tx) error) error {
-	tx, err := c.conn.BeginTx(ctx, pgx.TxOptions{})
+	return c.ExecInTxWithOptions(ctx, fn, TxOptions{})
+}
+
+func (c *Conn) ExecInTxWithOptions(ctx context.Context, fn func(Tx) error, opts TxOptions) error {
+	tx, err := c.conn.BeginTx(ctx, toTxOptions(opts))
 	if err != nil {
 		return mapError(err)
 	}
