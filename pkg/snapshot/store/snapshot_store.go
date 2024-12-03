@@ -9,9 +9,11 @@ import (
 )
 
 type Store interface {
-	CreateSnapshotRequest(context.Context, *snapshot.Snapshot) error
-	UpdateSnapshotRequest(context.Context, *snapshot.Snapshot) error
-	GetSnapshotRequests(ctx context.Context, status snapshot.Status) ([]*snapshot.Snapshot, error)
+	CreateSnapshotRequest(context.Context, *snapshot.Request) error
+	UpdateSnapshotRequest(context.Context, *snapshot.Request) error
+	GetSnapshotRequestsByStatus(ctx context.Context, status snapshot.Status) ([]*snapshot.Request, error)
+	GetSnapshotRequestsBySchema(ctx context.Context, schema string) ([]*snapshot.Request, error)
+	Close() error
 }
 
 const (
