@@ -35,6 +35,7 @@ type Notifier struct {
 	queueBytesSema synclib.WeightedSemaphore
 	notifyChan     chan *notifyMsg
 	workerCount    uint
+	notifyDone     chan (error)
 }
 
 type subscriptionRetriever interface {
@@ -53,6 +54,7 @@ func New(cfg *Config, store subscriptionRetriever, opts ...Option) *Notifier {
 		notifyChan:        make(chan *notifyMsg),
 		workerCount:       cfg.workerCount(),
 		serialiser:        json.Marshal,
+		notifyDone:        make(chan error, 1),
 	}
 
 	// this allows us to bound and configure the memory used by the internal msg
@@ -118,29 +120,40 @@ func (n *Notifier) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (er
 		}
 	}
 
-	n.notifyChan <- msg
+	select {
+	case n.notifyChan <- msg:
+	case notifyDoneErr := <-n.notifyDone:
+		n.logger.Error(notifyDoneErr, "stop processing, notify has stopped")
+		return fmt.Errorf("stop processing, notify has stopped: %w", notifyDoneErr)
+	}
 
 	return nil
 }
 
 func (n *Notifier) Notify(ctx context.Context) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case msg := <-n.notifyChan:
-			err := n.notify(ctx, msg)
-			n.queueBytesSema.Release(int64(msg.size()))
-			if err != nil {
-				n.logger.Error(err, "sending webhook event", loglib.Fields{
-					"urls":            msg.urls,
-					"commit position": msg.commitPosition,
-					"payload":         string(msg.payload),
-				})
-				return fmt.Errorf("sending webhook event: %w", err)
+	notifyLoop := func() error {
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case msg := <-n.notifyChan:
+				err := n.notify(ctx, msg)
+				n.queueBytesSema.Release(int64(msg.size()))
+				if err != nil {
+					n.logger.Error(err, "sending webhook event", loglib.Fields{
+						"urls":            msg.urls,
+						"commit position": msg.commitPosition,
+						"payload":         string(msg.payload),
+					})
+					return fmt.Errorf("sending webhook event: %w", err)
+				}
 			}
 		}
 	}
+
+	err := notifyLoop()
+	n.notifyDone <- err
+	return err
 }
 
 func (n *Notifier) Name() string {
@@ -149,6 +162,7 @@ func (n *Notifier) Name() string {
 
 func (n *Notifier) Close() error {
 	close(n.notifyChan)
+	close(n.notifyDone)
 	return nil
 }
 

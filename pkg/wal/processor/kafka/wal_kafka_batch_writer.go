@@ -31,6 +31,7 @@ type BatchWriter struct {
 	// size messages, while preventing the process from running oom
 	queueBytesSema synclib.WeightedSemaphore
 	msgChan        chan (*msg)
+	sendDone       chan (error)
 
 	maxBatchBytes int64
 	maxBatchSize  int
@@ -54,6 +55,7 @@ func NewBatchWriter(config *Config, opts ...Option) (*BatchWriter, error) {
 		msgChan:       make(chan *msg),
 		serialiser:    json.Marshal,
 		logger:        loglib.NewNoopLogger(),
+		sendDone:      make(chan error, 1),
 	}
 
 	maxQueueBytes, err := config.maxQueueBytes()
@@ -169,7 +171,12 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) 
 		}
 	}
 
-	w.msgChan <- kafkaMsg
+	select {
+	case w.msgChan <- kafkaMsg:
+	case sendDoneErr := <-w.sendDone:
+		w.logger.Error(sendDoneErr, "stop processing, sending has stopped")
+		return fmt.Errorf("stop processing, sending has stopped: %w", sendDoneErr)
+	}
 
 	return nil
 }
@@ -194,42 +201,63 @@ func (w *BatchWriter) Send(ctx context.Context) error {
 		}
 	}()
 
-	// we will send to kafka either as soon as the batch is full, or as soon as
-	// the configured send frequency hits
-	ticker := time.NewTicker(w.sendFrequency)
-	defer ticker.Stop()
-	msgBatch := &msgBatch{}
-	for {
+	drainBatch := func(batch *msgBatch) error {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case batchChan <- batch.drain():
 		case sendErr := <-sendErrChan:
-			// if there's an error while sending the batch, return the error and
-			// stop sending batches
-			if sendErr != nil && !errors.Is(sendErr, context.Canceled) {
-				w.logger.Error(sendErr, "sending thread stopped due to errors writing to kafka")
-			}
 			return sendErr
-		case <-ticker.C:
-			if !msgBatch.isEmpty() {
-				batchChan <- msgBatch.drain()
-			}
-		case msg := <-w.msgChan:
-			// if the batch has reached the max allowed size, don't wait for the
-			// next tick and send to kafka.
-			if msgBatch.totalBytes+msg.size() >= int(w.maxBatchBytes) ||
-				len(msgBatch.msgs) == w.maxBatchSize {
-				batchChan <- msgBatch.drain()
-			}
+		}
+		return nil
+	}
 
-			msgBatch.add(msg)
-			// If we receive a keep alive, send so that we checkpoint as soon as
-			// possible.
-			if msg.isKeepAlive() {
-				batchChan <- msgBatch.drain()
+	batchMsgLoop := func() error {
+		// we will send to kafka either as soon as the batch is full, or as soon as
+		// the configured send frequency hits
+		ticker := time.NewTicker(w.sendFrequency)
+		defer ticker.Stop()
+		msgBatch := &msgBatch{}
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case sendErr := <-sendErrChan:
+				// if there's an error while sending the batch, return the error and
+				// stop sending batches
+				return sendErr
+			case <-ticker.C:
+				if !msgBatch.isEmpty() {
+					if err := drainBatch(msgBatch); err != nil {
+						return err
+					}
+				}
+			case msg := <-w.msgChan:
+				// if the batch has reached the max allowed size, don't wait for the
+				// next tick and send to kafka.
+				if msgBatch.totalBytes+msg.size() >= int(w.maxBatchBytes) ||
+					len(msgBatch.msgs) == w.maxBatchSize {
+					if err := drainBatch(msgBatch); err != nil {
+						return err
+					}
+				}
+
+				msgBatch.add(msg)
+				// If we receive a keep alive, send so that we checkpoint as soon as
+				// possible.
+				if msg.isKeepAlive() {
+					if err := drainBatch(msgBatch); err != nil {
+						return err
+					}
+				}
 			}
 		}
 	}
+
+	err := batchMsgLoop()
+	if err != nil && !errors.Is(err, context.Canceled) {
+		w.logger.Error(err, "sending stopped")
+	}
+	w.sendDone <- err
+	return err
 }
 
 func (w *BatchWriter) Name() string {
@@ -238,6 +266,7 @@ func (w *BatchWriter) Name() string {
 
 func (w *BatchWriter) Close() error {
 	close(w.msgChan)
+	close(w.sendDone)
 	return w.writer.Close()
 }
 

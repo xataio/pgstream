@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/xataio/pgstream/internal/json"
+	"github.com/xataio/pgstream/internal/log/zerolog"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	syncmocks "github.com/xataio/pgstream/internal/sync/mocks"
 	"github.com/xataio/pgstream/pkg/kafka"
@@ -187,6 +189,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 				maxBatchBytes:  100,
 				queueBytesSema: semaphore.NewWeighted(defaultMaxQueueBytes),
 				serialiser:     mockMarshaler,
+				sendDone:       make(chan error, 1),
 			}
 
 			if tc.semaphore != nil {
@@ -215,7 +218,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 	}
 }
 
-func TestBatchKafkaWriter_SendThread(t *testing.T) {
+func TestBatchKafkaWriter_Send(t *testing.T) {
 	t.Parallel()
 
 	testCommitPosition := wal.CommitPosition(testLSNStr)
@@ -368,6 +371,7 @@ func TestBatchKafkaWriter_SendThread(t *testing.T) {
 				maxBatchSize:   10,
 				queueBytesSema: tc.semaphore,
 				sendFrequency:  time.Second,
+				sendDone:       make(chan error, 1),
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -511,4 +515,60 @@ func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
+}
+
+func TestBatchKafkaWriter(t *testing.T) {
+	t.Parallel()
+
+	bw := BatchWriter{
+		logger: newTestLogger(),
+		writer: &kafkamocks.Writer{
+			WriteMessagesFn: func(ctx context.Context, i uint64, msgs ...kafka.Message) error {
+				time.Sleep(time.Second)
+				return errTest
+			},
+		},
+		msgChan:        make(chan *msg),
+		maxBatchBytes:  10000,
+		maxBatchSize:   10,
+		queueBytesSema: semaphore.NewWeighted(defaultMaxQueueBytes),
+		sendFrequency:  time.Second,
+		sendDone:       make(chan error, 1),
+		serialiser:     json.Marshal,
+	}
+
+	doneChan := make(chan struct{}, 1)
+	go func() {
+		err := bw.Send(context.Background())
+		require.ErrorIs(t, err, errTest)
+		doneChan <- struct{}{}
+		close(doneChan)
+	}()
+
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	var processErr error
+	for {
+		select {
+		case <-doneChan:
+			require.ErrorIs(t, processErr, errTest)
+			return
+		case <-timer.C:
+			t.Error("test timeout")
+			return
+		default:
+			processErr = bw.ProcessWALEvent(context.Background(), &wal.Event{
+				CommitPosition: wal.CommitPosition("1"),
+				Data: &wal.Data{
+					Action: "I",
+				},
+			})
+		}
+	}
+}
+
+func newTestLogger() loglib.Logger {
+	return zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
+		LogLevel: "trace",
+	}))
 }

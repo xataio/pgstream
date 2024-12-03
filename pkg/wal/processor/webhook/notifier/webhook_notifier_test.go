@@ -337,3 +337,44 @@ func TestNotifier_Notify(t *testing.T) {
 		})
 	}
 }
+
+func TestNotifier(t *testing.T) {
+	t.Parallel()
+	n := New(&Config{}, &mocks.Store{
+		GetSubscriptionsFn: func(ctx context.Context, action, schema, table string) ([]*subscription.Subscription, error) {
+			return []*subscription.Subscription{newTestSubscription("url-1", "", "", nil)}, nil
+		},
+	})
+	n.checkpointer = func(ctx context.Context, positions []wal.CommitPosition) error {
+		return errTest
+	}
+
+	doneChan := make(chan struct{}, 1)
+	go func() {
+		err := n.Notify(context.Background())
+		require.ErrorIs(t, err, errTest)
+		doneChan <- struct{}{}
+		close(doneChan)
+	}()
+
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	var processErr error
+	for {
+		select {
+		case <-doneChan:
+			require.ErrorIs(t, processErr, errTest)
+			return
+		case <-timer.C:
+			t.Error("test timeout")
+			return
+		default:
+			processErr = n.ProcessWALEvent(context.Background(), &wal.Event{
+				CommitPosition: wal.CommitPosition("1"),
+				Data: &wal.Data{
+					Action: "I",
+				},
+			})
+		}
+	}
+}
