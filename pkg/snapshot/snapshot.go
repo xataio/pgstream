@@ -3,6 +3,7 @@
 package snapshot
 
 import (
+	"context"
 	"errors"
 )
 
@@ -16,6 +17,20 @@ type Request struct {
 	Status   Status
 	Errors   *Errors
 }
+
+type Row struct {
+	Schema  string
+	Table   string
+	Columns []Column
+}
+
+type Column struct {
+	Name  string
+	Type  string
+	Value any
+}
+
+type RowProcessor func(context.Context, *Row) error
 
 type Status string
 
