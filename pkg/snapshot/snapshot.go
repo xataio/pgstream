@@ -2,12 +2,19 @@
 
 package snapshot
 
+import (
+	"errors"
+)
+
 type Snapshot struct {
-	SchemaName          string
-	TableName           string
-	IdentityColumnNames []string
-	Status              Status
-	Error               error
+	SchemaName string
+	TableNames []string
+}
+
+type Request struct {
+	Snapshot Snapshot
+	Status   Status
+	Errors   *Errors
 }
 
 type Status string
@@ -19,14 +26,35 @@ const (
 )
 
 func (s *Snapshot) IsValid() bool {
-	return s != nil && s.SchemaName != "" && s.TableName != "" && len(s.IdentityColumnNames) > 0
+	return s != nil && s.SchemaName != "" && len(s.TableNames) > 0
 }
 
-func (s *Snapshot) MarkCompleted(err error) {
-	s.Status = StatusCompleted
-	s.Error = err
+func (r *Request) MarkCompleted(err error) {
+	r.Status = StatusCompleted
+	if err == nil {
+		return
+	}
+
+	var snapshotErrs *Errors
+	if errors.As(err, &snapshotErrs) {
+		r.Errors = snapshotErrs
+	} else {
+		r.Errors = &Errors{Snapshot: err}
+	}
 }
 
-func (s *Snapshot) MarkInProgress() {
-	s.Status = StatusInProgress
+func (r *Request) MarkInProgress() {
+	r.Status = StatusInProgress
+}
+
+func (r *Request) IsPending() bool {
+	return r.Status == StatusRequested
+}
+
+func (r *Request) HasFailed() bool {
+	return r.Status == StatusCompleted && r.Errors != nil
+}
+
+func (r *Request) HasFailedForTable(table string) bool {
+	return r.Status == StatusCompleted && r.Errors.IsTableError(table)
 }
