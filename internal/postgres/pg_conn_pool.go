@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -44,7 +43,11 @@ func (c *Pool) Exec(ctx context.Context, query string, args ...any) (CommandTag,
 }
 
 func (c *Pool) ExecInTx(ctx context.Context, fn func(Tx) error) error {
-	tx, err := c.Pool.BeginTx(ctx, pgx.TxOptions{})
+	return c.ExecInTxWithOptions(ctx, fn, TxOptions{})
+}
+
+func (c *Pool) ExecInTxWithOptions(ctx context.Context, fn func(Tx) error, opts TxOptions) error {
+	tx, err := c.Pool.BeginTx(ctx, toTxOptions(opts))
 	if err != nil {
 		return mapError(err)
 	}

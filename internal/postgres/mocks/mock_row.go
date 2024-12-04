@@ -7,5 +7,5 @@ type Row struct {
 }
 
 func (m *Row) Scan(args ...any) error {
-	return m.ScanFn(args)
+	return m.ScanFn(args...)
 }
