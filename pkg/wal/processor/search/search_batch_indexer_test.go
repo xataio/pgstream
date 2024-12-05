@@ -205,13 +205,14 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 				msgChan:        make(chan *msg, 100),
 				adapter:        tc.adapter,
 				sendDone:       make(chan error, 1),
+				once:           &sync.Once{},
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
 			go func() {
-				defer close(indexer.msgChan)
+				defer indexer.closeMsgChan()
 				err := indexer.ProcessWALEvent(ctx, tc.event)
 				require.ErrorIs(t, err, tc.wantErr)
 			}()
@@ -349,6 +350,7 @@ func TestBatchIndexer_Send(t *testing.T) {
 					ReleaseFn: func(_ uint64, _ int64) {},
 				},
 				sendDone: make(chan error, 1),
+				once:     &sync.Once{},
 			}
 
 			if tc.semaphore != nil {
@@ -710,6 +712,7 @@ func TestBatchIndexer(t *testing.T) {
 		skipSchema:        func(schemaName string) bool { return false },
 		queueBytesSema:    semaphore.NewWeighted(defaultMaxQueueBytes),
 		sendDone:          make(chan error, 1),
+		once:              &sync.Once{},
 	}
 
 	doneChan := make(chan struct{}, 1)

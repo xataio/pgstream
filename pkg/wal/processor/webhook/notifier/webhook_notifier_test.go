@@ -169,7 +169,7 @@ func TestNotifier_ProcessWALEvent(t *testing.T) {
 			go func() {
 				err := n.ProcessWALEvent(context.Background(), tc.event)
 				require.ErrorIs(t, err, tc.wantErr)
-				close(n.notifyChan)
+				n.closeNotifyChan()
 			}()
 
 			msgs := []*notifyMsg{}

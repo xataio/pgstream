@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/xataio/pgstream/internal/json"
@@ -31,7 +32,9 @@ type BatchWriter struct {
 	// size messages, while preventing the process from running oom
 	queueBytesSema synclib.WeightedSemaphore
 	msgChan        chan (*msg)
+	once           *sync.Once
 	sendDone       chan (error)
+	sendErr        error
 
 	maxBatchBytes int64
 	maxBatchSize  int
@@ -56,6 +59,7 @@ func NewBatchWriter(config *Config, opts ...Option) (*BatchWriter, error) {
 		serialiser:    json.Marshal,
 		logger:        loglib.NewNoopLogger(),
 		sendDone:      make(chan error, 1),
+		once:          &sync.Once{},
 	}
 
 	maxQueueBytes, err := config.maxQueueBytes()
@@ -117,7 +121,8 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 	}
 }
 
-// ProcessWalEvent is called on every new message from the wal
+// ProcessWalEvent is called on every new message from the wal. It can be called
+// concurrently.
 func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -131,51 +136,66 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) 
 		}
 	}()
 
-	kafkaMsg := &msg{
-		pos: walEvent.CommitPosition,
+	enqueueMsg := func(ctx context.Context, walEvent *wal.Event) error {
+		kafkaMsg := &msg{
+			pos: walEvent.CommitPosition,
+		}
+
+		if walEvent.Data != nil {
+			walDataBytes, err := w.serialiser(walEvent.Data)
+			if err != nil {
+				return fmt.Errorf("marshalling event: %w", err)
+			}
+			// check if walEventBytes is larger than 95% of the Kafka accepted max
+			// message size to allow for some buffer for the rest of the message
+			if len(walDataBytes) > int(0.95*float64(w.maxBatchBytes)) {
+				w.logger.Warn(errRecordTooLarge,
+					"kafka batch writer: wal event is larger than 95% of max bytes allowed",
+					loglib.Fields{
+						"max_bytes": w.maxBatchBytes,
+						"size":      len(walDataBytes),
+						"table":     walEvent.Data.Table,
+						"schema":    walEvent.Data.Schema,
+					})
+				return nil
+			}
+
+			kafkaMsg.msg = kafka.Message{
+				Key:   w.getMessageKey(walEvent.Data),
+				Value: walDataBytes,
+			}
+		}
+
+		// make sure we don't reach the queue memory limit before adding the new
+		// message to the channel. This will block until messages have been read
+		// from the channel and their size is released
+		msgSize := int64(kafkaMsg.size())
+		if !w.queueBytesSema.TryAcquire(msgSize) {
+			w.logger.Warn(nil, "kafka batch writer: max queue bytes reached, processing blocked")
+			if err := w.queueBytesSema.Acquire(ctx, msgSize); err != nil {
+				return err
+			}
+		}
+
+		select {
+		case w.msgChan <- kafkaMsg:
+		case sendDoneErr, ok := <-w.sendDone:
+			// check if a different call has closed the send channel already, to
+			// prevent blocking when called concurrently.
+			if ok && sendDoneErr != nil {
+				w.sendErr = sendDoneErr
+			}
+			w.logger.Error(w.sendErr, "stop processing, sending has stopped")
+			return fmt.Errorf("stop processing, sending has stopped: %w", w.sendErr)
+		}
+
+		return nil
 	}
 
-	if walEvent.Data != nil {
-		walDataBytes, err := w.serialiser(walEvent.Data)
-		if err != nil {
-			return fmt.Errorf("marshalling event: %w", err)
-		}
-		// check if walEventBytes is larger than 95% of the Kafka accepted max
-		// message size to allow for some buffer for the rest of the message
-		if len(walDataBytes) > int(0.95*float64(w.maxBatchBytes)) {
-			w.logger.Warn(errRecordTooLarge,
-				"kafka batch writer: wal event is larger than 95% of max bytes allowed",
-				loglib.Fields{
-					"max_bytes": w.maxBatchBytes,
-					"size":      len(walDataBytes),
-					"table":     walEvent.Data.Table,
-					"schema":    walEvent.Data.Schema,
-				})
-			return nil
-		}
-
-		kafkaMsg.msg = kafka.Message{
-			Key:   w.getMessageKey(walEvent.Data),
-			Value: walDataBytes,
-		}
-	}
-
-	// make sure we don't reach the queue memory limit before adding the new
-	// message to the channel. This will block until messages have been read
-	// from the channel and their size is released
-	msgSize := int64(kafkaMsg.size())
-	if !w.queueBytesSema.TryAcquire(msgSize) {
-		w.logger.Warn(nil, "kafka batch writer: max queue bytes reached, processing blocked")
-		if err := w.queueBytesSema.Acquire(ctx, msgSize); err != nil {
-			return err
-		}
-	}
-
-	select {
-	case w.msgChan <- kafkaMsg:
-	case sendDoneErr := <-w.sendDone:
-		w.logger.Error(sendDoneErr, "stop processing, sending has stopped")
-		return fmt.Errorf("stop processing, sending has stopped: %w", sendDoneErr)
+	err := enqueueMsg(ctx, walEvent)
+	if err != nil {
+		w.closeMsgChan()
+		return err
 	}
 
 	return nil
@@ -257,6 +277,7 @@ func (w *BatchWriter) Send(ctx context.Context) error {
 		w.logger.Error(err, "sending stopped")
 	}
 	w.sendDone <- err
+	close(w.sendDone)
 	return err
 }
 
@@ -265,9 +286,13 @@ func (w *BatchWriter) Name() string {
 }
 
 func (w *BatchWriter) Close() error {
-	close(w.msgChan)
-	close(w.sendDone)
 	return w.writer.Close()
+}
+
+func (w *BatchWriter) closeMsgChan() {
+	w.once.Do(func() {
+		close(w.msgChan)
+	})
 }
 
 func (w *BatchWriter) sendBatch(ctx context.Context, batch *msgBatch) error {
