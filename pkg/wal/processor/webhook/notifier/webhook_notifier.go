@@ -36,6 +36,8 @@ type Notifier struct {
 	notifyChan     chan *notifyMsg
 	workerCount    uint
 	notifyDone     chan (error)
+	notifyErr      error
+	once           *sync.Once
 }
 
 type subscriptionRetriever interface {
@@ -55,6 +57,7 @@ func New(cfg *Config, store subscriptionRetriever, opts ...Option) *Notifier {
 		workerCount:       cfg.workerCount(),
 		serialiser:        json.Marshal,
 		notifyDone:        make(chan error, 1),
+		once:              &sync.Once{},
 	}
 
 	// this allows us to bound and configure the memory used by the internal msg
@@ -82,6 +85,8 @@ func WithCheckpoint(c checkpointer.Checkpoint) Option {
 	}
 }
 
+// ProcessWALEvent will process the wal event on input and notify all configured
+// webhooks. It can be called concurrently.
 func (n *Notifier) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -94,37 +99,50 @@ func (n *Notifier) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (er
 		}
 	}()
 
-	subscriptions := []*subscription.Subscription{}
-	if walEvent.Data != nil {
-		data := walEvent.Data
-		subscriptions, err = n.subscriptionStore.GetSubscriptions(ctx, data.Action, data.Schema, data.Table)
-		if err != nil {
-			return fmt.Errorf("retrieving subscriptions: %w", err)
+	enqueueMsg := func() error {
+		subscriptions := []*subscription.Subscription{}
+		if walEvent.Data != nil {
+			data := walEvent.Data
+			subscriptions, err = n.subscriptionStore.GetSubscriptions(ctx, data.Action, data.Schema, data.Table)
+			if err != nil {
+				return fmt.Errorf("retrieving subscriptions: %w", err)
+			}
+			n.logger.Debug("matching subscriptions", loglib.Fields{"subscriptions": subscriptions})
 		}
-		n.logger.Debug("matching subscriptions", loglib.Fields{"subscriptions": subscriptions})
-	}
 
-	msg, err := newNotifyMsg(walEvent, subscriptions, n.serialiser)
-	if err != nil {
-		return err
-	}
-
-	// make sure we don't reach the queue memory limit before adding the new
-	// message to the channel. This will block until messages have been read
-	// from the channel and their size is released
-	msgSize := int64(msg.size())
-	if !n.queueBytesSema.TryAcquire(msgSize) {
-		n.logger.Warn(nil, "webhook notifier: max queue bytes reached, processing blocked")
-		if err := n.queueBytesSema.Acquire(ctx, msgSize); err != nil {
+		msg, err := newNotifyMsg(walEvent, subscriptions, n.serialiser)
+		if err != nil {
 			return err
 		}
+
+		// make sure we don't reach the queue memory limit before adding the new
+		// message to the channel. This will block until messages have been read
+		// from the channel and their size is released
+		msgSize := int64(msg.size())
+		if !n.queueBytesSema.TryAcquire(msgSize) {
+			n.logger.Warn(nil, "webhook notifier: max queue bytes reached, processing blocked")
+			if err := n.queueBytesSema.Acquire(ctx, msgSize); err != nil {
+				return err
+			}
+		}
+
+		select {
+		case n.notifyChan <- msg:
+		case notifyDoneErr, ok := <-n.notifyDone:
+			if ok && notifyDoneErr != nil {
+				n.notifyErr = notifyDoneErr
+			}
+			n.logger.Error(n.notifyErr, "stop processing, notify has stopped")
+			return fmt.Errorf("stop processing, notify has stopped: %w", n.notifyErr)
+		}
+
+		return nil
 	}
 
-	select {
-	case n.notifyChan <- msg:
-	case notifyDoneErr := <-n.notifyDone:
-		n.logger.Error(notifyDoneErr, "stop processing, notify has stopped")
-		return fmt.Errorf("stop processing, notify has stopped: %w", notifyDoneErr)
+	err = enqueueMsg()
+	if err != nil {
+		n.closeNotifyChan()
+		return err
 	}
 
 	return nil
@@ -153,6 +171,7 @@ func (n *Notifier) Notify(ctx context.Context) error {
 
 	err := notifyLoop()
 	n.notifyDone <- err
+	close(n.notifyDone)
 	return err
 }
 
@@ -161,9 +180,14 @@ func (n *Notifier) Name() string {
 }
 
 func (n *Notifier) Close() error {
-	close(n.notifyChan)
-	close(n.notifyDone)
+	n.closeNotifyChan()
 	return nil
+}
+
+func (n *Notifier) closeNotifyChan() {
+	n.once.Do(func() {
+		close(n.notifyChan)
+	})
 }
 
 func (n *Notifier) notify(ctx context.Context, msg *notifyMsg) error {

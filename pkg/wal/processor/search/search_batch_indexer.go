@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	synclib "github.com/xataio/pgstream/internal/sync"
@@ -30,7 +31,9 @@ type BatchIndexer struct {
 	// size messages, while preventing the process from running oom
 	queueBytesSema synclib.WeightedSemaphore
 	msgChan        chan (*msg)
+	once           *sync.Once
 	sendDone       chan (error)
+	sendErr        error
 
 	batchSize         int
 	batchSendInterval time.Duration
@@ -56,6 +59,7 @@ func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, lsn
 		adapter:           newAdapter(store.GetMapper(), lsnParser),
 		msgChan:           make(chan *msg),
 		sendDone:          make(chan error, 1),
+		once:              &sync.Once{},
 	}
 
 	// this allows us to bound and configure the memory used by the internal msg
@@ -83,9 +87,8 @@ func WithCheckpoint(c checkpointer.Checkpoint) Option {
 	}
 }
 
-// ProcessWALEvent is called on every new message from the WAL logical
-// replication The function is responsible for sending the data to the search
-// store and committing the event position.
+// ProcessWALEvent is responsible for sending the wal event to the search
+// store and committing the event position. It can be called concurrently.
 func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, event *wal.Event) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -103,37 +106,49 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, event *wal.Event) (e
 		"wal_commit_position": event.CommitPosition,
 	})
 
-	msg, err := i.adapter.walEventToMsg(event)
-	if err != nil {
-		if errors.Is(err, errNilIDValue) || errors.Is(err, errNilVersionValue) || errors.Is(err, errMetadataMissing) {
-			i.logger.Warn(err, "search batch indexer: invalid event, skipping message")
+	enqueueMsg := func() error {
+		msg, err := i.adapter.walEventToMsg(event)
+		if err != nil {
+			if errors.Is(err, errNilIDValue) || errors.Is(err, errNilVersionValue) || errors.Is(err, errMetadataMissing) {
+				i.logger.Warn(err, "search batch indexer: invalid event, skipping message")
+				return nil
+			}
+			return fmt.Errorf("wal data to queue item: %w", err)
+		}
+
+		if msg == nil {
 			return nil
 		}
-		return fmt.Errorf("wal data to queue item: %w", err)
-	}
 
-	if msg == nil {
+		// make sure we don't reach the queue memory limit before adding the new
+		// message to the channel. This will block until messages have been read
+		// from the channel and their size is released
+		msgSize := int64(msg.size())
+		if !i.queueBytesSema.TryAcquire(msgSize) {
+			i.logger.Warn(nil, "search batch indexer: max queue bytes reached, processing blocked")
+			if err := i.queueBytesSema.Acquire(ctx, msgSize); err != nil {
+				return err
+			}
+		}
+
+		select {
+		case i.msgChan <- msg:
+		case sendDoneErr, ok := <-i.sendDone:
+			if ok && sendDoneErr != nil {
+				i.sendErr = sendDoneErr
+			}
+			i.logger.Error(i.sendErr, "stop processing, sending has stopped")
+			return fmt.Errorf("stop processing, sending has stopped: %w", i.sendErr)
+		}
+
 		return nil
 	}
 
-	// make sure we don't reach the queue memory limit before adding the new
-	// message to the channel. This will block until messages have been read
-	// from the channel and their size is released
-	msgSize := int64(msg.size())
-	if !i.queueBytesSema.TryAcquire(msgSize) {
-		i.logger.Warn(nil, "search batch indexer: max queue bytes reached, processing blocked")
-		if err := i.queueBytesSema.Acquire(ctx, msgSize); err != nil {
-			return err
-		}
+	err = enqueueMsg()
+	if err != nil {
+		i.closeMsgChan()
+		return err
 	}
-
-	select {
-	case i.msgChan <- msg:
-	case sendDoneErr := <-i.sendDone:
-		i.logger.Error(sendDoneErr, "stop processing, sending has stopped")
-		return fmt.Errorf("stop processing, sending has stopped: %w", sendDoneErr)
-	}
-
 	return nil
 }
 
@@ -206,6 +221,7 @@ func (i *BatchIndexer) Send(ctx context.Context) error {
 		i.logger.Error(err, "sending stopped")
 	}
 	i.sendDone <- err
+	close(i.sendDone)
 	return err
 }
 
@@ -214,9 +230,13 @@ func (i *BatchIndexer) Name() string {
 }
 
 func (i *BatchIndexer) Close() error {
-	close(i.msgChan)
-	close(i.sendDone)
 	return nil
+}
+
+func (i *BatchIndexer) closeMsgChan() {
+	i.once.Do(func() {
+		close(i.msgChan)
+	})
 }
 
 func (i *BatchIndexer) sendBatch(ctx context.Context, batch *msgBatch) error {

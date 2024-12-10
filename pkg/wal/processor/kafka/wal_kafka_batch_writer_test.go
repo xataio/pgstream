@@ -190,6 +190,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 				queueBytesSema: semaphore.NewWeighted(defaultMaxQueueBytes),
 				serialiser:     mockMarshaler,
 				sendDone:       make(chan error, 1),
+				once:           &sync.Once{},
 			}
 
 			if tc.semaphore != nil {
@@ -201,7 +202,7 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 			}
 
 			go func() {
-				defer close(writer.msgChan)
+				defer writer.closeMsgChan()
 				err := writer.ProcessWALEvent(context.Background(), tc.walEvent)
 				if !errors.Is(err, tc.wantErr) {
 					require.Equal(t, err.Error(), tc.wantErr.Error())
@@ -535,6 +536,7 @@ func TestBatchKafkaWriter(t *testing.T) {
 		sendFrequency:  time.Second,
 		sendDone:       make(chan error, 1),
 		serialiser:     json.Marshal,
+		once:           &sync.Once{},
 	}
 
 	doneChan := make(chan struct{}, 1)
