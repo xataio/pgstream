@@ -4,7 +4,6 @@ package snapshot
 
 import (
 	"context"
-	"errors"
 )
 
 type Snapshot struct {
@@ -46,16 +45,7 @@ func (s *Snapshot) IsValid() bool {
 
 func (r *Request) MarkCompleted(err error) {
 	r.Status = StatusCompleted
-	if err == nil {
-		return
-	}
-
-	var snapshotErrs *Errors
-	if errors.As(err, &snapshotErrs) {
-		r.Errors = snapshotErrs
-	} else {
-		r.Errors = &Errors{Snapshot: err}
-	}
+	r.Errors = NewErrors(err)
 }
 
 func (r *Request) MarkInProgress() {

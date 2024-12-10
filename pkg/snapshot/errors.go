@@ -30,6 +30,33 @@ func (e *Errors) Error() string {
 	return err.Error()
 }
 
+func NewErrors(err error) *Errors {
+	if err == nil {
+		return nil
+	}
+	var snapshotErrs *Errors
+	if errors.As(err, &snapshotErrs) {
+		return snapshotErrs
+	}
+	return &Errors{
+		Snapshot: err,
+	}
+}
+
+func (e *Errors) AddSnapshotError(err error) {
+	if e == nil {
+		e = &Errors{}
+		e.AddSnapshotError(err)
+		return
+	}
+
+	if e.Snapshot == nil {
+		e.Snapshot = err
+		return
+	}
+	e.Snapshot = errors.Join(e.Snapshot, err)
+}
+
 func (e *Errors) IsTableError(table string) bool {
 	if e == nil {
 		return false
