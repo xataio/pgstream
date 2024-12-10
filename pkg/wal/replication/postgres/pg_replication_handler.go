@@ -14,7 +14,8 @@ import (
 
 // Handler handles the postgres replication slot operations
 type Handler struct {
-	logger loglib.Logger
+	logger    loglib.Logger
+	logFields loglib.Fields
 
 	pgReplicationConn     pgReplicationConn
 	pgReplicationSlotName string
@@ -67,12 +68,28 @@ func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, erro
 		return nil, err
 	}
 
+	sysID, err := pgReplicationConn.IdentifySystem(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("identifySystem failed: %w", err)
+	}
+
+	replicationSlotName := cfg.ReplicationSlotName
+	if replicationSlotName == "" {
+		replicationSlotName = pglib.DefaultReplicationSlotName(sysID.DBName)
+	}
+
 	h := &Handler{
 		logger:                loglib.NewNoopLogger(),
 		pgReplicationConn:     pgReplicationConn,
-		pgReplicationSlotName: cfg.ReplicationSlotName,
+		pgReplicationSlotName: replicationSlotName,
 		pgConnBuilder:         connBuilder,
 		lsnParser:             &LSNParser{},
+		logFields: loglib.Fields{
+			logSystemID:    sysID.SystemID,
+			logDBName:      sysID.DBName,
+			logSlotName:    replicationSlotName,
+			logLSNPosition: sysID.XLogPos,
+		},
 	}
 
 	for _, opt := range opts {
@@ -95,25 +112,6 @@ func WithLogger(l loglib.Logger) Option {
 // (confirmed_flush_lsn), and if there isn't one, it will start replication from
 // the restart_lsn position.
 func (h *Handler) StartReplication(ctx context.Context) error {
-	sysID, err := h.pgReplicationConn.IdentifySystem(ctx)
-	if err != nil {
-		return fmt.Errorf("identifySystem failed: %w", err)
-	}
-
-	if h.pgReplicationSlotName == "" {
-		h.pgReplicationSlotName = pglib.DefaultReplicationSlotName(sysID.DBName)
-	}
-
-	logFields := loglib.Fields{
-		logSystemID: sysID.SystemID,
-		logDBName:   sysID.DBName,
-		logSlotName: h.pgReplicationSlotName,
-	}
-	h.logger.Info("replication handler: identifySystem success", logFields, loglib.Fields{
-		logTimeline:    sysID.Timeline,
-		logLSNPosition: sysID.XLogPos,
-	})
-
 	conn, err := h.pgConnBuilder()
 	if err != nil {
 		return fmt.Errorf("creating pg connection: %w", err)
@@ -125,7 +123,7 @@ func (h *Handler) StartReplication(ctx context.Context) error {
 		return fmt.Errorf("read last position: %w", err)
 	}
 
-	h.logger.Trace("replication handler: read last LSN position", logFields, loglib.Fields{
+	h.logger.Trace("read last LSN position", h.logFields, loglib.Fields{
 		logLSNPosition: h.lsnParser.ToString(startPos),
 	})
 
@@ -136,23 +134,29 @@ func (h *Handler) StartReplication(ctx context.Context) error {
 		}
 	}
 
-	h.logger.Trace("replication handler: set start LSN", logFields, loglib.Fields{
-		logLSNPosition: h.lsnParser.ToString(startPos),
+	return h.StartReplicationFromLSN(ctx, startPos)
+}
+
+// StartReplicationFromLSN will start the replication process on the configured
+// replication slot from the LSN on input.
+func (h *Handler) StartReplicationFromLSN(ctx context.Context, lsn replication.LSN) error {
+	h.logger.Trace("set start LSN", h.logFields, loglib.Fields{
+		logLSNPosition: h.lsnParser.ToString(lsn),
 	})
 
-	err = h.pgReplicationConn.StartReplication(
+	err := h.pgReplicationConn.StartReplication(
 		ctx, pglib.ReplicationConfig{
 			SlotName:        h.pgReplicationSlotName,
-			StartPos:        uint64(startPos),
+			StartPos:        uint64(lsn),
 			PluginArguments: pluginArguments,
 		})
 	if err != nil {
 		return fmt.Errorf("startReplication: %w", err)
 	}
 
-	h.logger.Info("replication handler: logical replication started", logFields)
+	h.logger.Info("logical replication started", h.logFields)
 
-	return h.SyncLSN(ctx, startPos)
+	return h.SyncLSN(ctx, lsn)
 }
 
 // ReceiveMessage will listen for messages from the WAL. It returns an error if
@@ -201,6 +205,21 @@ func (h *Handler) GetReplicationLag(ctx context.Context) (int64, error) {
 	}
 
 	return lag, nil
+}
+
+func (h *Handler) GetCurrentLSN(ctx context.Context) (replication.LSN, error) {
+	conn, err := h.pgConnBuilder()
+	if err != nil {
+		return 0, fmt.Errorf("creating pg connection: %w", err)
+	}
+	defer conn.Close(ctx)
+
+	var currentLSN string
+	err = conn.QueryRow(ctx, `SELECT confirmed_flush_lsn FROM pg_replication_slots WHERE slot_name=$1`, h.pgReplicationSlotName).Scan(&currentLSN)
+	if err != nil {
+		return 0, err
+	}
+	return h.lsnParser.FromString(currentLSN)
 }
 
 // GetLSNParser returns a postgres implementation of the LSN parser.

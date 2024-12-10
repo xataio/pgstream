@@ -47,6 +47,10 @@ func (h *Handler) StartReplication(ctx context.Context) error {
 	return h.inner.StartReplication(ctx)
 }
 
+func (h *Handler) StartReplicationFromLSN(ctx context.Context, lsn replication.LSN) error {
+	return h.inner.StartReplicationFromLSN(ctx, lsn)
+}
+
 func (h *Handler) ReceiveMessage(ctx context.Context) (msg *replication.Message, err error) {
 	ctx, span := otel.StartSpan(ctx, h.tracer, "replicationhandler.ReceiveMessage")
 	defer otel.CloseSpan(span, err)
@@ -61,6 +65,10 @@ func (h *Handler) SyncLSN(ctx context.Context, lsn replication.LSN) (err error) 
 
 func (h *Handler) GetReplicationLag(ctx context.Context) (int64, error) {
 	return h.inner.GetReplicationLag(ctx)
+}
+
+func (h *Handler) GetCurrentLSN(ctx context.Context) (replication.LSN, error) {
+	return h.inner.GetCurrentLSN(ctx)
 }
 
 func (h *Handler) GetLSNParser() replication.LSNParser {

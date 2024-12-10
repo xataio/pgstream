@@ -10,18 +10,24 @@ import (
 )
 
 type Handler struct {
-	StartReplicationFn    func(context.Context) error
-	ReceiveMessageFn      func(context.Context, uint64) (*replication.Message, error)
-	SyncLSNFn             func(context.Context, replication.LSN) error
-	DropReplicationSlotFn func(ctx context.Context) error
-	GetLSNParserFn        func() replication.LSNParser
-	CloseFn               func() error
-	SyncLSNCalls          uint64
-	ReceiveMessageCalls   uint64
+	StartReplicationFn        func(context.Context) error
+	StartReplicationFromLSNFn func(context.Context, replication.LSN) error
+	ReceiveMessageFn          func(context.Context, uint64) (*replication.Message, error)
+	SyncLSNFn                 func(context.Context, replication.LSN) error
+	DropReplicationSlotFn     func(ctx context.Context) error
+	GetLSNParserFn            func() replication.LSNParser
+	GetCurrentLSNFn           func(context.Context) (replication.LSN, error)
+	CloseFn                   func() error
+	SyncLSNCalls              uint64
+	ReceiveMessageCalls       uint64
 }
 
 func (m *Handler) StartReplication(ctx context.Context) error {
 	return m.StartReplicationFn(ctx)
+}
+
+func (m *Handler) StartReplicationFromLSN(ctx context.Context, lsn replication.LSN) error {
+	return m.StartReplicationFromLSNFn(ctx, lsn)
 }
 
 func (m *Handler) ReceiveMessage(ctx context.Context) (*replication.Message, error) {
@@ -36,6 +42,10 @@ func (m *Handler) SyncLSN(ctx context.Context, lsn replication.LSN) error {
 
 func (m *Handler) DropReplicationSlot(ctx context.Context) error {
 	return m.DropReplicationSlotFn(ctx)
+}
+
+func (m *Handler) GetCurrentLSN(ctx context.Context) (replication.LSN, error) {
+	return m.GetCurrentLSNFn(ctx)
 }
 
 func (m *Handler) GetLSNParser() replication.LSNParser {

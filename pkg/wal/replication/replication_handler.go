@@ -11,9 +11,11 @@ import (
 // Handler manages the replication operations
 type Handler interface {
 	StartReplication(ctx context.Context) error
+	StartReplicationFromLSN(ctx context.Context, lsn LSN) error
 	ReceiveMessage(ctx context.Context) (*Message, error)
 	SyncLSN(ctx context.Context, lsn LSN) error
 	GetReplicationLag(ctx context.Context) (int64, error)
+	GetCurrentLSN(ctx context.Context) (LSN, error)
 	GetLSNParser() LSNParser
 	Close() error
 }
