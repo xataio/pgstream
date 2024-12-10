@@ -11,6 +11,8 @@ import (
 	snapshotstore "github.com/xataio/pgstream/pkg/snapshot/store"
 )
 
+// SnapshotRecorder is a decorator around a snapshot generator that will record
+// the snapshot request status.
 type SnapshotRecorder struct {
 	wrapped SnapshotGenerator
 	store   snapshotstore.Store
@@ -18,6 +20,9 @@ type SnapshotRecorder struct {
 
 const updateTimeout = time.Minute
 
+// NewSnapshotRecorder will return the generator on input wrapped with an
+// activity recorder that will keep track of the status of the snapshot
+// requests.
 func NewSnapshotRecorder(store snapshotstore.Store, generator SnapshotGenerator) *SnapshotRecorder {
 	return &SnapshotRecorder{
 		wrapped: generator,
