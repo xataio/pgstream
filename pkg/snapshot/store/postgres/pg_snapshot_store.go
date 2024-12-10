@@ -42,7 +42,7 @@ func (s *Store) Close() error {
 
 func (s *Store) CreateSnapshotRequest(ctx context.Context, req *snapshot.Request) error {
 	query := fmt.Sprintf(`INSERT INTO %s (schema_name, table_names, created_at, updated_at, status)
-	VALUES($1, $2,'now()','now()','requested')`, snapshotsTable())
+	VALUES($1, $2, now(), now(),'requested')`, snapshotsTable())
 	_, err := s.conn.Exec(ctx, query, req.Snapshot.SchemaName, pq.StringArray(req.Snapshot.TableNames))
 	if err != nil {
 		return fmt.Errorf("error creating snapshot request: %w", err)
@@ -51,7 +51,7 @@ func (s *Store) CreateSnapshotRequest(ctx context.Context, req *snapshot.Request
 }
 
 func (s *Store) UpdateSnapshotRequest(ctx context.Context, req *snapshot.Request) error {
-	query := fmt.Sprintf(`UPDATE %s SET status = $1, errors = $2, updated_at = 'now()'
+	query := fmt.Sprintf(`UPDATE %s SET status = $1, errors = $2, updated_at = now()
 	WHERE schema_name = $3 and table_names = $4 and status != 'completed'`, snapshotsTable())
 	_, err := s.conn.Exec(ctx, query, req.Status, req.Errors, req.Snapshot.SchemaName, pq.StringArray(req.Snapshot.TableNames))
 	if err != nil {

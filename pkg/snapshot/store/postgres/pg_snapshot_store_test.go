@@ -39,7 +39,7 @@ func TestStore_CreateSnapshotRequest(t *testing.T) {
 			querier: &postgresmocks.Querier{
 				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (postgres.CommandTag, error) {
 					wantQuery := fmt.Sprintf(`INSERT INTO %s (schema_name, table_names, created_at, updated_at, status)
-	VALUES($1, $2,'now()','now()','requested')`, snapshotsTable())
+	VALUES($1, $2, now(), now(),'requested')`, snapshotsTable())
 					require.Equal(t, wantQuery, s)
 					wantAttr := []any{testSnapshot.SchemaName, pq.StringArray(testSnapshot.TableNames)}
 					require.Equal(t, wantAttr, a)
@@ -101,7 +101,7 @@ func TestStore_UpdateSnapshotRequest(t *testing.T) {
 			name: "ok - update without error",
 			querier: &postgresmocks.Querier{
 				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (postgres.CommandTag, error) {
-					wantQuery := fmt.Sprintf(`UPDATE %s SET status = $1, errors = $2, updated_at = 'now()'
+					wantQuery := fmt.Sprintf(`UPDATE %s SET status = $1, errors = $2, updated_at = now()
 	WHERE schema_name = $3 and table_names = $4 and status != 'completed'`,
 						snapshotsTable())
 					require.Equal(t, wantQuery, s)
@@ -117,7 +117,7 @@ func TestStore_UpdateSnapshotRequest(t *testing.T) {
 			name: "ok - update with error",
 			querier: &postgresmocks.Querier{
 				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (postgres.CommandTag, error) {
-					wantQuery := fmt.Sprintf(`UPDATE %s SET status = $1, errors = $2, updated_at = 'now()'
+					wantQuery := fmt.Sprintf(`UPDATE %s SET status = $1, errors = $2, updated_at = now()
 	WHERE schema_name = $3 and table_names = $4 and status != 'completed'`,
 						snapshotsTable())
 					require.Equal(t, wantQuery, s)
