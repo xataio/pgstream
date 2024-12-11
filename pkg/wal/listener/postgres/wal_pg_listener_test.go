@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/replication"
 	replicationmocks "github.com/xataio/pgstream/pkg/wal/replication/mocks"
@@ -50,6 +50,7 @@ func TestListener_Listen(t *testing.T) {
 		name               string
 		replicationHandler func(doneChan chan struct{}) *replicationmocks.Handler
 		processEventFn     listenerProcessWalEvent
+		generator          func(doneChan chan struct{}) snapshotGenerator
 		deserialiser       func([]byte, any) error
 
 		wantErr error
@@ -74,6 +75,41 @@ func TestListener_Listen(t *testing.T) {
 				return h
 			},
 			processEventFn: okProcessEvent,
+
+			wantErr: context.Canceled,
+		},
+		{
+			name: "ok - with initial snapshot",
+			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
+				h := newMockReplicationHandler()
+				h.GetCurrentLSNFn = func(context.Context) (replication.LSN, error) {
+					return testLSN, nil
+				}
+				h.StartReplicationFromLSNFn = func(ctx context.Context, lsn replication.LSN) error {
+					require.Equal(t, testLSN, lsn)
+					return nil
+				}
+				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (*replication.Message, error) {
+					defer func() {
+						if i == 1 {
+							doneChan <- struct{}{}
+						}
+					}()
+					switch i {
+					case 1:
+						return newMockMessage(), nil
+					default:
+						return emptyMessage, nil
+					}
+				}
+				return h
+			},
+			processEventFn: okProcessEvent,
+			generator: func(_ chan struct{}) snapshotGenerator {
+				return &mockGenerator{
+					createSnapshotFn: func(ctx context.Context) error { return nil },
+				}
+			},
 
 			wantErr: context.Canceled,
 		},
@@ -149,6 +185,23 @@ func TestListener_Listen(t *testing.T) {
 			wantErr: context.Canceled,
 		},
 		{
+			name: "error - starting replication",
+			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
+				h := newMockReplicationHandler()
+				h.StartReplicationFn = func(ctx context.Context) error {
+					defer func() { doneChan <- struct{}{} }()
+					return errTest
+				}
+				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (*replication.Message, error) {
+					return nil, errors.New("ReceiveMessageFn: should not be called")
+				}
+				return h
+			},
+			processEventFn: okProcessEvent,
+
+			wantErr: errTest,
+		},
+		{
 			name: "error - receiving message",
 			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
 				h := newMockReplicationHandler()
@@ -163,6 +216,81 @@ func TestListener_Listen(t *testing.T) {
 				return h
 			},
 			processEventFn: okProcessEvent,
+
+			wantErr: errTest,
+		},
+		{
+			name: "error - getting current LSN with initial snapshot",
+			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
+				h := newMockReplicationHandler()
+				h.GetCurrentLSNFn = func(context.Context) (replication.LSN, error) {
+					defer func() { doneChan <- struct{}{} }()
+					return 0, errTest
+				}
+				h.StartReplicationFromLSNFn = func(ctx context.Context, lsn replication.LSN) error {
+					return errors.New("StartReplicationFromLSNFn: should not be called")
+				}
+				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (*replication.Message, error) {
+					return nil, errors.New("ReceiveMessageFn: should not be called")
+				}
+				return h
+			},
+			processEventFn: okProcessEvent,
+			generator: func(doneChan chan struct{}) snapshotGenerator {
+				return &mockGenerator{
+					createSnapshotFn: func(ctx context.Context) error { return errors.New("createSnapshotFn: should not be called") },
+				}
+			},
+
+			wantErr: errTest,
+		},
+		{
+			name: "error - creating initial snapshot",
+			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
+				h := newMockReplicationHandler()
+				h.GetCurrentLSNFn = func(context.Context) (replication.LSN, error) {
+					return testLSN, nil
+				}
+				h.StartReplicationFromLSNFn = func(ctx context.Context, lsn replication.LSN) error {
+					return errors.New("StartReplicationFromLSNFn: should not be called")
+				}
+				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (*replication.Message, error) {
+					return nil, errors.New("ReceiveMessageFn: should not be called")
+				}
+				return h
+			},
+			processEventFn: okProcessEvent,
+			generator: func(doneChan chan struct{}) snapshotGenerator {
+				return &mockGenerator{
+					createSnapshotFn: func(ctx context.Context) error {
+						defer func() { doneChan <- struct{}{} }()
+						return errTest
+					},
+				}
+			},
+
+			wantErr: errTest,
+		},
+		{
+			name: "error - starting replication from LSN after initial snapshot",
+			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
+				h := newMockReplicationHandler()
+				h.GetCurrentLSNFn = func(context.Context) (replication.LSN, error) {
+					return testLSN, nil
+				}
+				h.StartReplicationFromLSNFn = func(ctx context.Context, lsn replication.LSN) error {
+					defer func() { doneChan <- struct{}{} }()
+					return errTest
+				}
+				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (*replication.Message, error) {
+					return nil, errors.New("ReceiveMessageFn: should not be called")
+				}
+				return h
+			},
+			processEventFn: okProcessEvent,
+			generator: func(doneChan chan struct{}) snapshotGenerator {
+				return &mockGenerator{createSnapshotFn: func(ctx context.Context) error { return nil }}
+			},
 
 			wantErr: errTest,
 		},
@@ -213,14 +341,18 @@ func TestListener_Listen(t *testing.T) {
 			doneChan := make(chan struct{}, 1)
 			defer close(doneChan)
 
-			replicationHandler := tc.replicationHandler(doneChan)
-			l := &Listener{
-				logger:              loglib.NewNoopLogger(),
-				replicationHandler:  replicationHandler,
-				processEvent:        tc.processEventFn,
-				walDataDeserialiser: testDeserialiser,
-				lsnParser:           newMockLSNParser(),
+			opts := []Option{
+				WithLogger(log.NewNoopLogger()),
 			}
+			if tc.generator != nil {
+				opts = append(opts, WithInitialSnapshot(tc.generator(doneChan)))
+			}
+
+			replicationHandler := tc.replicationHandler(doneChan)
+			l := New(replicationHandler, tc.processEventFn, opts...)
+			l.walDataDeserialiser = testDeserialiser
+			l.lsnParser = newMockLSNParser()
+			defer l.Close()
 
 			if tc.deserialiser != nil {
 				l.walDataDeserialiser = tc.deserialiser

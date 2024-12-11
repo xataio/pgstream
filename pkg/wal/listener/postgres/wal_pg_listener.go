@@ -11,7 +11,6 @@ import (
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/replication"
-	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
 // Listener contains the environment for subscribing and listening to
@@ -20,6 +19,7 @@ type Listener struct {
 	replicationHandler replicationHandler
 	logger             loglib.Logger
 	lsnParser          replication.LSNParser
+	snapshotGenerator  snapshotGenerator
 
 	// Function called for processing WAL events.
 	processEvent listenerProcessWalEvent
@@ -29,17 +29,19 @@ type Listener struct {
 
 type replicationHandler interface {
 	StartReplication(ctx context.Context) error
+	StartReplicationFromLSN(ctx context.Context, lsn replication.LSN) error
 	ReceiveMessage(ctx context.Context) (*replication.Message, error)
+	GetCurrentLSN(ctx context.Context) (replication.LSN, error)
 	GetLSNParser() replication.LSNParser
 	Close() error
 }
 
+type snapshotGenerator interface {
+	CreateSnapshot(context.Context) error
+}
+
 // listenerProcessWalEvent is the function type callback to process WAL events.
 type listenerProcessWalEvent func(context.Context, *wal.Event) error
-
-type Config struct {
-	Replication pgreplication.Config
-}
 
 type Option func(l *Listener)
 
@@ -67,8 +69,21 @@ func WithLogger(logger loglib.Logger) Option {
 	}
 }
 
+func WithInitialSnapshot(sg snapshotGenerator) Option {
+	return func(l *Listener) {
+		l.snapshotGenerator = sg
+	}
+}
+
 // Listen starts the subscription process to listen for updates from PG.
 func (l *Listener) Listen(ctx context.Context) error {
+	if l.snapshotGenerator != nil {
+		if err := l.snapshotAndListen(ctx); err != nil {
+			l.logger.Error(err, "pg snapshot and listen")
+			return err
+		}
+	}
+
 	if err := l.replicationHandler.StartReplication(ctx); err != nil {
 		return fmt.Errorf("start replication: %w", err)
 	}
@@ -79,6 +94,23 @@ func (l *Listener) Listen(ctx context.Context) error {
 // Close closes the listener internal resources
 func (l *Listener) Close() error {
 	return nil
+}
+
+func (l *Listener) snapshotAndListen(ctx context.Context) error {
+	lsn, err := l.replicationHandler.GetCurrentLSN(ctx)
+	if err != nil {
+		return err
+	}
+
+	if err := l.snapshotGenerator.CreateSnapshot(ctx); err != nil {
+		return err
+	}
+
+	if err := l.replicationHandler.StartReplicationFromLSN(ctx, lsn); err != nil {
+		return fmt.Errorf("start replication from LSN %s: %w", l.lsnParser.ToString(lsn), err)
+	}
+
+	return l.listen(ctx)
 }
 
 func (l *Listener) listen(ctx context.Context) error {
