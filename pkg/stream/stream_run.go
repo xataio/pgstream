@@ -11,9 +11,11 @@ import (
 	kafkainstrumentation "github.com/xataio/pgstream/pkg/kafka/instrumentation"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
+	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/data/postgres"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	pgcheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/postgres"
+	"github.com/xataio/pgstream/pkg/wal/listener"
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
 	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -124,6 +126,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 		// the kafka batch writer requires to initialise a go routine to send
 		// the batches asynchronously
 		eg.Go(func() error {
+			defer logger.Info("stopping kafka batch writer...")
 			logger.Info("running kafka batch writer...")
 			return kafkaWriter.Send(ctx)
 		})
@@ -155,6 +158,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 		// the search batch indexer requires to initialise a go routine to send
 		// the batches asynchronously
 		eg.Go(func() error {
+			defer logger.Info("stopping search batch indexer...")
 			logger.Info("running search batch indexer...")
 			return searchIndexer.Send(ctx)
 		})
@@ -196,12 +200,14 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 			subscriptionserver.WithLogger(logger))
 
 		eg.Go(func() error {
+			defer logger.Info("stopping subscription server...")
 			logger.Info("running subscription server...")
 			go subscriptionServer.Start()
 			<-ctx.Done()
 			return subscriptionServer.Shutdown(ctx)
 		})
 		eg.Go(func() error {
+			defer logger.Info("stopping webhook notifier...")
 			logger.Info("running webhook notifier...")
 			return notifier.Notify(ctx)
 		})
@@ -238,12 +244,31 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 
 	switch {
 	case config.Listener.Postgres != nil:
-		listener := pglistener.New(replicationHandler,
+		opts := []pglistener.Option{
+			pglistener.WithLogger(logger),
+		}
+		if config.Listener.Postgres.Snapshot != nil {
+			logger.Info("initial snapshot enabled")
+			snapshotGenerator, err := pglistener.NewSnapshotGeneratorAdapter(
+				ctx,
+				config.Listener.Postgres.Snapshot,
+				processor.ProcessWALEvent,
+				pgsnapshotgenerator.WithLogger(logger))
+			if err != nil {
+				return err
+			}
+			defer snapshotGenerator.Close()
+			opts = append(opts, pglistener.WithInitialSnapshot(snapshotGenerator))
+		}
+
+		var listener listener.Listener = pglistener.New(
+			replicationHandler,
 			processor.ProcessWALEvent,
-			pglistener.WithLogger(logger))
+			opts...)
 		defer listener.Close()
 
 		eg.Go(func() error {
+			defer logger.Info("stopping postgres listener...")
 			logger.Info("running postgres listener...")
 			return listener.Listen(ctx)
 		})
@@ -259,6 +284,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 		defer listener.Close()
 
 		eg.Go(func() error {
+			defer logger.Info("stopping kafka reader...")
 			logger.Info("running kafka reader...")
 			return listener.Listen(ctx)
 		})
