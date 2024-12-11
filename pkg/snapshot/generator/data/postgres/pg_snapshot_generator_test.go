@@ -874,6 +874,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				schemaWorkers: 1,
 				tableWorkers:  1,
 				batchPageSize: 10,
+				tableParser:   func(ctx context.Context, snapshot *snapshot.Snapshot) error { return nil },
 			}
 
 			if tc.schemaWorkers != 0 {
