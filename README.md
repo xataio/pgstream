@@ -17,6 +17,7 @@
 ## Features
 
 - Schema change tracking and replication of DDL changes
+- Fast initial snapshots
 - Modular deployment configuration, only requires Postgres
 - Schema based message partitioning
 - Schema filtering
@@ -127,10 +128,15 @@ Here's a list of all the environment variables that can be used to configure the
 <details>
   <summary>Postgres Listener</summary>
 
-| Environment Variable                    | Default                    | Required | Description                                                          |
-| --------------------------------------- | -------------------------- | -------- | -------------------------------------------------------------------- |
-| PGSTREAM_POSTGRES_LISTENER_URL          | N/A                        | Yes      | URL of the Postgres database to connect to for replication purposes. |
-| PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME | "pgstream\_<dbname>\_slot" | No       | Name of the Postgres replication slot name.                          |
+| Environment Variable                               | Default                    | Required | Description                                                                                                                                                                                                                                                                                                  |
+| -------------------------------------------------- | -------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| PGSTREAM_POSTGRES_LISTENER_URL                     | N/A                        | Yes      | URL of the Postgres database to connect to for replication purposes.                                                                                                                                                                                                                                         |
+| PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME            | "pgstream\_<dbname>\_slot" | No       | Name of the Postgres replication slot name.                                                                                                                                                                                                                                                                  |
+| PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLES          | ""                         | No       | Tables for which there will be an initial snapshot generated. The syntax supports wildcards. Tables without a schema defined will be applied the public schema. Example: for `public.test_table` and all tables in the `test_schema` schema, the value would be the following: `"test_table test_schema.\*"` |
+| PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_SCHEMA_WORKERS  | 4                          | No       | Number of tables per schema that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                  |
+| PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLE_WORKERS   | 4                          | No       | Number of concurrent workers that will be used per table by the snapshotting process.                                                                                                                                                                                                                        |
+| PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_BATCH_PAGE_SIZE | 1000                       | No       | Size of the table page range which will be processed concurrently by the table workers from `PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLE_WORKERS`.                                                                                                                                                              |
+| PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_WORKERS         | 1                          | No       | Number of schemas that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                            |
 
 </details>
 
@@ -284,7 +290,7 @@ Some of the limitations of the initial release include:
 - Single Kafka topic support
 - Postgres plugin support limited to `wal2json`
 - Data filtering limited to schema level
-- No initial/automatic data backfill
+- No on demand data snapshots
 - Primary key/unique not null column required for replication
 - Kafka serialisation support limited to JSON
 
