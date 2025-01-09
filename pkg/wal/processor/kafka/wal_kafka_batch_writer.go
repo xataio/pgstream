@@ -48,7 +48,10 @@ type BatchWriter struct {
 
 type Option func(*BatchWriter)
 
-var errRecordTooLarge = errors.New("record too large")
+var (
+	errRecordTooLarge = errors.New("record too large")
+	errSendStopped    = errors.New("stop processing, sending has stopped")
+)
 
 func NewBatchWriter(config *Config, opts ...Option) (*BatchWriter, error) {
 	w := &BatchWriter{
@@ -186,19 +189,20 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) 
 				w.sendErr = sendDoneErr
 			}
 			w.logger.Error(w.sendErr, "stop processing, sending has stopped")
-			return fmt.Errorf("stop processing, sending has stopped: %w", w.sendErr)
+			return fmt.Errorf("%w: %w", errSendStopped, w.sendErr)
 		}
 
 		return nil
 	}
 
 	err := enqueueMsg(ctx, walEvent)
-	if err != nil {
+	// close the message channel only if the send thread has stopped, since we
+	// shouldn't keep processing
+	if err != nil && errors.Is(err, errSendStopped) {
 		w.closeMsgChan()
-		return err
 	}
 
-	return nil
+	return err
 }
 
 func (w *BatchWriter) Send(ctx context.Context) error {
@@ -286,9 +290,12 @@ func (w *BatchWriter) Name() string {
 }
 
 func (w *BatchWriter) Close() error {
+	w.closeMsgChan()
 	return w.writer.Close()
 }
 
+// closeMsgChan closes the internal msg channel. It can be called multiple
+// times.
 func (w *BatchWriter) closeMsgChan() {
 	w.once.Do(func() {
 		close(w.msgChan)
