@@ -31,11 +31,11 @@ func (m *msg) size() int {
 }
 
 func (m *msg) isSchemaChange() bool {
-	return m.schemaChange != nil
+	return m != nil && m.schemaChange != nil
 }
 
 func (m *msg) isKeepAlive() bool {
-	return m.write == nil && m.schemaChange == nil && m.truncate == nil &&
+	return m != nil && m.write == nil && m.schemaChange == nil && m.truncate == nil &&
 		m.pos != ""
 }
 

@@ -264,6 +264,8 @@ func (i *BatchIndexer) sendBatch(ctx context.Context, batch *msgBatch) error {
 
 	for _, msg := range batch.msgs {
 		switch {
+		case msg == nil:
+			// ignore
 		case msg.write != nil:
 			writes = append(writes, *msg.write)
 		case msg.schemaChange != nil:
