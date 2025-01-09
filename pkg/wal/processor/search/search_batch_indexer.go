@@ -46,6 +46,8 @@ type BatchIndexer struct {
 
 type Option func(*BatchIndexer)
 
+var errSendStopped = errors.New("stop processing, sending has stopped")
+
 // NewBatchIndexer returns a processor of wal events that indexes data into the
 // search store provided on input.
 func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, lsnParser replication.LSNParser, opts ...Option) *BatchIndexer {
@@ -138,18 +140,19 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, event *wal.Event) (e
 				i.sendErr = sendDoneErr
 			}
 			i.logger.Error(i.sendErr, "stop processing, sending has stopped")
-			return fmt.Errorf("stop processing, sending has stopped: %w", i.sendErr)
+			return fmt.Errorf("%w: %w", errSendStopped, i.sendErr)
 		}
 
 		return nil
 	}
 
 	err = enqueueMsg()
-	if err != nil {
+	// close the message channel only if the send thread has stopped, since we
+	// shouldn't keep processing
+	if err != nil && errors.Is(err, errSendStopped) {
 		i.closeMsgChan()
-		return err
 	}
-	return nil
+	return err
 }
 
 func (i *BatchIndexer) Send(ctx context.Context) error {
@@ -230,9 +233,12 @@ func (i *BatchIndexer) Name() string {
 }
 
 func (i *BatchIndexer) Close() error {
+	i.closeMsgChan()
 	return nil
 }
 
+// closeMsgChan closes the internal msg channel. It can be called multiple
+// times.
 func (i *BatchIndexer) closeMsgChan() {
 	i.once.Do(func() {
 		close(i.msgChan)
@@ -264,6 +270,8 @@ func (i *BatchIndexer) sendBatch(ctx context.Context, batch *msgBatch) error {
 
 	for _, msg := range batch.msgs {
 		switch {
+		case msg == nil:
+			// ignore
 		case msg.write != nil:
 			writes = append(writes, *msg.write)
 		case msg.schemaChange != nil:

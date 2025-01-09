@@ -5,6 +5,7 @@ package notifier
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -45,6 +46,8 @@ type subscriptionRetriever interface {
 }
 
 type Option func(*Notifier)
+
+var errNotifyStopped = errors.New("stop processing, notify has stopped")
 
 func New(cfg *Config, store subscriptionRetriever, opts ...Option) *Notifier {
 	n := &Notifier{
@@ -133,19 +136,20 @@ func (n *Notifier) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (er
 				n.notifyErr = notifyDoneErr
 			}
 			n.logger.Error(n.notifyErr, "stop processing, notify has stopped")
-			return fmt.Errorf("stop processing, notify has stopped: %w", n.notifyErr)
+			return fmt.Errorf("%w: %w", errNotifyStopped, n.notifyErr)
 		}
 
 		return nil
 	}
 
 	err = enqueueMsg()
-	if err != nil {
+	// close the notify channel only if the notify thread has stopped, since we
+	// shouldn't keep processing
+	if err != nil && errors.Is(err, errNotifyStopped) {
 		n.closeNotifyChan()
-		return err
 	}
 
-	return nil
+	return err
 }
 
 func (n *Notifier) Notify(ctx context.Context) error {
@@ -184,6 +188,8 @@ func (n *Notifier) Close() error {
 	return nil
 }
 
+// closeNotifyChan closes the internal notify channel. It can be called multiple
+// times.
 func (n *Notifier) closeNotifyChan() {
 	n.once.Do(func() {
 		close(n.notifyChan)
