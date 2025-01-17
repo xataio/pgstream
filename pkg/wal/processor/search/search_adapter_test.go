@@ -651,6 +651,14 @@ func TestAdapter_parseIDColumns(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - int32",
+			idColumns: []wal.Column{
+				{Name: "id-1", Value: int32(1)},
+			},
+			wantDoc: newDoc(fmt.Sprintf("%s_1", testTable)),
+			wantErr: nil,
+		},
+		{
 			name: "ok - int64",
 			idColumns: []wal.Column{
 				{Name: "id-1", Value: int64(1)},
@@ -672,13 +680,15 @@ func TestAdapter_parseIDColumns(t *testing.T) {
 				{ID: "col-1", Name: "id-1", Value: "id1"},
 				{ID: "col-2", Name: "id-2", Value: float64(2.0)},
 				{ID: "col-3", Name: "id-3", Value: int64(100)},
+				{ID: "col-4", Name: "id-4", Value: int32(101)},
 			},
 			wantDoc: &Document{
-				ID: fmt.Sprintf("%s_id1-2-100", testTable),
+				ID: fmt.Sprintf("%s_id1-2-100-101", testTable),
 				Data: map[string]any{
 					"col-1": "id1",
 					"col-2": float64(2.0),
 					"col-3": int64(100),
+					"col-4": int32(101),
 				},
 			},
 			wantErr: nil,

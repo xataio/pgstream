@@ -255,6 +255,8 @@ func (a *adapter) parseIDColumns(tableName string, idColumns []wal.Column, doc *
 		switch v := col.Value.(type) {
 		case string:
 			addToID(v)
+		case int32:
+			addToID(strconv.FormatInt(int64(v), 10))
 		case int64:
 			addToID(strconv.FormatInt(v, 10))
 		case float64:
