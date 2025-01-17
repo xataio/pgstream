@@ -636,6 +636,23 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 			wantErr: errTest,
 		},
 		{
+			name: "error - sending documents with validation failure",
+			batch: &msgBatch{
+				msgs: []*msg{
+					{write: testDocument1},
+					{write: testDocument2},
+				},
+				positions: []wal.CommitPosition{testCommitPos},
+			},
+			store: &mockStore{
+				sendDocumentsFn: func(ctx context.Context, _ uint, docs []Document) ([]DocumentError, error) {
+					return nil, ErrInvalidQuery
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
 			name: "error - checkpointing",
 			batch: &msgBatch{
 				msgs: []*msg{

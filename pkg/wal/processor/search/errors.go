@@ -47,7 +47,8 @@ func (e ErrSchemaUpdateOutOfOrder) Error() string {
 }
 
 var (
-	ErrRetriable = errors.New("retriable error")
+	ErrRetriable    = errors.New("retriable error")
+	ErrInvalidQuery = errors.New("invalid query")
 
 	errNilIDValue      = errors.New("id has nil value")
 	errNilVersionValue = errors.New("version has nil value")

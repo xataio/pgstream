@@ -96,17 +96,17 @@ type apiResponse interface {
 func IsErrResponse(res apiResponse) error {
 	if res.IsError() {
 		if res.GetStatusCode() == http.StatusNotFound {
-			return fmt.Errorf("%w: %w", ErrResourceNotFound, extractResponseError(res))
+			return fmt.Errorf("%w: %w", ErrResourceNotFound, ExtractResponseError(res.GetBody(), res.GetStatusCode()))
 		}
-		return extractResponseError(res)
+		return ExtractResponseError(res.GetBody(), res.GetStatusCode())
 	}
 
 	return nil
 }
 
-func extractResponseError(res apiResponse) error {
+func ExtractResponseError(body io.ReadCloser, statusCode int) error {
 	var e map[string]any
-	if err := json.NewDecoder(res.GetBody()).Decode(&e); err != nil {
+	if err := json.NewDecoder(body).Decode(&e); err != nil {
 		return fmt.Errorf("decoding error response: %w", err)
 	}
 
@@ -150,7 +150,6 @@ func extractResponseError(res apiResponse) error {
 		}
 	}
 
-	statusCode := res.GetStatusCode()
 	if err, ok := getRetryableError(statusCode); ok {
 		return RetryableError{Cause: err}
 	}
