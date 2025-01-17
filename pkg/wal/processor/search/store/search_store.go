@@ -469,7 +469,10 @@ func (s *Store) ensureSchemaMapping(ctx context.Context, schemaName string, meta
 
 func mapError(err error) error {
 	if errors.As(err, &searchstore.RetryableError{}) {
-		return fmt.Errorf("%w: %v", search.ErrRetriable, err.Error())
+		return fmt.Errorf("%w: %w", search.ErrRetriable, err)
+	}
+	if errors.As(err, &searchstore.ErrQueryInvalid{}) {
+		return fmt.Errorf("%w: %w", search.ErrInvalidQuery, err)
 	}
 	return err
 }

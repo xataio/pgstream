@@ -256,7 +256,12 @@ func (i *BatchIndexer) sendBatch(ctx context.Context, batch *msgBatch) error {
 		if len(writes) > 0 {
 			failed, err := i.store.SendDocuments(ctx, writes)
 			if err != nil {
-				return err
+				i.logger.Error(err, "search store error when sending documents", loglib.Fields{
+					"documents": writes,
+				})
+				if !errors.Is(err, ErrInvalidQuery) {
+					return err
+				}
 			}
 			if len(failed) > 0 {
 				i.logger.Error(nil, "failed to send documents", loglib.Fields{
