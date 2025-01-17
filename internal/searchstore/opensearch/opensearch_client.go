@@ -422,12 +422,14 @@ func (c *Client) SendBulkRequest(ctx context.Context, items []searchstore.BulkIt
 		return nil, fmt.Errorf("perform: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode > 299 {
+		return nil, fmt.Errorf("[SendBulkRequest] error response from OpenSearch: %w", searchstore.ExtractResponseError(resp.Body, resp.StatusCode))
+	}
+
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
-	}
-	if resp.StatusCode > 299 {
-		return nil, fmt.Errorf("error from OpenSearch: %d: %s", resp.StatusCode, bodyBytes)
 	}
 
 	return searchstore.VerifyResponse(bodyBytes, items)
