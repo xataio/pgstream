@@ -5,25 +5,21 @@ package kafka
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/internal/json"
 	"github.com/xataio/pgstream/internal/log/zerolog"
-	synclib "github.com/xataio/pgstream/internal/sync"
-	syncmocks "github.com/xataio/pgstream/internal/sync/mocks"
 	"github.com/xataio/pgstream/pkg/kafka"
 	kafkamocks "github.com/xataio/pgstream/pkg/kafka/mocks"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
-
-	"golang.org/x/sync/semaphore"
+	"github.com/xataio/pgstream/pkg/wal/processor/batch"
+	batchmocks "github.com/xataio/pgstream/pkg/wal/processor/batch/mocks"
 )
 
 var (
@@ -57,23 +53,21 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 		name            string
 		walEvent        *wal.Event
 		eventSerialiser func(any) ([]byte, error)
-		semaphore       synclib.WeightedSemaphore
+		batchSender     *batchmocks.BatchSender[kafka.Message]
 
-		wantMsgs []*msg
+		wantMsgs []*batch.WALMessage[kafka.Message]
 		wantErr  error
 	}{
 		{
-			name:     "ok",
-			walEvent: testWalEvent,
+			name:        "ok",
+			walEvent:    testWalEvent,
+			batchSender: batchmocks.NewBatchSender[kafka.Message](),
 
-			wantMsgs: []*msg{
-				{
-					msg: kafka.Message{
-						Key:   []byte(testSchema),
-						Value: testBytes,
-					},
-					pos: testCommitPosition,
-				},
+			wantMsgs: []*batch.WALMessage[kafka.Message]{
+				batch.NewWALMessage(kafka.Message{
+					Key:   []byte(testSchema),
+					Value: testBytes,
+				}, testCommitPosition),
 			},
 			wantErr: nil,
 		},
@@ -82,11 +76,10 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 			walEvent: &wal.Event{
 				CommitPosition: testCommitPosition,
 			},
+			batchSender: batchmocks.NewBatchSender[kafka.Message](),
 
-			wantMsgs: []*msg{
-				{
-					pos: testCommitPosition,
-				},
+			wantMsgs: []*batch.WALMessage[kafka.Message]{
+				batch.NewWALMessage(kafka.Message{}, testCommitPosition),
 			},
 			wantErr: nil,
 		},
@@ -104,15 +97,13 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 				},
 				CommitPosition: testCommitPosition,
 			},
+			batchSender: batchmocks.NewBatchSender[kafka.Message](),
 
-			wantMsgs: []*msg{
-				{
-					msg: kafka.Message{
-						Key:   []byte(testSchema),
-						Value: testBytes,
-					},
-					pos: testCommitPosition,
-				},
+			wantMsgs: []*batch.WALMessage[kafka.Message]{
+				batch.NewWALMessage(kafka.Message{
+					Key:   []byte(testSchema),
+					Value: testBytes,
+				}, testCommitPosition),
 			},
 			wantErr: nil,
 		},
@@ -120,16 +111,18 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 			name:            "ok - wal event too large, message dropped",
 			walEvent:        testWalEvent,
 			eventSerialiser: func(any) ([]byte, error) { return []byte(strings.Repeat("a", 101)), nil },
+			batchSender:     batchmocks.NewBatchSender[kafka.Message](),
 
-			wantMsgs: []*msg{},
+			wantMsgs: []*batch.WALMessage[kafka.Message]{},
 			wantErr:  nil,
 		},
 		{
 			name:            "error - marshaling event",
 			walEvent:        testWalEvent,
 			eventSerialiser: func(any) ([]byte, error) { return nil, errTest },
+			batchSender:     batchmocks.NewBatchSender[kafka.Message](),
 
-			wantMsgs: []*msg{},
+			wantMsgs: []*batch.WALMessage[kafka.Message]{},
 			wantErr:  errTest,
 		},
 		{
@@ -146,8 +139,9 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 				},
 				CommitPosition: testCommitPosition,
 			},
+			batchSender: batchmocks.NewBatchSender[kafka.Message](),
 
-			wantMsgs: []*msg{},
+			wantMsgs: []*batch.WALMessage[kafka.Message]{},
 			wantErr:  errors.New("kafka batch writer: understanding event: schema_log schema_name received is not a string: int"),
 		},
 		{
@@ -161,20 +155,10 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 				},
 				CommitPosition: testCommitPosition,
 			},
+			batchSender: batchmocks.NewBatchSender[kafka.Message](),
 
-			wantMsgs: []*msg{},
+			wantMsgs: []*batch.WALMessage[kafka.Message]{},
 			wantErr:  errors.New("kafka batch writer: understanding event: schema_log schema_name not found in columns"),
-		},
-		{
-			name:     "error - acquiring semaphore",
-			walEvent: testWalEvent,
-			semaphore: &syncmocks.WeightedSemaphore{
-				TryAcquireFn: func(int64) bool { return false },
-				AcquireFn:    func(_ context.Context, i int64) error { return errTest },
-			},
-
-			wantMsgs: []*msg{},
-			wantErr:  errTest,
 		},
 	}
 
@@ -184,17 +168,10 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 			t.Parallel()
 
 			writer := &BatchWriter{
-				logger:         loglib.NewNoopLogger(),
-				msgChan:        make(chan *msg),
-				maxBatchBytes:  100,
-				queueBytesSema: semaphore.NewWeighted(defaultMaxQueueBytes),
-				serialiser:     mockMarshaler,
-				sendDone:       make(chan error, 1),
-				once:           &sync.Once{},
-			}
-
-			if tc.semaphore != nil {
-				writer.queueBytesSema = tc.semaphore
+				logger:        loglib.NewNoopLogger(),
+				maxBatchBytes: 100,
+				serialiser:    mockMarshaler,
+				batchSender:   tc.batchSender,
 			}
 
 			if tc.eventSerialiser != nil {
@@ -202,210 +179,15 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 			}
 
 			go func() {
-				defer writer.closeMsgChan()
+				defer tc.batchSender.Close()
 				err := writer.ProcessWALEvent(context.Background(), tc.walEvent)
 				if !errors.Is(err, tc.wantErr) {
 					require.Equal(t, err.Error(), tc.wantErr.Error())
 				}
 			}()
 
-			msgs := []*msg{}
-			for msg := range writer.msgChan {
-				msgs = append(msgs, msg)
-				writer.queueBytesSema.Release(int64(msg.size()))
-			}
+			msgs := tc.batchSender.GetWALMessages()
 			require.Equal(t, tc.wantMsgs, msgs)
-		})
-	}
-}
-
-func TestBatchKafkaWriter_Send(t *testing.T) {
-	t.Parallel()
-
-	testCommitPosition := wal.CommitPosition(testLSNStr)
-	testBytes := []byte("test")
-	testKafkaMsg := &msg{
-		msg: kafka.Message{
-			Key:   []byte(testSchema),
-			Value: testBytes,
-		},
-		pos: testCommitPosition,
-	}
-
-	tests := []struct {
-		name             string
-		writerValidation func(i uint64, doneChan chan struct{}, msgs ...kafka.Message) error
-		msgs             []*msg
-		semaphore        *syncmocks.WeightedSemaphore
-
-		wantWriteCalls   uint64
-		wantReleaseCalls uint64
-		wantErr          error
-	}{
-		{
-			name: "ok",
-			msgs: []*msg{testKafkaMsg},
-			writerValidation: func(i uint64, doneChan chan struct{}, msgs ...kafka.Message) error {
-				defer func() {
-					doneChan <- struct{}{}
-				}()
-				if i == 1 {
-					require.Equal(t, 1, len(msgs))
-					require.Equal(t, testBytes, msgs[0].Value)
-					require.Equal(t, testSchema, string(msgs[0].Key))
-					return nil
-				}
-				return fmt.Errorf("unexpected write call: %d", i)
-			},
-			semaphore: &syncmocks.WeightedSemaphore{
-				ReleaseFn: func(_ uint64, size int64) {
-					require.Equal(t, len(testBytes), int(size))
-				},
-			},
-
-			wantWriteCalls:   1,
-			wantReleaseCalls: 1,
-			wantErr:          context.Canceled,
-		},
-		{
-			name: "ok - max batch bytes reached, trigger send",
-			msgs: []*msg{
-				{
-					msg: kafka.Message{
-						Key:   []byte(testSchema),
-						Value: []byte(strings.Repeat("a", 51)),
-					},
-					pos: testCommitPosition,
-				},
-				{
-					msg: kafka.Message{
-						Key:   []byte(testSchema),
-						Value: []byte(strings.Repeat("b", 50)),
-					},
-					pos: testCommitPosition,
-				},
-				{
-					msg: kafka.Message{
-						Key:   []byte(testSchema),
-						Value: []byte(strings.Repeat("c", 10)),
-					},
-					pos: testCommitPosition,
-				},
-			},
-			writerValidation: func(i uint64, doneChan chan struct{}, msgs ...kafka.Message) error {
-				defer func() {
-					if i == 2 {
-						doneChan <- struct{}{}
-					}
-				}()
-				switch i {
-				case 1:
-					require.Equal(t, 1, len(msgs))
-					require.Equal(t, []byte(strings.Repeat("a", 51)), msgs[0].Value)
-					require.Equal(t, testSchema, string(msgs[0].Key))
-					return nil
-				case 2:
-					require.Equal(t, 2, len(msgs))
-					require.Equal(t, []byte(strings.Repeat("b", 50)), msgs[0].Value)
-					require.Equal(t, testSchema, string(msgs[0].Key))
-					require.Equal(t, []byte(strings.Repeat("c", 10)), msgs[1].Value)
-					require.Equal(t, testSchema, string(msgs[1].Key))
-				}
-				return nil
-			},
-			semaphore: &syncmocks.WeightedSemaphore{
-				ReleaseFn: func(i uint64, size int64) {
-					switch i {
-					case 1:
-						require.Equal(t, int64(51), size)
-					case 2:
-						require.Equal(t, int64(60), size)
-					default:
-						require.Fail(t, fmt.Sprintf("unexpected call to release: %d", i))
-					}
-				},
-			},
-
-			wantWriteCalls:   2,
-			wantReleaseCalls: 2,
-			wantErr:          context.Canceled,
-		},
-		{
-			name: "error - writing messages",
-			msgs: []*msg{testKafkaMsg},
-			writerValidation: func(i uint64, doneChan chan struct{}, msgs ...kafka.Message) error {
-				defer func() {
-					doneChan <- struct{}{}
-				}()
-				return errTest
-			},
-			semaphore: &syncmocks.WeightedSemaphore{
-				ReleaseFn: func(_ uint64, size int64) {
-					require.Equal(t, len(testBytes), int(size))
-				},
-			},
-
-			wantWriteCalls:   1,
-			wantReleaseCalls: 1,
-			wantErr:          errTest,
-		},
-	}
-
-	for _, tc := range tests {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			doneChan := make(chan struct{})
-			defer close(doneChan)
-			mockWriter := &kafkamocks.Writer{
-				WriteMessagesFn: func(ctx context.Context, i uint64, msgs ...kafka.Message) error {
-					return tc.writerValidation(i, doneChan, msgs...)
-				},
-			}
-
-			writer := &BatchWriter{
-				logger:         loglib.NewNoopLogger(),
-				writer:         mockWriter,
-				msgChan:        make(chan *msg),
-				maxBatchBytes:  100,
-				maxBatchSize:   10,
-				queueBytesSema: tc.semaphore,
-				sendFrequency:  time.Second,
-				sendDone:       make(chan error, 1),
-			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-
-			wg := sync.WaitGroup{}
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				err := writer.Send(ctx)
-				require.ErrorIs(t, err, tc.wantErr)
-				require.Equal(t, tc.wantWriteCalls, mockWriter.GetWriteCalls())
-				require.Equal(t, tc.wantReleaseCalls, tc.semaphore.GetReleaseCalls())
-			}()
-
-			for _, msg := range tc.msgs {
-				writer.msgChan <- msg
-			}
-			// make sure the test doesn't block indefinitely if something goes
-			// wrong
-			for {
-				select {
-				case <-doneChan:
-					if errors.Is(tc.wantErr, context.Canceled) {
-						cancel()
-					}
-					wg.Wait()
-					return
-				case <-ctx.Done():
-					wg.Wait()
-					return
-				}
-			}
 		})
 	}
 }
@@ -415,21 +197,20 @@ func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 
 	testCommitPosition := wal.CommitPosition(testLSNStr)
 	testBytes := []byte("test")
-	testBatch := &msgBatch{
-		msgs: []kafka.Message{
+	testBatch := batch.NewBatch(
+		[]kafka.Message{
 			{
 				Key:   []byte(testSchema),
 				Value: testBytes,
 			},
 		},
-		positions: []wal.CommitPosition{testCommitPosition},
-	}
+		[]wal.CommitPosition{testCommitPosition})
 
 	tests := []struct {
 		name       string
 		writer     *kafkamocks.Writer
 		checkpoint checkpointer.Checkpoint
-		batch      *msgBatch
+		batch      *batch.Batch[kafka.Message]
 
 		wantErr error
 	}{
@@ -462,9 +243,7 @@ func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 			checkpoint: func(_ context.Context, commitPos []wal.CommitPosition) error {
 				return errors.New("checkpoint: should not be called")
 			},
-			batch: &msgBatch{
-				msgs: []kafka.Message{},
-			},
+			batch: batch.NewBatch([]kafka.Message{}, nil),
 
 			wantErr: nil,
 		},
@@ -529,19 +308,22 @@ func TestBatchKafkaWriter(t *testing.T) {
 				return errTest
 			},
 		},
-		msgChan:        make(chan *msg),
-		maxBatchBytes:  10000,
-		maxBatchSize:   10,
-		queueBytesSema: semaphore.NewWeighted(defaultMaxQueueBytes),
-		sendFrequency:  time.Second,
-		sendDone:       make(chan error, 1),
-		serialiser:     json.Marshal,
-		once:           &sync.Once{},
+		maxBatchBytes: 10000,
+		serialiser:    json.Marshal,
 	}
+	defer bw.Close()
+
+	var err error
+	bw.batchSender, err = batch.NewSender(&batch.Config{
+		BatchTimeout:  time.Second,
+		MaxBatchSize:  10,
+		MaxBatchBytes: 10000,
+	}, bw.sendBatch, bw.logger)
+	require.NoError(t, err)
 
 	doneChan := make(chan struct{}, 1)
 	go func() {
-		err := bw.Send(context.Background())
+		err := bw.batchSender.Send(context.Background())
 		require.ErrorIs(t, err, errTest)
 		doneChan <- struct{}{}
 		close(doneChan)

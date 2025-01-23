@@ -14,6 +14,7 @@ import (
 	"github.com/xataio/pgstream/pkg/tls"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
+	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
@@ -171,10 +172,12 @@ func parseKafkaWriterConfig(kafkaServers []string, kafkaTopic string) *kafkaproc
 			},
 			TLS: parseTLSConfig("PGSTREAM_KAFKA"),
 		},
-		BatchTimeout:  viper.GetDuration("PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT"),
-		BatchBytes:    viper.GetInt64("PGSTREAM_KAFKA_WRITER_BATCH_BYTES"),
-		BatchSize:     viper.GetInt("PGSTREAM_KAFKA_WRITER_BATCH_SIZE"),
-		MaxQueueBytes: viper.GetInt64("PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES"),
+		Batch: batch.Config{
+			BatchTimeout:  viper.GetDuration("PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT"),
+			MaxBatchBytes: viper.GetInt64("PGSTREAM_KAFKA_WRITER_BATCH_BYTES"),
+			MaxBatchSize:  viper.GetInt64("PGSTREAM_KAFKA_WRITER_BATCH_SIZE"),
+			MaxQueueBytes: viper.GetInt64("PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES"),
+		},
 	}
 }
 

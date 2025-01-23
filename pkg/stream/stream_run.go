@@ -116,20 +116,12 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 		if instrumentation.IsEnabled() {
 			opts = append(opts, kafkaprocessor.WithInstrumentation(instrumentation))
 		}
-		kafkaWriter, err := kafkaprocessor.NewBatchWriter(config.Processor.Kafka.Writer, opts...)
+		kafkaWriter, err := kafkaprocessor.NewBatchWriter(ctx, config.Processor.Kafka.Writer, opts...)
 		if err != nil {
 			return err
 		}
 		defer kafkaWriter.Close()
 		processor = kafkaWriter
-
-		// the kafka batch writer requires to initialise a go routine to send
-		// the batches asynchronously
-		eg.Go(func() error {
-			defer logger.Info("stopping kafka batch writer...")
-			logger.Info("running kafka batch writer...")
-			return kafkaWriter.Send(ctx)
-		})
 	case config.Processor.Search != nil:
 		var searchStore search.Store
 		var err error

@@ -25,6 +25,16 @@ type Writer struct {
 // Message is a wrapper around the kafkago library message
 type Message kafka.Message
 
+// Size returns the size of the kafka message value (does not include headers or
+// other fields)
+func (m Message) Size() int {
+	return len(m.Value)
+}
+
+func (m Message) IsEmpty() bool {
+	return m.Value == nil
+}
+
 type WriterConfig struct {
 	Conn ConnConfig
 	// BatchTimeout is the time limit on how often incomplete message batches
