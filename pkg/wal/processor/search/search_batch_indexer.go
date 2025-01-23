@@ -7,36 +7,23 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
-	"sync"
-	"time"
 
-	synclib "github.com/xataio/pgstream/internal/sync"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
+	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 	"github.com/xataio/pgstream/pkg/wal/replication"
 )
 
 // BatchIndexer is the environment for ingesting the WAL logical
 // replication events into a search store using the pgstream flow
 type BatchIndexer struct {
-	store   Store
-	adapter walAdapter
-	logger  loglib.Logger
-
-	// queueBytesSema is used to limit the amount of memory used by the
-	// unbuffered msg channel, optimising the channel performance for variable
-	// size messages, while preventing the process from running oom
-	queueBytesSema synclib.WeightedSemaphore
-	msgChan        chan (*msg)
-	once           *sync.Once
-	sendDone       chan (error)
-	sendErr        error
-
-	batchSize         int
-	batchSendInterval time.Duration
+	store       Store
+	adapter     walAdapter
+	logger      loglib.Logger
+	batchSender batchSender
 
 	skipSchema func(schemaName string) bool
 
@@ -46,33 +33,41 @@ type BatchIndexer struct {
 
 type Option func(*BatchIndexer)
 
-var errSendStopped = errors.New("stop processing, sending has stopped")
+type batchSender interface {
+	AddToBatch(context.Context, *batch.WALMessage[*msg]) error
+	Close()
+	Send(context.Context) error
+}
 
 // NewBatchIndexer returns a processor of wal events that indexes data into the
 // search store provided on input.
-func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, lsnParser replication.LSNParser, opts ...Option) *BatchIndexer {
+func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, lsnParser replication.LSNParser, opts ...Option) (*BatchIndexer, error) {
 	indexer := &BatchIndexer{
 		store:  store,
 		logger: loglib.NewNoopLogger(),
 		// by default all schemas are processed
-		skipSchema:        func(string) bool { return false },
-		batchSize:         config.batchSize(),
-		batchSendInterval: config.batchTime(),
-		adapter:           newAdapter(store.GetMapper(), lsnParser),
-		msgChan:           make(chan *msg),
-		sendDone:          make(chan error, 1),
-		once:              &sync.Once{},
+		skipSchema: func(string) bool { return false },
+		adapter:    newAdapter(store.GetMapper(), lsnParser),
 	}
-
-	// this allows us to bound and configure the memory used by the internal msg
-	// queue
-	indexer.queueBytesSema = synclib.NewWeightedSemaphore(config.maxQueueBytes())
 
 	for _, opt := range opts {
 		opt(indexer)
 	}
 
-	return indexer
+	var err error
+	indexer.batchSender, err = batch.NewSender(&config.Batch, indexer.sendBatch, indexer.logger)
+	if err != nil {
+		return nil, err
+	}
+
+	// start the send process in the background
+	go func() {
+		if err := indexer.batchSender.Send(ctx); err != nil {
+			indexer.logger.Error(err, "sending stopped")
+		}
+	}()
+
+	return indexer, nil
 }
 
 func WithLogger(l loglib.Logger) Option {
@@ -108,124 +103,20 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, event *wal.Event) (e
 		"wal_commit_position": event.CommitPosition,
 	})
 
-	enqueueMsg := func() error {
-		msg, err := i.adapter.walEventToMsg(event)
-		if err != nil {
-			if errors.Is(err, errNilIDValue) || errors.Is(err, errNilVersionValue) || errors.Is(err, errMetadataMissing) {
-				i.logger.Warn(err, "search batch indexer: invalid event, skipping message")
-				return nil
-			}
-			return fmt.Errorf("wal data to queue item: %w", err)
-		}
-
-		if msg == nil {
+	msg, err := i.adapter.walEventToMsg(event)
+	if err != nil {
+		if errors.Is(err, errNilIDValue) || errors.Is(err, errNilVersionValue) || errors.Is(err, errMetadataMissing) {
+			i.logger.Warn(err, "search batch indexer: invalid event, skipping message")
 			return nil
 		}
+		return fmt.Errorf("wal data to queue item: %w", err)
+	}
 
-		// make sure we don't reach the queue memory limit before adding the new
-		// message to the channel. This will block until messages have been read
-		// from the channel and their size is released
-		msgSize := int64(msg.size())
-		if !i.queueBytesSema.TryAcquire(msgSize) {
-			i.logger.Warn(nil, "search batch indexer: max queue bytes reached, processing blocked")
-			if err := i.queueBytesSema.Acquire(ctx, msgSize); err != nil {
-				return err
-			}
-		}
-
-		select {
-		case i.msgChan <- msg:
-		case sendDoneErr, ok := <-i.sendDone:
-			if ok && sendDoneErr != nil {
-				i.sendErr = sendDoneErr
-			}
-			i.logger.Error(i.sendErr, "stop processing, sending has stopped")
-			return fmt.Errorf("%w: %w", errSendStopped, i.sendErr)
-		}
-
+	if msg == nil {
 		return nil
 	}
 
-	err = enqueueMsg()
-	// close the message channel only if the send thread has stopped, since we
-	// shouldn't keep processing
-	if err != nil && errors.Is(err, errSendStopped) {
-		i.closeMsgChan()
-	}
-	return err
-}
-
-func (i *BatchIndexer) Send(ctx context.Context) error {
-	// make sure we send to the search store on a separate go routine to isolate
-	// the IO operations and minimise the wait time between batch sending while
-	// continuously building new batches.
-	batchChan := make(chan *msgBatch)
-	defer close(batchChan)
-	sendErrChan := make(chan error, 1)
-	go func() {
-		defer close(sendErrChan)
-		for batch := range batchChan {
-			// If the send fails, this goroutine returns an error over the error channel and shuts down.
-			err := i.sendBatch(ctx, batch)
-			i.queueBytesSema.Release(int64(batch.totalBytes))
-			if err != nil {
-				i.logger.Error(err, "search batch indexer")
-				sendErrChan <- err
-				return
-			}
-		}
-	}()
-
-	drainBatch := func(batch *msgBatch) error {
-		select {
-		case batchChan <- batch.drain():
-		case sendErr := <-sendErrChan:
-			return sendErr
-		}
-		return nil
-	}
-
-	batchMsgLoop := func() error {
-		ticker := time.NewTicker(i.batchSendInterval)
-		defer ticker.Stop()
-		msgBatch := &msgBatch{}
-		for {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case sendErr := <-sendErrChan:
-				// if there's an error while sending the batch, return the error and
-				// stop sending batches
-				return sendErr
-			case <-ticker.C:
-				if !msgBatch.isEmpty() {
-					if err := drainBatch(msgBatch); err != nil {
-						return err
-					}
-				}
-			case msg := <-i.msgChan:
-				msgBatch.add(msg)
-				// trigger a send if we reached the configured batch size or if the
-				// event was for a schema change/keep alive. We need to make sure
-				// any events following a schema change are processed using the
-				// right schema version, and any keep alive messages are
-				// checkpointed as soon as possible.
-				if msgBatch.size() >= i.batchSize || msg.isSchemaChange() || msg.isKeepAlive() {
-					if err := drainBatch(msgBatch); err != nil {
-						return err
-					}
-				}
-			}
-		}
-	}
-
-	err := batchMsgLoop()
-	if err != nil && !errors.Is(err, context.Canceled) {
-		i.logger.Error(err, "sending stopped")
-	}
-	i.sendDone <- err
-	close(i.sendDone)
-	return err
+	return i.batchSender.AddToBatch(ctx, batch.NewWALMessage(msg, event.CommitPosition))
 }
 
 func (i *BatchIndexer) Name() string {
@@ -233,25 +124,13 @@ func (i *BatchIndexer) Name() string {
 }
 
 func (i *BatchIndexer) Close() error {
-	i.closeMsgChan()
+	i.batchSender.Close()
 	return nil
 }
 
-// closeMsgChan closes the internal msg channel. It can be called multiple
-// times.
-func (i *BatchIndexer) closeMsgChan() {
-	i.once.Do(func() {
-		close(i.msgChan)
-	})
-}
-
-func (i *BatchIndexer) sendBatch(ctx context.Context, batch *msgBatch) error {
-	if batch.isEmpty() {
-		return nil
-	}
-
+func (i *BatchIndexer) sendBatch(ctx context.Context, batch *batch.Batch[*msg]) error {
 	// we'll mostly process writes, so pre-allocate the "max" amount
-	writes := make([]Document, 0, len(batch.msgs))
+	writes := make([]Document, 0, len(batch.GetMessages()))
 	flushWrites := func() error {
 		if len(writes) > 0 {
 			failed, err := i.store.SendDocuments(ctx, writes)
@@ -273,7 +152,7 @@ func (i *BatchIndexer) sendBatch(ctx context.Context, batch *msgBatch) error {
 		return nil
 	}
 
-	for _, msg := range batch.msgs {
+	for _, msg := range batch.GetMessages() {
 		switch {
 		case msg == nil:
 			// ignore
@@ -307,7 +186,7 @@ func (i *BatchIndexer) sendBatch(ctx context.Context, batch *msgBatch) error {
 	}
 
 	if i.checkpoint != nil {
-		if err := i.checkpoint(ctx, batch.positions); err != nil {
+		if err := i.checkpoint(ctx, batch.GetCommitPositions()); err != nil {
 			return fmt.Errorf("checkpointing positions: %w", err)
 		}
 	}

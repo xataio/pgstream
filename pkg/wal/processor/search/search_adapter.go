@@ -39,9 +39,7 @@ func newAdapter(m Mapper, parser replication.LSNParser) *adapter {
 
 func (a *adapter) walEventToMsg(e *wal.Event) (*msg, error) {
 	if e.Data == nil {
-		return &msg{
-			pos: e.CommitPosition,
-		}, nil
+		return &msg{}, nil
 	}
 
 	if processor.IsSchemaLogEvent(e.Data) {
@@ -59,7 +57,6 @@ func (a *adapter) walEventToMsg(e *wal.Event) (*msg, error) {
 		return &msg{
 			schemaChange: logEntry,
 			bytesSize:    size,
-			pos:          e.CommitPosition,
 		}, nil
 	}
 
@@ -81,7 +78,6 @@ func (a *adapter) walEventToMsg(e *wal.Event) (*msg, error) {
 		return &msg{
 			write:     doc,
 			bytesSize: size,
-			pos:       e.CommitPosition,
 		}, nil
 
 	case "T":
@@ -92,7 +88,6 @@ func (a *adapter) walEventToMsg(e *wal.Event) (*msg, error) {
 		return &msg{
 			truncate:  truncateItem,
 			bytesSize: len(truncateItem.schemaName) + len(truncateItem.tableID),
-			pos:       e.CommitPosition,
 		}, nil
 
 	default:

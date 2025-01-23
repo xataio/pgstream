@@ -137,23 +137,18 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 			}
 		}
 
-		searchIndexer := search.NewBatchIndexer(ctx,
+		searchIndexer, err := search.NewBatchIndexer(ctx,
 			config.Processor.Search.Indexer,
 			searchStore,
 			pgreplication.NewLSNParser(),
 			search.WithCheckpoint(checkpoint),
 			search.WithLogger(logger),
 		)
+		if err != nil {
+			return err
+		}
 		defer searchIndexer.Close()
 		processor = searchIndexer
-
-		// the search batch indexer requires to initialise a go routine to send
-		// the batches asynchronously
-		eg.Go(func() error {
-			defer logger.Info("stopping search batch indexer...")
-			logger.Info("running search batch indexer...")
-			return searchIndexer.Send(ctx)
-		})
 
 	case config.Processor.Webhook != nil:
 		var subscriptionStore webhookstore.Store

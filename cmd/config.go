@@ -190,9 +190,11 @@ func parseSearchProcessorConfig() *stream.SearchProcessorConfig {
 
 	return &stream.SearchProcessorConfig{
 		Indexer: search.IndexerConfig{
-			BatchSize:     viper.GetInt("PGSTREAM_SEARCH_INDEXER_BATCH_SIZE"),
-			BatchTime:     viper.GetDuration("PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT"),
-			MaxQueueBytes: viper.GetInt64("PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES"),
+			Batch: batch.Config{
+				MaxBatchSize:  viper.GetInt64("PGSTREAM_SEARCH_INDEXER_BATCH_SIZE"),
+				BatchTimeout:  viper.GetDuration("PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT"),
+				MaxQueueBytes: viper.GetInt64("PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES"),
+			},
 		},
 		Store: store.Config{
 			OpenSearchURL:    opensearchStore,
