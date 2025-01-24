@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package translator
+package injector
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/mocks"
 )
 
-func TestTranslator_ProcessWALEvent(t *testing.T) {
+func TestInjector_ProcessWALEvent(t *testing.T) {
 	t.Parallel()
 
 	testLogEntry := newTestLogEntry()
@@ -117,7 +117,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:  "ok - fail to translate data event",
+			name:  "ok - fail to inject data event",
 			event: newTestDataEvent("I"),
 			store: &schemalogmocks.Store{
 				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
@@ -134,7 +134,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:  "ok - fail to translate data event with invalid data",
+			name:  "ok - fail to inject data event with invalid data",
 			event: newTestDataEvent("I"),
 			store: &schemalogmocks.Store{
 				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
@@ -183,7 +183,7 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			translator := &Translator{
+			injector := &Injector{
 				logger:               loglib.NewNoopLogger(),
 				processor:            tc.processor,
 				schemaLogStore:       tc.store,
@@ -195,28 +195,28 @@ func TestTranslator_ProcessWALEvent(t *testing.T) {
 			}
 
 			if tc.idFinder != nil {
-				translator.idFinder = tc.idFinder
+				injector.idFinder = tc.idFinder
 			}
 
 			if tc.adapter != nil {
-				translator.walToLogEntryAdapter = tc.adapter
+				injector.walToLogEntryAdapter = tc.adapter
 			}
 
 			if tc.skipSchemaEvent != nil {
-				translator.skipSchemaEvent = tc.skipSchemaEvent
+				injector.skipSchemaEvent = tc.skipSchemaEvent
 			}
 
 			if tc.skipDataEvent != nil {
-				translator.skipDataEvent = tc.skipDataEvent
+				injector.skipDataEvent = tc.skipDataEvent
 			}
 
-			err := translator.ProcessWALEvent(context.Background(), tc.event)
+			err := injector.ProcessWALEvent(context.Background(), tc.event)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
 }
 
-func TestTranslator_translate(t *testing.T) {
+func TestInjector_inject(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -394,7 +394,7 @@ func TestTranslator_translate(t *testing.T) {
 			wantErr: processor.ErrVersionNotFound,
 		},
 		{
-			name: "error - translating columns",
+			name: "error - injecting column ids",
 			store: &schemalogmocks.Store{
 				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					require.Equal(t, testSchemaName, schemaName)
@@ -425,14 +425,14 @@ func TestTranslator_translate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			translator := &Translator{
+			injector := &Injector{
 				logger:         loglib.NewNoopLogger(),
 				schemaLogStore: tc.store,
 				idFinder:       tc.idFinder,
 				versionFinder:  tc.versionFinder,
 			}
 
-			err := translator.translate(context.Background(), tc.data)
+			err := injector.inject(context.Background(), tc.data)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantData, tc.data)
 		})
