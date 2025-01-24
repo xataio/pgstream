@@ -17,6 +17,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
+	"github.com/xataio/pgstream/pkg/wal/processor/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
@@ -143,6 +144,7 @@ func parseProcessorConfig() stream.ProcessorConfig {
 		Kafka:    parseKafkaProcessorConfig(),
 		Search:   parseSearchProcessorConfig(),
 		Webhook:  parseWebhookProcessorConfig(),
+		Postgres: parsePostgresProcessorConfig(),
 		Injector: parseInjectorConfig(),
 	}
 }
@@ -227,6 +229,25 @@ func parseWebhookProcessorConfig() *stream.WebhookProcessorConfig {
 			Address:      viper.GetString("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_ADDRESS"),
 			ReadTimeout:  viper.GetDuration("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_READ_TIMEOUT"),
 			WriteTimeout: viper.GetDuration("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_WRITE_TIMEOUT"),
+		},
+	}
+}
+
+func parsePostgresProcessorConfig() *stream.PostgresProcessorConfig {
+	targetPostgresURL := viper.GetString("PGSTREAM_POSTGRES_WRITER_TARGET_URL")
+	if targetPostgresURL == "" {
+		return nil
+	}
+
+	return &stream.PostgresProcessorConfig{
+		BatchWriter: postgres.Config{
+			URL: targetPostgresURL,
+			BatchConfig: batch.Config{
+				BatchTimeout:  viper.GetDuration("PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT"),
+				MaxBatchBytes: viper.GetInt64("PGSTREAM_POSTGRES_WRITER_BATCH_BYTES"),
+				MaxBatchSize:  viper.GetInt64("PGSTREAM_POSTGRES_WRITER_BATCH_SIZE"),
+				MaxQueueBytes: viper.GetInt64("PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES"),
+			},
 		},
 	}
 }
