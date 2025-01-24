@@ -50,9 +50,7 @@ func TestAdapter_walEventToMsg(t *testing.T) {
 				CommitPosition: newTestCommitPosition(),
 			},
 
-			wantMsg: &msg{
-				pos: newTestCommitPosition(),
-			},
+			wantMsg: &msg{},
 			wantErr: nil,
 		},
 		{
@@ -62,7 +60,6 @@ func TestAdapter_walEventToMsg(t *testing.T) {
 			wantMsg: &msg{
 				schemaChange: newTestLogEntry(id, now),
 				bytesSize:    testLogEntrySize,
-				pos:          newTestCommitPosition(),
 			},
 			wantErr: nil,
 		},
@@ -81,7 +78,6 @@ func TestAdapter_walEventToMsg(t *testing.T) {
 			wantMsg: &msg{
 				write:     newTestDocument(),
 				bytesSize: len(testDocBytes),
-				pos:       newTestCommitPosition(),
 			},
 			wantErr: nil,
 		},
@@ -95,7 +91,6 @@ func TestAdapter_walEventToMsg(t *testing.T) {
 					tableID:    testTableID,
 				},
 				bytesSize: len(testSchemaName) + len(testTableID),
-				pos:       newTestCommitPosition(),
 			},
 			wantErr: nil,
 		},

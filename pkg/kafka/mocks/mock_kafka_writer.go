@@ -21,7 +21,10 @@ func (m *Writer) WriteMessages(ctx context.Context, msgs ...kafka.Message) error
 }
 
 func (m *Writer) Close() error {
-	return m.CloseFn()
+	if m.CloseFn != nil {
+		return m.CloseFn()
+	}
+	return nil
 }
 
 func (m *Writer) GetWriteCalls() uint64 {

@@ -4,21 +4,18 @@ package search
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
-	syncmocks "github.com/xataio/pgstream/internal/sync/mocks"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
-	"golang.org/x/sync/semaphore"
+	"github.com/xataio/pgstream/pkg/wal/processor/batch"
+	batchmocks "github.com/xataio/pgstream/pkg/wal/processor/batch/mocks"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
 )
@@ -33,359 +30,128 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 	testSize := 10
 
 	tests := []struct {
-		name              string
-		weightedSemaphore *syncmocks.WeightedSemaphore
-		adapter           *mockAdapter
-		event             *wal.Event
+		name        string
+		adapter     *mockAdapter
+		event       *wal.Event
+		batchSender *batchmocks.BatchSender[*msg]
 
-		wantMsgs []*msg
+		wantMsgs []*batch.WALMessage[*msg]
 		wantErr  error
 	}{
 		{
 			name: "ok",
-			weightedSemaphore: &syncmocks.WeightedSemaphore{
-				TryAcquireFn: func(i int64) bool {
-					require.Equal(t, int64(testSize), i)
-					return true
-				},
-			},
 			adapter: &mockAdapter{
 				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return &msg{
 						schemaChange: testSchemaLogEntry,
 						bytesSize:    testSize,
-						pos:          testCommitPos,
 					}, nil
 				},
 			},
-			event: newTestSchemaChangeEvent("I", id, now),
+			event:       newTestSchemaChangeEvent("I", id, now),
+			batchSender: batchmocks.NewBatchSender[*msg](),
 
-			wantMsgs: []*msg{
-				{
-					schemaChange: testSchemaLogEntry,
-					bytesSize:    testSize,
-					pos:          testCommitPos,
-				},
+			wantMsgs: []*batch.WALMessage[*msg]{
+				batch.NewWALMessage(
+					&msg{
+						schemaChange: testSchemaLogEntry,
+						bytesSize:    testSize,
+					}, testCommitPos),
 			},
 			wantErr: nil,
 		},
 		{
 			name: "ok - keep alive",
-			weightedSemaphore: &syncmocks.WeightedSemaphore{
-				TryAcquireFn: func(i int64) bool { return true },
-			},
 			adapter: &mockAdapter{
 				walEventToMsgFn: func(*wal.Event) (*msg, error) {
-					return &msg{
-						pos: testCommitPos,
-					}, nil
+					return &msg{}, nil
 				},
 			},
 			event: &wal.Event{
 				CommitPosition: testCommitPos,
 			},
+			batchSender: batchmocks.NewBatchSender[*msg](),
 
-			wantMsgs: []*msg{
-				{
-					pos: testCommitPos,
-				},
+			wantMsgs: []*batch.WALMessage[*msg]{
+				batch.NewWALMessage(&msg{}, testCommitPos),
 			},
 			wantErr: nil,
 		},
 		{
 			name: "ok - nil queue item",
-			weightedSemaphore: &syncmocks.WeightedSemaphore{
-				TryAcquireFn: func(i int64) bool { return true },
-			},
 			adapter: &mockAdapter{
 				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return nil, nil
 				},
 			},
-			event: newTestDataEvent("I"),
+			event:       newTestDataEvent("I"),
+			batchSender: batchmocks.NewBatchSender[*msg](),
 
-			wantMsgs: nil,
+			wantMsgs: []*batch.WALMessage[*msg]{},
 			wantErr:  nil,
 		},
 		{
-			name: "ok - skipped event",
-			weightedSemaphore: &syncmocks.WeightedSemaphore{
-				TryAcquireFn: func(i int64) bool { return true },
-			},
+			name: "ok - invalid wal event",
 			adapter: &mockAdapter{
 				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return nil, errNilIDValue
 				},
 			},
-			event: newTestSchemaChangeEvent("I", id, now),
+			event:       newTestSchemaChangeEvent("I", id, now),
+			batchSender: batchmocks.NewBatchSender[*msg](),
 
-			wantMsgs: nil,
+			wantMsgs: []*batch.WALMessage[*msg]{},
 			wantErr:  nil,
 		},
 		{
-			name: "ok - waiting for semaphore",
-			weightedSemaphore: &syncmocks.WeightedSemaphore{
-				TryAcquireFn: func(i int64) bool { return false },
-				AcquireFn:    func(ctx context.Context, i int64) error { return nil },
-			},
-			adapter: &mockAdapter{
-				walEventToMsgFn: func(*wal.Event) (*msg, error) {
-					return &msg{
-						schemaChange: testSchemaLogEntry,
-						pos:          testCommitPos,
-					}, nil
-				},
-			},
-			event: newTestSchemaChangeEvent("I", id, now),
-
-			wantMsgs: []*msg{
-				{
-					schemaChange: testSchemaLogEntry,
-					pos:          testCommitPos,
-				},
-			},
-			wantErr: nil,
-		},
-		{
-			name: "error - acquiring semaphore",
-			weightedSemaphore: &syncmocks.WeightedSemaphore{
-				TryAcquireFn: func(i int64) bool { return false },
-				AcquireFn:    func(ctx context.Context, i int64) error { return errTest },
-			},
-			adapter: &mockAdapter{
-				walEventToMsgFn: func(*wal.Event) (*msg, error) {
-					return &msg{schemaChange: testSchemaLogEntry}, nil
-				},
-			},
-			event: newTestSchemaChangeEvent("I", id, now),
-
-			wantMsgs: nil,
-			wantErr:  errTest,
-		},
-		{
 			name: "error - wal data to queue item",
-			weightedSemaphore: &syncmocks.WeightedSemaphore{
-				TryAcquireFn: func(i int64) bool { return true },
-			},
 			adapter: &mockAdapter{
 				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return nil, errTest
 				},
 			},
-			event: newTestSchemaChangeEvent("I", id, now),
+			event:       newTestSchemaChangeEvent("I", id, now),
+			batchSender: batchmocks.NewBatchSender[*msg](),
 
-			wantMsgs: nil,
+			wantMsgs: []*batch.WALMessage[*msg]{},
 			wantErr:  errTest,
 		},
 		{
 			name: "error - panic recovery",
-			weightedSemaphore: &syncmocks.WeightedSemaphore{
-				TryAcquireFn: func(i int64) bool { return true },
-			},
 			adapter: &mockAdapter{
 				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					panic(errTest)
 				},
 			},
-			event: newTestDataEvent("I"),
+			event:       newTestDataEvent("I"),
+			batchSender: batchmocks.NewBatchSender[*msg](),
 
-			wantMsgs: nil,
+			wantMsgs: []*batch.WALMessage[*msg]{},
 			wantErr:  processor.ErrPanic,
 		},
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			indexer := &BatchIndexer{
-				logger:         loglib.NewNoopLogger(),
-				queueBytesSema: tc.weightedSemaphore,
-				msgChan:        make(chan *msg, 100),
-				adapter:        tc.adapter,
-				sendDone:       make(chan error, 1),
-				once:           &sync.Once{},
+			indexer := BatchIndexer{
+				logger:      loglib.NewNoopLogger(),
+				batchSender: tc.batchSender,
+				adapter:     tc.adapter,
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
 			go func() {
-				defer indexer.closeMsgChan()
+				defer indexer.batchSender.Close()
 				err := indexer.ProcessWALEvent(ctx, tc.event)
 				require.ErrorIs(t, err, tc.wantErr)
 			}()
 
-			msgs := []*msg{}
-			for msg := range indexer.msgChan {
-				if ctx.Err() != nil {
-					t.Log("test timeout reached")
-					return
-				}
-				msgs = append(msgs, msg)
-			}
-			if len(msgs) == 0 {
-				msgs = nil
-			}
-
-			if diff := cmp.Diff(msgs, tc.wantMsgs, cmp.AllowUnexported(msg{}, msg{})); diff != "" {
-				t.Errorf("got: \n%v, \nwant \n%v, \ndiff: \n%s", msgs, tc.wantMsgs, diff)
-			}
-		})
-	}
-}
-
-func TestBatchIndexer_Send(t *testing.T) {
-	t.Parallel()
-
-	now := time.Now().UTC().Round(time.Second)
-	id := xid.New()
-
-	testSchemaLogEntry := newTestLogEntry(id, now)
-	testDocument := newTestDocument()
-
-	testSize := 10
-
-	tests := []struct {
-		name      string
-		store     func(doneChan chan struct{}) *mockStore
-		msgs      []*msg
-		semaphore *syncmocks.WeightedSemaphore
-
-		wantErr error
-	}{
-		{
-			name: "ok - write",
-			store: func(doneChan chan struct{}) *mockStore {
-				once := sync.Once{}
-				return &mockStore{
-					sendDocumentsFn: func(ctx context.Context, _ uint, docs []Document) ([]DocumentError, error) {
-						defer once.Do(func() { doneChan <- struct{}{} })
-						require.Equal(t, []Document{*testDocument}, docs)
-						return nil, nil
-					},
-				}
-			},
-			msgs: []*msg{
-				{write: testDocument, bytesSize: testSize},
-			},
-			semaphore: &syncmocks.WeightedSemaphore{
-				ReleaseFn: func(i uint64, bytes int64) {
-					if i == 0 {
-						require.Equal(t, int64(testSize), bytes)
-					}
-				},
-			},
-
-			wantErr: context.Canceled,
-		},
-		{
-			name: "ok - schema change",
-			store: func(doneChan chan struct{}) *mockStore {
-				once := sync.Once{}
-				return &mockStore{
-					applySchemaChangeFn: func(ctx context.Context, le *schemalog.LogEntry) error {
-						defer once.Do(func() { doneChan <- struct{}{} })
-						require.Equal(t, testSchemaLogEntry, le)
-						return nil
-					},
-				}
-			},
-			msgs: []*msg{
-				{schemaChange: testSchemaLogEntry, bytesSize: testSize},
-			},
-			semaphore: &syncmocks.WeightedSemaphore{
-				ReleaseFn: func(i uint64, bytes int64) {
-					if i == 0 {
-						require.Equal(t, int64(testSize), bytes)
-					}
-				},
-			},
-
-			wantErr: context.Canceled,
-		},
-		{
-			name: "error - sending batch",
-			store: func(doneChan chan struct{}) *mockStore {
-				once := sync.Once{}
-				return &mockStore{
-					sendDocumentsFn: func(ctx context.Context, _ uint, docs []Document) ([]DocumentError, error) {
-						defer once.Do(func() { doneChan <- struct{}{} })
-						return nil, errTest
-					},
-				}
-			},
-			msgs: []*msg{
-				{write: testDocument, bytesSize: testSize},
-			},
-			semaphore: &syncmocks.WeightedSemaphore{
-				ReleaseFn: func(i uint64, bytes int64) {
-					if i == 0 {
-						require.Equal(t, int64(testSize), bytes)
-					}
-				},
-			},
-
-			wantErr: errTest,
-		},
-	}
-
-	for _, tc := range tests {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			doneChan := make(chan struct{}, 1)
-			defer close(doneChan)
-
-			indexer := &BatchIndexer{
-				logger:            loglib.NewNoopLogger(),
-				msgChan:           make(chan *msg, 100),
-				store:             tc.store(doneChan),
-				batchSendInterval: 100 * time.Millisecond,
-				batchSize:         10,
-				skipSchema:        func(schemaName string) bool { return false },
-				queueBytesSema: &syncmocks.WeightedSemaphore{
-					ReleaseFn: func(_ uint64, _ int64) {},
-				},
-				sendDone: make(chan error, 1),
-				once:     &sync.Once{},
-			}
-
-			if tc.semaphore != nil {
-				indexer.queueBytesSema = tc.semaphore
-			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			wg := sync.WaitGroup{}
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				err := indexer.Send(ctx)
-				require.ErrorIs(t, err, tc.wantErr)
-			}()
-
-			for _, msg := range tc.msgs {
-				indexer.msgChan <- msg
-			}
-
-			for {
-				select {
-				case <-ctx.Done():
-					t.Log("test timeout reached")
-					wg.Wait()
-					return
-				case <-doneChan:
-					if errors.Is(tc.wantErr, context.Canceled) {
-						cancel()
-					}
-					wg.Wait()
-					return
-				}
-			}
+			msgs := tc.batchSender.GetWALMessages()
+			require.Equal(t, tc.wantMsgs, msgs)
 		})
 	}
 }
@@ -404,26 +170,26 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		name       string
 		store      Store
 		checkpoint checkpointer.Checkpoint
-		batch      *msgBatch
+		batch      *batch.Batch[*msg]
 		skipSchema func(string) bool
 
 		wantErr error
 	}{
 		{
 			name:  "ok - no items in batch",
-			batch: &msgBatch{},
+			batch: &batch.Batch[*msg]{},
 
 			wantErr: nil,
 		},
 		{
 			name: "ok - write only batch",
-			batch: &msgBatch{
-				msgs: []*msg{
+			batch: batch.NewBatch(
+				[]*msg{
 					{write: testDocument1},
 					{write: testDocument2},
 				},
-				positions: []wal.CommitPosition{testCommitPos},
-			},
+				[]wal.CommitPosition{testCommitPos}),
+
 			store: &mockStore{
 				sendDocumentsFn: func(ctx context.Context, _ uint, docs []Document) ([]DocumentError, error) {
 					require.Equal(t, []Document{*testDocument1, *testDocument2}, docs)
@@ -435,14 +201,14 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		},
 		{
 			name: "ok - write and schema change batch",
-			batch: &msgBatch{
-				msgs: []*msg{
+			batch: batch.NewBatch(
+				[]*msg{
 					{write: testDocument1},
 					{schemaChange: testLogEntry},
 					{write: testDocument2},
 				},
-				positions: []wal.CommitPosition{testCommitPos},
-			},
+				[]wal.CommitPosition{testCommitPos}),
+
 			store: &mockStore{
 				sendDocumentsFn: func(ctx context.Context, i uint, docs []Document) ([]DocumentError, error) {
 					switch i {
@@ -465,14 +231,14 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		},
 		{
 			name: "ok - write and truncate batch",
-			batch: &msgBatch{
-				msgs: []*msg{
+			batch: batch.NewBatch(
+				[]*msg{
 					{write: testDocument1},
 					{truncate: &truncateItem{schemaName: testSchemaName, tableID: testTableName}},
 					{write: testDocument2},
 				},
-				positions: []wal.CommitPosition{testCommitPos},
-			},
+				[]wal.CommitPosition{testCommitPos}),
+
 			store: &mockStore{
 				sendDocumentsFn: func(ctx context.Context, i uint, docs []Document) ([]DocumentError, error) {
 					switch i {
@@ -496,12 +262,12 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		},
 		{
 			name: "ok - schema change skipped",
-			batch: &msgBatch{
-				msgs: []*msg{
+			batch: batch.NewBatch(
+				[]*msg{
 					{schemaChange: testLogEntry},
 				},
-				positions: []wal.CommitPosition{testCommitPos},
-			},
+				[]wal.CommitPosition{testCommitPos}),
+
 			store:      &mockStore{},
 			skipSchema: func(s string) bool { return true },
 
@@ -509,8 +275,8 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		},
 		{
 			name: "ok - schema dropped",
-			batch: &msgBatch{
-				msgs: []*msg{
+			batch: batch.NewBatch(
+				[]*msg{
 					{
 						schemaChange: func() *schemalog.LogEntry {
 							le := newTestLogEntry(id, now)
@@ -519,8 +285,8 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 						}(),
 					},
 				},
-				positions: []wal.CommitPosition{testCommitPos},
-			},
+				[]wal.CommitPosition{testCommitPos}),
+
 			store: &mockStore{
 				deleteSchemaFn: func(ctx context.Context, _ uint, s string) error {
 					require.Equal(t, testSchemaName, s)
@@ -532,12 +298,12 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		},
 		{
 			name: "error - applying schema change",
-			batch: &msgBatch{
-				msgs: []*msg{
+			batch: batch.NewBatch(
+				[]*msg{
 					{schemaChange: testLogEntry},
 				},
-				positions: []wal.CommitPosition{testCommitPos},
-			},
+				[]wal.CommitPosition{testCommitPos}),
+
 			store: &mockStore{
 				applySchemaChangeFn: func(ctx context.Context, le *schemalog.LogEntry) error {
 					return errTest
@@ -548,8 +314,8 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		},
 		{
 			name: "error - applying schema delete",
-			batch: &msgBatch{
-				msgs: []*msg{
+			batch: batch.NewBatch(
+				[]*msg{
 					{
 						schemaChange: func() *schemalog.LogEntry {
 							le := newTestLogEntry(id, now)
@@ -558,8 +324,8 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 						}(),
 					},
 				},
-				positions: []wal.CommitPosition{testCommitPos},
-			},
+				[]wal.CommitPosition{testCommitPos}),
+
 			store: &mockStore{
 				deleteSchemaFn: func(ctx context.Context, _ uint, s string) error {
 					return errTest
@@ -570,13 +336,13 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		},
 		{
 			name: "error - flushing writes before truncate",
-			batch: &msgBatch{
-				msgs: []*msg{
+			batch: batch.NewBatch(
+				[]*msg{
 					{write: testDocument1},
 					{truncate: &truncateItem{schemaName: testSchemaName, tableID: testTableName}},
 				},
-				positions: []wal.CommitPosition{testCommitPos},
-			},
+				[]wal.CommitPosition{testCommitPos}),
+
 			store: &mockStore{
 				sendDocumentsFn: func(ctx context.Context, i uint, docs []Document) ([]DocumentError, error) {
 					return nil, errTest
@@ -587,13 +353,13 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		},
 		{
 			name: "error - flushing writes before schema change",
-			batch: &msgBatch{
-				msgs: []*msg{
+			batch: batch.NewBatch(
+				[]*msg{
 					{write: testDocument1},
 					{schemaChange: testLogEntry},
 				},
-				positions: []wal.CommitPosition{testCommitPos},
-			},
+				[]wal.CommitPosition{testCommitPos}),
+
 			store: &mockStore{
 				sendDocumentsFn: func(ctx context.Context, i uint, docs []Document) ([]DocumentError, error) {
 					return nil, errTest
@@ -604,12 +370,12 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		},
 		{
 			name: "error - truncating table",
-			batch: &msgBatch{
-				msgs: []*msg{
+			batch: batch.NewBatch(
+				[]*msg{
 					{truncate: &truncateItem{schemaName: testSchemaName, tableID: testTableName}},
 				},
-				positions: []wal.CommitPosition{testCommitPos},
-			},
+				[]wal.CommitPosition{testCommitPos}),
+
 			store: &mockStore{
 				deleteTableDocumentsFn: func(ctx context.Context, schemaName string, tableIDs []string) error {
 					return errTest
@@ -620,13 +386,13 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		},
 		{
 			name: "error - sending documents",
-			batch: &msgBatch{
-				msgs: []*msg{
+			batch: batch.NewBatch(
+				[]*msg{
 					{write: testDocument1},
 					{write: testDocument2},
 				},
-				positions: []wal.CommitPosition{testCommitPos},
-			},
+				[]wal.CommitPosition{testCommitPos}),
+
 			store: &mockStore{
 				sendDocumentsFn: func(ctx context.Context, _ uint, docs []Document) ([]DocumentError, error) {
 					return nil, errTest
@@ -637,13 +403,13 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		},
 		{
 			name: "error - sending documents with validation failure",
-			batch: &msgBatch{
-				msgs: []*msg{
+			batch: batch.NewBatch(
+				[]*msg{
 					{write: testDocument1},
 					{write: testDocument2},
 				},
-				positions: []wal.CommitPosition{testCommitPos},
-			},
+				[]wal.CommitPosition{testCommitPos}),
+
 			store: &mockStore{
 				sendDocumentsFn: func(ctx context.Context, _ uint, docs []Document) ([]DocumentError, error) {
 					return nil, ErrInvalidQuery
@@ -654,13 +420,13 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		},
 		{
 			name: "error - checkpointing",
-			batch: &msgBatch{
-				msgs: []*msg{
+			batch: batch.NewBatch(
+				[]*msg{
 					{write: testDocument1},
 					{write: testDocument2},
 				},
-				positions: []wal.CommitPosition{testCommitPos},
-			},
+				[]wal.CommitPosition{testCommitPos}),
+
 			store: &mockStore{
 				sendDocumentsFn: func(ctx context.Context, _ uint, docs []Document) ([]DocumentError, error) {
 					return nil, nil
@@ -675,16 +441,15 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 		},
 		{
 			name: "error - empty queue item",
-			batch: &msgBatch{
-				msgs: []*msg{{}},
-			},
+			batch: batch.NewBatch(
+				[]*msg{{}},
+				[]wal.CommitPosition{testCommitPos}),
 
 			wantErr: errEmptyQueueMsg,
 		},
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -709,8 +474,7 @@ func TestBatchIndexer(t *testing.T) {
 	t.Parallel()
 
 	indexer := BatchIndexer{
-		logger:  loglib.NewNoopLogger(),
-		msgChan: make(chan *msg, 100),
+		logger: loglib.NewNoopLogger(),
 		store: &mockStore{
 			sendDocumentsFn: func(ctx context.Context, _ uint, docs []Document) ([]DocumentError, error) {
 				time.Sleep(time.Second)
@@ -724,17 +488,20 @@ func TestBatchIndexer(t *testing.T) {
 				}, nil
 			},
 		},
-		batchSendInterval: 100 * time.Millisecond,
-		batchSize:         10,
-		skipSchema:        func(schemaName string) bool { return false },
-		queueBytesSema:    semaphore.NewWeighted(defaultMaxQueueBytes),
-		sendDone:          make(chan error, 1),
-		once:              &sync.Once{},
+		skipSchema: func(schemaName string) bool { return false },
 	}
+	defer indexer.Close()
+
+	var err error
+	indexer.batchSender, err = batch.NewSender(&batch.Config{
+		BatchTimeout: 100 * time.Millisecond,
+		MaxBatchSize: 10,
+	}, indexer.sendBatch, indexer.logger)
+	require.NoError(t, err)
 
 	doneChan := make(chan struct{}, 1)
 	go func() {
-		err := indexer.Send(context.Background())
+		err := indexer.batchSender.Send(context.Background())
 		require.ErrorIs(t, err, errTest)
 		doneChan <- struct{}{}
 		close(doneChan)

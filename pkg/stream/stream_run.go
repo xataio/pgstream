@@ -116,20 +116,12 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 		if instrumentation.IsEnabled() {
 			opts = append(opts, kafkaprocessor.WithInstrumentation(instrumentation))
 		}
-		kafkaWriter, err := kafkaprocessor.NewBatchWriter(config.Processor.Kafka.Writer, opts...)
+		kafkaWriter, err := kafkaprocessor.NewBatchWriter(ctx, config.Processor.Kafka.Writer, opts...)
 		if err != nil {
 			return err
 		}
 		defer kafkaWriter.Close()
 		processor = kafkaWriter
-
-		// the kafka batch writer requires to initialise a go routine to send
-		// the batches asynchronously
-		eg.Go(func() error {
-			defer logger.Info("stopping kafka batch writer...")
-			logger.Info("running kafka batch writer...")
-			return kafkaWriter.Send(ctx)
-		})
 	case config.Processor.Search != nil:
 		var searchStore search.Store
 		var err error
@@ -145,23 +137,18 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 			}
 		}
 
-		searchIndexer := search.NewBatchIndexer(ctx,
+		searchIndexer, err := search.NewBatchIndexer(ctx,
 			config.Processor.Search.Indexer,
 			searchStore,
 			pgreplication.NewLSNParser(),
 			search.WithCheckpoint(checkpoint),
 			search.WithLogger(logger),
 		)
+		if err != nil {
+			return err
+		}
 		defer searchIndexer.Close()
 		processor = searchIndexer
-
-		// the search batch indexer requires to initialise a go routine to send
-		// the batches asynchronously
-		eg.Go(func() error {
-			defer logger.Info("stopping search batch indexer...")
-			logger.Info("running search batch indexer...")
-			return searchIndexer.Send(ctx)
-		})
 
 	case config.Processor.Webhook != nil:
 		var subscriptionStore webhookstore.Store
