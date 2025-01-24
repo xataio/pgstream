@@ -11,6 +11,7 @@ import (
 	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
+	"github.com/xataio/pgstream/pkg/wal/processor/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
@@ -42,6 +43,7 @@ type ProcessorConfig struct {
 	Kafka    *KafkaProcessorConfig
 	Search   *SearchProcessorConfig
 	Webhook  *WebhookProcessorConfig
+	Postgres *PostgresProcessorConfig
 	Injector *injector.Config
 }
 
@@ -61,6 +63,10 @@ type WebhookProcessorConfig struct {
 	SubscriptionStore  WebhookSubscriptionStoreConfig
 }
 
+type PostgresProcessorConfig struct {
+	BatchWriter postgres.Config
+}
+
 type WebhookSubscriptionStoreConfig struct {
 	URL                  string
 	CacheEnabled         bool
@@ -72,7 +78,7 @@ func (c *Config) IsValid() error {
 		return errors.New("need at least one listener configured")
 	}
 
-	if c.Processor.Kafka == nil && c.Processor.Search == nil && c.Processor.Webhook == nil {
+	if c.Processor.Kafka == nil && c.Processor.Search == nil && c.Processor.Webhook == nil && c.Processor.Postgres == nil {
 		return errors.New("need at least one processor configured")
 	}
 

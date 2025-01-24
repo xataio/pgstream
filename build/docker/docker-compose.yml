@@ -1,23 +1,37 @@
-version: '3.8'
+version: "3.8"
 services:
-  db:
+  db1:
     build: postgres
     restart: always
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
     ports:
-      - '5432:5432'
+      - "5432:5432"
     volumes:
       - data:/var/lib/postgresql/data
       - ./postgres/postgresql.conf:/etc/postgresql.conf
     command: -c config_file=/etc/postgresql.conf
+    profiles: ["pg2os", "pg2webhook", "pg2pg"]
+
+  db2:
+    build: postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "7654:5432"
+    volumes:
+      - ./postgres/postgresql.conf:/etc/postgresql.conf
+    command: -c config_file=/etc/postgresql.conf
+    profiles: ["pg2pg"]
 
   kafka:
-    image: 'bitnami/kafka:latest'
+    image: "bitnami/kafka:latest"
     ports:
-     - '9092:9092'
-     - '9094:9094'
+      - "9092:9092"
+      - "9094:9094"
     environment:
       - KAFKA_CFG_NODE_ID=0
       - KAFKA_CFG_PROCESS_ROLES=controller,broker
@@ -26,6 +40,7 @@ services:
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092,EXTERNAL://localhost:9094
+    profiles: ["kafka"]
 
   opensearch:
     image: "opensearchproject/opensearch:2.7.0"
@@ -43,10 +58,12 @@ services:
       memlock:
         soft: -1
         hard: -1
+    profiles: ["pg2os"]
   opensearch-dashboards:
     image: "opensearchproject/opensearch-dashboards:2.7.0"
     ports: ["5601:5601"]
     environment: ["OPENSEARCH_HOSTS=http://opensearch:9200"] # 9201 to access externally, 9200 internally
+    profiles: ["pg2os"]
 
 volumes:
   data:
