@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package translator
+package injector
 
 import (
 	"context"
@@ -17,11 +17,10 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor"
 )
 
-// Translator is a decorator around a wal processor that populates the wal
-// metadata with the schemalog entry for the relevant schema. This allows
-// following processors to have more information for processing the event
-// effectively.
-type Translator struct {
+// Injector is a decorator around a wal processor that injects the wal metadata
+// with the schemalog entry for the relevant schema. This allows following
+// processors to have more information for processing the event effectively.
+type Injector struct {
 	logger               loglib.Logger
 	processor            processor.Processor
 	walToLogEntryAdapter walToLogEntryAdapter
@@ -39,7 +38,7 @@ type Config struct {
 }
 
 // configurable filters that allow the user of this library to have flexibility
-// when processing and translating the wal event data
+// when processing and injecting the wal event metadata
 type (
 	dataEventFilter     func(*wal.Data) bool
 	schemaEventFilter   func(*schemalog.LogEntry) bool
@@ -47,15 +46,15 @@ type (
 	columnFinderWithErr func(*schemalog.Column, *schemalog.Table) (bool, error)
 )
 
-type Option func(t *Translator)
+type Option func(t *Injector)
 
 var ErrUseLSN = errors.New("use LSN as event version")
 
-// New will return a translator processor wrapper that will inject pgstream
+// New will return an injector processor wrapper that will inject pgstream
 // metadata into the wal data events before passing them over to the processor
 // on input. By default, all schemas are processed and the pgstream identity
 // will be the primary key/not null unique column if present.
-func New(cfg *Config, p processor.Processor, opts ...Option) (*Translator, error) {
+func New(cfg *Config, p processor.Processor, opts ...Option) (*Injector, error) {
 	var schemaLogStore schemalog.Store
 	var err error
 	schemaLogStore, err = schemalogpg.NewStore(context.Background(), cfg.Store)
@@ -64,7 +63,7 @@ func New(cfg *Config, p processor.Processor, opts ...Option) (*Translator, error
 	}
 	schemaLogStore = schemalog.NewStoreCache(schemaLogStore)
 
-	t := &Translator{
+	i := &Injector{
 		logger:               loglib.NewNoopLogger(),
 		processor:            p,
 		schemaLogStore:       schemaLogStore,
@@ -77,59 +76,59 @@ func New(cfg *Config, p processor.Processor, opts ...Option) (*Translator, error
 	}
 
 	for _, opt := range opts {
-		opt(t)
+		opt(i)
 	}
 
-	return t, nil
+	return i, nil
 }
 
 func WithIDFinder(idFinder columnFinder) Option {
-	return func(t *Translator) {
-		t.idFinder = idFinder
+	return func(in *Injector) {
+		in.idFinder = idFinder
 	}
 }
 
 func WithVersionFinder(versionFinder columnFinderWithErr) Option {
-	return func(t *Translator) {
-		t.versionFinder = versionFinder
+	return func(in *Injector) {
+		in.versionFinder = versionFinder
 	}
 }
 
 func WithSkipSchemaEvent(skip schemaEventFilter) Option {
-	return func(t *Translator) {
-		t.skipSchemaEvent = skip
+	return func(in *Injector) {
+		in.skipSchemaEvent = skip
 	}
 }
 
 func WithSkipDataEvent(skip dataEventFilter) Option {
-	return func(t *Translator) {
-		t.skipDataEvent = skip
+	return func(in *Injector) {
+		in.skipDataEvent = skip
 	}
 }
 
 func WithLogger(l loglib.Logger) Option {
-	return func(t *Translator) {
-		t.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
-			loglib.ModuleField: "wal_translator",
+	return func(in *Injector) {
+		in.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
+			loglib.ModuleField: "wal_injector",
 		})
 	}
 }
 
-func WithInstrumentation(i *otel.Instrumentation) Option {
-	return func(t *Translator) {
-		t.schemaLogStore = schemaloginstrumentation.NewStore(t.schemaLogStore, i)
+func WithInstrumentation(instr *otel.Instrumentation) Option {
+	return func(in *Injector) {
+		in.schemaLogStore = schemaloginstrumentation.NewStore(in.schemaLogStore, instr)
 	}
 }
 
 // ProcessWALEvent populates the metadata of the wal event on input, before
 // passing it over to the configured wal processor.
-func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) error {
+func (in *Injector) ProcessWALEvent(ctx context.Context, event *wal.Event) error {
 	if event.Data == nil {
-		return t.processor.ProcessWALEvent(ctx, event)
+		return in.processor.ProcessWALEvent(ctx, event)
 	}
 
 	data := event.Data
-	if t.skipDataEvent(data) {
+	if in.skipDataEvent(data) {
 		return nil
 	}
 
@@ -140,28 +139,28 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) erro
 		if !isSchemaLogTable(data.Table) || !data.IsInsert() {
 			return nil
 		}
-		logEntry, err := t.walToLogEntryAdapter(data)
+		logEntry, err := in.walToLogEntryAdapter(data)
 		if err != nil {
 			return err
 		}
 
-		if t.skipSchemaEvent(logEntry) {
+		if in.skipSchemaEvent(logEntry) {
 			return nil
 		}
 
-		if err := t.schemaLogStore.Ack(ctx, logEntry); err != nil {
-			t.logger.Error(err, "ack schema log")
+		if err := in.schemaLogStore.Ack(ctx, logEntry); err != nil {
+			in.logger.Error(err, "ack schema log")
 		}
 	default:
-		// by default, we translate columns and pass on the event. If we fail to
-		// translate, log a DATALOSS severity error and continue processing the
-		// event without translating
-		if err := t.translate(ctx, data); err != nil {
+		// by default, we inject the metadata and pass on the event. If we fail
+		// to inject metadata, log a DATALOSS severity error and continue
+		// processing the event without it
+		if err := in.inject(ctx, data); err != nil {
 			// for now, do not consider events missing id/version fields to be
 			// data loss, since we don't expect to replicate tables that do not
 			// have these fields
 			if errors.Is(err, processor.ErrIDNotFound) || errors.Is(err, processor.ErrVersionNotFound) {
-				t.logger.Debug(fmt.Sprintf("ignoring event: %v", err), loglib.Fields{
+				in.logger.Debug(fmt.Sprintf("ignoring event: %v", err), loglib.Fields{
 					"schema": data.Schema,
 					"table":  data.Table,
 				})
@@ -169,7 +168,7 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) erro
 				// ignored, but the commit position is checkpointed
 				event.Data = nil
 			} else {
-				t.logger.Error(err, "", loglib.Fields{
+				in.logger.Error(err, "", loglib.Fields{
 					"severity": "DATALOSS",
 					"schema":   data.Schema,
 					"table":    data.Table,
@@ -178,29 +177,29 @@ func (t *Translator) ProcessWALEvent(ctx context.Context, event *wal.Event) erro
 		}
 	}
 
-	return t.processor.ProcessWALEvent(ctx, event)
+	return in.processor.ProcessWALEvent(ctx, event)
 }
 
-func (t *Translator) Name() string {
-	return t.processor.Name()
+func (in *Injector) Name() string {
+	return in.processor.Name()
 }
 
-func (t *Translator) Close() error {
-	return t.schemaLogStore.Close()
+func (in *Injector) Close() error {
+	return in.schemaLogStore.Close()
 }
 
-func (t *Translator) translate(ctx context.Context, data *wal.Data) error {
+func (in *Injector) inject(ctx context.Context, data *wal.Data) error {
 	if data == nil {
 		return nil
 	}
 
-	logEntry, err := t.schemaLogStore.Fetch(ctx, data.Schema, true)
+	logEntry, err := in.schemaLogStore.Fetch(ctx, data.Schema, true)
 	if err != nil {
-		// if schema does NOT exist in the log, skip the event translation.
+		// if schema does NOT exist in the log, skip the event injection.
 		if errors.Is(err, schemalog.ErrNoRows) {
 			return nil
 		}
-		return fmt.Errorf("failed to retrieve schema for translate %w", err)
+		return fmt.Errorf("failed to retrieve schema for metadata injection %w", err)
 	}
 
 	table, found := logEntry.GetTableByName(data.Table)
@@ -208,12 +207,12 @@ func (t *Translator) translate(ctx context.Context, data *wal.Data) error {
 		return processor.ErrTableNotFound
 	}
 
-	if err = t.fillEventMetadata(data, logEntry, &table); err != nil {
+	if err = in.fillEventMetadata(data, logEntry, &table); err != nil {
 		return fmt.Errorf("failed to fill event metadata: %w", err)
 	}
 
-	if err = t.translateColumnNames(data, &table); err != nil {
-		return fmt.Errorf("failed to translate column names: %w", err)
+	if err = in.injectColumnIDs(data, &table); err != nil {
+		return fmt.Errorf("failed to inject column ids: %w", err)
 	}
 
 	return nil
@@ -223,21 +222,21 @@ func (t *Translator) translate(ctx context.Context, data *wal.Data) error {
 // the table and the internal id/version columns. It will return an error if the
 // id column is not found, or if a version finder was set but no version was
 // found.
-func (t *Translator) fillEventMetadata(event *wal.Data, log *schemalog.LogEntry, tbl *schemalog.Table) error {
+func (in *Injector) fillEventMetadata(event *wal.Data, log *schemalog.LogEntry, tbl *schemalog.Table) error {
 	event.Metadata.SchemaID = log.ID
 	event.Metadata.TablePgstreamID = tbl.PgstreamID
 
 	foundID, foundVersion := false, false
 	for i := range tbl.Columns {
 		col := &tbl.Columns[i]
-		if t.idFinder(col, tbl) {
+		if in.idFinder(col, tbl) {
 			foundID = true
 			event.Metadata.InternalColIDs = append(event.Metadata.InternalColIDs, col.PgstreamID)
 			continue
 		}
 
-		if t.versionFinder != nil && !foundVersion {
-			isVersionCol, err := t.versionFinder(col, tbl)
+		if in.versionFinder != nil && !foundVersion {
+			isVersionCol, err := in.versionFinder(col, tbl)
 			if err != nil && errors.Is(err, ErrUseLSN) {
 				foundVersion = true
 				event.Metadata.InternalColVersion = ""
@@ -255,7 +254,7 @@ func (t *Translator) fillEventMetadata(event *wal.Data, log *schemalog.LogEntry,
 	case !foundID:
 		// the id is required
 		return fmt.Errorf("table [%s]: %w", tbl.Name, processor.ErrIDNotFound)
-	case t.versionFinder != nil && !foundVersion:
+	case in.versionFinder != nil && !foundVersion:
 		// if there's a version finder and the column wasn't found, return an error
 		return fmt.Errorf("table [%s]: %w", tbl.Name, processor.ErrVersionNotFound)
 	}
@@ -263,10 +262,10 @@ func (t *Translator) fillEventMetadata(event *wal.Data, log *schemalog.LogEntry,
 	return nil
 }
 
-// translateColumnNames will replace the existing column ids from the wal data
-// event with the pgstream ids. It will error if the column on input does not
-// exist in the relevant schemalog entry.
-func (t *Translator) translateColumnNames(event *wal.Data, schemaTable *schemalog.Table) error {
+// injectColumnIDs will replace the existing column ids from the wal data event
+// with the pgstream ids. It will error if the column on input does not exist in
+// the relevant schemalog entry.
+func (in *Injector) injectColumnIDs(event *wal.Data, schemaTable *schemalog.Table) error {
 	for i, col := range event.Columns {
 		schemaCol, found := schemaTable.GetColumnByName(col.Name)
 		if !found {

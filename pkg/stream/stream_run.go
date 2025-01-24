@@ -19,12 +19,12 @@ import (
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
 	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor"
+	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	processinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/instrumentation"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	searchinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/search/instrumentation"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
-	"github.com/xataio/pgstream/pkg/wal/processor/translator"
 	webhooknotifier "github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
 	subscriptionserver "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
 	webhookstore "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store"
@@ -203,20 +203,20 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 		return errors.New("no processor found")
 	}
 
-	if config.Processor.Translator != nil {
-		logger.Info("adding translation to processor...")
-		opts := []translator.Option{
-			translator.WithLogger(logger),
+	if config.Processor.Injector != nil {
+		logger.Info("adding injection to processor...")
+		opts := []injector.Option{
+			injector.WithLogger(logger),
 		}
 		if instrumentation.IsEnabled() {
-			opts = append(opts, translator.WithInstrumentation(instrumentation))
+			opts = append(opts, injector.WithInstrumentation(instrumentation))
 		}
-		translator, err := translator.New(config.Processor.Translator, processor, opts...)
+		injector, err := injector.New(config.Processor.Injector, processor, opts...)
 		if err != nil {
-			return fmt.Errorf("error creating processor translation layer: %w", err)
+			return fmt.Errorf("error creating processor injection layer: %w", err)
 		}
-		defer translator.Close()
-		processor = translator
+		defer injector.Close()
+		processor = injector
 	}
 
 	if processor != nil && instrumentation.IsEnabled() {

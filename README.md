@@ -226,11 +226,11 @@ One of exponential/constant backoff policies can be provided for the search stor
 </details>
 
 <details>
-  <summary>Translator</summary>
+  <summary>Injector</summary>
 
-| Environment Variable                   | Default | Required | Description                                                    |
-| -------------------------------------- | ------- | -------- | -------------------------------------------------------------- |
-| PGSTREAM_TRANSLATOR_STORE_POSTGRES_URL | N/A     | Yes      | URL for the postgres URL where the schema log table is stored. |
+| Environment Variable                 | Default | Required | Description                                                    |
+| ------------------------------------ | ------- | -------- | -------------------------------------------------------------- |
+| PGSTREAM_INJECTOR_STORE_POSTGRES_URL | N/A     | Yes      | URL for the postgres URL where the schema log table is stored. |
 
 </details>
 
@@ -272,7 +272,7 @@ There are currently two implementations of the processor:
 
 - **Webhook notifier**: it sends a notification to any webhooks that have subscribed to the relevant wal event. It relies on a subscription HTTP server receiving the subscription requests and storing them in the shared subscription store which is accessed whenever a wal event is processed. It sends the notifications to the different subscribed webhook urls in parallel based on a configurable number of workers (client timeouts apply). Similar to the two previous processor implementations, it uses a memory guarded buffering system internally, which allows to separate the wal event processing from the webhook url sending, optimising the processor latency.
 
-In addition to the implementations described above, there's an optional processor decorator, the **translator**, that injects some of the pgstream logic into the WAL event. This includes:
+In addition to the implementations described above, there's an optional processor decorator, the **injector**, that injects some of the pgstream logic into the WAL event. This includes:
 
 - Data events:
 

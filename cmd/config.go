@@ -15,10 +15,10 @@ import (
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
+	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
-	"github.com/xataio/pgstream/pkg/wal/processor/translator"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
@@ -140,10 +140,10 @@ func parseKafkaCheckpointConfig() kafkacheckpoint.Config {
 
 func parseProcessorConfig() stream.ProcessorConfig {
 	return stream.ProcessorConfig{
-		Kafka:      parseKafkaProcessorConfig(),
-		Search:     parseSearchProcessorConfig(),
-		Webhook:    parseWebhookProcessorConfig(),
-		Translator: parseTranslatorConfig(),
+		Kafka:    parseKafkaProcessorConfig(),
+		Search:   parseSearchProcessorConfig(),
+		Webhook:  parseWebhookProcessorConfig(),
+		Injector: parseInjectorConfig(),
 	}
 }
 
@@ -264,12 +264,12 @@ func parseConstantBackoffConfig(prefix string) *backoff.ConstantConfig {
 	}
 }
 
-func parseTranslatorConfig() *translator.Config {
-	pgURL := viper.GetString("PGSTREAM_TRANSLATOR_STORE_POSTGRES_URL")
+func parseInjectorConfig() *injector.Config {
+	pgURL := viper.GetString("PGSTREAM_INJECTOR_STORE_POSTGRES_URL")
 	if pgURL == "" {
 		return nil
 	}
-	return &translator.Config{
+	return &injector.Config{
 		Store: pgschemalog.Config{
 			URL: pgURL,
 		},

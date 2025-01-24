@@ -19,9 +19,9 @@ import (
 	"github.com/xataio/pgstream/pkg/tls"
 	"github.com/xataio/pgstream/pkg/wal"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
+	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
-	"github.com/xataio/pgstream/pkg/wal/processor/translator"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
@@ -123,7 +123,7 @@ func testKafkaProcessorCfg() stream.ProcessorConfig {
 				Kafka: testKafkaCfg(),
 			},
 		},
-		Translator: &translator.Config{
+		Injector: &injector.Config{
 			Store: schemalogpg.Config{
 				URL: pgurl,
 			},
@@ -136,7 +136,7 @@ func testSearchProcessorCfg(storeCfg store.Config) stream.ProcessorConfig {
 		Search: &stream.SearchProcessorConfig{
 			Store: storeCfg,
 		},
-		Translator: &translator.Config{
+		Injector: &injector.Config{
 			Store: schemalogpg.Config{
 				URL: pgurl,
 			},
@@ -152,7 +152,7 @@ func testWebhookProcessorCfg() stream.ProcessorConfig {
 				URL: pgurl,
 			},
 		},
-		Translator: &translator.Config{
+		Injector: &injector.Config{
 			Store: schemalogpg.Config{
 				URL: pgurl,
 			},

@@ -9,10 +9,10 @@ import (
 	"github.com/xataio/pgstream/pkg/kafka"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
+	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
-	"github.com/xataio/pgstream/pkg/wal/processor/translator"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
@@ -39,10 +39,10 @@ type KafkaListenerConfig struct {
 }
 
 type ProcessorConfig struct {
-	Kafka      *KafkaProcessorConfig
-	Search     *SearchProcessorConfig
-	Webhook    *WebhookProcessorConfig
-	Translator *translator.Config
+	Kafka    *KafkaProcessorConfig
+	Search   *SearchProcessorConfig
+	Webhook  *WebhookProcessorConfig
+	Injector *injector.Config
 }
 
 type KafkaProcessorConfig struct {
