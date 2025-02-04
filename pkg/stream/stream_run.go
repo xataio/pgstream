@@ -22,6 +22,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	processinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/instrumentation"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
+	pgwriter "github.com/xataio/pgstream/pkg/wal/processor/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	searchinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/search/instrumentation"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
@@ -198,6 +199,18 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 			logger.Info("running webhook notifier...")
 			return notifier.Notify(ctx)
 		})
+
+	case config.Processor.Postgres != nil:
+		pgBatchWriter, err := pgwriter.NewBatchWriter(ctx,
+			&config.Processor.Postgres.BatchWriter,
+			pgwriter.WithLogger(logger),
+			pgwriter.WithCheckpoint(checkpoint))
+		if err != nil {
+			return err
+		}
+		defer pgBatchWriter.Close()
+
+		processor = pgBatchWriter
 
 	default:
 		return errors.New("no processor found")
