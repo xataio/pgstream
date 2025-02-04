@@ -15,6 +15,8 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 )
 
+// BatchWriter is a WAL processor implementation that batches and writes wal
+// events to a Postgres instance.
 type BatchWriter struct {
 	logger  loglib.Logger
 	pgConn  pglib.Querier
@@ -34,7 +36,9 @@ type queryBatchSender interface {
 	Send(context.Context) error
 }
 
-func NewWriter(ctx context.Context, config *Config, opts ...Option) (*BatchWriter, error) {
+// NewBatchWriter returns a postgres processor that batches and writes data to
+// the configured postgres instance.
+func NewBatchWriter(ctx context.Context, config *Config, opts ...Option) (*BatchWriter, error) {
 	pgConn, err := pglib.NewConnPool(ctx, config.URL)
 	if err != nil {
 		return nil, err

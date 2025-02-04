@@ -201,7 +201,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 		})
 
 	case config.Processor.Postgres != nil:
-		pgBatchWriter, err := pgwriter.NewWriter(ctx,
+		pgBatchWriter, err := pgwriter.NewBatchWriter(ctx,
 			&config.Processor.Postgres.BatchWriter,
 			pgwriter.WithLogger(logger),
 			pgwriter.WithCheckpoint(checkpoint))
