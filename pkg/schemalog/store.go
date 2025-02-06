@@ -9,7 +9,8 @@ import (
 
 type Store interface {
 	Insert(ctx context.Context, schemaName string) (*LogEntry, error)
-	Fetch(ctx context.Context, schemaName string, ackedOnly bool) (*LogEntry, error)
+	FetchLast(ctx context.Context, schemaName string, ackedOnly bool) (*LogEntry, error)
+	Fetch(ctx context.Context, schemaName string, version int) (*LogEntry, error)
 	Ack(ctx context.Context, le *LogEntry) error
 	Close() error
 }
