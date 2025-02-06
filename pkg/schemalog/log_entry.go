@@ -89,13 +89,6 @@ func (m *LogEntry) After(other *LogEntry) bool {
 	return m.ID.Compare(other.ID) > 0
 }
 
-func (m *LogEntry) Diff(previous *LogEntry) *SchemaDiff {
-	if previous == nil {
-		return m.Schema.Diff(&Schema{})
-	}
-	return m.Schema.Diff(&previous.Schema)
-}
-
 func (m *LogEntry) GetTableByName(tableName string) (Table, bool) {
 	return m.Schema.getTableByName(tableName)
 }
