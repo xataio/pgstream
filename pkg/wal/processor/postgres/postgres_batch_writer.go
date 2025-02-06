@@ -117,8 +117,49 @@ func (w *BatchWriter) Close() error {
 }
 
 func (w *BatchWriter) sendBatch(ctx context.Context, batch *batch.Batch[*query]) error {
+	// we'll mostly process DML queries, so pre-allocate the max size
+	dmlQueries := make([]*query, 0, len(batch.GetMessages()))
+	for _, q := range batch.GetMessages() {
+		if !q.isDDL {
+			dmlQueries = append(dmlQueries, q)
+			continue
+		}
+
+		// flush any previous DML queries before running the DDL query to ensure
+		// they are run in their own separate transaction
+		if err := w.flushQueries(ctx, dmlQueries); err != nil {
+			w.logger.Error(err, "flushing DML queries")
+			return err
+		}
+
+		if _, err := w.pgConn.Exec(ctx, q.sql, q.args...); err != nil {
+			w.logger.Error(err, "running DDL query", loglib.Fields{"query_sql": q.sql, "query_args": q.args})
+			var errRelationDoesNotExist *pglib.ErrRelationDoesNotExist
+			if errors.As(err, &errRelationDoesNotExist) {
+				continue
+			}
+			return err
+		}
+	}
+
+	if err := w.flushQueries(ctx, dmlQueries); err != nil {
+		w.logger.Error(err, "flushing DML queries")
+		return err
+	}
+
+	if w.checkpointer != nil {
+		return w.checkpointer(ctx, batch.GetCommitPositions())
+	}
+
+	return nil
+}
+
+func (w *BatchWriter) flushQueries(ctx context.Context, queries []*query) error {
+	if len(queries) == 0 {
+		return nil
+	}
 	err := w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
-		for _, q := range batch.GetMessages() {
+		for _, q := range queries {
 			if _, err := tx.Exec(ctx, q.sql, q.args...); err != nil {
 				return err
 			}
@@ -129,9 +170,6 @@ func (w *BatchWriter) sendBatch(ctx context.Context, batch *batch.Batch[*query])
 		return err
 	}
 
-	if w.checkpointer != nil {
-		return w.checkpointer(ctx, batch.GetCommitPositions())
-	}
-
+	queries = queries[:0]
 	return nil
 }
