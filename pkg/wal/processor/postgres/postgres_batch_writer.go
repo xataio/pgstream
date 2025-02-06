@@ -4,11 +4,14 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/schemalog"
+	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -44,10 +47,17 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...Option) (*Batch
 		return nil, err
 	}
 
+	var schemaLogStore schemalog.Store
+	schemaLogStore, err = schemalogpg.NewStore(ctx, config.SchemaStore)
+	if err != nil {
+		return nil, fmt.Errorf("create schema log postgres store: %w", err)
+	}
+	schemaLogStore = schemalog.NewStoreCache(schemaLogStore)
+
 	w := &BatchWriter{
 		logger:  loglib.NewNoopLogger(),
 		pgConn:  pgConn,
-		adapter: &adapter{},
+		adapter: newAdapter(schemaLogStore),
 	}
 
 	for _, opt := range opts {
@@ -98,13 +108,20 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) 
 		}
 	}()
 
-	query, err := w.adapter.walEventToQuery(walEvent)
+	queries, err := w.adapter.walEventToQueries(ctx, walEvent)
 	if err != nil {
 		return err
 	}
 
-	msg := batch.NewWALMessage(query, walEvent.CommitPosition)
-	return w.batchSender.AddToBatch(ctx, msg)
+	for _, q := range queries {
+		w.logger.Debug("batching query", loglib.Fields{"query": q})
+		msg := batch.NewWALMessage(q, walEvent.CommitPosition)
+		if err := w.batchSender.AddToBatch(ctx, msg); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (w *BatchWriter) Name() string {

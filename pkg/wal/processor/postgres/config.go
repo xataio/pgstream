@@ -3,10 +3,12 @@
 package postgres
 
 import (
+	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 )
 
 type Config struct {
 	URL         string
 	BatchConfig batch.Config
+	SchemaStore schemalogpg.Config
 }

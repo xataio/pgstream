@@ -61,9 +61,9 @@ func TestBatchWriter_ProcessWALEvent(t *testing.T) {
 			walEvent:    testWalEvent,
 			batchSender: batchmocks.NewBatchSender[*query](),
 			adapter: &mockAdapter{
-				walEventToQueryFn: func(e *wal.Event) (*query, error) {
+				walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
 					require.Equal(t, e, testWalEvent)
-					return testInsertQuery, nil
+					return []*query{testInsertQuery}, nil
 				},
 			},
 
@@ -77,7 +77,7 @@ func TestBatchWriter_ProcessWALEvent(t *testing.T) {
 			walEvent:    testWalEvent,
 			batchSender: batchmocks.NewBatchSender[*query](),
 			adapter: &mockAdapter{
-				walEventToQueryFn: func(e *wal.Event) (*query, error) {
+				walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
 					return nil, errTest
 				},
 			},
@@ -94,9 +94,9 @@ func TestBatchWriter_ProcessWALEvent(t *testing.T) {
 				return s
 			}(),
 			adapter: &mockAdapter{
-				walEventToQueryFn: func(e *wal.Event) (*query, error) {
+				walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
 					require.Equal(t, e, testWalEvent)
-					return testInsertQuery, nil
+					return []*query{testInsertQuery}, nil
 				},
 			},
 
@@ -108,7 +108,7 @@ func TestBatchWriter_ProcessWALEvent(t *testing.T) {
 			walEvent:    testWalEvent,
 			batchSender: batchmocks.NewBatchSender[*query](),
 			adapter: &mockAdapter{
-				walEventToQueryFn: func(e *wal.Event) (*query, error) {
+				walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
 					panic(errTest)
 				},
 			},
@@ -256,11 +256,11 @@ func TestBatchWriter(t *testing.T) {
 	}
 
 	adapter := &mockAdapter{
-		walEventToQueryFn: func(e *wal.Event) (*query, error) {
-			return &query{
+		walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
+			return []*query{{
 				sql:  "INSERT INTO test(id, name) VALUES($1, $2) ON CONFLICT (id) DO NOTHING",
 				args: []any{1, "alice"},
-			}, nil
+			}}, nil
 		},
 	}
 
