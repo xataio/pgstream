@@ -856,7 +856,7 @@ func TestStore_updateMapping(t *testing.T) {
 	tests := []struct {
 		name   string
 		client searchstore.Client
-		diff   *schemalog.SchemaDiff
+		diff   *schemalog.Diff
 		mapper search.Mapper
 
 		wantErr error
@@ -902,9 +902,13 @@ func TestStore_updateMapping(t *testing.T) {
 					return errors.New("DeleteByQueryFn: should not be called")
 				},
 			},
-			diff: &schemalog.SchemaDiff{
-				ColumnsToAdd: []schemalog.Column{
-					{Name: "col-1", PgstreamID: "pgstreamid-1"},
+			diff: &schemalog.Diff{
+				TablesChanged: []schemalog.TableDiff{
+					{
+						ColumnsAdded: []schemalog.Column{
+							{Name: "col-1", PgstreamID: "pgstreamid-1"},
+						},
+					},
 				},
 			},
 			mapper: &searchmocks.Mapper{
@@ -940,8 +944,8 @@ func TestStore_updateMapping(t *testing.T) {
 					return nil
 				},
 			},
-			diff: &schemalog.SchemaDiff{
-				TablesToRemove: []schemalog.Table{
+			diff: &schemalog.Diff{
+				TablesRemoved: []schemalog.Table{
 					{PgstreamID: "id-1"},
 					{PgstreamID: "id-2"},
 				},
@@ -965,9 +969,13 @@ func TestStore_updateMapping(t *testing.T) {
 					return errors.New("DeleteByQueryFn: should not be called")
 				},
 			},
-			diff: &schemalog.SchemaDiff{
-				ColumnsToAdd: []schemalog.Column{
-					{Name: "col-1", PgstreamID: "pgstreamid-1"},
+			diff: &schemalog.Diff{
+				TablesChanged: []schemalog.TableDiff{
+					{
+						ColumnsAdded: []schemalog.Column{
+							{Name: "col-1", PgstreamID: "pgstreamid-1"},
+						},
+					},
 				},
 			},
 
@@ -989,8 +997,8 @@ func TestStore_updateMapping(t *testing.T) {
 					return errTest
 				},
 			},
-			diff: &schemalog.SchemaDiff{
-				TablesToRemove: []schemalog.Table{
+			diff: &schemalog.Diff{
+				TablesRemoved: []schemalog.Table{
 					{PgstreamID: "id-1"},
 					{PgstreamID: "id-2"},
 				},

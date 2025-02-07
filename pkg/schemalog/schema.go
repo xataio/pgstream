@@ -67,35 +67,6 @@ func (s *Schema) IsEqual(other *Schema) bool {
 	}
 }
 
-func (s *Schema) Diff(previous *Schema) *SchemaDiff {
-	var d SchemaDiff
-
-	// if a table ID exists in previous, but not s: remove the table
-	for _, previousTable := range previous.Tables {
-		if !s.hasTableID(previousTable.PgstreamID) {
-			d.TablesToRemove = append(d.TablesToRemove, previousTable)
-		}
-	}
-
-	for i, table := range s.Tables {
-		if previousTable := previous.getTableByID(table.PgstreamID); previousTable != nil {
-			d.ColumnsToAdd = append(d.ColumnsToAdd, diffColumns(&s.Tables[i], previousTable)...)
-			if hasPrimaryKeyChanged(previousTable.PrimaryKeyColumns, table.PrimaryKeyColumns) {
-				d.PrimaryKeyChange = append(d.PrimaryKeyChange, table.Name)
-			}
-			if hasUniqueNotNullChanged(previousTable, &s.Tables[i]) {
-				d.UniqueNotNullChange = append(d.UniqueNotNullChange, table.Name)
-			}
-		} else {
-			// if the "old" schema does not have the table, we can add all
-			// columns without checking further.
-			d.ColumnsToAdd = append(d.ColumnsToAdd, table.Columns...)
-		}
-	}
-
-	return &d
-}
-
 func (s *Schema) getTableByName(tableName string) (Table, bool) {
 	for _, t := range s.Tables {
 		if t.Name == tableName {
@@ -103,19 +74,6 @@ func (s *Schema) getTableByName(tableName string) (Table, bool) {
 		}
 	}
 	return Table{}, false
-}
-
-func (s *Schema) getTableByID(pgstreamID string) *Table {
-	for i := range s.Tables {
-		if s.Tables[i].PgstreamID == pgstreamID {
-			return &s.Tables[i]
-		}
-	}
-	return nil
-}
-
-func (s *Schema) hasTableID(pgstreamID string) bool {
-	return s.getTableByID(pgstreamID) != nil
 }
 
 func (t *Table) IsEqual(other *Table) bool {
@@ -187,17 +145,6 @@ func (c *Column) IsEqual(other *Column) bool {
 	}
 }
 
-type SchemaDiff struct {
-	TablesToRemove      []Table
-	ColumnsToAdd        []Column
-	PrimaryKeyChange    []string
-	UniqueNotNullChange []string
-}
-
-func (d *SchemaDiff) Empty() bool {
-	return len(d.TablesToRemove) == 0 && len(d.ColumnsToAdd) == 0
-}
-
 func unorderedColumnsEqual(a, b []Column) bool {
 	if len(a) != len(b) {
 		return false
@@ -219,41 +166,4 @@ func unorderedColumnsEqual(a, b []Column) bool {
 	}
 
 	return true
-}
-
-func diffColumns(new, old *Table) []Column {
-	var colsAdded []Column
-
-	for _, newCol := range new.Columns {
-		var found bool
-
-		for _, oldCol := range old.Columns {
-			if newCol.PgstreamID == oldCol.PgstreamID {
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			colsAdded = append(colsAdded, newCol)
-		}
-	}
-
-	return colsAdded
-}
-
-func hasPrimaryKeyChanged(old, new []string) bool {
-	slices.Sort(old)
-	slices.Sort(new)
-	return !slices.Equal(old, new)
-}
-
-func hasUniqueNotNullChanged(old, new *Table) bool {
-	// we only care about unique not null changes if there's no primary key defined
-	if len(old.PrimaryKeyColumns) != 0 || len(new.PrimaryKeyColumns) != 0 {
-		return false
-	}
-	oldUniqueNotNullCol := old.GetFirstUniqueNotNullColumn()
-	newUniqueNotNullCol := new.GetFirstUniqueNotNullColumn()
-	return !oldUniqueNotNullCol.IsEqual(newUniqueNotNullCol)
 }

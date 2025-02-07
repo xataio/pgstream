@@ -142,18 +142,18 @@ func (s *Store) ApplySchemaChange(ctx context.Context, newEntry *schemalog.LogEn
 		}
 	}
 
-	changes := newEntry.Diff(existingLogEntry)
+	changes := schemalog.ComputeSchemaDiff(existingLogEntry, newEntry)
+
 	// for now only log a warning when a reindexing is required, since the data
 	// can still be indexed, old data will need a reindex to take into account
 	// the new identity for search to be effective
 	//
 	// TODO: in the future, we will trigger a reindex automatically in this
 	// situation
-	for _, tbl := range changes.PrimaryKeyChange {
-		s.logger.Warn(nil, fmt.Sprintf("primary key identity column changed for table %s, reindexing required", tbl))
-	}
-	for _, tbl := range changes.UniqueNotNullChange {
-		s.logger.Warn(nil, fmt.Sprintf("unique not null identity column changed for table %s, reindexing required", tbl))
+	for _, tbl := range changes.TablesChanged {
+		if tbl.TablePrimaryKeyChange != nil {
+			s.logger.Warn(nil, fmt.Sprintf("primary key identity column changed for table %s, reindexing required", tbl.TableName))
+		}
 	}
 
 	if err := s.updateMapping(ctx, newEntry.SchemaName, newEntry, changes); err != nil {
@@ -306,16 +306,16 @@ func (s *Store) createSchema(ctx context.Context, schemaName string) error {
 	return nil
 }
 
-func (s *Store) updateMapping(ctx context.Context, schemaName string, logEntry *schemalog.LogEntry, diff *schemalog.SchemaDiff) error {
+func (s *Store) updateMapping(ctx context.Context, schemaName string, logEntry *schemalog.LogEntry, diff *schemalog.Diff) error {
 	index := s.indexNameAdapter.SchemaNameToIndex(schemaName)
-	if diff != nil {
-		if err := s.updateMappingAddNewColumns(ctx, index, diff.ColumnsToAdd); err != nil {
+	if diff != nil && !diff.IsEmpty() {
+		if err := s.updateMappingAddNewColumns(ctx, index, s.getAllNewColumns(diff)); err != nil {
 			return fmt.Errorf("failed to add new columns: %w", mapError(err))
 		}
 
-		if len(diff.TablesToRemove) > 0 {
-			tableIDs := make([]string, 0, len(diff.TablesToRemove))
-			for _, table := range diff.TablesToRemove {
+		if len(diff.TablesRemoved) > 0 {
+			tableIDs := make([]string, 0, len(diff.TablesRemoved))
+			for _, table := range diff.TablesRemoved {
 				tableIDs = append(tableIDs, table.PgstreamID)
 			}
 			if err := s.deleteTableDocuments(ctx, index, tableIDs); err != nil {
@@ -459,12 +459,25 @@ func (s *Store) ensureSchemaMapping(ctx context.Context, schemaName string, meta
 		// if the schema didn't exist, but there's a log entry in the schemalog,
 		// we need to reset it to the latest known mapping
 		if metadata != nil && !metadata.IsEmpty() {
-			if err := s.updateMapping(ctx, schemaName, metadata, metadata.Diff(&schemalog.LogEntry{})); err != nil {
+			changes := schemalog.ComputeSchemaDiff(&schemalog.LogEntry{}, metadata)
+			if err := s.updateMapping(ctx, schemaName, metadata, changes); err != nil {
 				return fmt.Errorf("updating mapping for missing schema: %w", err)
 			}
 		}
 	}
 	return nil
+}
+
+func (s *Store) getAllNewColumns(diff *schemalog.Diff) []schemalog.Column {
+	cols := []schemalog.Column{}
+	for _, tbl := range diff.TablesAdded {
+		cols = append(cols, tbl.Columns...)
+	}
+
+	for _, tbl := range diff.TablesChanged {
+		cols = append(cols, tbl.ColumnsAdded...)
+	}
+	return cols
 }
 
 func mapError(err error) error {
