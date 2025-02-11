@@ -11,7 +11,8 @@ import (
 
 type Store struct {
 	InsertFn    func(ctx context.Context, schemaName string) (*schemalog.LogEntry, error)
-	FetchFn     func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error)
+	FetchLastFn func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error)
+	FetchFn     func(ctx context.Context, schemaName string, version int) (*schemalog.LogEntry, error)
 	AckFn       func(ctx context.Context, le *schemalog.LogEntry) error
 	CloseFn     func() error
 	insertCalls uint64
@@ -26,9 +27,14 @@ func (m *Store) Insert(ctx context.Context, schemaName string) (*schemalog.LogEn
 	return m.InsertFn(ctx, schemaName)
 }
 
-func (m *Store) Fetch(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+func (m *Store) FetchLast(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 	atomic.AddUint64(&m.fetchCalls, 1)
-	return m.FetchFn(ctx, schemaName, ackedOnly)
+	return m.FetchLastFn(ctx, schemaName, ackedOnly)
+}
+
+func (m *Store) Fetch(ctx context.Context, schemaName string, version int) (*schemalog.LogEntry, error) {
+	atomic.AddUint64(&m.fetchCalls, 1)
+	return m.FetchFn(ctx, schemaName, version)
 }
 
 func (m *Store) Ack(ctx context.Context, le *schemalog.LogEntry) error {

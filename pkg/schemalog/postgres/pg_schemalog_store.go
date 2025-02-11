@@ -64,9 +64,9 @@ func (s *Store) Insert(ctx context.Context, schemaName string) (*schemalog.LogEn
 	return l, nil
 }
 
-// Fetch retrieves the latest schema log entry for schemaName. If ackedOnly is set, the function returns the last acked
+// FetchLast retrieves the latest schema log entry for schemaName. If ackedOnly is set, the function returns the last acked
 // entry. If ackedOnly is NOT set, the function returns the latest entry no matter the acked flag.
-func (s *Store) Fetch(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+func (s *Store) FetchLast(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 	ackCondition := ""
 	if ackedOnly {
 		ackCondition = "and acked"
@@ -77,6 +77,19 @@ func (s *Store) Fetch(ctx context.Context, schemaName string, ackedOnly bool) (*
 	err := s.querier.QueryRow(ctx, sql, schemaName).Scan(&l.ID, &l.Version, &l.SchemaName, &l.Schema, &l.CreatedAt, &l.Acked)
 	if err != nil {
 		return nil, mapError(fmt.Errorf("error fetching schema log for schema %s: %w", schemaName, err))
+	}
+
+	return l, nil
+}
+
+// Fetch retrieves the log entry for the schema and version provided.
+func (s *Store) Fetch(ctx context.Context, schemaName string, version int) (*schemalog.LogEntry, error) {
+	sql := fmt.Sprintf(`select id, version, schema_name, schema, created_at, acked from %s where schema_name = $1 and version = $2`, s.table())
+
+	l := &schemalog.LogEntry{}
+	err := s.querier.QueryRow(ctx, sql, schemaName, version).Scan(&l.ID, &l.Version, &l.SchemaName, &l.Schema, &l.CreatedAt, &l.Acked)
+	if err != nil {
+		return nil, mapError(fmt.Errorf("error fetching schema log for schema %s and version %d: %w", schemaName, version, err))
 	}
 
 	return l, nil

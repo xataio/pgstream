@@ -102,7 +102,7 @@ func TestInjector_ProcessWALEvent(t *testing.T) {
 			name:  "ok - data event",
 			event: newTestDataEvent("I"),
 			store: &schemalogmocks.Store{
-				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+				FetchLastFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					require.Equal(t, testSchemaName, schemaName)
 					return testLogEntry, nil
 				},
@@ -120,7 +120,7 @@ func TestInjector_ProcessWALEvent(t *testing.T) {
 			name:  "ok - fail to inject data event",
 			event: newTestDataEvent("I"),
 			store: &schemalogmocks.Store{
-				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+				FetchLastFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					return nil, errTest
 				},
 			},
@@ -137,7 +137,7 @@ func TestInjector_ProcessWALEvent(t *testing.T) {
 			name:  "ok - fail to inject data event with invalid data",
 			event: newTestDataEvent("I"),
 			store: &schemalogmocks.Store{
-				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+				FetchLastFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					return testLogEntry, nil
 				},
 			},
@@ -164,7 +164,7 @@ func TestInjector_ProcessWALEvent(t *testing.T) {
 			name:  "error - processing event",
 			event: newTestDataEvent("I"),
 			store: &schemalogmocks.Store{
-				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+				FetchLastFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					return testLogEntry, nil
 				},
 			},
@@ -239,7 +239,7 @@ func TestInjector_inject(t *testing.T) {
 		{
 			name: "ok - default primary key finder",
 			store: &schemalogmocks.Store{
-				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+				FetchLastFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					require.Equal(t, testSchemaName, schemaName)
 					return newTestLogEntry(), nil
 				},
@@ -254,7 +254,7 @@ func TestInjector_inject(t *testing.T) {
 		{
 			name: "ok - custom id finder",
 			store: &schemalogmocks.Store{
-				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+				FetchLastFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					require.Equal(t, testSchemaName, schemaName)
 					return newTestLogEntry(), nil
 				},
@@ -269,7 +269,7 @@ func TestInjector_inject(t *testing.T) {
 		{
 			name: "ok - no version provided",
 			store: &schemalogmocks.Store{
-				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+				FetchLastFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					require.Equal(t, testSchemaName, schemaName)
 					return newTestLogEntry(), nil
 				},
@@ -287,7 +287,7 @@ func TestInjector_inject(t *testing.T) {
 		{
 			name: "ok - version finder provided with use LSN error",
 			store: &schemalogmocks.Store{
-				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+				FetchLastFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					require.Equal(t, testSchemaName, schemaName)
 					return newTestLogEntry(), nil
 				},
@@ -306,7 +306,7 @@ func TestInjector_inject(t *testing.T) {
 		{
 			name: "error - fetching schema log entry",
 			store: &schemalogmocks.Store{
-				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+				FetchLastFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					return nil, errTest
 				},
 			},
@@ -318,7 +318,7 @@ func TestInjector_inject(t *testing.T) {
 		{
 			name: "error - schema not found",
 			store: &schemalogmocks.Store{
-				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+				FetchLastFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					return nil, schemalog.ErrNoRows
 				},
 			},
@@ -330,7 +330,7 @@ func TestInjector_inject(t *testing.T) {
 		{
 			name: "error - table not found",
 			store: &schemalogmocks.Store{
-				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+				FetchLastFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					require.Equal(t, testSchemaName, schemaName)
 					return newTestLogEntry(), nil
 				},
@@ -351,7 +351,7 @@ func TestInjector_inject(t *testing.T) {
 		{
 			name: "error - filling metadata, id not found",
 			store: &schemalogmocks.Store{
-				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+				FetchLastFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					require.Equal(t, testSchemaName, schemaName)
 					return newTestLogEntry(), nil
 				},
@@ -373,7 +373,7 @@ func TestInjector_inject(t *testing.T) {
 		{
 			name: "error - filling metadata, version not found",
 			store: &schemalogmocks.Store{
-				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+				FetchLastFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					require.Equal(t, testSchemaName, schemaName)
 					return newTestLogEntry(), nil
 				},
@@ -396,7 +396,7 @@ func TestInjector_inject(t *testing.T) {
 		{
 			name: "error - injecting column ids",
 			store: &schemalogmocks.Store{
-				FetchFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
+				FetchLastFn: func(ctx context.Context, schemaName string, ackedOnly bool) (*schemalog.LogEntry, error) {
 					require.Equal(t, testSchemaName, schemaName)
 					return newTestLogEntry(), nil
 				},

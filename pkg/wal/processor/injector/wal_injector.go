@@ -193,7 +193,7 @@ func (in *Injector) inject(ctx context.Context, data *wal.Data) error {
 		return nil
 	}
 
-	logEntry, err := in.schemaLogStore.Fetch(ctx, data.Schema, true)
+	logEntry, err := in.schemaLogStore.FetchLast(ctx, data.Schema, true)
 	if err != nil {
 		// if schema does NOT exist in the log, skip the event injection.
 		if errors.Is(err, schemalog.ErrNoRows) {

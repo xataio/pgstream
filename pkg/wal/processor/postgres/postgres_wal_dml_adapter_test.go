@@ -8,92 +8,10 @@ import (
 
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
-func TestAdapter_walEventToQuery(t *testing.T) {
-	t.Parallel()
-
-	testCommitPosition := wal.CommitPosition("1/0")
-	testTable := "table"
-	testSchema := "test"
-
-	tests := []struct {
-		name  string
-		event *wal.Event
-
-		wantQuery *query
-		wantErr   error
-	}{
-		{
-			name: "ok - no data",
-			event: &wal.Event{
-				CommitPosition: testCommitPosition,
-			},
-
-			wantQuery: &query{},
-			wantErr:   nil,
-		},
-		{
-			name: "ok - schema event",
-			event: &wal.Event{
-				Data: &wal.Data{
-					Schema: schemalog.SchemaName,
-					Table:  schemalog.TableName,
-				},
-				CommitPosition: testCommitPosition,
-			},
-
-			wantQuery: &query{},
-			wantErr:   nil,
-		},
-		{
-			name: "ok - supported data event",
-			event: &wal.Event{
-				Data: &wal.Data{
-					Action: "T",
-					Schema: testSchema,
-					Table:  testTable,
-				},
-				CommitPosition: testCommitPosition,
-			},
-
-			wantQuery: &query{
-				sql: fmt.Sprintf("TRUNCATE %s", quotedTableName(testSchema, testTable)),
-			},
-			wantErr: nil,
-		},
-		{
-			name: "ok - unsupported data event",
-			event: &wal.Event{
-				Data: &wal.Data{
-					Action: "X",
-					Schema: testSchema,
-					Table:  testTable,
-				},
-				CommitPosition: testCommitPosition,
-			},
-
-			wantQuery: &query{},
-			wantErr:   nil,
-		},
-	}
-
-	for _, tc := range tests {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			a := &adapter{}
-			query, err := a.walEventToQuery(tc.event)
-			require.ErrorIs(t, err, tc.wantErr)
-			require.Equal(t, tc.wantQuery, query)
-		})
-	}
-}
-
-func TestAdapter_walDataToQuery(t *testing.T) {
+func TestDMLAdapter_walDataToQuery(t *testing.T) {
 	t.Parallel()
 
 	testTableID := xid.New()
@@ -221,7 +139,7 @@ func TestAdapter_walDataToQuery(t *testing.T) {
 				},
 			},
 
-			wantQuery: nil,
+			wantQuery: &query{},
 		},
 	}
 
@@ -229,7 +147,7 @@ func TestAdapter_walDataToQuery(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			a := &adapter{}
+			a := &dmlAdapter{}
 			query := a.walDataToQuery(tc.walData)
 			require.Equal(t, tc.wantQuery, query)
 		})

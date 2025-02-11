@@ -26,18 +26,22 @@ func (s *StoreCache) Insert(ctx context.Context, schemaName string) (*LogEntry, 
 	return s.store.Insert(ctx, schemaName)
 }
 
-func (s *StoreCache) Fetch(ctx context.Context, schemaName string, ackedOnly bool) (*LogEntry, error) {
+func (s *StoreCache) FetchLast(ctx context.Context, schemaName string, ackedOnly bool) (*LogEntry, error) {
 	logEntry := s.cache[schemaName]
 	if logEntry == nil {
 		var err error
-		logEntry, err = s.store.Fetch(ctx, schemaName, ackedOnly)
+		logEntry, err = s.store.FetchLast(ctx, schemaName, ackedOnly)
 		if err != nil {
-			return nil, fmt.Errorf("store cache fetch: %w", err)
+			return nil, fmt.Errorf("store cache fetch last schema log: %w", err)
 		}
 		s.cache[schemaName] = logEntry
 	}
 
 	return logEntry, nil
+}
+
+func (s *StoreCache) Fetch(ctx context.Context, schemaName string, version int) (*LogEntry, error) {
+	return s.store.Fetch(ctx, schemaName, version)
 }
 
 func (s *StoreCache) Ack(ctx context.Context, entry *LogEntry) error {

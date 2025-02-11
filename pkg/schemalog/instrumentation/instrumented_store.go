@@ -33,10 +33,16 @@ func (s *Store) Insert(ctx context.Context, schemaName string) (le *schemalog.Lo
 	return s.inner.Insert(ctx, schemaName)
 }
 
-func (s *Store) Fetch(ctx context.Context, schemaName string, acked bool) (le *schemalog.LogEntry, err error) {
+func (s *Store) FetchLast(ctx context.Context, schemaName string, acked bool) (le *schemalog.LogEntry, err error) {
+	ctx, span := otel.StartSpan(ctx, s.tracer, "schemalogstore.FetchLast", trace.WithAttributes(attribute.String("schema", schemaName)))
+	defer otel.CloseSpan(span, err)
+	return s.inner.FetchLast(ctx, schemaName, acked)
+}
+
+func (s *Store) Fetch(ctx context.Context, schemaName string, version int) (le *schemalog.LogEntry, err error) {
 	ctx, span := otel.StartSpan(ctx, s.tracer, "schemalogstore.Fetch", trace.WithAttributes(attribute.String("schema", schemaName)))
 	defer otel.CloseSpan(span, err)
-	return s.inner.Fetch(ctx, schemaName, acked)
+	return s.inner.Fetch(ctx, schemaName, version)
 }
 
 func (s *Store) Ack(ctx context.Context, le *schemalog.LogEntry) (err error) {

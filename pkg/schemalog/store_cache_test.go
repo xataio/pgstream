@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestStoreCache_Fetch(t *testing.T) {
+func TestStoreCache_FetchLast(t *testing.T) {
 	t.Parallel()
 
 	const testSchema = "test-schema"
@@ -34,7 +34,7 @@ func TestStoreCache_Fetch(t *testing.T) {
 		{
 			name: "ok - cache miss",
 			store: &mockStore{
-				fetchFn: func(schemaName string, ackedOnly bool) (*LogEntry, error) {
+				fetchLastFn: func(schemaName string, ackedOnly bool) (*LogEntry, error) {
 					require.Equal(t, schemaName, testSchema)
 					require.Equal(t, ackedOnly, testAckedOnly)
 					return testLogEntry, nil
@@ -48,8 +48,8 @@ func TestStoreCache_Fetch(t *testing.T) {
 		{
 			name: "ok - cache hit",
 			store: &mockStore{
-				fetchFn: func(schemaName string, ackedOnly bool) (*LogEntry, error) {
-					return nil, errors.New("fetchFn: should not be called")
+				fetchLastFn: func(schemaName string, ackedOnly bool) (*LogEntry, error) {
+					return nil, errors.New("fetchLastFn: should not be called")
 				},
 			},
 			cache: map[string]*LogEntry{
@@ -62,7 +62,7 @@ func TestStoreCache_Fetch(t *testing.T) {
 		{
 			name: "error - fetching schema",
 			store: &mockStore{
-				fetchFn: func(schemaName string, ackedOnly bool) (*LogEntry, error) {
+				fetchLastFn: func(schemaName string, ackedOnly bool) (*LogEntry, error) {
 					return nil, errTest
 				},
 			},
@@ -83,7 +83,7 @@ func TestStoreCache_Fetch(t *testing.T) {
 				s.cache = tc.cache
 			}
 
-			le, err := s.Fetch(context.Background(), testSchema, testAckedOnly)
+			le, err := s.FetchLast(context.Background(), testSchema, testAckedOnly)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, le, tc.wantLogEntry)
 		})
@@ -230,17 +230,22 @@ func TestStoreCache_Insert(t *testing.T) {
 }
 
 type mockStore struct {
-	insertFn func(schemaName string) (*LogEntry, error)
-	fetchFn  func(schemaName string, ackedOnly bool) (*LogEntry, error)
-	ackFn    func(le *LogEntry) error
+	insertFn    func(schemaName string) (*LogEntry, error)
+	fetchLastFn func(schemaName string, ackedOnly bool) (*LogEntry, error)
+	fetchFn     func(schemaName string, version int) (*LogEntry, error)
+	ackFn       func(le *LogEntry) error
 }
 
 func (m *mockStore) Insert(_ context.Context, schemaName string) (*LogEntry, error) {
 	return m.insertFn(schemaName)
 }
 
-func (m *mockStore) Fetch(_ context.Context, schemaName string, ackedOnly bool) (*LogEntry, error) {
-	return m.fetchFn(schemaName, ackedOnly)
+func (m *mockStore) FetchLast(_ context.Context, schemaName string, ackedOnly bool) (*LogEntry, error) {
+	return m.fetchLastFn(schemaName, ackedOnly)
+}
+
+func (m *mockStore) Fetch(_ context.Context, schemaName string, version int) (*LogEntry, error) {
+	return m.fetchFn(schemaName, version)
 }
 
 func (m *mockStore) Ack(_ context.Context, le *LogEntry) error {
