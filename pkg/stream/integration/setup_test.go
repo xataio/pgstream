@@ -24,7 +24,7 @@ func TestMain(m *testing.M) {
 	// if integration tests are not enabled, nothing to setup
 	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") != "" {
 		ctx := context.Background()
-		pgcleanup, err := setupPostgresContainer(ctx)
+		pgcleanup, err := setupPostgresContainer(ctx, &pgurl)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -51,6 +51,12 @@ func TestMain(m *testing.M) {
 			log.Fatal(err)
 		}
 		defer escleanup()
+
+		targetPGCleanup, err := setupPostgresContainer(ctx, &targetPGURL)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer targetPGCleanup()
 	}
 
 	os.Exit(m.Run())
@@ -58,7 +64,7 @@ func TestMain(m *testing.M) {
 
 type cleanup func() error
 
-func setupPostgresContainer(ctx context.Context) (cleanup, error) {
+func setupPostgresContainer(ctx context.Context, url *string) (cleanup, error) {
 	waitForLogs := wait.
 		ForLog("database system is ready to accept connections").
 		WithOccurrence(2).
@@ -73,7 +79,7 @@ func setupPostgresContainer(ctx context.Context) (cleanup, error) {
 		return nil, fmt.Errorf("failed to start postgres container: %w", err)
 	}
 
-	pgurl, err = ctr.ConnectionString(ctx, "sslmode=disable")
+	*url, err = ctr.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
 		return nil, fmt.Errorf("retrieving connection string for postgres container: %w", err)
 	}
