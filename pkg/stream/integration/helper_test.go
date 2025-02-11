@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/internal/log/zerolog"
@@ -19,8 +20,10 @@ import (
 	"github.com/xataio/pgstream/pkg/tls"
 	"github.com/xataio/pgstream/pkg/wal"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
+	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
+	"github.com/xataio/pgstream/pkg/wal/processor/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
@@ -29,6 +32,7 @@ import (
 
 var (
 	pgurl            string
+	targetPGURL      string
 	kafkaBrokers     []string
 	opensearchURL    string
 	elasticsearchURL string
@@ -150,6 +154,27 @@ func testWebhookProcessorCfg() stream.ProcessorConfig {
 			Notifier: notifier.Config{},
 			SubscriptionStore: stream.WebhookSubscriptionStoreConfig{
 				URL: pgurl,
+			},
+		},
+		Injector: &injector.Config{
+			Store: schemalogpg.Config{
+				URL: pgurl,
+			},
+		},
+	}
+}
+
+func testPostgresProcessorCfg() stream.ProcessorConfig {
+	return stream.ProcessorConfig{
+		Postgres: &stream.PostgresProcessorConfig{
+			BatchWriter: postgres.Config{
+				URL: targetPGURL,
+				BatchConfig: batch.Config{
+					BatchTimeout: 50 * time.Millisecond,
+				},
+				SchemaStore: schemalogpg.Config{
+					URL: pgurl,
+				},
 			},
 		},
 		Injector: &injector.Config{
