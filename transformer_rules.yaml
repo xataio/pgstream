@@ -1,0 +1,9 @@
+transformations:
+  - schema: public
+    table: test
+    column_transformers:
+      name:
+        name: neosync_firstname
+        parameters:
+          preserve_length: false
+          max_length: 5
