@@ -20,6 +20,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
+	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
@@ -141,11 +142,12 @@ func parseKafkaCheckpointConfig() kafkacheckpoint.Config {
 
 func parseProcessorConfig() stream.ProcessorConfig {
 	return stream.ProcessorConfig{
-		Kafka:    parseKafkaProcessorConfig(),
-		Search:   parseSearchProcessorConfig(),
-		Webhook:  parseWebhookProcessorConfig(),
-		Postgres: parsePostgresProcessorConfig(),
-		Injector: parseInjectorConfig(),
+		Kafka:       parseKafkaProcessorConfig(),
+		Search:      parseSearchProcessorConfig(),
+		Webhook:     parseWebhookProcessorConfig(),
+		Postgres:    parsePostgresProcessorConfig(),
+		Injector:    parseInjectorConfig(),
+		Transformer: parseTransformerConfig(),
 	}
 }
 
@@ -297,6 +299,16 @@ func parseInjectorConfig() *injector.Config {
 		Store: pgschemalog.Config{
 			URL: pgURL,
 		},
+	}
+}
+
+func parseTransformerConfig() *transformer.Config {
+	transformerRulesFile := viper.GetString("PGSTREAM_TRANSFORMER_RULES_FILE")
+	if transformerRulesFile == "" {
+		return nil
+	}
+	return &transformer.Config{
+		TransformerRulesFile: transformerRulesFile,
 	}
 }
 
