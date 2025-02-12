@@ -21,7 +21,9 @@ type TransformerType string
 const (
 	String             TransformerType = "string"
 	NeosyncString      TransformerType = "neosync_string"
+	GreenmaskString    TransformerType = "greenmask_string"
 	NeosyncFirstName   TransformerType = "neosync_firstname"
+	GreenmaskFirstName TransformerType = "greenmask_firstname"
 )
 
 type GeneratorType string
