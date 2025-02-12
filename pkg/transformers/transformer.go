@@ -18,6 +18,10 @@ type Config struct {
 
 type TransformerType string
 
+const (
+	String             TransformerType = "string"
+)
+
 type GeneratorType string
 
 const (
