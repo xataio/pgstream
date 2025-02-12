@@ -20,6 +20,8 @@ type TransformerType string
 
 const (
 	String             TransformerType = "string"
+	NeosyncString      TransformerType = "neosync_string"
+	NeosyncFirstName   TransformerType = "neosync_firstname"
 )
 
 type GeneratorType string
