@@ -68,6 +68,9 @@ func Test_PostgresToPostgres(t *testing.T) {
 				}
 
 				require.NoError(t, rows.Err())
+				if len(columns) == 0 {
+					return false
+				}
 				wantCols := []*informationSchemaColumn{
 					{name: "id", dataType: "integer", isNullable: "NO"},
 					{name: "name", dataType: "text", isNullable: "YES"},
@@ -94,6 +97,9 @@ func Test_PostgresToPostgres(t *testing.T) {
 				}
 
 				require.NoError(t, rows.Err())
+				if len(columns) == 2 {
+					return false
+				}
 				wantCols := []*informationSchemaColumn{
 					{name: "id", dataType: "integer", isNullable: "NO"},
 					{name: "name", dataType: "text", isNullable: "YES"},
@@ -177,6 +183,9 @@ func Test_PostgresToPostgres(t *testing.T) {
 				}
 
 				require.NoError(t, rows.Err())
+				if len(columns) == 3 {
+					return false
+				}
 				wantCols := []*informationSchemaColumn{
 					{name: "id", dataType: "integer", isNullable: "NO"},
 					{name: "name", dataType: "text", isNullable: "YES"},
@@ -203,6 +212,9 @@ func Test_PostgresToPostgres(t *testing.T) {
 				}
 
 				require.NoError(t, rows.Err())
+				if len(columns) == 0 {
+					return false
+				}
 				wantCols := []*testTableColumn{
 					{id: 1, name: "a"},
 				}
@@ -252,6 +264,10 @@ func Test_PostgresToPostgres(t *testing.T) {
 					columns = append(columns, column)
 				}
 
+				if len(columns) == 1 {
+					return false
+				}
+
 				require.NoError(t, rows.Err())
 				require.Empty(t, columns)
 
@@ -273,6 +289,10 @@ func Test_PostgresToPostgres(t *testing.T) {
 					err := rows.Scan(&column.name, &column.dataType, &column.isNullable)
 					require.NoError(t, err)
 					columns = append(columns, column)
+				}
+
+				if len(columns) == 2 {
+					return false
 				}
 
 				require.NoError(t, rows.Err())
