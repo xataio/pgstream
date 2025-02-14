@@ -26,6 +26,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	searchinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/search/instrumentation"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
+	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 	webhooknotifier "github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
 	subscriptionserver "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
 	webhookstore "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store"
@@ -214,6 +215,15 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 
 	default:
 		return errors.New("no processor found")
+	}
+
+	if config.Processor.Transformer != nil {
+		logger.Info("adding transformation layer to processor...")
+		transformer, err := transformer.New(config.Processor.Transformer, processor, transformer.WithLogger(logger))
+		if err != nil {
+			return err
+		}
+		processor = transformer
 	}
 
 	if config.Processor.Injector != nil {

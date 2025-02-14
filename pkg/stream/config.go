@@ -14,6 +14,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
+	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
@@ -40,11 +41,12 @@ type KafkaListenerConfig struct {
 }
 
 type ProcessorConfig struct {
-	Kafka    *KafkaProcessorConfig
-	Search   *SearchProcessorConfig
-	Webhook  *WebhookProcessorConfig
-	Postgres *PostgresProcessorConfig
-	Injector *injector.Config
+	Kafka       *KafkaProcessorConfig
+	Search      *SearchProcessorConfig
+	Webhook     *WebhookProcessorConfig
+	Postgres    *PostgresProcessorConfig
+	Injector    *injector.Config
+	Transformer *transformer.Config
 }
 
 type KafkaProcessorConfig struct {

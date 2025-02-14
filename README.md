@@ -18,6 +18,7 @@
 
 - Schema change tracking and replication of DDL changes
 - Fast initial snapshots
+- Column value transformations
 - Modular deployment configuration, only requires Postgres
 - Schema based message partitioning
 - Schema filtering
@@ -234,6 +235,15 @@ One of exponential/constant backoff policies can be provided for the search stor
 
 </details>
 
+<details>
+  <summary>Transformer</summary>
+
+| Environment Variable            | Default | Required | Description                                                          |
+| ------------------------------- | ------- | -------- | -------------------------------------------------------------------- |
+| PGSTREAM_TRANSFORMER_RULES_FILE | N/A     | No       | Filepath pointing to the yaml file containing the transformer rules. |
+
+</details>
+
 ## Tracking schema changes
 
 One of the main differentiators of pgstream is the fact that it tracks and replicates schema changes automatically. It relies on SQL triggers that will populate a Postgres table (`pgstream.schema_log`) containing a history log of all DDL changes for a given schema. Whenever a schema change occurs, this trigger creates a new row in the schema log table with the schema encoded as a JSON value. This table tracks all the schema changes, forming a linearised change log that is then parsed and used within the pgstream pipeline to identify modifications and push the relevant changes downstream.
@@ -272,16 +282,22 @@ There are currently two implementations of the processor:
 
 - **Webhook notifier**: it sends a notification to any webhooks that have subscribed to the relevant wal event. It relies on a subscription HTTP server receiving the subscription requests and storing them in the shared subscription store which is accessed whenever a wal event is processed. It sends the notifications to the different subscribed webhook urls in parallel based on a configurable number of workers (client timeouts apply). Similar to the two previous processor implementations, it uses a memory guarded buffering system internally, which allows to separate the wal event processing from the webhook url sending, optimising the processor latency.
 
-In addition to the implementations described above, there's an optional processor decorator, the **injector**, that injects some of the pgstream logic into the WAL event. This includes:
+In addition to the implementations described above, there are optional processor decorators, which work in conjunction with one of the main processor implementations described above. Their goal is to act as modifiers to enrich the wal event being processed.
 
-- Data events:
+There are currently two implementations of the processor that act as decorators:
 
-  - Setting the WAL event identity. If provided, it will use the configured id finder (only available when used as a library), otherwise it will default to using the table primary key/unique not null column.
-  - Setting the WAL event version. If provided, it will use the configured version finder (only available when used as a library), otherwise it will default to using the event LSN.
-  - Adding pgstream IDs to all columns. This allows us to have a constant identifier for a column, so that if there are renames the column id doesn't change. This is particularly helpful for the search store, where a rename would require a reindex, which can be costly depending on the data.
+- **injector**: injects some of the pgstream logic into the WAL event. This includes:
 
-- Schema events:
-  - Acknolwedging the new incoming schema in the Postgres `pgstream.schema_log` table.
+  - Data events:
+
+    - Setting the WAL event identity. If provided, it will use the configured id finder (only available when used as a library), otherwise it will default to using the table primary key/unique not null column.
+    - Setting the WAL event version. If provided, it will use the configured version finder (only available when used as a library), otherwise it will default to using the event LSN.
+    - Adding pgstream IDs to all columns. This allows us to have a constant identifier for a column, so that if there are renames the column id doesn't change. This is particularly helpful for the search store, where a rename would require a reindex, which can be costly depending on the data.
+
+  - Schema events:
+    - Acknolwedging the new incoming schema in the Postgres `pgstream.schema_log` table.
+
+- **transformer**: it modifies the column values in insert/update events according to the rules defined in the configured yaml file. It can be used for anonymising data from the source Postgres database. An example of the rules definition file can be found in the repo under `transformer_rules.yaml`. The rules have per column granularity, and certain transformers from opensource sources, such as greenmask or neosync, are supported.
 
 ## Limitations
 
