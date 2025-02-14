@@ -10,7 +10,7 @@ import (
 )
 
 type StringTransformer struct {
-	*Transformer
+	*transformer[string]
 }
 
 func NewStringTransformer(params transformers.Parameters) (*StringTransformer, error) {
@@ -40,6 +40,6 @@ func NewStringTransformer(params transformers.Parameters) (*StringTransformer, e
 	}
 
 	return &StringTransformer{
-		Transformer: New(neosynctransformers.NewTransformString(), opts),
+		transformer: New[string](neosynctransformers.NewTransformString(), opts),
 	}, nil
 }

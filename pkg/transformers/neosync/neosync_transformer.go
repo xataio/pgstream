@@ -6,7 +6,10 @@ import (
 	"github.com/xataio/pgstream/pkg/transformers"
 )
 
-type Transformer struct {
+// transformer is a wrapper around a neosync transformer. Neosync transformers
+// return a pointer to the type, so this implementation is generic to ensure
+// different types are supported.
+type transformer[T any] struct {
 	neosyncTransformer neosyncTransformer
 	opts               any
 }
@@ -15,20 +18,20 @@ type neosyncTransformer interface {
 	Transform(value any, opts any) (any, error)
 }
 
-func New(t neosyncTransformer, opts any) *Transformer {
-	return &Transformer{
+func New[T any](t neosyncTransformer, opts any) *transformer[T] {
+	return &transformer[T]{
 		opts:               opts,
 		neosyncTransformer: t,
 	}
 }
 
-func (t *Transformer) Transform(value any) (any, error) {
+func (t *transformer[T]) Transform(value any) (any, error) {
 	retPtr, err := t.neosyncTransformer.Transform(value, t.opts)
 	if err != nil {
 		return nil, err
 	}
 
-	ret, ok := retPtr.(*string)
+	ret, ok := retPtr.(*T)
 	if !ok {
 		return nil, transformers.ErrUnsupportedValueType
 	}

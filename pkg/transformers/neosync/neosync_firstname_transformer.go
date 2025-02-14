@@ -10,7 +10,7 @@ import (
 )
 
 type FirstNameTransformer struct {
-	*Transformer
+	*transformer[string]
 }
 
 func NewFirstNameTransformer(params transformers.Parameters) (*FirstNameTransformer, error) {
@@ -35,6 +35,6 @@ func NewFirstNameTransformer(params transformers.Parameters) (*FirstNameTransfor
 	}
 
 	return &FirstNameTransformer{
-		Transformer: New(neosynctransformers.NewTransformFirstName(), opts),
+		transformer: New[string](neosynctransformers.NewTransformFirstName(), opts),
 	}, nil
 }
