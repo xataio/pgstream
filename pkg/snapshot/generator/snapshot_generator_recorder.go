@@ -35,6 +35,7 @@ func (s *SnapshotRecorder) CreateSnapshot(ctx context.Context, ss *snapshot.Snap
 	if err != nil {
 		return snapshot.NewErrors(err)
 	}
+
 	// no tables to snapshot
 	if len(filteredTables) == 0 {
 		return nil
@@ -107,10 +108,9 @@ func (s *SnapshotRecorder) filterOutExistingSnapshots(ctx context.Context, schem
 	filteredTables := make([]string, 0, len(tables))
 	for _, table := range tables {
 		wildCardReq, wildcardFound := existingRequests[wildcard]
-
 		switch table {
 		case wildcard:
-			if wildcardFound {
+			if wildcardFound && !wildCardReq.Errors.IsSnapshotError() {
 				filteredTables = append(filteredTables, wildCardReq.Errors.GetFailedTables()...)
 				break
 			}

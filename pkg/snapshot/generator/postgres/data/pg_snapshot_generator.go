@@ -82,7 +82,7 @@ func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sn
 	return sg.conn.ExecInTxWithOptions(ctx, func(tx pglib.Tx) error {
 		snapshotID, err := sg.exportSnapshot(ctx, tx)
 		if err != nil {
-			return &snapshot.Errors{Snapshot: err}
+			return &snapshot.Errors{SnapshotErrMsgs: []string{err.Error()}}
 		}
 
 		tableChan := make(chan string, len(ss.TableNames))

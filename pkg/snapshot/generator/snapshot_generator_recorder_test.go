@@ -100,7 +100,7 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 			},
 			generator: &mockGenerator{},
 
-			wantErr: &snapshot.Errors{Snapshot: fmt.Errorf("retrieving existing snapshots for schema: %w", errTest)},
+			wantErr: snapshot.NewErrors(fmt.Errorf("retrieving existing snapshots for schema: %w", errTest)),
 		},
 		{
 			name: "error - snapshot error on wrapped generator",
@@ -126,7 +126,7 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 						require.Equal(t, &snapshot.Request{
 							Snapshot: testSnapshot,
 							Status:   snapshot.StatusCompleted,
-							Errors:   &snapshot.Errors{Snapshot: errTest},
+							Errors:   snapshot.NewErrors(errTest),
 						}, r)
 						return nil
 					default:
@@ -137,11 +137,11 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 			},
 			generator: &mockGenerator{
 				createSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
-					return &snapshot.Errors{Snapshot: errTest}
+					return snapshot.NewErrors(errTest)
 				},
 			},
 
-			wantErr: &snapshot.Errors{Snapshot: errTest},
+			wantErr: snapshot.NewErrors(errTest),
 		},
 		{
 			name: "error - recording snapshot request",
@@ -159,7 +159,7 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr: &snapshot.Errors{Snapshot: errTest},
+			wantErr: snapshot.NewErrors(errTest),
 		},
 		{
 			name: "error - updating snapshot request in progress",
@@ -186,7 +186,7 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 			},
 			generator: &mockGenerator{},
 
-			wantErr: &snapshot.Errors{Snapshot: errTest},
+			wantErr: snapshot.NewErrors(errTest),
 		},
 		{
 			name: "error - updating snapshot request completed without errors",
@@ -227,7 +227,7 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr: &snapshot.Errors{Snapshot: errTest},
+			wantErr: snapshot.NewErrors(errTest),
 		},
 		{
 			name: "error - updating snapshot request completed with snapshot and table errors",
@@ -254,7 +254,7 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 							Snapshot: testSnapshot,
 							Status:   snapshot.StatusCompleted,
 							Errors: &snapshot.Errors{
-								Snapshot: errTest,
+								SnapshotErrMsgs: []string{errTest.Error()},
 								Tables: []snapshot.TableError{
 									{Table: "table1", ErrorMsg: errTest.Error()},
 								},
@@ -271,7 +271,7 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 				createSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
 					require.Equal(t, newTestSnapshot(), ss)
 					return &snapshot.Errors{
-						Snapshot: errTest,
+						SnapshotErrMsgs: []string{errTest.Error()},
 						Tables: []snapshot.TableError{
 							{Table: "table1", ErrorMsg: errTest.Error()},
 						},
@@ -280,7 +280,7 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 			},
 
 			wantErr: &snapshot.Errors{
-				Snapshot: errors.Join(errTest, updateErr),
+				SnapshotErrMsgs: []string{errTest.Error(), updateErr.Error()},
 				Tables: []snapshot.TableError{
 					{Table: "table1", ErrorMsg: errTest.Error()},
 				},
@@ -335,7 +335,7 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 			},
 
 			wantErr: &snapshot.Errors{
-				Snapshot: updateErr,
+				SnapshotErrMsgs: []string{updateErr.Error()},
 				Tables: []snapshot.TableError{
 					{Table: "table1", ErrorMsg: errTest.Error()},
 				},
@@ -461,7 +461,7 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 								SchemaName: testSchema,
 								TableNames: []string{"table2"},
 							},
-							Errors: &snapshot.Errors{Snapshot: errTest},
+							Errors: snapshot.NewErrors(errTest),
 							Status: snapshot.StatusCompleted,
 						},
 					}, nil
