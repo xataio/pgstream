@@ -9,7 +9,7 @@ import (
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
 	pgschemalog "github.com/xataio/pgstream/pkg/schemalog/postgres"
-	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/data/postgres"
+	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/stream"
 	"github.com/xataio/pgstream/pkg/tls"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
