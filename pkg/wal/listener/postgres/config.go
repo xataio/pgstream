@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
-	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/data/postgres"
+	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 )
 
 type SnapshotConfig struct {

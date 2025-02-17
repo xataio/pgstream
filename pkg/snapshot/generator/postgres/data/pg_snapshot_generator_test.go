@@ -389,9 +389,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr: &snapshot.Errors{
-				Snapshot: fmt.Errorf("exporting snapshot: %w", errTest),
-			},
+			wantErr:  snapshot.NewErrors(fmt.Errorf("exporting snapshot: %w", errTest)),
 			wantRows: []*snapshot.Row{},
 		},
 		{

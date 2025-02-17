@@ -13,8 +13,8 @@ import (
 	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"github.com/xataio/pgstream/pkg/snapshot/generator"
-	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/data/postgres"
-	"github.com/xataio/pgstream/pkg/snapshot/generator/schema"
+	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
+	pgschemasnapshot "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/schemalog"
 	pgsnapshotstore "github.com/xataio/pgstream/pkg/snapshot/store/postgres"
 	"github.com/xataio/pgstream/pkg/wal"
 	"golang.org/x/sync/errgroup"
@@ -51,7 +51,7 @@ func NewSnapshotGeneratorAdapter(ctx context.Context, cfg *SnapshotConfig, proce
 		return nil, fmt.Errorf("create schema log postgres store: %w", err)
 	}
 	schemaLogStore = schemalog.NewStoreCache(schemaLogStore)
-	schemaSnapshotGenerator := schema.NewSnapshotGenerator(schemaLogStore, s.processRow)
+	schemaSnapshotGenerator := pgschemasnapshot.NewSnapshotGenerator(schemaLogStore, s.processRow)
 
 	// postgres data snapshot generator
 	dataSnapshotGenerator, err := pgsnapshotgenerator.NewSnapshotGenerator(ctx, &cfg.Generator, s.processRow, opts...)

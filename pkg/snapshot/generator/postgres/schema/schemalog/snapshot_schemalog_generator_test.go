@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package schema
+package schemalog
 
 import (
 	"context"
@@ -98,7 +98,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				return errors.New("processRow: should not be called")
 			},
 
-			wantErr: &snapshot.Errors{Snapshot: errTest},
+			wantErr: snapshot.NewErrors(errTest),
 		},
 		{
 			name: "error - processing schema row",
@@ -112,7 +112,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				return errTest
 			},
 
-			wantErr: &snapshot.Errors{Snapshot: errTest},
+			wantErr: snapshot.NewErrors(errTest),
 		},
 		{
 			name: "error - converting log entry to row",
@@ -126,7 +126,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			},
 			marshaler: func(a any) ([]byte, error) { return nil, errTest },
 
-			wantErr: &snapshot.Errors{Snapshot: fmt.Errorf("marshaling log entry schema into json: %w", errTest)},
+			wantErr: snapshot.NewErrors(fmt.Errorf("marshaling log entry schema into json: %w", errTest)),
 		},
 	}
 

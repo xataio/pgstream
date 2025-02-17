@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package schema
+package schemalog
 
 import (
 	"context"
@@ -40,7 +40,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return s.processRow(ctx, row)
 	}()
 	if err != nil {
-		return &snapshot.Errors{Snapshot: err}
+		return snapshot.NewErrors(err)
 	}
 
 	return nil
