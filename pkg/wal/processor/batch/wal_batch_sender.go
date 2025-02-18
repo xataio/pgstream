@@ -149,7 +149,7 @@ func (s *Sender[T]) Send(ctx context.Context) error {
 					}
 				}
 			case msg := <-s.msgChan:
-				if msgBatch.maxBatchBytesReached(s.maxBatchBytes, msg.message) {
+				if !msg.message.IsEmpty() && msgBatch.maxBatchBytesReached(s.maxBatchBytes, msg.message) {
 					if err := drainBatch(msgBatch); err != nil {
 						return err
 					}
