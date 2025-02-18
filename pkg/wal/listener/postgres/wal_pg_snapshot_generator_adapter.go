@@ -15,6 +15,7 @@ import (
 	"github.com/xataio/pgstream/pkg/snapshot/generator"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	pgschemasnapshot "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/schemalog"
+	pgtablefinder "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/tablefinder"
 	pgsnapshotstore "github.com/xataio/pgstream/pkg/snapshot/store/postgres"
 	"github.com/xataio/pgstream/pkg/wal"
 	"golang.org/x/sync/errgroup"
@@ -60,6 +61,13 @@ func NewSnapshotGeneratorAdapter(ctx context.Context, cfg *SnapshotConfig, proce
 	}
 
 	s.generator = generator.NewAggregator([]generator.SnapshotGenerator{schemaSnapshotGenerator, dataSnapshotGenerator})
+
+	// snapshot table finder layer
+	s.generator, err = pgtablefinder.NewSnapshotTableFinder(ctx, cfg.Generator.URL, s.generator)
+	if err != nil {
+		return nil, err
+	}
+
 	// snapshot activity recorder layer
 	snapshotStore, err := pgsnapshotstore.New(ctx, cfg.SnapshotStoreURL)
 	if err != nil {

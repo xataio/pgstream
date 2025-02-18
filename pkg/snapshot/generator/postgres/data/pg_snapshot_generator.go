@@ -17,10 +17,9 @@ import (
 )
 
 type SnapshotGenerator struct {
-	logger      loglib.Logger
-	conn        pglib.Querier
-	mapper      mapper
-	tableParser tableParser
+	logger loglib.Logger
+	conn   pglib.Querier
+	mapper mapper
 
 	schemaWorkers uint
 	tableWorkers  uint
@@ -39,8 +38,6 @@ type pageRange struct {
 	end   uint
 }
 
-type tableParser func(ctx context.Context, snapshot *snapshot.Snapshot) error
-
 type Option func(sg *SnapshotGenerator)
 
 func NewSnapshotGenerator(ctx context.Context, cfg *Config, processRow snapshot.RowProcessor, opts ...Option) (*SnapshotGenerator, error) {
@@ -57,7 +54,6 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, processRow snapshot.
 		batchPageSize: cfg.batchPageSize(),
 		tableWorkers:  cfg.tableWorkers(),
 		schemaWorkers: cfg.schemaWorkers(),
-		tableParser:   newSchemaTableParser(conn).parseSnapshotTables,
 	}
 
 	for _, opt := range opts {
@@ -76,9 +72,6 @@ func WithLogger(logger loglib.Logger) Option {
 }
 
 func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) error {
-	if err := sg.tableParser(ctx, ss); err != nil {
-		return err
-	}
 	return sg.conn.ExecInTxWithOptions(ctx, func(tx pglib.Tx) error {
 		snapshotID, err := sg.exportSnapshot(ctx, tx)
 		if err != nil {
