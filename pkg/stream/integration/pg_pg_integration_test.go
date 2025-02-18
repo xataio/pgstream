@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	"github.com/xataio/pgstream/internal/testcontainers"
 	"github.com/xataio/pgstream/pkg/stream"
 )
 
@@ -32,7 +33,7 @@ func Test_PostgresToPostgres(t *testing.T) {
 
 	cfg := &stream.Config{
 		Listener:  testPostgresListenerCfg(),
-		Processor: testPostgresProcessorCfg(),
+		Processor: testPostgresProcessorCfg(pgurl),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -55,19 +56,7 @@ func Test_PostgresToPostgres(t *testing.T) {
 			query: fmt.Sprintf("create table %s(id serial primary key, name text)", testTable),
 
 			validation: func() bool {
-				rows, err := targetConn.Query(ctx, "select column_name, data_type, is_nullable from information_schema.columns where table_name = $1", testTable)
-				require.NoError(t, err)
-				defer rows.Close()
-
-				columns := []*informationSchemaColumn{}
-				for rows.Next() {
-					column := &informationSchemaColumn{}
-					err := rows.Scan(&column.name, &column.dataType, &column.isNullable)
-					require.NoError(t, err)
-					columns = append(columns, column)
-				}
-
-				require.NoError(t, rows.Err())
+				columns := getInformationSchemaColumns(t, ctx, targetConn, testTable)
 				if len(columns) == 0 {
 					return false
 				}
@@ -84,19 +73,7 @@ func Test_PostgresToPostgres(t *testing.T) {
 			query: fmt.Sprintf("alter table %s add column age int default 0", testTable),
 
 			validation: func() bool {
-				rows, err := targetConn.Query(ctx, "select column_name, data_type, is_nullable from information_schema.columns where table_name = $1", testTable)
-				require.NoError(t, err)
-				defer rows.Close()
-
-				columns := []*informationSchemaColumn{}
-				for rows.Next() {
-					column := &informationSchemaColumn{}
-					err := rows.Scan(&column.name, &column.dataType, &column.isNullable)
-					require.NoError(t, err)
-					columns = append(columns, column)
-				}
-
-				require.NoError(t, rows.Err())
+				columns := getInformationSchemaColumns(t, ctx, targetConn, testTable)
 				if len(columns) == 2 {
 					return false
 				}
@@ -115,19 +92,7 @@ func Test_PostgresToPostgres(t *testing.T) {
 			query: fmt.Sprintf("alter table %s alter column age type bigint", testTable),
 
 			validation: func() bool {
-				rows, err := targetConn.Query(ctx, "select column_name, data_type, is_nullable from information_schema.columns where table_name = $1", testTable)
-				require.NoError(t, err)
-				defer rows.Close()
-
-				columns := []*informationSchemaColumn{}
-				for rows.Next() {
-					column := &informationSchemaColumn{}
-					err := rows.Scan(&column.name, &column.dataType, &column.isNullable)
-					require.NoError(t, err)
-					columns = append(columns, column)
-				}
-
-				require.NoError(t, rows.Err())
+				columns := getInformationSchemaColumns(t, ctx, targetConn, testTable)
 				wantCols := []*informationSchemaColumn{
 					{name: "id", dataType: "integer", isNullable: "NO"},
 					{name: "name", dataType: "text", isNullable: "YES"},
@@ -143,19 +108,7 @@ func Test_PostgresToPostgres(t *testing.T) {
 			query: fmt.Sprintf("alter table %s rename column age to new_age", testTable),
 
 			validation: func() bool {
-				rows, err := targetConn.Query(ctx, "select column_name, data_type, is_nullable from information_schema.columns where table_name = $1", testTable)
-				require.NoError(t, err)
-				defer rows.Close()
-
-				columns := []*informationSchemaColumn{}
-				for rows.Next() {
-					column := &informationSchemaColumn{}
-					err := rows.Scan(&column.name, &column.dataType, &column.isNullable)
-					require.NoError(t, err)
-					columns = append(columns, column)
-				}
-
-				require.NoError(t, rows.Err())
+				columns := getInformationSchemaColumns(t, ctx, targetConn, testTable)
 				wantCols := []*informationSchemaColumn{
 					{name: "id", dataType: "integer", isNullable: "NO"},
 					{name: "name", dataType: "text", isNullable: "YES"},
@@ -170,19 +123,7 @@ func Test_PostgresToPostgres(t *testing.T) {
 			query: fmt.Sprintf("alter table %s drop column new_age", testTable),
 
 			validation: func() bool {
-				rows, err := targetConn.Query(ctx, "select column_name, data_type, is_nullable from information_schema.columns where table_name = $1", testTable)
-				require.NoError(t, err)
-				defer rows.Close()
-
-				columns := []*informationSchemaColumn{}
-				for rows.Next() {
-					column := &informationSchemaColumn{}
-					err := rows.Scan(&column.name, &column.dataType, &column.isNullable)
-					require.NoError(t, err)
-					columns = append(columns, column)
-				}
-
-				require.NoError(t, rows.Err())
+				columns := getInformationSchemaColumns(t, ctx, targetConn, testTable)
 				if len(columns) == 3 {
 					return false
 				}
@@ -199,19 +140,7 @@ func Test_PostgresToPostgres(t *testing.T) {
 			query: fmt.Sprintf("insert into %s(name) values('a')", testTable),
 
 			validation: func() bool {
-				rows, err := targetConn.Query(ctx, fmt.Sprintf("select id,name from %s", testTable))
-				require.NoError(t, err)
-				defer rows.Close()
-
-				columns := []*testTableColumn{}
-				for rows.Next() {
-					column := &testTableColumn{}
-					err := rows.Scan(&column.id, &column.name)
-					require.NoError(t, err)
-					columns = append(columns, column)
-				}
-
-				require.NoError(t, rows.Err())
+				columns := getTestTableColumns(t, ctx, targetConn, fmt.Sprintf("select id,name from %s", testTable))
 				if len(columns) == 0 {
 					return false
 				}
@@ -227,19 +156,7 @@ func Test_PostgresToPostgres(t *testing.T) {
 			query: fmt.Sprintf("update %s set name='alice' where name='a'", testTable),
 
 			validation: func() bool {
-				rows, err := targetConn.Query(ctx, fmt.Sprintf("select id,name from %s", testTable))
-				require.NoError(t, err)
-				defer rows.Close()
-
-				columns := []*testTableColumn{}
-				for rows.Next() {
-					column := &testTableColumn{}
-					err := rows.Scan(&column.id, &column.name)
-					require.NoError(t, err)
-					columns = append(columns, column)
-				}
-
-				require.NoError(t, rows.Err())
+				columns := getTestTableColumns(t, ctx, targetConn, fmt.Sprintf("select id,name from %s", testTable))
 				wantCols := []*testTableColumn{
 					{id: 1, name: "alice"},
 				}
@@ -252,25 +169,11 @@ func Test_PostgresToPostgres(t *testing.T) {
 			query: fmt.Sprintf("delete from %s where name='alice'", testTable),
 
 			validation: func() bool {
-				rows, err := targetConn.Query(ctx, fmt.Sprintf("select id,name from %s where name='alice'", testTable))
-				require.NoError(t, err)
-				defer rows.Close()
-
-				columns := []*testTableColumn{}
-				for rows.Next() {
-					column := &testTableColumn{}
-					err := rows.Scan(&column.id, &column.name)
-					require.NoError(t, err)
-					columns = append(columns, column)
-				}
-
+				columns := getTestTableColumns(t, ctx, targetConn, fmt.Sprintf("select id,name from %s where name='alice'", testTable))
 				if len(columns) == 1 {
 					return false
 				}
-
-				require.NoError(t, rows.Err())
 				require.Empty(t, columns)
-
 				return true
 			},
 		},
@@ -279,25 +182,11 @@ func Test_PostgresToPostgres(t *testing.T) {
 			query: fmt.Sprintf("drop table %s", testTable),
 
 			validation: func() bool {
-				rows, err := targetConn.Query(ctx, "select column_name, data_type, is_nullable from information_schema.columns where table_name = $1", testTable)
-				require.NoError(t, err)
-				defer rows.Close()
-
-				columns := []*informationSchemaColumn{}
-				for rows.Next() {
-					column := &informationSchemaColumn{}
-					err := rows.Scan(&column.name, &column.dataType, &column.isNullable)
-					require.NoError(t, err)
-					columns = append(columns, column)
-				}
-
+				columns := getInformationSchemaColumns(t, ctx, targetConn, testTable)
 				if len(columns) == 2 {
 					return false
 				}
-
-				require.NoError(t, rows.Err())
 				require.Empty(t, columns)
-
 				return true
 			},
 		},
@@ -327,4 +216,114 @@ func Test_PostgresToPostgres(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_PostgresToPostgres_Snapshot(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	// postgres container where pgstream hasn't been initialised to be used for
+	// initial snapshot validation
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	testTable := "pg2pg_snapshot_integration_test"
+	// create table and populate it before initialising and running pgstream to
+	// ensure the snapshot captures pre-existing schema and data properly
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf("create table %s(id serial primary key, name text)", testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf("insert into %s(name) values('a'),('b')", testTable))
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
+		Processor: testPostgresProcessorCfg(snapshotPGURL),
+	}
+	initStream(t, ctx, snapshotPGURL)
+	runStream(t, ctx, cfg)
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+
+	timer := time.NewTimer(20 * time.Second)
+	defer timer.Stop()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	validation := func() bool {
+		schemaColumns := getInformationSchemaColumns(t, ctx, targetConn, testTable)
+		if len(schemaColumns) != 2 {
+			return false
+		}
+
+		wantSchemaCols := []*informationSchemaColumn{
+			{name: "id", dataType: "integer", isNullable: "NO"},
+			{name: "name", dataType: "text", isNullable: "YES"},
+		}
+		require.ElementsMatch(t, wantSchemaCols, schemaColumns)
+
+		columns := getTestTableColumns(t, ctx, targetConn, fmt.Sprintf("select id,name from %s", testTable))
+		if len(columns) != 2 {
+			return false
+		}
+
+		wantCols := []*testTableColumn{
+			{id: 1, name: "a"},
+			{id: 2, name: "b"},
+		}
+		require.ElementsMatch(t, wantCols, columns)
+
+		return true
+	}
+
+	for {
+		select {
+		case <-timer.C:
+			cancel()
+			t.Error("timeout waiting for postgres snapshot sync")
+			return
+		case <-ticker.C:
+			if validation() {
+				return
+			}
+		}
+	}
+}
+
+func getInformationSchemaColumns(t *testing.T, ctx context.Context, conn pglib.Querier, tableName string) []*informationSchemaColumn {
+	rows, err := conn.Query(ctx, "select column_name, data_type, is_nullable from information_schema.columns where table_name = $1", tableName)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	columns := []*informationSchemaColumn{}
+	for rows.Next() {
+		column := &informationSchemaColumn{}
+		err := rows.Scan(&column.name, &column.dataType, &column.isNullable)
+		require.NoError(t, err)
+		columns = append(columns, column)
+	}
+	require.NoError(t, rows.Err())
+
+	return columns
+}
+
+func getTestTableColumns(t *testing.T, ctx context.Context, conn pglib.Querier, query string) []*testTableColumn {
+	rows, err := conn.Query(ctx, query)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	columns := []*testTableColumn{}
+	for rows.Next() {
+		column := &testTableColumn{}
+		err := rows.Scan(&column.id, &column.name)
+		require.NoError(t, err)
+		columns = append(columns, column)
+	}
+	require.NoError(t, rows.Err())
+
+	return columns
 }
