@@ -2,32 +2,19 @@
 
 package snapshot
 
-import "errors"
+import (
+	"errors"
+	"strings"
+)
 
 type Errors struct {
-	Snapshot error        `json:"snapshot,omitempty"`
-	Tables   []TableError `json:"tables,omitempty"`
+	SnapshotErrMsgs []string     `json:"snapshot,omitempty"`
+	Tables          []TableError `json:"tables,omitempty"`
 }
 
 type TableError struct {
 	Table    string `json:"table"`
 	ErrorMsg string `json:"error"`
-}
-
-func (e *Errors) Error() string {
-	var err error
-	if e.Snapshot != nil {
-		err = e.Snapshot
-	}
-
-	for _, table := range e.Tables {
-		if err == nil {
-			err = table
-			continue
-		}
-		err = errors.Join(err, table)
-	}
-	return err.Error()
 }
 
 func NewErrors(err error) *Errors {
@@ -39,22 +26,36 @@ func NewErrors(err error) *Errors {
 		return snapshotErrs
 	}
 	return &Errors{
-		Snapshot: err,
+		SnapshotErrMsgs: []string{err.Error()},
 	}
+}
+
+func (e *Errors) Error() string {
+	if e == nil {
+		return ""
+	}
+	errMsgs := make([]string, 0, len(e.SnapshotErrMsgs))
+	errMsgs = append(errMsgs, e.SnapshotErrMsgs...)
+
+	for _, table := range e.Tables {
+		errMsgs = append(errMsgs, table.Error())
+	}
+	return strings.Join(errMsgs, ";")
 }
 
 func (e *Errors) AddSnapshotError(err error) {
 	if e == nil {
-		e = &Errors{}
-		e.AddSnapshotError(err)
 		return
 	}
+	if e.SnapshotErrMsgs == nil {
+		e.SnapshotErrMsgs = []string{err.Error()}
+		return
+	}
+	e.SnapshotErrMsgs = append(e.SnapshotErrMsgs, err.Error())
+}
 
-	if e.Snapshot == nil {
-		e.Snapshot = err
-		return
-	}
-	e.Snapshot = errors.Join(e.Snapshot, err)
+func (e *Errors) IsSnapshotError() bool {
+	return e != nil && len(e.SnapshotErrMsgs) > 0
 }
 
 func (e *Errors) IsTableError(table string) bool {
@@ -62,7 +63,7 @@ func (e *Errors) IsTableError(table string) bool {
 		return false
 	}
 
-	if e.Snapshot != nil {
+	if e.SnapshotErrMsgs != nil {
 		return true
 	}
 
@@ -99,5 +100,5 @@ func NewTableError(table string, err error) TableError {
 }
 
 func (e TableError) Error() string {
-	return "snapshot error for table " + e.Table + ": " + e.ErrorMsg
+	return e.Table + ": " + e.ErrorMsg
 }

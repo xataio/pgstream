@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// // SPDX-License-Identifier: Apache-2.0
 
 package postgres
 
@@ -88,7 +88,7 @@ func TestStore_UpdateSnapshotRequest(t *testing.T) {
 	}
 
 	errTest := errors.New("oh noes")
-	testSnapshotErr := &snapshot.Errors{Snapshot: errTest}
+	testSnapshotErr := snapshot.NewErrors(errTest)
 
 	tests := []struct {
 		name    string
@@ -171,7 +171,7 @@ func TestStore_GetSnapshotRequestsBySchema(t *testing.T) {
 	testSnapshotRequest := snapshot.Request{
 		Snapshot: testSnapshot,
 		Status:   snapshot.StatusInProgress,
-		Errors:   &snapshot.Errors{Snapshot: errTest},
+		Errors:   snapshot.NewErrors(errTest),
 	}
 
 	tests := []struct {
@@ -298,7 +298,7 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 	testSnapshotRequest := snapshot.Request{
 		Snapshot: testSnapshot,
 		Status:   snapshot.StatusInProgress,
-		Errors:   &snapshot.Errors{Snapshot: errTest},
+		Errors:   snapshot.NewErrors(errTest),
 	}
 
 	tests := []struct {
