@@ -70,7 +70,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, processRow snapshot.
 func WithLogger(logger loglib.Logger) Option {
 	return func(sg *SnapshotGenerator) {
 		sg.logger = loglib.NewLogger(logger).WithFields(loglib.Fields{
-			loglib.ModuleField: "postgres_snapshot_generator",
+			loglib.ModuleField: "postgres_data_snapshot_generator",
 		})
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/internal/postgres/mocks"
+	"github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/snapshot"
 )
 
@@ -135,6 +136,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				targetConn:  tc.conn,
 				pgDumpFn:    tc.pgdumpFn,
 				pgRestoreFn: tc.pgrestoreFn,
+				logger:      log.NewNoopLogger(),
 			}
 
 			err := sg.CreateSnapshot(context.Background(), tc.snapshot)

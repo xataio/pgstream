@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/snapshot"
 )
 
@@ -18,6 +19,7 @@ type SnapshotGenerator struct {
 	pgDumpFn    pgdumpFn
 	pgRestoreFn pgrestoreFn
 	targetConn  pglib.Querier
+	logger      loglib.Logger
 }
 
 type Config struct {
@@ -30,25 +32,43 @@ type (
 	pgrestoreFn func(pglib.PGRestoreOptions, []byte) (string, error)
 )
 
+type Option func(s *SnapshotGenerator)
+
 const publicSchema = "public"
 
 // NewSnapshotGenerator will return a postgres schema snapshot generator that
 // uses pg_dump and pg_restore to sync the schema of two postgres databases
-func NewSnapshotGenerator(ctx context.Context, c *Config) (*SnapshotGenerator, error) {
+func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*SnapshotGenerator, error) {
 	targetConn, err := pglib.NewConnPool(ctx, c.TargetPGURL)
 	if err != nil {
 		return nil, err
 	}
-	return &SnapshotGenerator{
+	sg := &SnapshotGenerator{
 		sourceURL:   c.SourcePGURL,
 		targetURL:   c.TargetPGURL,
 		pgDumpFn:    pglib.RunPGDump,
 		pgRestoreFn: pglib.RunPGRestore,
 		targetConn:  targetConn,
-	}, nil
+		logger:      loglib.NewNoopLogger(),
+	}
+
+	for _, opt := range opts {
+		opt(sg)
+	}
+
+	return sg, nil
+}
+
+func WithLogger(logger loglib.Logger) Option {
+	return func(sg *SnapshotGenerator) {
+		sg.logger = loglib.NewLogger(logger).WithFields(loglib.Fields{
+			loglib.ModuleField: "postgres_schema_snapshot_generator",
+		})
+	}
 }
 
 func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) error {
+	s.logger.Info("creating schema snapshot", loglib.Fields{"schema": ss.SchemaName, "tables": ss.TableNames})
 	dump, err := s.pgDumpFn(s.pgdumpOptions(ss))
 	if err != nil {
 		return err
