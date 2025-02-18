@@ -44,7 +44,7 @@ func TestMain(m *testing.M) {
 		}
 		defer escleanup()
 
-		targetPGCleanup, err := testcontainers.SetupPostgresContainer(ctx, &targetPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+		targetPGCleanup, err := testcontainers.SetupPostgresContainer(ctx, &targetPGURL, testcontainers.Postgres17)
 		if err != nil {
 			log.Fatal(err)
 		}
