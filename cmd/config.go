@@ -10,6 +10,7 @@ import (
 	"github.com/xataio/pgstream/pkg/kafka"
 	pgschemalog "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
+	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/stream"
 	"github.com/xataio/pgstream/pkg/tls"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
@@ -86,9 +87,6 @@ func parsePostgresListenerConfig() *stream.PostgresListenerConfig {
 	snapshotTables := viper.GetStringSlice("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLES")
 	if len(snapshotTables) > 0 {
 		cfg.Snapshot = &pglistener.SnapshotConfig{
-			SchemaLogStore: pgschemalog.Config{
-				URL: pgURL,
-			},
 			SnapshotStoreURL: pgURL,
 			Generator: pgsnapshotgenerator.Config{
 				URL:           pgURL,
@@ -98,10 +96,28 @@ func parsePostgresListenerConfig() *stream.PostgresListenerConfig {
 			},
 			Tables:          snapshotTables,
 			SnapshotWorkers: viper.GetUint("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_WORKERS"),
+			Schema:          parseSchemaSnapshotConfig(pgURL),
 		}
 	}
 
 	return cfg
+}
+
+func parseSchemaSnapshotConfig(pgurl string) pglistener.SchemaSnapshotConfig {
+	pgTargetURL := viper.GetString("PGSTREAM_POSTGRES_WRITER_TARGET_URL")
+	if pgTargetURL != "" {
+		return pglistener.SchemaSnapshotConfig{
+			DumpRestore: &pgdumprestore.Config{
+				SourcePGURL: pgurl,
+				TargetPGURL: pgTargetURL,
+			},
+		}
+	}
+	return pglistener.SchemaSnapshotConfig{
+		SchemaLogStore: &pgschemalog.Config{
+			URL: pgurl,
+		},
+	}
 }
 
 func parseKafkaListenerConfig() *stream.KafkaListenerConfig {

@@ -7,17 +7,23 @@ import (
 
 	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
+	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 )
 
 type SnapshotConfig struct {
 	Generator        pgsnapshotgenerator.Config
 	SnapshotStoreURL string
 	Tables           []string
-	SchemaLogStore   schemalogpg.Config
+	Schema           SchemaSnapshotConfig
 	// SnapshotWorkers represents the number of snapshots the generator will
 	// process concurrently. This doesn't affect the parallelism of the tables
 	// within each individual snapshot request. It defaults to 1.
 	SnapshotWorkers uint
+}
+
+type SchemaSnapshotConfig struct {
+	SchemaLogStore *schemalogpg.Config
+	DumpRestore    *pgdumprestore.Config
 }
 
 const defaultSnapshotWorkers = 1

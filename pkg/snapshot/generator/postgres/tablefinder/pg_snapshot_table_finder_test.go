@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package postgres
+package tablefinder
 
 import (
 	"context"
@@ -11,32 +11,43 @@ import (
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 	"github.com/xataio/pgstream/pkg/snapshot"
+	"github.com/xataio/pgstream/pkg/snapshot/generator"
+	"github.com/xataio/pgstream/pkg/snapshot/generator/mocks"
 )
 
-func TestSchemaTableParser_parseSnapshotTables(t *testing.T) {
+func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 	t.Parallel()
 
 	testSchema := "test-schema"
 	errTest := errors.New("oh noes")
 
-	tests := []struct {
-		name     string
-		conn     *pgmocks.Querier
-		snapshot *snapshot.Snapshot
+	newTestSnapshot := func(tables []string) *snapshot.Snapshot {
+		return &snapshot.Snapshot{
+			SchemaName: testSchema,
+			TableNames: tables,
+		}
+	}
 
-		wantTables []string
-		wantErr    error
+	tests := []struct {
+		name      string
+		conn      *pgmocks.Querier
+		snapshot  *snapshot.Snapshot
+		generator generator.SnapshotGenerator
+
+		wantErr error
 	}{
 		{
-			name: "ok - no wildcard",
-			conn: &pgmocks.Querier{},
-			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{"table-a", "table-b", "table-c"},
+			name:     "ok - no wildcard",
+			conn:     &pgmocks.Querier{},
+			snapshot: newTestSnapshot([]string{"table-a", "table-b", "table-c"}),
+			generator: &mocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, snapshot *snapshot.Snapshot) error {
+					require.Equal(t, newTestSnapshot([]string{"table-a", "table-b", "table-c"}), snapshot)
+					return nil
+				},
 			},
 
-			wantTables: []string{"table-a", "table-b", "table-c"},
-			wantErr:    nil,
+			wantErr: nil,
 		},
 		{
 			name: "ok - only wildcard",
@@ -60,11 +71,16 @@ func TestSchemaTableParser_parseSnapshotTables(t *testing.T) {
 			},
 			snapshot: &snapshot.Snapshot{
 				SchemaName: testSchema,
-				TableNames: []string{"*"},
+				TableNames: []string{wildcard},
+			},
+			generator: &mocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, snapshot *snapshot.Snapshot) error {
+					require.Equal(t, newTestSnapshot([]string{"table-1"}), snapshot)
+					return nil
+				},
 			},
 
-			wantTables: []string{"table-1"},
-			wantErr:    nil,
+			wantErr: nil,
 		},
 		{
 			name: "ok - with wildcard",
@@ -88,11 +104,16 @@ func TestSchemaTableParser_parseSnapshotTables(t *testing.T) {
 			},
 			snapshot: &snapshot.Snapshot{
 				SchemaName: testSchema,
-				TableNames: []string{"table-a", "table-b", "*"},
+				TableNames: []string{"table-a", "table-b", wildcard},
+			},
+			generator: &mocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, snapshot *snapshot.Snapshot) error {
+					require.Equal(t, newTestSnapshot([]string{"table-1"}), snapshot)
+					return nil
+				},
 			},
 
-			wantTables: []string{"table-1"},
-			wantErr:    nil,
+			wantErr: nil,
 		},
 		{
 			name: "error - querying schema tables",
@@ -105,11 +126,15 @@ func TestSchemaTableParser_parseSnapshotTables(t *testing.T) {
 			},
 			snapshot: &snapshot.Snapshot{
 				SchemaName: testSchema,
-				TableNames: []string{"table-a", "table-b", "*"},
+				TableNames: []string{"table-a", "table-b", wildcard},
+			},
+			generator: &mocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, snapshot *snapshot.Snapshot) error {
+					return errors.New("CreateSnapshotFn: should not be called")
+				},
 			},
 
-			wantTables: nil,
-			wantErr:    errTest,
+			wantErr: errTest,
 		},
 		{
 			name: "error - scanning row",
@@ -129,11 +154,15 @@ func TestSchemaTableParser_parseSnapshotTables(t *testing.T) {
 			},
 			snapshot: &snapshot.Snapshot{
 				SchemaName: testSchema,
-				TableNames: []string{"table-a", "table-b", "*"},
+				TableNames: []string{"table-a", "table-b", wildcard},
+			},
+			generator: &mocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, snapshot *snapshot.Snapshot) error {
+					return errors.New("CreateSnapshotFn: should not be called")
+				},
 			},
 
-			wantTables: nil,
-			wantErr:    errTest,
+			wantErr: errTest,
 		},
 		{
 			name: "error - rows error",
@@ -150,11 +179,15 @@ func TestSchemaTableParser_parseSnapshotTables(t *testing.T) {
 			},
 			snapshot: &snapshot.Snapshot{
 				SchemaName: testSchema,
-				TableNames: []string{"table-a", "table-b", "*"},
+				TableNames: []string{"table-a", "table-b", wildcard},
+			},
+			generator: &mocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, snapshot *snapshot.Snapshot) error {
+					return errors.New("CreateSnapshotFn: should not be called")
+				},
 			},
 
-			wantTables: nil,
-			wantErr:    errTest,
+			wantErr: errTest,
 		},
 	}
 
@@ -163,10 +196,12 @@ func TestSchemaTableParser_parseSnapshotTables(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			p := newSchemaTableParser(tc.conn)
-			err := p.parseSnapshotTables(context.Background(), tc.snapshot)
+			tableFinder := SnapshotTableFinder{
+				conn:    tc.conn,
+				wrapped: tc.generator,
+			}
+			err := tableFinder.CreateSnapshot(context.Background(), tc.snapshot)
 			require.ErrorIs(t, err, tc.wantErr)
-			require.Equal(t, tc.wantTables, tc.snapshot.TableNames)
 		})
 	}
 }

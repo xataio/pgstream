@@ -12,6 +12,8 @@ type Batch[T Message] struct {
 	totalBytes int
 }
 
+const zeroLSN = "0/0"
+
 func NewBatch[T Message](messages []T, positions []wal.CommitPosition) *Batch[T] {
 	return &Batch[T]{
 		messages:  messages,
@@ -33,7 +35,7 @@ func (b *Batch[T]) add(m *WALMessage[T]) {
 		b.totalBytes += m.message.Size()
 	}
 
-	if m.position != "" {
+	if m.position != "" && m.position != zeroLSN {
 		b.positions = append(b.positions, m.position)
 	}
 }
