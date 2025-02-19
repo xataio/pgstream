@@ -39,6 +39,24 @@ const (
 
 var errSchemaSnapshotNotConfigured = errors.New("no schema snapshot has been configured")
 
+// NewSnapshotGeneratorAdapter builds a snapshot generator based on the
+// configuration on input, adapting the process wal event to fit with the
+// snapshot package implementation. It will add an activity recorder layer if
+// configured which will keep track of snapshot requests and their status.
+//
+// ┌───────────────────────────────────────────────────┐
+// │               Snapshot Generator Adapter          │
+// │ ┌─────────┐ ┌────────┐ ┌────────────────────────┐ │
+// │ │         │ │        │ │       Aggregator       │ │
+// │ │         │ │        │ │  ┌──────────────────┐  │ │
+// │ │         │ │        │ │  │ Schema Snapshot  │  │ │
+// │ │Snapshot │ │ Table  │ │  └─────────┬────────┘  │ │
+// │ │Activity │─▶ Finder ├▶│            │           │ │
+// │ │Recorder │ │        │ │  ┌─────────▼────────┐  │ │
+// │ │         │ │        │ │  │  Data Snapshot   │  │ │
+// │ │         │ │        │ │  └──────────────────┘  │ │
+// │ └─────────┘ └────────┘ └────────────────────────┘ │
+// └───────────────────────────────────────────────────┘
 func NewSnapshotGeneratorAdapter(ctx context.Context, cfg *SnapshotConfig, processEvent listenerProcessWalEvent, logger loglib.Logger) (*SnapshotGeneratorAdapter, error) {
 	s := &SnapshotGeneratorAdapter{
 		processEvent:    processEvent,
