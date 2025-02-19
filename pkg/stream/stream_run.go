@@ -17,6 +17,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/listener"
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
 	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
+	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	processinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/instrumentation"
@@ -258,7 +259,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 		}
 		if config.Listener.Postgres.Snapshot != nil {
 			logger.Info("initial snapshot enabled")
-			snapshotGenerator, err := pglistener.NewSnapshotGeneratorAdapter(
+			snapshotGenerator, err := snapshotbuilder.NewSnapshotGenerator(
 				ctx,
 				config.Listener.Postgres.Snapshot,
 				processor.ProcessWALEvent,

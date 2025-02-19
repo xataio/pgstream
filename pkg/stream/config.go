@@ -8,7 +8,7 @@ import (
 
 	"github.com/xataio/pgstream/pkg/kafka"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
-	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
+	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/postgres"
@@ -32,7 +32,7 @@ type ListenerConfig struct {
 
 type PostgresListenerConfig struct {
 	Replication pgreplication.Config
-	Snapshot    *pglistener.SnapshotConfig
+	Snapshot    *snapshotbuilder.SnapshotListenerConfig
 }
 
 type KafkaListenerConfig struct {
