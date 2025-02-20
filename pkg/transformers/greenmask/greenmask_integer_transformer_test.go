@@ -131,8 +131,17 @@ func TestIntegerTransformer_Transform_Random(t *testing.T) {
 		checkFunc func(got any) bool
 	}{
 		{
-			name:    "ok - transform int64",
-			input:   int64(500),
+			name:    "ok - transform int8",
+			input:   int8(120),
+			wantErr: false,
+			checkFunc: func(got any) bool {
+				v, ok := got.(int64)
+				return ok && v >= -100 && v <= 100
+			},
+		},
+		{
+			name:    "ok - transform uint8",
+			input:   uint8(120),
 			wantErr: false,
 			checkFunc: func(got any) bool {
 				v, ok := got.(int64)
@@ -266,8 +275,8 @@ func TestIntegerTransformer_Transform_Deterministic(t *testing.T) {
 		checkFunc func(got1, got2 any) bool
 	}{
 		{
-			name:    "ok - transform int64 deterministically",
-			input:   int64(45000),
+			name:    "ok - transform int32 deterministically",
+			input:   int32(45000),
 			wantErr: false,
 			checkFunc: func(got1, got2 any) bool {
 				v1, ok1 := got1.(int64)
@@ -276,13 +285,13 @@ func TestIntegerTransformer_Transform_Deterministic(t *testing.T) {
 			},
 		},
 		{
-			name:    "ok - transform int16 deterministically",
-			input:   int16(-550),
+			name:    "ok - transform uint16 deterministically",
+			input:   uint16(0),
 			wantErr: false,
 			checkFunc: func(got1, got2 any) bool {
 				v1, ok1 := got1.(int64)
 				v2, ok2 := got2.(int64)
-				return ok1 && ok2 && v1 == v2 && v1 == 15125
+				return ok1 && ok2 && v1 == v2 && v1 == 23208
 			},
 		},
 		{
@@ -342,13 +351,23 @@ func TestIntegerTransformer_Transform_Deterministic_DefaultParams(t *testing.T) 
 		checkFunc func(got1, got2 any) bool
 	}{
 		{
-			name:    "ok - transform int64 deterministically",
-			input:   int64(500),
+			name:    "ok - transform int deterministically",
+			input:   int(500),
 			wantErr: false,
 			checkFunc: func(got1, got2 any) bool {
 				v1, ok1 := got1.(int64)
 				v2, ok2 := got2.(int64)
-				return ok1 && ok2 && v1 == v2 && v1 >= minValueForSize(DefaultSize) && v1 <= maxValueForSize(DefaultSize)
+				return ok1 && ok2 && v1 == v2 && v1 == 2035278536
+			},
+		},
+		{
+			name:    "ok - transform int deterministically",
+			input:   uint32(500000000),
+			wantErr: false,
+			checkFunc: func(got1, got2 any) bool {
+				v1, ok1 := got1.(int64)
+				v2, ok2 := got2.(int64)
+				return ok1 && ok2 && v1 == v2 && v1 == -722347270
 			},
 		},
 		{
@@ -358,7 +377,7 @@ func TestIntegerTransformer_Transform_Deterministic_DefaultParams(t *testing.T) 
 			checkFunc: func(got1, got2 any) bool {
 				v1, ok1 := got1.(int64)
 				v2, ok2 := got2.(int64)
-				return ok1 && ok2 && v1 == v2 && v1 >= minValueForSize(DefaultSize) && v1 <= maxValueForSize(DefaultSize)
+				return ok1 && ok2 && v1 == v2 && v1 == 612657282
 			},
 		},
 		{
