@@ -267,22 +267,22 @@ func TestIntegerTransformer_Transform_Deterministic(t *testing.T) {
 	}{
 		{
 			name:    "ok - transform int64 deterministically",
-			input:   int64(500),
+			input:   int64(45000),
 			wantErr: false,
 			checkFunc: func(got1, got2 any) bool {
 				v1, ok1 := got1.(int64)
 				v2, ok2 := got2.(int64)
-				return ok1 && ok2 && v1 == v2 && v1 >= -100 && v1 <= maxValueForSize(2)
+				return ok1 && ok2 && v1 == v2 && v1 == 15232
 			},
 		},
 		{
 			name:    "ok - transform int16 deterministically",
-			input:   int16(500),
+			input:   int16(-550),
 			wantErr: false,
 			checkFunc: func(got1, got2 any) bool {
 				v1, ok1 := got1.(int64)
 				v2, ok2 := got2.(int64)
-				return ok1 && ok2 && v1 == v2 && v1 >= -100 && v1 <= maxValueForSize(2)
+				return ok1 && ok2 && v1 == v2 && v1 == 15125
 			},
 		},
 		{
@@ -292,7 +292,7 @@ func TestIntegerTransformer_Transform_Deterministic(t *testing.T) {
 			checkFunc: func(got1, got2 any) bool {
 				v1, ok1 := got1.(int64)
 				v2, ok2 := got2.(int64)
-				return ok1 && ok2 && v1 == v2 && v1 >= -100 && v1 <= maxValueForSize(2)
+				return ok1 && ok2 && v1 == v2 && v1 == 29676
 			},
 		},
 		{

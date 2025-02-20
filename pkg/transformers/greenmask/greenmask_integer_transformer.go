@@ -3,9 +3,9 @@
 package greenmask
 
 import (
-	"encoding/binary"
 	"fmt"
 
+	"github.com/eminano/greenmask/pkg/generators"
 	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
 	"github.com/xataio/pgstream/pkg/transformers"
 )
@@ -67,15 +67,21 @@ func (t *IntegerTransformer) Transform(value any) (any, error) {
 	var toTransform []byte
 	switch val := value.(type) {
 	case int:
+		toTransform = generators.BuildBytesFromUint64(uint64(val))
 	case int8:
+		toTransform = generators.BuildBytesFromUint64(uint64(val))
 	case int16:
+		toTransform = generators.BuildBytesFromUint64(uint64(val))
 	case int32:
+		toTransform = generators.BuildBytesFromUint64(uint64(val))
 	case int64:
+		toTransform = generators.BuildBytesFromUint64(uint64(val))
 	case uint8:
+		toTransform = generators.BuildBytesFromUint64(uint64(val))
 	case uint16:
+		toTransform = generators.BuildBytesFromUint64(uint64(val))
 	case uint32:
-		toTransform = make([]byte, 8)
-		binary.BigEndian.PutUint64(toTransform, uint64(val))
+		toTransform = generators.BuildBytesFromUint64(uint64(val))
 	case []byte:
 		toTransform = val
 	default:
