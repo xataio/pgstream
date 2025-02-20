@@ -16,6 +16,9 @@ type IntegerTransformer struct {
 	transformer *greenmasktransformers.RandomInt64Transformer
 }
 
+// NewIntegerTransformer creates a new IntegerTransformer with the specified generator and parameters.
+// The size parameter must be between 1 and 8 (inclusive), and the min_value and max_value parameters
+// must be valid integers within the range of the specified size.
 func NewIntegerTransformer(generator transformers.GeneratorType, params transformers.Parameters) (*IntegerTransformer, error) {
 	size, err := findParameter(params, "size", int(DefaultSize))
 	if err != nil {
@@ -55,6 +58,11 @@ func NewIntegerTransformer(generator transformers.GeneratorType, params transfor
 	}, nil
 }
 
+// Transform converts the input value to a byte slice, passes it through the underlying
+// RandomInt64Transformer, and returns the transformed value as an int64.
+// Supported input types are int, int8, int16, int32, int64, uint8, uint16, and uint32.
+// If the input value is a byte slice, it is passed through the transformer without modification.
+// If the input value is of an unsupported type, an error is returned.
 func (t *IntegerTransformer) Transform(value any) (any, error) {
 	var toTransform []byte
 	switch val := value.(type) {
