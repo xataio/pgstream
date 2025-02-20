@@ -44,10 +44,7 @@ func NewIntegerTransformer(generator transformers.GeneratorType, params transfor
 		return nil, err
 	}
 
-	t, err := greenmasktransformers.NewRandomInt64Transformer(limiter, size)
-	if err != nil {
-		return nil, err
-	}
+	t, _ := greenmasktransformers.NewRandomInt64Transformer(limiter, size)
 
 	if err := setGenerator(t, generator); err != nil {
 		return nil, err
