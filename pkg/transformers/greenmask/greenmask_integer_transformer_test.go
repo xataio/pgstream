@@ -52,6 +52,25 @@ func TestNewIntegerTransformer(t *testing.T) {
 			errContains: "size must be less than or equal to 8",
 		},
 		{
+			name:      "error - wrong limits",
+			generator: transformers.Random,
+			params: transformers.Parameters{
+				"min_value": int64(100),
+				"max_value": int64(99),
+			},
+			wantErr:     true,
+			errContains: "wrong limits",
+		},
+		{
+			name:      "error - invalid size type",
+			generator: transformers.Random,
+			params: transformers.Parameters{
+				"size": "invalid",
+			},
+			wantErr:     true,
+			errContains: "size must be an integer",
+		},
+		{
 			name:      "error - invalid min_value type",
 			generator: transformers.Random,
 			params: transformers.Parameters{
@@ -59,6 +78,15 @@ func TestNewIntegerTransformer(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "min_value must be an integer",
+		},
+		{
+			name:      "error - invalid max_value type",
+			generator: transformers.Random,
+			params: transformers.Parameters{
+				"max_value": "invalid",
+			},
+			wantErr:     true,
+			errContains: "max_value must be an integer",
 		},
 	}
 
