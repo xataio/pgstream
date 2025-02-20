@@ -31,15 +31,15 @@ func NewIntegerTransformer(generator transformers.GeneratorType, params transfor
 	DefaultMinValue := minValueForSize(size)
 	DefaultMaxValue := maxValueForSize(size)
 
-	min_value, err := findParameter(params, "min_value", DefaultMinValue)
+	minValue, err := findParameter(params, "min_value", DefaultMinValue)
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_integer: min_value must be an integer: %w", err)
 	}
-	max_value, err := findParameter(params, "max_value", DefaultMaxValue)
+	maxValue, err := findParameter(params, "max_value", DefaultMaxValue)
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_integer: max_value must be an integer: %w", err)
 	}
-	limiter, err := greenmasktransformers.NewInt64Limiter(min_value, max_value)
+	limiter, err := greenmasktransformers.NewInt64Limiter(minValue, maxValue)
 	if err != nil {
 		return nil, err
 	}
