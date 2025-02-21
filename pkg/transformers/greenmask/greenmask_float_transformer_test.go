@@ -178,13 +178,15 @@ func TestFloatTransformer_Transform(t *testing.T) {
 				return
 			}
 
+			minValue, err := findParameter(tc.params, "min_value", defaultMinFloat)
+			require.NoError(t, err)
+			maxValue, err := findParameter(tc.params, "max_value", defaultMaxFloat)
+			require.NoError(t, err)
+
 			switch v := got.(type) {
 			case float64:
-				require.GreaterOrEqual(t, v, tc.params["min_value"].(float64))
-				require.LessOrEqual(t, v, tc.params["max_value"].(float64))
-			case float32:
-				require.GreaterOrEqual(t, float64(v), tc.params["min_value"].(float64))
-				require.LessOrEqual(t, float64(v), tc.params["max_value"].(float64))
+				require.GreaterOrEqual(t, v, minValue)
+				require.LessOrEqual(t, v, maxValue)
 			default:
 				t.Errorf("unexpected type: %T", v)
 			}
