@@ -22,6 +22,8 @@ func New(cfg *transformers.Config) (transformers.Transformer, error) {
 		return greenmask.NewFirstNameTransformer(cfg.Generator, cfg.Parameters)
 	case transformers.GreenmaskInteger:
 		return greenmask.NewIntegerTransformer(cfg.Generator, cfg.Parameters)
+	case transformers.GreenmaskFloat:
+		return greenmask.NewFloatTransformer(cfg.Generator, cfg.Parameters)
 	default:
 		return nil, transformers.ErrUnsupportedTransformer
 	}
