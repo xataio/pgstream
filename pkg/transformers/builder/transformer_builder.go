@@ -20,6 +20,8 @@ func New(cfg *transformers.Config) (transformers.Transformer, error) {
 		return neosync.NewFirstNameTransformer(cfg.Parameters)
 	case transformers.GreenmaskFirstName:
 		return greenmask.NewFirstNameTransformer(cfg.Generator, cfg.Parameters)
+	case transformers.GreenmaskFloat:
+		return greenmask.NewFloatTransformer(cfg.Generator, cfg.Parameters)
 	default:
 		return nil, transformers.ErrUnsupportedTransformer
 	}
