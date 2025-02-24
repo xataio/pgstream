@@ -309,4 +309,53 @@ func TestSender_Send(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("graceful shutdown, drain in-flight batch", func(t *testing.T) {
+		t.Parallel()
+
+		doneChan := make(chan struct{}, 1)
+		defer close(doneChan)
+
+		sendFn := func(doneChan chan<- struct{}) sendBatchFn[*mockMessage] {
+			once := sync.Once{}
+			return func(ctx context.Context, b *Batch[*mockMessage]) error {
+				defer once.Do(func() { doneChan <- struct{}{} })
+
+				require.Len(t, b.messages, 1)
+				require.Len(t, b.positions, 1)
+				require.Equal(t, mockMsg(1), b.messages[0])
+				require.Equal(t, testCommitPos, b.positions[0])
+				return nil
+			}
+		}
+
+		sender, err := NewSender(&Config{
+			BatchTimeout: 1 * time.Minute,
+			MaxBatchSize: 10,
+		}, sendFn(doneChan), log.NewNoopLogger())
+		require.NoError(t, err)
+		defer sender.Close()
+
+		sender.queueBytesSema = &syncmocks.WeightedSemaphore{
+			ReleaseFn: func(i uint64, bytes int64) {
+				if i == 0 {
+					require.Equal(t, int64(1), bytes)
+				}
+			},
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := sender.Send(ctx)
+			require.ErrorIs(t, err, context.Canceled)
+		}()
+
+		sender.msgChan <- testWALMsg(1)
+		cancel()
+		wg.Wait()
+	})
 }

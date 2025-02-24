@@ -29,6 +29,8 @@ type Sender[T Message] struct {
 	maxBatchSize      int64
 	batchSendInterval time.Duration
 
+	wg *sync.WaitGroup
+
 	sendBatchFn sendBatchFn[T]
 }
 
@@ -46,6 +48,7 @@ func NewSender[T Message](config *Config, sendfn sendBatchFn[T], logger loglib.L
 		once:              &sync.Once{},
 		logger:            logger,
 		sendBatchFn:       sendfn,
+		wg:                &sync.WaitGroup{},
 	}
 
 	maxQueueBytes, err := config.GetMaxQueueBytes()
@@ -105,12 +108,16 @@ func (s *Sender[T]) Send(ctx context.Context) error {
 	batchChan := make(chan *Batch[T])
 	defer close(batchChan)
 	sendErrChan := make(chan error, 1)
+	s.wg.Add(1)
 	go func() {
-		defer close(sendErrChan)
+		defer func() {
+			close(sendErrChan)
+			s.wg.Done()
+		}()
 		for batch := range batchChan {
 			// If the send fails, the writer goroutine returns an error over the
 			// error channel and shuts down.
-			err := s.sendBatchFn(ctx, batch)
+			err := s.sendBatchFn(context.Background(), batch)
 			s.queueBytesSema.Release(int64(batch.totalBytes))
 			if err != nil {
 				sendErrChan <- err
@@ -120,6 +127,10 @@ func (s *Sender[T]) Send(ctx context.Context) error {
 	}()
 
 	drainBatch := func(batch *Batch[T]) error {
+		if batch.isEmpty() {
+			return nil
+		}
+
 		select {
 		case batchChan <- batch.drain():
 		case sendErr := <-sendErrChan:
@@ -137,6 +148,10 @@ func (s *Sender[T]) Send(ctx context.Context) error {
 		for {
 			select {
 			case <-ctx.Done():
+				s.logger.Debug("context terminated, draining in flight batch")
+				if err := drainBatch(msgBatch); err != nil {
+					return err
+				}
 				return ctx.Err()
 			case sendErr := <-sendErrChan:
 				// if there's an error while sending the batch, return the error and
@@ -179,6 +194,7 @@ func (s *Sender[T]) Send(ctx context.Context) error {
 }
 
 func (s *Sender[T]) Close() {
+	s.wg.Wait()
 	s.closeMsgChan()
 }
 
