@@ -11,6 +11,7 @@ import (
 )
 
 func TestNewIntegerTransformer(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		generator transformers.GeneratorType
@@ -91,6 +92,7 @@ func TestNewIntegerTransformer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			transformer, err := NewIntegerTransformer(tt.generator, tt.params)
 			require.ErrorIs(t, err, tt.wantErr)
 			if err != nil {
@@ -103,6 +105,7 @@ func TestNewIntegerTransformer(t *testing.T) {
 }
 
 func TestIntegerTransformer_Transform(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		generatorType transformers.GeneratorType
@@ -245,6 +248,7 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			transformer, err := NewIntegerTransformer(tt.generatorType, tt.params)
 			require.NoError(t, err)
 
