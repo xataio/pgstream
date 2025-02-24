@@ -1,4 +1,4 @@
-FROM postgres:15.3
+FROM postgres:17.2
 
 RUN apt-get update \
-  && apt-get install -y postgresql-15-wal2json \
+  && apt-get install -y postgresql-17-wal2json \

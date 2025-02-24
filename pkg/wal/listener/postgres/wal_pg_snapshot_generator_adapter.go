@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -14,7 +15,9 @@ import (
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"github.com/xataio/pgstream/pkg/snapshot/generator"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
-	pgschemasnapshot "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/schemalog"
+	pgdumprestoregenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
+	schemalogsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/schemalog"
+	pgtablefinder "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/tablefinder"
 	pgsnapshotstore "github.com/xataio/pgstream/pkg/snapshot/store/postgres"
 	"github.com/xataio/pgstream/pkg/wal"
 	"golang.org/x/sync/errgroup"
@@ -34,7 +37,27 @@ const (
 	publicSchema = "public"
 )
 
-func NewSnapshotGeneratorAdapter(ctx context.Context, cfg *SnapshotConfig, processEvent listenerProcessWalEvent, opts ...pgsnapshotgenerator.Option) (*SnapshotGeneratorAdapter, error) {
+var errSchemaSnapshotNotConfigured = errors.New("no schema snapshot has been configured")
+
+// NewSnapshotGeneratorAdapter builds a snapshot generator based on the
+// configuration on input, adapting the process wal event to fit with the
+// snapshot package implementation. It will add an activity recorder layer if
+// configured which will keep track of snapshot requests and their status.
+//
+// ┌───────────────────────────────────────────────────┐
+// │               Snapshot Generator Adapter          │
+// │ ┌─────────┐ ┌────────┐ ┌────────────────────────┐ │
+// │ │         │ │        │ │       Aggregator       │ │
+// │ │         │ │        │ │  ┌──────────────────┐  │ │
+// │ │         │ │        │ │  │ Schema Snapshot  │  │ │
+// │ │Snapshot │ │ Table  │ │  └─────────┬────────┘  │ │
+// │ │Activity │─▶ Finder ├▶│            │           │ │
+// │ │Recorder │ │        │ │  ┌─────────▼────────┐  │ │
+// │ │         │ │        │ │  │  Data Snapshot   │  │ │
+// │ │         │ │        │ │  └──────────────────┘  │ │
+// │ └─────────┘ └────────┘ └────────────────────────┘ │
+// └───────────────────────────────────────────────────┘
+func NewSnapshotGeneratorAdapter(ctx context.Context, cfg *SnapshotConfig, processEvent listenerProcessWalEvent, logger loglib.Logger) (*SnapshotGeneratorAdapter, error) {
 	s := &SnapshotGeneratorAdapter{
 		processEvent:    processEvent,
 		schemaTables:    cfg.schemaTableMap(),
@@ -44,28 +67,34 @@ func NewSnapshotGeneratorAdapter(ctx context.Context, cfg *SnapshotConfig, proce
 	}
 
 	// postgres schema snapshot generator
-	var schemaLogStore schemalog.Store
-	var err error
-	schemaLogStore, err = schemalogpg.NewStore(ctx, cfg.SchemaLogStore)
-	if err != nil {
-		return nil, fmt.Errorf("create schema log postgres store: %w", err)
-	}
-	schemaLogStore = schemalog.NewStoreCache(schemaLogStore)
-	schemaSnapshotGenerator := pgschemasnapshot.NewSnapshotGenerator(schemaLogStore, s.processRow)
-
-	// postgres data snapshot generator
-	dataSnapshotGenerator, err := pgsnapshotgenerator.NewSnapshotGenerator(ctx, &cfg.Generator, s.processRow, opts...)
+	schemaSnapshotGenerator, err := s.newSchemaSnapshotGenerator(ctx, cfg.Schema, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	s.generator = generator.NewAggregator([]generator.SnapshotGenerator{schemaSnapshotGenerator, dataSnapshotGenerator})
-	// snapshot activity recorder layer
-	snapshotStore, err := pgsnapshotstore.New(ctx, cfg.SnapshotStoreURL)
+	// postgres data snapshot generator
+	dataSnapshotGenerator, err := pgsnapshotgenerator.NewSnapshotGenerator(ctx, &cfg.Generator, s.processRow, pgsnapshotgenerator.WithLogger(logger))
 	if err != nil {
-		return nil, fmt.Errorf("create postgres snapshot store: %w", err)
+		return nil, err
 	}
-	s.generator = generator.NewSnapshotRecorder(snapshotStore, s.generator)
+
+	// snapshot generator aggregator
+	s.generator = generator.NewAggregator([]generator.SnapshotGenerator{schemaSnapshotGenerator, dataSnapshotGenerator})
+
+	// snapshot table finder layer
+	s.generator, err = pgtablefinder.NewSnapshotTableFinder(ctx, cfg.Generator.URL, s.generator)
+	if err != nil {
+		return nil, err
+	}
+
+	if cfg.SnapshotStoreURL != "" {
+		// snapshot activity recorder layer
+		snapshotStore, err := pgsnapshotstore.New(ctx, cfg.SnapshotStoreURL)
+		if err != nil {
+			return nil, fmt.Errorf("create postgres snapshot store: %w", err)
+		}
+		s.generator = generator.NewSnapshotRecorder(snapshotStore, s.generator)
+	}
 
 	return s, nil
 }
@@ -76,6 +105,7 @@ func (s *SnapshotGeneratorAdapter) CreateSnapshot(ctx context.Context) error {
 	for i := uint(0); i < s.snapshotWorkers; i++ {
 		errGroup.Go(func() error {
 			for snapshot := range snapshotChan {
+				s.logger.Info("creating snapshot for schema", loglib.Fields{"schema": snapshot.SchemaName, "tables": snapshot.TableNames})
 				if err := s.generator.CreateSnapshot(ctx, snapshot); err != nil {
 					s.logger.Error(err, "creating snapshot for schema", loglib.Fields{"schema": snapshot.SchemaName, "tables": snapshot.TableNames})
 					return err
@@ -134,5 +164,25 @@ func (s *SnapshotGeneratorAdapter) snapshotColumnToWalColumn(col snapshot.Column
 		Name:  col.Name,
 		Type:  col.Type,
 		Value: col.Value,
+	}
+}
+
+func (s *SnapshotGeneratorAdapter) newSchemaSnapshotGenerator(ctx context.Context, cfg SchemaSnapshotConfig, logger loglib.Logger) (generator.SnapshotGenerator, error) {
+	switch {
+	case cfg.SchemaLogStore != nil:
+		// postgres schemalog schema snapshot generator
+		var schemaLogStore schemalog.Store
+		var err error
+		schemaLogStore, err = schemalogpg.NewStore(ctx, *cfg.SchemaLogStore)
+		if err != nil {
+			return nil, fmt.Errorf("create schema log postgres store: %w", err)
+		}
+		schemaLogStore = schemalog.NewStoreCache(schemaLogStore)
+		return schemalogsnapshotgenerator.NewSnapshotGenerator(schemaLogStore, s.processRow), nil
+	case cfg.DumpRestore != nil:
+		// postgres pgdump/pgrestore schema snapshot generator
+		return pgdumprestoregenerator.NewSnapshotGenerator(ctx, cfg.DumpRestore, pgdumprestoregenerator.WithLogger(logger))
+	default:
+		return nil, errSchemaSnapshotNotConfigured
 	}
 }
