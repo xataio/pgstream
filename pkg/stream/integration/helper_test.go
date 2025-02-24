@@ -16,10 +16,13 @@ import (
 	kafkalib "github.com/xataio/pgstream/pkg/kafka"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
+	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
+	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/stream"
 	"github.com/xataio/pgstream/pkg/tls"
 	"github.com/xataio/pgstream/pkg/wal"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
+	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
@@ -84,8 +87,17 @@ func runStream(t *testing.T, ctx context.Context, cfg *stream.Config) {
 	}()
 }
 
+func initStream(t *testing.T, ctx context.Context, url string) {
+	err := stream.Init(ctx, url, "")
+	require.NoError(t, err)
+}
+
 func execQuery(t *testing.T, ctx context.Context, query string) {
-	conn, err := pglib.NewConn(ctx, pgurl)
+	execQueryWithURL(t, ctx, pgurl, query)
+}
+
+func execQueryWithURL(t *testing.T, ctx context.Context, url, query string) {
+	conn, err := pglib.NewConn(ctx, url)
 	require.NoError(t, err)
 
 	_, err = conn.Exec(ctx, query)
@@ -103,6 +115,28 @@ func testPostgresListenerCfg() stream.ListenerConfig {
 		Postgres: &stream.PostgresListenerConfig{
 			Replication: pgreplication.Config{
 				PostgresURL: pgurl,
+			},
+		},
+	}
+}
+
+func testPostgresListenerCfgWithSnapshot(sourceURL, targetURL string, tables []string) stream.ListenerConfig {
+	return stream.ListenerConfig{
+		Postgres: &stream.PostgresListenerConfig{
+			Replication: pgreplication.Config{
+				PostgresURL: sourceURL,
+			},
+			Snapshot: &pglistener.SnapshotConfig{
+				Generator: pgsnapshotgenerator.Config{
+					URL: sourceURL,
+				},
+				Tables: tables,
+				Schema: pglistener.SchemaSnapshotConfig{
+					DumpRestore: &pgdumprestore.Config{
+						SourcePGURL: sourceURL,
+						TargetPGURL: targetURL,
+					},
+				},
 			},
 		},
 	}
@@ -164,7 +198,7 @@ func testWebhookProcessorCfg() stream.ProcessorConfig {
 	}
 }
 
-func testPostgresProcessorCfg() stream.ProcessorConfig {
+func testPostgresProcessorCfg(sourcePGURL string) stream.ProcessorConfig {
 	return stream.ProcessorConfig{
 		Postgres: &stream.PostgresProcessorConfig{
 			BatchWriter: postgres.Config{
@@ -173,13 +207,13 @@ func testPostgresProcessorCfg() stream.ProcessorConfig {
 					BatchTimeout: 50 * time.Millisecond,
 				},
 				SchemaStore: schemalogpg.Config{
-					URL: pgurl,
+					URL: sourcePGURL,
 				},
 			},
 		},
 		Injector: &injector.Config{
 			Store: schemalogpg.Config{
-				URL: pgurl,
+				URL: sourcePGURL,
 			},
 		},
 	}
