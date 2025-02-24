@@ -3,6 +3,7 @@
 package greenmask
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/eminano/greenmask/pkg/generators"
@@ -16,6 +17,10 @@ type IntegerTransformer struct {
 	transformer *greenmasktransformers.RandomInt64Transformer
 }
 
+var (
+	ErrUnsupportedSizeError = errors.New("greenmask_integer: size must be between 1 and 8")
+)
+
 // NewIntegerTransformer creates a new IntegerTransformer with the specified generator and parameters.
 // The size parameter must be between 1 and 8 (inclusive), and the min_value and max_value parameters
 // must be valid integers within the range of the specified size.
@@ -24,11 +29,8 @@ func NewIntegerTransformer(generator transformers.GeneratorType, params transfor
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_integer: size must be an integer: %w", err)
 	}
-	if size < 1 {
-		return nil, fmt.Errorf("greenmask_integer: size must be greater than 0")
-	}
-	if size > 8 {
-		return nil, fmt.Errorf("greenmask_integer: size must be less than or equal to 8")
+	if size < 1 || size > 8 {
+		return nil, ErrUnsupportedSizeError
 	}
 
 	DefaultMinValue := minValueForSize(size)
