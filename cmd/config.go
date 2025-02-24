@@ -273,9 +273,10 @@ func parsePostgresProcessorConfig() *stream.PostgresProcessorConfig {
 				MaxBatchSize:  viper.GetInt64("PGSTREAM_POSTGRES_WRITER_BATCH_SIZE"),
 				MaxQueueBytes: viper.GetInt64("PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES"),
 			},
-			SchemaStore: pgschemalog.Config{
-				URL: viper.GetString("PGSTREAM_POSTGRES_WRITER_SCHEMA_STORE_URL"),
+			SchemaLogStore: pgschemalog.Config{
+				URL: viper.GetString("PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL"),
 			},
+			DisableTriggers: viper.GetBool("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS"),
 		},
 	}
 }

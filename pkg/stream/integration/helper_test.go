@@ -209,7 +209,7 @@ func testPostgresProcessorCfg(sourcePGURL string) stream.ProcessorConfig {
 				BatchConfig: batch.Config{
 					BatchTimeout: 50 * time.Millisecond,
 				},
-				SchemaStore: schemalogpg.Config{
+				SchemaLogStore: schemalogpg.Config{
 					URL: sourcePGURL,
 				},
 			},

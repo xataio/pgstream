@@ -21,9 +21,10 @@ import (
 // BatchWriter is a WAL processor implementation that batches and writes wal
 // events to a Postgres instance.
 type BatchWriter struct {
-	logger  loglib.Logger
-	pgConn  pglib.Querier
-	adapter walAdapter
+	logger          loglib.Logger
+	pgConn          pglib.Querier
+	adapter         walAdapter
+	disableTriggers bool
 
 	batchSender queryBatchSender
 
@@ -48,20 +49,30 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...Option) (*Batch
 	}
 
 	var schemaLogStore schemalog.Store
-	schemaLogStore, err = schemalogpg.NewStore(ctx, config.SchemaStore)
-	if err != nil {
-		return nil, fmt.Errorf("create schema log postgres store: %w", err)
+	if config.SchemaLogStore.URL != "" {
+		schemaLogStore, err = schemalogpg.NewStore(ctx, config.SchemaLogStore)
+		if err != nil {
+			return nil, fmt.Errorf("create schema log postgres store: %w", err)
+		}
+		schemaLogStore = schemalog.NewStoreCache(schemaLogStore)
 	}
-	schemaLogStore = schemalog.NewStoreCache(schemaLogStore)
 
 	w := &BatchWriter{
-		logger:  loglib.NewNoopLogger(),
-		pgConn:  pgConn,
-		adapter: newAdapter(schemaLogStore),
+		logger:          loglib.NewNoopLogger(),
+		pgConn:          pgConn,
+		adapter:         newAdapter(schemaLogStore),
+		disableTriggers: config.DisableTriggers,
 	}
 
 	for _, opt := range opts {
 		opt(w)
+	}
+
+	if w.disableTriggers {
+		_, err := pgConn.Exec(ctx, "SET session_replication_role = replica")
+		if err != nil {
+			return nil, fmt.Errorf("disabling triggers on postgres instance: %w", err)
+		}
 	}
 
 	w.batchSender, err = batch.NewSender(&config.BatchConfig, w.sendBatch, w.logger)
@@ -114,7 +125,7 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) 
 	}
 
 	for _, q := range queries {
-		w.logger.Debug("batching query", loglib.Fields{"query": q})
+		w.logger.Debug("batching query", loglib.Fields{"sql": q.getSQL(), "args": q.getArgs()})
 		msg := batch.NewWALMessage(q, walEvent.CommitPosition)
 		if err := w.batchSender.AddToBatch(ctx, msg); err != nil {
 			return err
@@ -129,8 +140,17 @@ func (w *BatchWriter) Name() string {
 }
 
 func (w *BatchWriter) Close() error {
+	w.logger.Debug("closing batch writer")
 	w.batchSender.Close()
-	return w.pgConn.Close(context.Background())
+
+	ctx := context.Background()
+	if w.disableTriggers {
+		// reset the replica role once we're done with the batch writer
+		if _, err := w.pgConn.Exec(ctx, "SET session_replication_role = DEFAULT"); err != nil {
+			w.logger.Error(err, "reseting session replication role to default")
+		}
+	}
+	return w.pgConn.Close(ctx)
 }
 
 func (w *BatchWriter) sendBatch(ctx context.Context, batch *batch.Batch[*query]) error {
