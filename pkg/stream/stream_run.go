@@ -17,6 +17,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/listener"
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
 	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
+	snapshotlistener "github.com/xataio/pgstream/pkg/wal/listener/snapshot"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
@@ -283,7 +284,6 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 			return listener.Listen(ctx)
 		})
 	case config.Listener.Kafka != nil:
-		var err error
 		listener, err := kafkalistener.NewWALReader(
 			kafkaReader,
 			processor.ProcessWALEvent,
@@ -296,6 +296,25 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 		eg.Go(func() error {
 			defer logger.Info("stopping kafka reader...")
 			logger.Info("running kafka reader...")
+			return listener.Listen(ctx)
+		})
+
+	case config.Listener.Snapshot != nil:
+		var err error
+		snapshotGenerator, err := snapshotbuilder.NewSnapshotGenerator(
+			ctx,
+			config.Listener.Snapshot,
+			processor.ProcessWALEvent,
+			logger)
+		if err != nil {
+			return err
+		}
+		listener := snapshotlistener.New(snapshotGenerator)
+		defer listener.Close()
+
+		eg.Go(func() error {
+			defer logger.Info("stopping postgres snapshot listener...")
+			logger.Info("running postgres snapshot listener...")
 			return listener.Listen(ctx)
 		})
 	}

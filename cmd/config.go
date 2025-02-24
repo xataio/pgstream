@@ -69,6 +69,7 @@ func parseListenerConfig() stream.ListenerConfig {
 	return stream.ListenerConfig{
 		Postgres: parsePostgresListenerConfig(),
 		Kafka:    parseKafkaListenerConfig(),
+		Snapshot: parseSnapshotListenerConfig(),
 	}
 }
 
@@ -87,24 +88,32 @@ func parsePostgresListenerConfig() *stream.PostgresListenerConfig {
 
 	initialSnapshotEnabled := viper.GetBool("PGSTREAM_POSTGRES_LISTENER_INITIAL_SNAPSHOT_ENABLED")
 	if initialSnapshotEnabled {
-		cfg.Snapshot = parseSnapshotListenerConfig(pgURL)
+		cfg.Snapshot = parseSnapshotConfig(pgURL, "PGSTREAM_POSTGRES_INITIAL")
 	}
 
 	return cfg
 }
 
-func parseSnapshotListenerConfig(pgURL string) *snapshotbuilder.SnapshotListenerConfig {
+func parseSnapshotListenerConfig() *snapshotbuilder.SnapshotListenerConfig {
+	pgsnapshotURL := viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL")
+	if pgsnapshotURL == "" {
+		return nil
+	}
+	return parseSnapshotConfig(pgsnapshotURL, "PGSTREAM_POSTGRES")
+}
+
+func parseSnapshotConfig(pgURL, prefix string) *snapshotbuilder.SnapshotListenerConfig {
 	return &snapshotbuilder.SnapshotListenerConfig{
-		SnapshotStoreURL: pgURL,
+		SnapshotStoreURL: viper.GetString(fmt.Sprintf("%s_SNAPSHOT_STORE_URL", prefix)),
 		Generator: pgsnapshotgenerator.Config{
 			URL:           pgURL,
-			BatchPageSize: viper.GetUint("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_BATCH_PAGE_SIZE"),
-			SchemaWorkers: viper.GetUint("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_SCHEMA_WORKERS"),
-			TableWorkers:  viper.GetUint("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLE_WORKERS"),
+			BatchPageSize: viper.GetUint(fmt.Sprintf("%s_SNAPSHOT_BATCH_PAGE_SIZE", prefix)),
+			SchemaWorkers: viper.GetUint(fmt.Sprintf("%s_SNAPSHOT_SCHEMA_WORKERS", prefix)),
+			TableWorkers:  viper.GetUint(fmt.Sprintf("%s_SNAPSHOT_TABLE_WORKERS", prefix)),
 		},
 		Adapter: adapter.SnapshotConfig{
-			Tables:          viper.GetStringSlice("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLES"),
-			SnapshotWorkers: viper.GetUint("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_WORKERS"),
+			Tables:          viper.GetStringSlice(fmt.Sprintf("%s_SNAPSHOT_TABLES", prefix)),
+			SnapshotWorkers: viper.GetUint(fmt.Sprintf("%s_SNAPSHOT_WORKERS", prefix)),
 		},
 		Schema: parseSchemaSnapshotConfig(pgURL),
 	}
