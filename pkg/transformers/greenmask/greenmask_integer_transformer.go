@@ -11,7 +11,7 @@ import (
 	"github.com/xataio/pgstream/pkg/transformers"
 )
 
-const DefaultSize = 4
+const defaultSize = 4
 
 type IntegerTransformer struct {
 	transformer *greenmasktransformers.RandomInt64Transformer
@@ -25,7 +25,7 @@ var (
 // The size parameter must be between 1 and 8 (inclusive), and the min_value and max_value parameters
 // must be valid integers within the range of the specified size.
 func NewIntegerTransformer(generator transformers.GeneratorType, params transformers.Parameters) (*IntegerTransformer, error) {
-	size, err := findParameter(params, "size", int(DefaultSize))
+	size, err := findParameter(params, "size", int(defaultSize))
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_integer: size must be an integer: %w", err)
 	}
@@ -33,14 +33,14 @@ func NewIntegerTransformer(generator transformers.GeneratorType, params transfor
 		return nil, ErrUnsupportedSizeError
 	}
 
-	DefaultMinValue := minValueForSize(size)
-	DefaultMaxValue := maxValueForSize(size)
+	defaultMinValue := minValueForSize(size)
+	defaultMaxValue := maxValueForSize(size)
 
-	minValue, err := findParameter(params, "min_value", DefaultMinValue)
+	minValue, err := findParameter(params, "min_value", defaultMinValue)
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_integer: min_value must be an integer: %w", err)
 	}
-	maxValue, err := findParameter(params, "max_value", DefaultMaxValue)
+	maxValue, err := findParameter(params, "max_value", defaultMaxValue)
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_integer: max_value must be an integer: %w", err)
 	}
