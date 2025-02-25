@@ -24,6 +24,7 @@ const (
 	GreenmaskString    TransformerType = "greenmask_string"
 	NeosyncFirstName   TransformerType = "neosync_firstname"
 	GreenmaskFirstName TransformerType = "greenmask_firstname"
+	GreenmaskInteger   TransformerType = "greenmask_integer"
 )
 
 type GeneratorType string
