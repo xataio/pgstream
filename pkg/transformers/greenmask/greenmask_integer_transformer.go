@@ -20,9 +20,7 @@ type IntegerTransformer struct {
 	transformer *greenmasktransformers.RandomInt64Transformer
 }
 
-var (
-	ErrUnsupportedSizeError = errors.New("greenmask_integer: size must be 2, 4 or 8")
-)
+var ErrUnsupportedSizeError = errors.New("greenmask_integer: size must be 2, 4 or 8")
 
 // NewIntegerTransformer creates a new IntegerTransformer with the specified generator and parameters.
 // The size parameter must be 2, 4 or 8, and the min_value and max_value parameters
