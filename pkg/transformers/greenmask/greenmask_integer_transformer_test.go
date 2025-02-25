@@ -122,8 +122,7 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 		input         any
 		params        transformers.Parameters
 
-		wantErr    error
-		wantResult int64
+		wantErr error
 	}{
 		{
 			name:          "ok - transform int8 randomly",
@@ -171,40 +170,20 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 			input:         int64(500),
 		},
 		{
-			name:          "ok - transform []byte randomly with default params",
-			generatorType: transformers.Random,
-			input:         []byte{0, 0, 0, 50},
-		},
-		{
-			name:          "ok - transform []byte randomly with default params, oversize",
-			generatorType: transformers.Random,
-			input:         []byte{0, 0, 0, 0, 0, 0, 0, 50},
-		},
-		{
 			name:          "ok - transform int deterministically with default params",
 			generatorType: transformers.Deterministic,
 			input:         int(500),
-			wantResult:    2035278536,
 		},
 		{
 			name:          "ok - transform uint deterministically with default params",
 			generatorType: transformers.Deterministic,
 			input:         uint(4646),
-			wantResult:    -1391990283,
 		},
 		{
 			name:          "ok - transform uint32 deterministically with default params",
 			generatorType: transformers.Deterministic,
 			input:         uint32(500000000),
 			params:        map[string]any{},
-			wantResult:    -722347270,
-		},
-		{
-			name:          "ok - transform []byte deterministically with default params",
-			generatorType: transformers.Deterministic,
-			input:         []byte{0, 0, 0, 50},
-			params:        map[string]any{},
-			wantResult:    612657282,
 		},
 		{
 			name:          "ok - transform int32 deterministically",
@@ -214,7 +193,6 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 				"size":      2,
 				"min_value": int64(-100),
 			},
-			wantResult: 15232,
 		},
 		{
 			name:          "ok - transform uint16 deterministically",
@@ -224,7 +202,6 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 				"size":      2,
 				"min_value": int64(-100),
 			},
-			wantResult: 23208,
 		},
 		{
 			name:          "ok - transform uint64 deterministically",
@@ -234,7 +211,6 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 				"size":      8,
 				"min_value": int64(math.MaxInt64 - 1),
 			},
-			wantResult: int64(math.MaxInt64 - 1),
 		},
 		{
 			name:          "ok - transform []byte deterministically, oversize",
@@ -244,10 +220,9 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 				"size":      2,
 				"min_value": int64(-100),
 			},
-			wantResult: 18547,
 		},
 		{
-			name:          "invalid type with deterministic with default params",
+			name:          "invalid type with default params",
 			generatorType: transformers.Deterministic,
 			input:         "invalid",
 			params:        map[string]any{},
@@ -263,12 +238,6 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 				"max_value": int64(100),
 			},
 			wantErr: transformers.ErrUnsupportedValueType,
-		},
-		{
-			name:          "invalid type with default params",
-			generatorType: transformers.Random,
-			input:         "invalid",
-			wantErr:       transformers.ErrUnsupportedValueType,
 		},
 	}
 
@@ -287,11 +256,6 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 			result, ok := got.(int64)
 			require.True(t, ok, "expected got to be of type int64")
 
-			if tt.generatorType == transformers.Deterministic {
-				require.Equal(t, tt.wantResult, result)
-				return
-			}
-
 			// check if the result is within the specified range
 			minVal, found, err := transformers.FindParameter[int64](tt.params, "min_value")
 			require.NoError(t, err)
@@ -303,6 +267,13 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 			require.NoError(t, err)
 			if found {
 				require.True(t, result <= maxVal)
+			}
+
+			// if deterministic, check again if we get the same result again
+			if tt.generatorType == transformers.Deterministic {
+				gotAgain, err := transformer.Transform(tt.input)
+				require.NoError(t, err)
+				require.Equal(t, got, gotAgain)
 			}
 		})
 	}

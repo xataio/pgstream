@@ -65,7 +65,7 @@ func NewIntegerTransformer(generator transformers.GeneratorType, params transfor
 
 // Transform converts the input value to a byte slice, passes it through the underlying
 // RandomInt64Transformer, and returns the transformed value as an int64.
-// Supported input types are int, int8, int16, int32, int64, uint8, uint16, and uint32.
+// Supported input types are int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, and byte.
 // If the input value is a byte slice, it is passed through the transformer without modification.
 // If the input value is of an unsupported type, an error is returned.
 func (t *IntegerTransformer) Transform(value any) (any, error) {
