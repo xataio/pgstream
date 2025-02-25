@@ -5,36 +5,38 @@ package greenmask
 import (
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/eminano/greenmask/pkg/generators"
 	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
 	"github.com/xataio/pgstream/pkg/transformers"
 )
 
-const defaultSize = 4
+const (
+	defaultSize = 4
+)
 
 type IntegerTransformer struct {
 	transformer *greenmasktransformers.RandomInt64Transformer
 }
 
 var (
-	ErrUnsupportedSizeError = errors.New("greenmask_integer: size must be between 1 and 8")
+	ErrUnsupportedSizeError = errors.New("greenmask_integer: size must be 2, 4 or 8")
 )
 
 // NewIntegerTransformer creates a new IntegerTransformer with the specified generator and parameters.
-// The size parameter must be between 1 and 8 (inclusive), and the min_value and max_value parameters
+// The size parameter must be 2, 4 or 8, and the min_value and max_value parameters
 // must be valid integers within the range of the specified size.
 func NewIntegerTransformer(generator transformers.GeneratorType, params transformers.Parameters) (*IntegerTransformer, error) {
 	size, err := findParameter(params, "size", int(defaultSize))
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_integer: size must be an integer: %w", err)
 	}
-	if size < 1 || size > 8 {
-		return nil, ErrUnsupportedSizeError
-	}
 
-	defaultMinValue := minValueForSize(size)
-	defaultMaxValue := maxValueForSize(size)
+	defaultMinValue, defaultMaxValue, err := minMaxValueForSize(size)
+	if err != nil {
+		return nil, err
+	}
 
 	minValue, err := findParameter(params, "min_value", defaultMinValue)
 	if err != nil {
@@ -102,10 +104,14 @@ func (t *IntegerTransformer) Transform(value any) (any, error) {
 	return int64(ret), nil
 }
 
-func minValueForSize(size int) int64 {
-	return int64(-1 << (size*8 - 1))
-}
-
-func maxValueForSize(size int) int64 {
-	return int64((1 << (size*8 - 1)) - 1)
+func minMaxValueForSize(size int) (int64, int64, error) {
+	switch size {
+	case 2:
+		return math.MinInt16, math.MaxInt16, nil
+	case 4:
+		return math.MinInt32, math.MaxInt32, nil
+	case 8:
+		return math.MinInt64, math.MaxInt64, nil
+	}
+	return 0, 0, ErrUnsupportedSizeError
 }
