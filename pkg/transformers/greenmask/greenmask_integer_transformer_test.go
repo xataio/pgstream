@@ -3,6 +3,7 @@
 package greenmask
 
 import (
+	"math"
 	"testing"
 
 	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
@@ -177,6 +178,12 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 			wantResult:    2035278536,
 		},
 		{
+			name:          "ok - transform uint deterministically with default params",
+			generatorType: transformers.Deterministic,
+			input:         uint(4646),
+			wantResult:    -1391990283,
+		},
+		{
 			name:          "ok - transform uint32 deterministically with default params",
 			generatorType: transformers.Deterministic,
 			input:         uint32(500000000),
@@ -209,6 +216,16 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 				"min_value": int64(-100),
 			},
 			wantResult: 23208,
+		},
+		{
+			name:          "ok - transform uint64 deterministically",
+			generatorType: transformers.Deterministic,
+			input:         uint64(1000000000000000000),
+			params: map[string]any{
+				"size":      8,
+				"min_value": int64(math.MaxInt64 - 1),
+			},
+			wantResult: int64(math.MaxInt64 - 1),
 		},
 		{
 			name:          "ok - transform []byte deterministically, oversize",

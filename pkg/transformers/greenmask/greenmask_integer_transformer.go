@@ -78,11 +78,15 @@ func (t *IntegerTransformer) Transform(value any) (any, error) {
 		toTransform = generators.BuildBytesFromUint64(uint64(val))
 	case int64:
 		toTransform = generators.BuildBytesFromUint64(uint64(val))
+	case uint:
+		toTransform = generators.BuildBytesFromUint64(uint64(val))
 	case uint8:
 		toTransform = generators.BuildBytesFromUint64(uint64(val))
 	case uint16:
 		toTransform = generators.BuildBytesFromUint64(uint64(val))
 	case uint32:
+		toTransform = generators.BuildBytesFromUint64(uint64(val))
+	case uint64:
 		toTransform = generators.BuildBytesFromUint64(uint64(val))
 	case []byte:
 		toTransform = val
