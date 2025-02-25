@@ -269,7 +269,7 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 				require.True(t, result <= maxVal)
 			}
 
-			// if deterministic, check again if we get the same result again
+			// if deterministic, check if we get the same result again
 			if tt.generatorType == transformers.Deterministic {
 				gotAgain, err := transformer.Transform(tt.input)
 				require.NoError(t, err)
