@@ -17,3 +17,17 @@ func (m *query) Size() int {
 func (m *query) IsEmpty() bool {
 	return m == nil || m.sql == ""
 }
+
+func (m *query) getSQL() string {
+	if m == nil {
+		return ""
+	}
+	return m.sql
+}
+
+func (m *query) getArgs() []any {
+	if m == nil {
+		return nil
+	}
+	return m.args
+}

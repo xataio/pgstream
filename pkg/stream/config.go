@@ -28,6 +28,7 @@ type Config struct {
 type ListenerConfig struct {
 	Postgres *PostgresListenerConfig
 	Kafka    *KafkaListenerConfig
+	Snapshot *snapshotbuilder.SnapshotListenerConfig
 }
 
 type PostgresListenerConfig struct {
@@ -76,7 +77,7 @@ type WebhookSubscriptionStoreConfig struct {
 }
 
 func (c *Config) IsValid() error {
-	if c.Listener.Kafka == nil && c.Listener.Postgres == nil {
+	if c.Listener.Kafka == nil && c.Listener.Postgres == nil && c.Listener.Snapshot == nil {
 		return errors.New("need at least one listener configured")
 	}
 

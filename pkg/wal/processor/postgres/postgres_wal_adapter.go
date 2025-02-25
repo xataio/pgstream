@@ -19,9 +19,13 @@ type adapter struct {
 }
 
 func newAdapter(schemaQuerier schemalogQuerier) *adapter {
+	var ddl *ddlAdapter
+	if schemaQuerier != nil {
+		ddl = newDDLAdapter(schemaQuerier)
+	}
 	return &adapter{
 		dmlAdapter: &dmlAdapter{},
-		ddlAdapter: newDDLAdapter(schemaQuerier),
+		ddlAdapter: ddl,
 	}
 }
 
@@ -30,7 +34,7 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 		return []*query{{}}, nil
 	}
 
-	if processor.IsSchemaLogEvent(e.Data) {
+	if processor.IsSchemaLogEvent(e.Data) && a.ddlAdapter != nil {
 		return a.ddlAdapter.walDataToQueries(ctx, e.Data)
 	}
 

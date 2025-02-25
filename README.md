@@ -20,20 +20,23 @@
 - Fast initial snapshots
 - Column value transformations
 - Modular deployment configuration, only requires Postgres
-- Schema based message partitioning
-- Schema filtering
-- Elasticsearch/OpenSearch replication output plugin support
-- Webhook support
+- Multiple out of the box supported outputs
+  - Elasticsearch/OpenSearch
+  - Webhooks
+  - PostgreSQL
+- Kafka support with schema based partitioning
+- Snapshot only mode (for when you don't need continuous replication)
+- Extendable support for custom output plugins
 - Automatic discovery of table primary key/unique not null columns for use as event identity
-- Highly customisable modules when used as library
 - Core metrics available via opentelemetry
-- Extendable support for custom replication output plugins
 - Continuous consumption of replication slot with configurable memory guards
 
 ## Table of Contents
 
 - [Usage](#usage)
 - [Configuration](#configuration)
+- [Tracking Schema Changes](#tracking-schema-changes)
+- [Snapshots](#snapshots)
 - [Architecture](#architecture)
 - [Limitations](#limitations)
 - [Glossary](#glossary)
@@ -79,6 +82,25 @@ If you have an environment available, with at least Postgres and whichever modul
 docker-compose -f build/docker/docker-compose.yml up
 ```
 
+The docker-compose file has profiles that can be used in order to bring up only the relevant containers. If for example you only want to run PostgreSQL to PostgreSQL pgstream replication you can use the `pg2pg` profile as follows:
+
+```
+docker-compose -f build/docker/docker-compose.yml --profile pg2pg up
+```
+
+You can also run multiple profiles. For example to start two PostgreSQL instances and Kafka:
+
+```
+docker-compose -f build/docker/docker-compose.yml --profile pg2pg --profile kafka up
+```
+
+List of supported docker profiles:
+
+- pg2pg
+- pg2os
+- pg2webhook
+- kafka
+
 #### Prepare the database
 
 This will create the `pgstream` schema in the configured Postgres database, along with the tables/functions/triggers required to keep track of the schema changes. See [Tracking schema changes](#tracking-schema-changes) section for more details. It will also create a replication slot for the configured database which will be used by the pgstream service.
@@ -116,6 +138,18 @@ Example running pgstream with Postgres -> Kafka, and in a separate terminal, Kaf
 ```
 pgstream run -c pg2kafka.env --log-level trace
 pgstream run -c kafka2os.env --log-level trace
+```
+
+Example running pgstream with PostgreSQL -> PostgreSQL with initial snapshot enabled:
+
+```
+pgstream run -c pg2pg.env --log-level trace
+```
+
+Example running pgstream with PostgreSQL snapshot only mode -> PostgreSQL:
+
+```
+pgstream run -c snapshot2pg.env --log-level trace
 ```
 
 The run command will parse the configuration provided, and initialise the configured modules. It requires at least one listener and one processor.
@@ -228,6 +262,21 @@ One of exponential/constant backoff policies can be provided for the search stor
 </details>
 
 <details>
+  <summary>Postgres Batch Writer</summary>
+
+| Environment Variable                         | Default | Required | Description                                                                                                      |
+| -------------------------------------------- | ------- | -------- | ---------------------------------------------------------------------------------------------------------------- | --- |
+| PGSTREAM_POSTGRES_WRITER_TARGET_URL          | N/A     | Yes      | URL for the PostgreSQL store to connect to                                                                       |
+| PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT       | 1s      | No       | Max time interval at which the batch sending to PostgreSQL is triggered.                                         |
+| PGSTREAM_POSTGRES_WRITER_BATCH_SIZE          | 100     | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to PostgreSQL.         |
+| PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES     | 100MiB  | No       | Max memory used by the postgres batch writer for inflight batches.                                               |     |
+| PGSTREAM_POSTGRES_WRITER_BATCH_BYTES         | 1572864 | No       | Max size in bytes for a given batch. When this size is reached, the batch is sent to PostgreSQL.                 |
+| PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL | N/A     | No       | URL of the store where the pgstream schemalog table which keeps track of schema changes is.                      |
+| PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS    | False   | No       | Option to disable triggers on the target PostgreSQL database while performing the snaphot/replication streaming. |
+
+</details>
+
+<details>
   <summary>Injector</summary>
 
 | Environment Variable                 | Default | Required | Description                                                    |
@@ -253,6 +302,14 @@ The detailed SQL used can be found in the [migrations folder](https://github.com
 
 The schema and data changes are part of the same linear stream - the downstream consumers always observe the schema changes as soon as they happen, before any data arrives that relies on the new schema. This prevents data loss and manual intervention.
 
+## Snapshots
+
+`pgstream` can handle the generation of PostgreSQL snapshots, including both schema and data. The current implementations for each are:
+
+- Schema: depending on the configuration, it can use either the pgstream `schema_log` table to get the schema view and process it as events downstream, or rely on the `pg_dump`/`pg_restore` PostgreSQL utilities.
+
+- Data: it relies on transaction snapshot ids to obtain a stable view of the database, and paralellises the read of all the rows by dividing them into ranges using the `ctid`.
+
 ## Architecture
 
 `pgstream` is constructed as a streaming pipeline, where data from one module streams into the next, eventually reaching the configured output plugins. It keeps track of schema changes and replicates them along with the data changes to ensure a consistent view of the source data downstream. This modular approach makes adding and integrating output plugin implementations simple and painless.
@@ -267,7 +324,9 @@ A listener is anything that listens for WAL data, regardless of the source. It h
 
 There are currently two implementations of the listener:
 
-- **Postgres listener**: listens to WAL events directly from the replication slot. Since the WAL replication slot is sequential, the Postgres WAL listener is limited to run as a single process. The associated Postgres checkpointer will sync the LSN so that the replication lag doesn't grow indefinitely.
+- **Postgres listener**: listens to WAL events directly from the replication slot. Since the WAL replication slot is sequential, the Postgres WAL listener is limited to run as a single process. The associated Postgres checkpointer will sync the LSN so that the replication lag doesn't grow indefinitely. It can be configured to perform an initial snapshot when pgstream is first connected to the source PostgreSQL database (see details in the [snapshots section](#snapshots)).
+
+- **Postgres Snapshoter**: produces events by performing a snapshot of the configured PostgreSQL database, as described in the [snapshots section](#snapshots). It doesn't start continuous replication, so once all the snapshotted data has been processed, the pgstream process will stop.
 
 - **Kafka reader**: reads WAL events from a Kafka topic. It can be configured to run concurrently by using partitions and Kafka consumer groups, applying a fan-out strategy to the WAL events. The data will be partitioned by database schema by default, but can be configured when using `pgstream` as a library. The associated Kafka checkpointer will commit the message offsets per topic/partition so that the consumer group doesn't process the same message twice.
 
@@ -282,6 +341,8 @@ There are currently two implementations of the processor:
 - **Search batch indexer**: it indexes the WAL events into an OpenSearch/Elasticsearch compatible search store. It implements the same kind of mechanism than the Kafka batch writer to ensure continuous processing from the listener, and it also uses a batching mechanism to minimise search store calls. The search mapping logic is configurable when used as a library. The WAL event identity is used as the search store document id, and if no other version is provided, the LSN is used as the document version. Events that do not have an identity are not indexed. Schema events are stored in a separate search store index (`pgstream`), where the schema log history is kept for use within the search store (i.e, read queries).
 
 - **Webhook notifier**: it sends a notification to any webhooks that have subscribed to the relevant wal event. It relies on a subscription HTTP server receiving the subscription requests and storing them in the shared subscription store which is accessed whenever a wal event is processed. It sends the notifications to the different subscribed webhook urls in parallel based on a configurable number of workers (client timeouts apply). Similar to the two previous processor implementations, it uses a memory guarded buffering system internally, which allows to separate the wal event processing from the webhook url sending, optimising the processor latency.
+
+- **Postgres batch writer**: it writes the WAL events into a PostgreSQL compatible database. It implements the same kind of mechanism than the Kafka and the search batch writers to ensure continuous processing from the listener, and it also uses a batching mechanism to minimise PostgreSQL IO traffic.
 
 In addition to the implementations described above, there are optional processor decorators, which work in conjunction with one of the main processor implementations described above. Their goal is to act as modifiers to enrich the wal event being processed.
 

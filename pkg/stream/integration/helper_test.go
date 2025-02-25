@@ -121,6 +121,25 @@ func testPostgresListenerCfg() stream.ListenerConfig {
 	}
 }
 
+func testSnapshotListenerCfg(sourceURL, targetURL string, tables []string) stream.ListenerConfig {
+	return stream.ListenerConfig{
+		Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+			Generator: pgsnapshotgenerator.Config{
+				URL: sourceURL,
+			},
+			Adapter: adapter.SnapshotConfig{
+				Tables: tables,
+			},
+			Schema: snapshotbuilder.SchemaSnapshotConfig{
+				DumpRestore: &pgdumprestore.Config{
+					SourcePGURL: sourceURL,
+					TargetPGURL: targetURL,
+				},
+			},
+		},
+	}
+}
+
 func testPostgresListenerCfgWithSnapshot(sourceURL, targetURL string, tables []string) stream.ListenerConfig {
 	return stream.ListenerConfig{
 		Postgres: &stream.PostgresListenerConfig{
@@ -209,7 +228,7 @@ func testPostgresProcessorCfg(sourcePGURL string) stream.ProcessorConfig {
 				BatchConfig: batch.Config{
 					BatchTimeout: 50 * time.Millisecond,
 				},
-				SchemaStore: schemalogpg.Config{
+				SchemaLogStore: schemalogpg.Config{
 					URL: sourcePGURL,
 				},
 			},
