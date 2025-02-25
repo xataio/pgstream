@@ -14,7 +14,8 @@ import (
 	"github.com/xataio/pgstream/pkg/stream"
 	"github.com/xataio/pgstream/pkg/tls"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
-	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
+	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/adapter"
+	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
@@ -84,36 +85,42 @@ func parsePostgresListenerConfig() *stream.PostgresListenerConfig {
 		},
 	}
 
-	snapshotTables := viper.GetStringSlice("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLES")
-	if len(snapshotTables) > 0 {
-		cfg.Snapshot = &pglistener.SnapshotConfig{
-			SnapshotStoreURL: pgURL,
-			Generator: pgsnapshotgenerator.Config{
-				URL:           pgURL,
-				BatchPageSize: viper.GetUint("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_BATCH_PAGE_SIZE"),
-				SchemaWorkers: viper.GetUint("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_SCHEMA_WORKERS"),
-				TableWorkers:  viper.GetUint("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLE_WORKERS"),
-			},
-			Tables:          snapshotTables,
-			SnapshotWorkers: viper.GetUint("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_WORKERS"),
-			Schema:          parseSchemaSnapshotConfig(pgURL),
-		}
+	initialSnapshotEnabled := viper.GetBool("PGSTREAM_POSTGRES_LISTENER_INITIAL_SNAPSHOT_ENABLED")
+	if initialSnapshotEnabled {
+		cfg.Snapshot = parseSnapshotListenerConfig(pgURL)
 	}
 
 	return cfg
 }
 
-func parseSchemaSnapshotConfig(pgurl string) pglistener.SchemaSnapshotConfig {
+func parseSnapshotListenerConfig(pgURL string) *snapshotbuilder.SnapshotListenerConfig {
+	return &snapshotbuilder.SnapshotListenerConfig{
+		SnapshotStoreURL: pgURL,
+		Generator: pgsnapshotgenerator.Config{
+			URL:           pgURL,
+			BatchPageSize: viper.GetUint("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_BATCH_PAGE_SIZE"),
+			SchemaWorkers: viper.GetUint("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_SCHEMA_WORKERS"),
+			TableWorkers:  viper.GetUint("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLE_WORKERS"),
+		},
+		Adapter: adapter.SnapshotConfig{
+			Tables:          viper.GetStringSlice("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLES"),
+			SnapshotWorkers: viper.GetUint("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_WORKERS"),
+		},
+		Schema: parseSchemaSnapshotConfig(pgURL),
+	}
+}
+
+func parseSchemaSnapshotConfig(pgurl string) snapshotbuilder.SchemaSnapshotConfig {
 	pgTargetURL := viper.GetString("PGSTREAM_POSTGRES_WRITER_TARGET_URL")
 	if pgTargetURL != "" {
-		return pglistener.SchemaSnapshotConfig{
+		return snapshotbuilder.SchemaSnapshotConfig{
 			DumpRestore: &pgdumprestore.Config{
 				SourcePGURL: pgurl,
 				TargetPGURL: pgTargetURL,
 			},
 		}
 	}
-	return pglistener.SchemaSnapshotConfig{
+	return snapshotbuilder.SchemaSnapshotConfig{
 		SchemaLogStore: &pgschemalog.Config{
 			URL: pgurl,
 		},

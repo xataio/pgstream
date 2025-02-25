@@ -1,32 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package postgres
+package adapter
 
 import (
 	"strings"
-
-	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
-	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
-	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 )
 
 type SnapshotConfig struct {
-	Generator        pgsnapshotgenerator.Config
-	SnapshotStoreURL string
-	Tables           []string
-	Schema           SchemaSnapshotConfig
+	Tables []string
 	// SnapshotWorkers represents the number of snapshots the generator will
 	// process concurrently. This doesn't affect the parallelism of the tables
 	// within each individual snapshot request. It defaults to 1.
 	SnapshotWorkers uint
 }
 
-type SchemaSnapshotConfig struct {
-	SchemaLogStore *schemalogpg.Config
-	DumpRestore    *pgdumprestore.Config
-}
-
 const defaultSnapshotWorkers = 1
+
+const publicSchema = "public"
 
 func (c *SnapshotConfig) schemaTableMap() map[string][]string {
 	schemaTableMap := make(map[string][]string, len(c.Tables))

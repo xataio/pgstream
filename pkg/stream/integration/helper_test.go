@@ -22,7 +22,8 @@ import (
 	"github.com/xataio/pgstream/pkg/tls"
 	"github.com/xataio/pgstream/pkg/wal"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
-	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
+	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/adapter"
+	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
@@ -126,12 +127,14 @@ func testPostgresListenerCfgWithSnapshot(sourceURL, targetURL string, tables []s
 			Replication: pgreplication.Config{
 				PostgresURL: sourceURL,
 			},
-			Snapshot: &pglistener.SnapshotConfig{
+			Snapshot: &snapshotbuilder.SnapshotListenerConfig{
 				Generator: pgsnapshotgenerator.Config{
 					URL: sourceURL,
 				},
-				Tables: tables,
-				Schema: pglistener.SchemaSnapshotConfig{
+				Adapter: adapter.SnapshotConfig{
+					Tables: tables,
+				},
+				Schema: snapshotbuilder.SchemaSnapshotConfig{
 					DumpRestore: &pgdumprestore.Config{
 						SourcePGURL: sourceURL,
 						TargetPGURL: targetURL,
