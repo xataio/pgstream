@@ -46,7 +46,7 @@ func TestNewIntegerTransformer(t *testing.T) {
 			params: transformers.Parameters{
 				"size": 0,
 			},
-			wantErr: ErrUnsupportedSizeError,
+			wantErr: errUnsupportedSizeError,
 		},
 		{
 			name:      "error - invalid size, too large",
@@ -54,7 +54,7 @@ func TestNewIntegerTransformer(t *testing.T) {
 			params: transformers.Parameters{
 				"size": 9,
 			},
-			wantErr: ErrUnsupportedSizeError,
+			wantErr: errUnsupportedSizeError,
 		},
 		{
 			name:      "error - wrong limits",

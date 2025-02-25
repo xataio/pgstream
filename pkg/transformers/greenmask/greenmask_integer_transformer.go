@@ -20,7 +20,7 @@ type IntegerTransformer struct {
 	transformer *greenmasktransformers.RandomInt64Transformer
 }
 
-var ErrUnsupportedSizeError = errors.New("greenmask_integer: size must be 2, 4 or 8")
+var errUnsupportedSizeError = errors.New("greenmask_integer: size must be 2, 4 or 8")
 
 // NewIntegerTransformer creates a new IntegerTransformer with the specified generator and parameters.
 // The size parameter must be 2, 4 or 8, and the min_value and max_value parameters
@@ -49,7 +49,10 @@ func NewIntegerTransformer(generator transformers.GeneratorType, params transfor
 		return nil, err
 	}
 
-	t, _ := greenmasktransformers.NewRandomInt64Transformer(limiter, size)
+	t, err := greenmasktransformers.NewRandomInt64Transformer(limiter, size)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := setGenerator(t, generator); err != nil {
 		return nil, err
@@ -111,5 +114,5 @@ func minMaxValueForSize(size int) (int64, int64, error) {
 	case 8:
 		return math.MinInt64, math.MaxInt64, nil
 	}
-	return 0, 0, ErrUnsupportedSizeError
+	return 0, 0, errUnsupportedSizeError
 }
