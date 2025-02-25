@@ -284,7 +284,8 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 				return
 			}
 
-			result := got.(int64)
+			result, ok := got.(int64)
+			require.True(t, ok, "expected got to be of type int64")
 
 			if tt.generatorType == transformers.Deterministic {
 				require.Equal(t, tt.wantResult, result)
