@@ -66,6 +66,15 @@ func TestNewIntegerTransformer(t *testing.T) {
 			wantErr: greenmasktransformers.ErrWrongLimits,
 		},
 		{
+			name:      "error - wrong limits not fitting size",
+			generator: transformers.Random,
+			params: transformers.Parameters{
+				"min_value": int64(math.MaxInt32),
+				"size":      4,
+			},
+			wantErr: greenmasktransformers.ErrWrongLimits,
+		},
+		{
 			name:      "error - invalid size type",
 			generator: transformers.Deterministic,
 			params: transformers.Parameters{
