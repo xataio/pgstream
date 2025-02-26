@@ -15,7 +15,7 @@ type StringTransformer struct {
 
 const defaultSymbols = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
 
-func NewStringTransformer(generator transformers.GeneratorType, params transformers.Parameters) (*StringTransformer, error) {
+func NewStringTransformer(generatorType transformers.GeneratorType, params transformers.Parameters) (*StringTransformer, error) {
 	symbols, err := findParameter(params, "symbols", defaultSymbols)
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_string: symbols must be a string: %w", err)
@@ -36,9 +36,11 @@ func NewStringTransformer(generator transformers.GeneratorType, params transform
 		return nil, err
 	}
 
-	if err := setGenerator(t, generator); err != nil {
+	generator, err := getGreenmaskGenerator(t.GetRequiredGeneratorByteLength(), generatorType)
+	if err != nil {
 		return nil, err
 	}
+	t.SetGenerator(generator)
 
 	return &StringTransformer{
 		transformer: t,
