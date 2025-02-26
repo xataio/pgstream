@@ -63,13 +63,13 @@ func Test_UUIDTransformer_Transform(t *testing.T) {
 		},
 		{
 			name:          "ok - []byte, deterministic",
-			generatorType: transformers.Random,
+			generatorType: transformers.Deterministic,
 			input:         []byte("123e4567-e89b-12d3-a456-426655440000"),
 			wantErr:       nil,
 		},
 		{
 			name:          "ok - uuid.UUID, deterministic",
-			generatorType: transformers.Random,
+			generatorType: transformers.Deterministic,
 			input:         uuid.MustParse("123e4567-e89b-12d3-a456-426655440000"),
 			wantErr:       nil,
 		},
