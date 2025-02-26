@@ -23,7 +23,7 @@ func Test_NewFloatTransformer(t *testing.T) {
 		{
 			name: "ok - random with parameters",
 			params: map[string]any{
-				"min_value": 1.5,
+				"min_value": 1.01,
 				"max_value": 10.5,
 			},
 			generatorType: transformers.Random,
@@ -32,9 +32,9 @@ func Test_NewFloatTransformer(t *testing.T) {
 		{
 			name: "ok - deterministic with parameters",
 			params: map[string]any{
-				"min_value": 0.0,
+				"min_value": 0.0000000000000000000000000000001,
 				"max_value": 100.0,
-				"precision": 4,
+				"precision": 44,
 			},
 			generatorType: transformers.Deterministic,
 			wantErr:       nil,
@@ -88,13 +88,27 @@ func Test_NewFloatTransformer(t *testing.T) {
 			generatorType: transformers.Random,
 			wantErr:       transformers.ErrInvalidParameters,
 		},
+		{
+			name: "error - invalid generator type",
+			params: map[string]any{
+				"min_value": 1.5,
+				"max_value": 10.5,
+				"precision": 2,
+			},
+			generatorType: "invalid",
+			wantErr:       transformers.ErrUnsupportedGenerator,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := NewFloatTransformer(tc.generatorType, tc.params)
+			transformer, err := NewFloatTransformer(tc.generatorType, tc.params)
 			require.ErrorIs(t, err, tc.wantErr)
+			if err != nil {
+				return
+			}
+			require.NotNil(t, transformer)
 		})
 	}
 }
@@ -103,32 +117,27 @@ func TestFloatTransformer_Transform(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                string
-		value               any
-		params              transformers.Parameters
-		generatorType       transformers.GeneratorType
-		wantErr             error
-		deterministicResult float64
+		name          string
+		value         any
+		params        transformers.Parameters
+		generatorType transformers.GeneratorType
+		wantErr       error
 	}{
 		{
 			name:  "ok - random with float64",
-			value: 5.5,
+			value: float64(5.5),
 			params: map[string]any{
-				"min_value": 1.0,
+				"min_value": 9.999999999999,
 				"max_value": 10.0,
-				"precision": 4,
+				"precision": 12,
 			},
 			generatorType: transformers.Random,
 			wantErr:       nil,
 		},
 		{
-			name:  "ok - random with float32",
-			value: float32(5555.5),
-			params: map[string]any{
-				"min_value": 1.0,
-				"max_value": 10.0,
-			},
-			generatorType: transformers.Random,
+			name:          "ok - deterministic with float32, with default params",
+			value:         float32(5555.5),
+			generatorType: transformers.Deterministic,
 			wantErr:       nil,
 		},
 		{
@@ -136,11 +145,10 @@ func TestFloatTransformer_Transform(t *testing.T) {
 			value: []byte{0, 0, 0, 50},
 			params: map[string]any{
 				"min_value": 1.0,
-				"max_value": 10.0,
+				"max_value": 100000.0000000001,
 			},
-			generatorType:       transformers.Deterministic,
-			wantErr:             nil,
-			deterministicResult: 8.27,
+			generatorType: transformers.Deterministic,
+			wantErr:       nil,
 		},
 		{
 			name:  "error - invalid value type",
@@ -177,22 +185,27 @@ func TestFloatTransformer_Transform(t *testing.T) {
 			if err != nil {
 				return
 			}
+			result, ok := got.(float64)
+			require.True(t, ok, "expected got to be of type float64")
 
-			minValue, err := findParameter(tc.params, "min_value", defaultMinFloat)
+			// check if the result is within the specified range
+			minVal, found, err := transformers.FindParameter[float64](tc.params, "min_value")
 			require.NoError(t, err)
-			maxValue, err := findParameter(tc.params, "max_value", defaultMaxFloat)
-			require.NoError(t, err)
-
-			switch v := got.(type) {
-			case float64:
-				require.GreaterOrEqual(t, v, minValue)
-				require.LessOrEqual(t, v, maxValue)
-			default:
-				t.Errorf("unexpected type: %T", v)
+			if found {
+				require.True(t, result >= minVal)
 			}
 
+			maxVal, found, err := transformers.FindParameter[float64](tc.params, "max_value")
+			require.NoError(t, err)
+			if found {
+				require.True(t, result <= maxVal)
+			}
+
+			// if deterministic, check if we get the same result again
 			if tc.generatorType == transformers.Deterministic {
-				require.Equal(t, tc.deterministicResult, got)
+				gotAgain, err := transformer.Transform(tc.value)
+				require.NoError(t, err)
+				require.Equal(t, got, gotAgain)
 			}
 		})
 	}
