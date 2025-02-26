@@ -3,6 +3,7 @@
 package greenmask
 
 import (
+	"github.com/eminano/greenmask/pkg/generators"
 	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
 	"github.com/google/uuid"
 	"github.com/xataio/pgstream/pkg/transformers"
@@ -18,6 +19,7 @@ func NewUUIDTransformer(generatorType transformers.GeneratorType) (*UUIDTransfor
 	if err != nil {
 		return nil, err
 	}
+	generator = generators.NewHashReducer(generator, t.GetRequiredGeneratorByteLength())
 	t.SetGenerator(generator)
 	return &UUIDTransformer{
 		transformer: t,
