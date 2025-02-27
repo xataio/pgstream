@@ -6,11 +6,10 @@ import (
 	"time"
 
 	greenmaskgenerators "github.com/eminano/greenmask/pkg/generators"
-	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
 	"github.com/xataio/pgstream/pkg/transformers"
 )
 
-func setGenerator(t greenmasktransformers.Transformer, generatorType transformers.GeneratorType) error {
+func getGreenmaskGenerator(requiredByteLength int, generatorType transformers.GeneratorType) (greenmaskgenerators.Generator, error) {
 	// default to using random generator
 	if generatorType == "" {
 		generatorType = transformers.Random
@@ -19,21 +18,21 @@ func setGenerator(t greenmasktransformers.Transformer, generatorType transformer
 	var greenmaskGenerator greenmaskgenerators.Generator
 	switch generatorType {
 	case transformers.Random:
-		greenmaskGenerator = greenmaskgenerators.NewRandomBytes(time.Now().UnixNano(), t.GetRequiredGeneratorByteLength())
+		greenmaskGenerator = greenmaskgenerators.NewRandomBytes(time.Now().UnixNano(), requiredByteLength)
 	case transformers.Deterministic:
-		hashFuncName, _, err := greenmaskgenerators.GetHashFunctionNameBySize(t.GetRequiredGeneratorByteLength())
+		hashFuncName, _, err := greenmaskgenerators.GetHashFunctionNameBySize(requiredByteLength)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		greenmaskGenerator, err = greenmaskgenerators.NewHash([]byte{}, hashFuncName)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	default:
-		return transformers.ErrUnsupportedGenerator
+		return nil, transformers.ErrUnsupportedGenerator
 	}
 
-	return t.SetGenerator(greenmaskGenerator)
+	return greenmaskGenerator, nil
 }
 
 func findParameter[T any](params transformers.Parameters, name string, defaultVal T) (T, error) {

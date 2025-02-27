@@ -24,6 +24,8 @@ func New(cfg *transformers.Config) (transformers.Transformer, error) {
 		return greenmask.NewIntegerTransformer(cfg.Generator, cfg.Parameters)
 	case transformers.GreenmaskFloat:
 		return greenmask.NewFloatTransformer(cfg.Generator, cfg.Parameters)
+	case transformers.GreenmaskUUID:
+		return greenmask.NewUUIDTransformer(cfg.Generator)
 	default:
 		return nil, transformers.ErrUnsupportedTransformer
 	}
