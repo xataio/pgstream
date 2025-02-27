@@ -3,6 +3,7 @@
 package greenmask
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
 
@@ -69,14 +70,6 @@ func (ft *FloatTransformer) Transform(value any) (any, error) {
 
 func getBytesForFloat(f float64) []byte {
 	var buf [8]byte
-	n := math.Float64bits(f)
-	buf[0] = byte(n >> 56)
-	buf[1] = byte(n >> 48)
-	buf[2] = byte(n >> 40)
-	buf[3] = byte(n >> 32)
-	buf[4] = byte(n >> 24)
-	buf[5] = byte(n >> 16)
-	buf[6] = byte(n >> 8)
-	buf[7] = byte(n)
+	binary.BigEndian.PutUint64(buf[:], math.Float64bits(f))
 	return buf[:]
 }
