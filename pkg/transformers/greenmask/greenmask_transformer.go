@@ -11,7 +11,7 @@ import (
 
 func getGreenmaskGenerator(requiredByteLength int, generatorType transformers.GeneratorType) (greenmaskgenerators.Generator, error) {
 	// default to using random generator
-	if generatorType == "" || generatorType == transformers.Random {
+	if generatorType == "" {
 		generatorType = transformers.Random
 	}
 
