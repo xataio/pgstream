@@ -40,11 +40,9 @@ func NewFloatTransformer(generatorType transformers.GeneratorType, params transf
 	}
 	t := greenmasktransformers.NewRandomFloat64Transformer(limiter)
 
-	generator, err := getGreenmaskGenerator(t.GetRequiredGeneratorByteLength(), generatorType)
-	if err != nil {
+	if err := setGenerator(t, generatorType); err != nil {
 		return nil, err
 	}
-	t.SetGenerator(generator)
 
 	return &FloatTransformer{
 		transformer: t,

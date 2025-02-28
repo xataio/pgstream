@@ -21,11 +21,9 @@ func NewFirstNameTransformer(generatorType transformers.GeneratorType, params tr
 
 	t := greenmasktransformers.NewRandomPersonTransformer(toGreenmaskGender(gender), nil)
 
-	generator, err := getGreenmaskGenerator(t.GetRequiredGeneratorByteLength(), generatorType)
-	if err != nil {
+	if err := setGenerator(t, generatorType); err != nil {
 		return nil, err
 	}
-	t.SetGenerator(generator)
 
 	return &FirstNameTransformer{
 		transformer: t,

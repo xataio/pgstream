@@ -3,7 +3,6 @@
 package greenmask
 
 import (
-	"github.com/eminano/greenmask/pkg/generators"
 	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
 	"github.com/xataio/pgstream/pkg/transformers"
 )
@@ -14,12 +13,9 @@ type BooleanTransformer struct {
 
 func NewBooleanTransformer(generatorType transformers.GeneratorType) (*BooleanTransformer, error) {
 	t := greenmasktransformers.NewRandomBoolean()
-	generator, err := getGreenmaskGenerator(t.GetRequiredGeneratorByteLength(), generatorType)
-	if err != nil {
+	if err := setGenerator(t, generatorType); err != nil {
 		return nil, err
 	}
-	generator = generators.NewHashReducer(generator, t.GetRequiredGeneratorByteLength())
-	t.SetGenerator(generator)
 	return &BooleanTransformer{
 		transformer: t,
 	}, nil
