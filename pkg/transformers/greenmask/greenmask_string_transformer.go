@@ -36,11 +36,9 @@ func NewStringTransformer(generatorType transformers.GeneratorType, params trans
 		return nil, err
 	}
 
-	generator, err := getGreenmaskGenerator(t.GetRequiredGeneratorByteLength(), generatorType)
-	if err != nil {
+	if err := setGenerator(t, generatorType); err != nil {
 		return nil, err
 	}
-	t.SetGenerator(generator)
 
 	return &StringTransformer{
 		transformer: t,
