@@ -28,6 +28,7 @@ const (
 	GreenmaskFloat     TransformerType = "greenmask_float"
 	GreenmaskUUID      TransformerType = "greenmask_uuid"
 	GreenmaskBoolean   TransformerType = "greenmask_boolean"
+	GreenmaskChoice    TransformerType = "greenmask_choice"
 )
 
 type GeneratorType string
