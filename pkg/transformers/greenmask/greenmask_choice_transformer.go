@@ -18,7 +18,7 @@ type ChoiceTransformer struct {
 var errChoicesEmpty = errors.New("greenmask_choice: choices must not be empty")
 
 func NewChoiceTransformer(generatorType transformers.GeneratorType, params transformers.Parameters) (*ChoiceTransformer, error) {
-	choices := []*toolkit.RawValue{}
+	choices := []string{}
 	choices, err := findParameter(params, "choices", choices)
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_choice: choices must be an array: %w", err)
@@ -26,7 +26,16 @@ func NewChoiceTransformer(generatorType transformers.GeneratorType, params trans
 	if len(choices) == 0 {
 		return nil, errChoicesEmpty
 	}
-	t := greenmasktransformers.NewRandomChoiceTransformer(choices)
+
+	choicesRaw := make([]*toolkit.RawValue, len(choices))
+	for i, choice := range choices {
+		choicesRaw[i] = &toolkit.RawValue{
+			Data:   []byte(choice),
+			IsNull: false,
+		}
+	}
+
+	t := greenmasktransformers.NewRandomChoiceTransformer(choicesRaw)
 	if err := setGenerator(t, generatorType); err != nil {
 		return nil, err
 	}

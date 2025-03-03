@@ -22,10 +22,7 @@ func TestNewChoiceTransformer(t *testing.T) {
 			name:      "ok - valid random",
 			generator: transformers.Random,
 			params: transformers.Parameters{
-				"choices": []*toolkit.RawValue{
-					{Data: []byte("a")},
-					{Data: []byte("b")},
-				},
+				"choices": []string{"a", "b", "c", "d"},
 			},
 			wantErr: nil,
 		},
@@ -33,10 +30,7 @@ func TestNewChoiceTransformer(t *testing.T) {
 			name:      "error - invalid generator type",
 			generator: "invalid",
 			params: transformers.Parameters{
-				"choices": []*toolkit.RawValue{
-					{Data: []byte("a")},
-					{Data: []byte("b")},
-				},
+				"choices": []string{"a", "b", "c", "d"},
 			},
 			wantErr: transformers.ErrUnsupportedGenerator,
 		},
@@ -74,11 +68,7 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 			generatorType: transformers.Random,
 			input:         "test",
 			params: transformers.Parameters{
-				"choices": []*toolkit.RawValue{
-					{Data: []byte("a")},
-					{Data: []byte("b")},
-					{Data: []byte("c")},
-				},
+				"choices": []string{"a", "b", "c", "d"},
 			},
 			wantErr: nil,
 		},
@@ -87,10 +77,7 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 			generatorType: transformers.Deterministic,
 			input:         []byte("test"),
 			params: transformers.Parameters{
-				"choices": []*toolkit.RawValue{
-					{Data: []byte("a")},
-					{Data: []byte("b")},
-				},
+				"choices": []string{"a", "b", "c", "d"},
 			},
 			wantErr: nil,
 		},
@@ -99,12 +86,7 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 			generatorType: transformers.Deterministic,
 			input:         toolkit.NewRawValue([]byte("test"), false),
 			params: transformers.Parameters{
-				"choices": []*toolkit.RawValue{
-					{Data: []byte("a")},
-					{Data: []byte("b")},
-					{Data: []byte("c")},
-					{Data: []byte("d")},
-				},
+				"choices": []string{"a", "b", "c", "d"},
 			},
 			wantErr: nil,
 		},
@@ -113,10 +95,7 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 			generatorType: transformers.Random,
 			input:         1,
 			params: transformers.Parameters{
-				"choices": []*toolkit.RawValue{
-					{Data: []byte("a")},
-					{Data: []byte("b")},
-				},
+				"choices": []string{"a", "b", "c", "d"},
 			},
 			wantErr: transformers.ErrUnsupportedValueType,
 		},
