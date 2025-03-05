@@ -6,7 +6,7 @@ require (
 	github.com/bytedance/sonic v1.12.3
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/elastic/go-elasticsearch/v8 v8.14.0
-	github.com/eminano/greenmask v0.0.0-20250210141616-781d3aca2262
+	github.com/eminano/greenmask v0.0.0-20250307113752-035ee2b102e6
 	github.com/go-logr/zerologr v1.2.3
 	github.com/golang-migrate/migrate/v4 v4.18.1
 	github.com/google/go-cmp v0.6.0
