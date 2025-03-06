@@ -19,16 +19,17 @@ type Config struct {
 type TransformerType string
 
 const (
-	String             TransformerType = "string"
-	NeosyncString      TransformerType = "neosync_string"
-	GreenmaskString    TransformerType = "greenmask_string"
-	NeosyncFirstName   TransformerType = "neosync_firstname"
-	GreenmaskFirstName TransformerType = "greenmask_firstname"
-	GreenmaskInteger   TransformerType = "greenmask_integer"
-	GreenmaskFloat     TransformerType = "greenmask_float"
-	GreenmaskUUID      TransformerType = "greenmask_uuid"
-	GreenmaskBoolean   TransformerType = "greenmask_boolean"
-	GreenmaskChoice    TransformerType = "greenmask_choice"
+	String                 TransformerType = "string"
+	NeosyncString          TransformerType = "neosync_string"
+	GreenmaskString        TransformerType = "greenmask_string"
+	NeosyncFirstName       TransformerType = "neosync_firstname"
+	GreenmaskFirstName     TransformerType = "greenmask_firstname"
+	GreenmaskInteger       TransformerType = "greenmask_integer"
+	GreenmaskFloat         TransformerType = "greenmask_float"
+	GreenmaskUUID          TransformerType = "greenmask_uuid"
+	GreenmaskBoolean       TransformerType = "greenmask_boolean"
+	GreenmaskChoice        TransformerType = "greenmask_choice"
+	GreenmaskUnixTimestamp TransformerType = "greenmask_unix_timestamp"
 )
 
 type GeneratorType string
