@@ -9,7 +9,7 @@ import (
 	"github.com/xataio/pgstream/pkg/transformers"
 )
 
-var errMinMaxValueNotSpecified = errors.New("greenmask_unix_timestamp: min_value and max_value must be specified")
+var errMinMaxValueNotSpecified = errors.New("min_value and max_value must be specified")
 
 func NewUnixTimestampTransformer(generatorType transformers.GeneratorType, params transformers.Parameters) (*IntegerTransformer, error) {
 	minValue, foundMin, err := transformers.FindParameter[int64](params, "min_value")
