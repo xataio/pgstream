@@ -34,6 +34,8 @@ func New(cfg *transformers.Config) (transformers.Transformer, error) {
 		return greenmask.NewUnixTimestampTransformer(cfg.Generator, cfg.Parameters)
 	case transformers.GreenmaskDate:
 		return greenmask.NewDateTransformer(cfg.Generator, cfg.Parameters)
+	case transformers.GreenmaskUTCTimestamp:
+		return greenmask.NewUTCTimestampTransformer(cfg.Generator, cfg.Parameters)
 	default:
 		return nil, transformers.ErrUnsupportedTransformer
 	}

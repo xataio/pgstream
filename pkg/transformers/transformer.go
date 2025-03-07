@@ -31,6 +31,7 @@ const (
 	GreenmaskChoice        TransformerType = "greenmask_choice"
 	GreenmaskUnixTimestamp TransformerType = "greenmask_unix_timestamp"
 	GreenmaskDate          TransformerType = "greenmask_date"
+	GreenmaskUTCTimestamp  TransformerType = "greenmask_utc_timestamp"
 )
 
 type GeneratorType string
