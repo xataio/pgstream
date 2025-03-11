@@ -92,20 +92,13 @@ func NewEmailTransformer(params transformers.Parameters) (*EmailTransformer, err
 }
 
 func validateExcludedDomains(excludedDomains any) error {
-	switch excludedDomains.(type) {
+	switch v := excludedDomains.(type) {
 	case string:
 		return nil
 	case []string:
 		return nil
 	case []any:
-		anySlice, ok := excludedDomains.([]any)
-		if !ok {
-			if _, ok := excludedDomains.([]string); ok {
-				return nil
-			}
-			return errInvalidExcludedDomains
-		}
-		for _, anyValue := range anySlice {
+		for _, anyValue := range v {
 			if _, ok := anyValue.(string); !ok {
 				return errInvalidExcludedDomains
 			}
