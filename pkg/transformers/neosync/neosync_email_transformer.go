@@ -3,7 +3,9 @@
 package neosync
 
 import (
+	"errors"
 	"fmt"
+	"slices"
 
 	neosynctransformers "github.com/nucleuscloud/neosync/worker/pkg/benthos/transformers"
 	"github.com/xataio/pgstream/pkg/transformers"
@@ -12,6 +14,24 @@ import (
 type EmailTransformer struct {
 	*transformer[string]
 }
+
+var (
+	errInvalidExcludedDomains    = errors.New("excluded_domains must be casteable to []string")
+	errInvalidEmailType          = errors.New("email_type must be one of 'uuidv4', 'fullname' or 'any'")
+	errInvalidInvalidEmailAction = errors.New("invalid_email_action must be one of 'reject', 'passthrough', 'null' or 'generate'")
+
+	validEmailTypes = []string{
+		neosynctransformers.GenerateEmailType_UuidV4.String(),
+		neosynctransformers.GenerateEmailType_FullName.String(),
+		neosynctransformers.GenerateEmailType_Any.String(),
+	}
+	validInvalidEmailActions = []string{
+		neosynctransformers.InvalidEmailAction_Reject.String(),
+		neosynctransformers.InvalidEmailAction_Passthrough.String(),
+		neosynctransformers.InvalidEmailAction_Null.String(),
+		neosynctransformers.InvalidEmailAction_Generate.String(),
+	}
+)
 
 func NewEmailTransformer(params transformers.Parameters) (*EmailTransformer, error) {
 	preserveLength, err := findParameter[bool](params, "preserve_length")
@@ -26,7 +46,13 @@ func NewEmailTransformer(params transformers.Parameters) (*EmailTransformer, err
 
 	excludedDomains, err := findParameter[any](params, "excluded_domains")
 	if err != nil {
-		return nil, fmt.Errorf("neosync_email: excluded_domains must be a list of string: %w", err)
+		return nil, fmt.Errorf("neosync_email: excluded_domains must be type of any: %w", err)
+	}
+
+	if excludedDomains != nil {
+		if err := validateExcludedDomains(*excludedDomains); err != nil {
+			return nil, err
+		}
 	}
 
 	maxLength, err := findParameter[int](params, "max_length")
@@ -43,10 +69,16 @@ func NewEmailTransformer(params transformers.Parameters) (*EmailTransformer, err
 	if err != nil {
 		return nil, fmt.Errorf("neosync_email: email_type must be a string: %w", err)
 	}
+	if emailType != nil && !slices.Contains(validEmailTypes, *emailType) {
+		return nil, errInvalidEmailType
+	}
 
 	invalidEmailAction, err := findParameter[string](params, "invalid_email_action")
 	if err != nil {
 		return nil, fmt.Errorf("neosync_email: invalid_email_action must be a string: %w", err)
+	}
+	if invalidEmailAction != nil && !slices.Contains(validInvalidEmailActions, *invalidEmailAction) {
+		return nil, errInvalidInvalidEmailAction
 	}
 
 	opts, err := neosynctransformers.NewTransformEmailOpts(preserveLength, preserveDomain, excludedDomains, toInt64Ptr(maxLength), toInt64Ptr(seed), emailType, invalidEmailAction)
@@ -57,4 +89,28 @@ func NewEmailTransformer(params transformers.Parameters) (*EmailTransformer, err
 	return &EmailTransformer{
 		transformer: New[string](neosynctransformers.NewTransformEmail(), opts),
 	}, nil
+}
+
+func validateExcludedDomains(excludedDomains any) error {
+	switch excludedDomains.(type) {
+	case string:
+		return nil
+	case []string:
+		return nil
+	case []any:
+		anySlice, ok := excludedDomains.([]any)
+		if !ok {
+			if _, ok := excludedDomains.([]string); ok {
+				return nil
+			}
+			return errInvalidExcludedDomains
+		}
+		for _, anyValue := range anySlice {
+			if _, ok := anyValue.(string); !ok {
+				return errInvalidExcludedDomains
+			}
+		}
+		return nil
+	}
+	return errInvalidExcludedDomains
 }

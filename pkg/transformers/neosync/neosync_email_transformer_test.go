@@ -24,9 +24,9 @@ func TestNewEmailTransformer(t *testing.T) {
 		{
 			name: "ok - valid custom parameters",
 			params: transformers.Parameters{
-				"email_type":           "free_email",
-				"invalid_email_action": "random",
-				"excluded_domains":     []string{"example.com"},
+				"email_type":           "fullname",
+				"invalid_email_action": "generate",
+				"excluded_domains":     []string{"example.com", "example.org"},
 				"max_length":           10,
 				"preserve_domain":      true,
 				"preserve_length":      true,
@@ -63,6 +63,20 @@ func TestNewEmailTransformer(t *testing.T) {
 			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
+			name: "error - invalid excluded_domains, []any",
+			params: transformers.Parameters{
+				"excluded_domains": []any{"example.com", 3},
+			},
+			wantErr: errInvalidExcludedDomains,
+		},
+		{
+			name: "error - invalid excluded_domains, int",
+			params: transformers.Parameters{
+				"excluded_domains": 3,
+			},
+			wantErr: errInvalidExcludedDomains,
+		},
+		{
 			name: "error - invalid email_type",
 			params: transformers.Parameters{
 				"email_type": 1,
@@ -70,11 +84,25 @@ func TestNewEmailTransformer(t *testing.T) {
 			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
+			name: "error - invalid email_type value",
+			params: transformers.Parameters{
+				"email_type": "invalid",
+			},
+			wantErr: errInvalidEmailType,
+		},
+		{
 			name: "error - invalid invalid_email_action",
 			params: transformers.Parameters{
 				"invalid_email_action": 1,
 			},
 			wantErr: transformers.ErrInvalidParameters,
+		},
+		{
+			name: "error - invalid invalid_email_action value",
+			params: transformers.Parameters{
+				"invalid_email_action": "invalid",
+			},
+			wantErr: errInvalidInvalidEmailAction,
 		},
 	}
 	for _, tt := range tests {
