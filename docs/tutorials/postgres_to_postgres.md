@@ -18,9 +18,11 @@ To start the docker provided PostgreSQL servers, run the following command:
 docker-compose -f build/docker/docker-compose.yml --profile pg2pg up
 ```
 
+This will start two PostgreSQL databases on ports `5432` and `7654`.
+
 ## Database initialisation
 
-Once both PostgreSQL servers are up and running, the next step is to initialise pgstream on the source database. This will create the `pgstream` schema in the configured Postgres database, along with the tables/functions/triggers required to keep track of the schema changes. See [Tracking schema changes](../README.md#tracking-schema-changes) section for more details. This step will also create a replication slot for the source database which will be used by the pgstream service.
+Once both PostgreSQL servers are up and running, the next step is to initialise pgstream on the source database. This will create the `pgstream` schema in the configured Postgres database, along with the tables/functions/triggers required to keep track of the schema changes. See [Tracking schema changes](../README.md#tracking-schema-changes) section for more details. This step will also create a replication slot on the source database which will be used by the pgstream service.
 
 The initialisation step allows to provide both the URL of the PostgreSQL database and the name of the replication slot to be created. The PostgreSQL URL is required, but the replication slot name is optional. If not provided, it will default to `pgstream_<dbname>_slot`, where `<dbname>` is the name of the PostgreSQL database. The configuration can be provided either by using the CLI supported parameters, or using the environment variables.
 
@@ -38,13 +40,17 @@ pgstream init --pgurl "postgres://postgres:postgres@localhost:5432?sslmode=disab
 PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME=pgstream_tutorial_slot PGSTREAM_POSTGRES_LISTENER_URL=postgres://postgres:postgres@localhost:5432?sslmode=disable pgstream init
 ```
 
-Successfully initialisation should prompt the following message:
+Successful initialisation should prompt the following message:
 
 ```
 SUCCESS  pgstream initialisation complete
 ```
 
 We can check the replication slot has been properly created by connecting to the source PostgreSQL database and running the following query:
+
+```sh
+➜ psql postgresql://postgres:postgres@localhost:5432/postgres
+```
 
 ```sql
 SELECT slot_name,plugin,slot_type,database,restart_lsn,confirmed_flush_lsn FROM pg_replication_slots;
@@ -89,6 +95,8 @@ pgstream tear-down --pgurl "postgres://postgres:postgres@localhost:5432?sslmode=
 
 ## Prepare `pgstream` configuration
 
+### Listener
+
 In order to run pgstream, we need to provide the configuration required to run the PostgreSQL to PostgreSQL replication. First, we configure the listener module that will be listening to the WAL on the source PostgreSQL database. This requires the PostgreSQL database URL, which will be the one from the docker PostgreSQL server we started and setup in the previous steps.
 
 ```sh
@@ -120,6 +128,8 @@ PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLES="test_schema.* test"
 
 Further configuration can be provided to optimize the performance of the snapshot process. For more information, check the [snapshot tutorial](postgres_snapshot).
 
+### Processor
+
 With the listener side ready, the next step is to configure the processor. Since we want to replicate to a PostgreSQL database, we will set the PostgreSQL writer configuration variables. The only required value is the URL of the target database, where the replicated data from the source database will be written. We use the URL of the docker PostgreSQL database we started earlier (note the port is the only difference between the source and the target PostgreSQL databases).
 
 ```sh
@@ -142,7 +152,7 @@ For the PostgreSQL writer to keep track of DDL changes, it needs to keep track o
 PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 ```
 
-The full configuration for this tutorial, without initial snapshot, can be put into a `pg2pg.env` file to be used in the next step.
+The full configuration for this tutorial can be put into a `pg2pg_tutorial.env` file to be used in the next step.
 
 - Without initial snapshot
 
@@ -181,7 +191,7 @@ PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@local
 With the configuration ready, we can now run pgstream. In this case we set the log level as trace to provide more context for debugging and have more visibility into what pgstream is doing under the hood.
 
 ```sh
-pgstream run -c pg2pg.env --log-level trace
+pgstream run -c pg2pg_tutorial.env --log-level trace
 ```
 
 Now we can connect to the source database and create a table:
