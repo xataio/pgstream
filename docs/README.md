@@ -16,7 +16,7 @@
 
 `pgstream` is constructed as a streaming pipeline, where data from one module streams into the next, eventually reaching the configured outputs. It keeps track of schema changes and replicates them along with the data changes to ensure a consistent view of the source data downstream. This modular approach makes adding and integrating output implementations simple and painless.
 
-![pgstream architecture v1](docs/img/pgstream_arch_v1.png)
+![pgstream architecture v1](img/pgstream_arch_v1.png)
 
 At a high level the implementation is split into WAL listeners and WAL processors.
 
