@@ -102,7 +102,7 @@ List of supported docker profiles:
 
 #### Prepare the database
 
-This will create the `pgstream` schema in the configured Postgres database, along with the tables/functions/triggers required to keep track of the schema changes. See [Tracking schema changes](#tracking-schema-changes) section for more details. It will also create a replication slot for the configured database which will be used by the pgstream service.
+This will create the `pgstream` schema in the configured Postgres database, along with the tables/functions/triggers required to keep track of the schema changes. See [Tracking schema changes](docs/README.md#tracking-schema-changes) section for more details. It will also create a replication slot for the configured database which will be used by the pgstream service.
 
 ```
 pgstream init --pgurl "postgres://postgres:postgres@localhost?sslmode=disable"
