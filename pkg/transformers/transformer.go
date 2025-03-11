@@ -24,6 +24,7 @@ const (
 	GreenmaskString        TransformerType = "greenmask_string"
 	NeosyncFirstName       TransformerType = "neosync_firstname"
 	GreenmaskFirstName     TransformerType = "greenmask_firstname"
+	NeosyncEmail           TransformerType = "neosync_email"
 	GreenmaskInteger       TransformerType = "greenmask_integer"
 	GreenmaskFloat         TransformerType = "greenmask_float"
 	GreenmaskUUID          TransformerType = "greenmask_uuid"
