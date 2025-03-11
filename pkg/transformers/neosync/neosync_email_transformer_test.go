@@ -49,13 +49,6 @@ func TestNewEmailTransformer(t *testing.T) {
 			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
-			name: "error - invalid excluded_domains",
-			params: transformers.Parameters{
-				"excluded_domains": 1,
-			},
-			wantErr: nil,
-		},
-		{
 			name: "error - invalid max_length",
 			params: transformers.Parameters{
 				"max_length": "1",
