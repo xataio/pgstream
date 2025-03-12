@@ -222,12 +222,12 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
   <summary>Search Batch Indexer</summary>
 
 | Environment Variable                               | Default | Required | Description                                                                                                    |
-| -------------------------------------------------- | ------- | -------- | -------------------------------------------------------------------------------------------------------------- | --- |
+| -------------------------------------------------- | ------- | -------- | -------------------------------------------------------------------------------------------------------------- |
 | PGSTREAM_OPENSEARCH_STORE_URL                      | N/A     | Yes      | URL for the opensearch store to connect to (at least one of the URLs must be provided).                        |
 | PGSTREAM_ELASTICSEARCH_STORE_URL                   | N/A     | Yes      | URL for the elasticsearch store to connect to (at least one of the URLs must be provided).                     |
 | PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT              | 1s      | No       | Max time interval at which the batch sending to the search store is triggered.                                 |
 | PGSTREAM_SEARCH_INDEXER_BATCH_SIZE                 | 100     | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to the search store. |
-| PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES            | 100MiB  | No       | Max memory used by the search batch indexer for inflight batches.                                              |     |
+| PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES            | 100MiB  | No       | Max memory used by the search batch indexer for inflight batches.                                              |
 | PGSTREAM_SEARCH_STORE_EXP_BACKOFF_INITIAL_INTERVAL | 1s      | No       | Initial interval for the exponential backoff policy to be applied to the search store operation retries.       |
 | PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_INTERVAL     | 1min    | No       | Max interval for the exponential backoff policy to be applied to the search store operation retries.           |
 | PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_RETRIES      | 0       | No       | Max retries for the exponential backoff policy to be applied to the search store operation retries.            |
@@ -261,11 +261,11 @@ One of exponential/constant backoff policies can be provided for the search stor
   <summary>Postgres Batch Writer</summary>
 
 | Environment Variable                         | Default | Required | Description                                                                                                      |
-| -------------------------------------------- | ------- | -------- | ---------------------------------------------------------------------------------------------------------------- | --- |
+| -------------------------------------------- | ------- | -------- | ---------------------------------------------------------------------------------------------------------------- |
 | PGSTREAM_POSTGRES_WRITER_TARGET_URL          | N/A     | Yes      | URL for the PostgreSQL store to connect to                                                                       |
 | PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT       | 1s      | No       | Max time interval at which the batch sending to PostgreSQL is triggered.                                         |
 | PGSTREAM_POSTGRES_WRITER_BATCH_SIZE          | 100     | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to PostgreSQL.         |
-| PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES     | 100MiB  | No       | Max memory used by the postgres batch writer for inflight batches.                                               |     |
+| PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES     | 100MiB  | No       | Max memory used by the postgres batch writer for inflight batches.                                               |
 | PGSTREAM_POSTGRES_WRITER_BATCH_BYTES         | 1572864 | No       | Max size in bytes for a given batch. When this size is reached, the batch is sent to PostgreSQL.                 |
 | PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL | N/A     | No       | URL of the store where the pgstream schemalog table which keeps track of schema changes is.                      |
 | PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS    | False   | No       | Option to disable triggers on the target PostgreSQL database while performing the snaphot/replication streaming. |
