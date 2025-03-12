@@ -33,7 +33,7 @@ The current implementations of the listener include:
 
 ### WAL Processor
 
-A processor processes a WAL event. Depending on the implementation it might also be required to checkpoint the event once it's done processing it as described above.
+A processor processes a WAL event. Depending on the implementation it might also be required to checkpoint the event once it's done processing it as described above. Wherever possible the processors are implemented to continuously consume the replication slot by using configurable memory guards, aiming to prevent the replication slot lag from growing out of control.
 
 The current implementations of the processor include:
 

@@ -20,19 +20,15 @@
 ## Features
 
 - Schema change tracking and replication of DDL changes
-- Fast initial snapshots
-- Column value transformations
-- Modular deployment configuration, only requires Postgres
-- Multiple out of the box supported outputs
+- Multiple out of the box supported replication outputs
   - Elasticsearch/OpenSearch
   - Webhooks
   - PostgreSQL
+- Initial and on demand PostgreSQL snapshots (for when you don't need continuous replication)
+- Column value transformations (anonymise your data on the go!)
+- Modular deployment configuration, only requires Postgres
 - Kafka support with schema based partitioning
-- Snapshot only mode (for when you don't need continuous replication)
 - Extendable support for custom output plugins
-- Automatic discovery of table primary key/unique not null columns for use as event identity
-- Core metrics available via opentelemetry
-- Continuous consumption of replication slot with configurable memory guards
 
 ## Table of Contents
 
