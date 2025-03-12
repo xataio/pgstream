@@ -68,14 +68,7 @@ func TestNewEmailTransformer(t *testing.T) {
 			params: transformers.Parameters{
 				"excluded_domains": []any{"example.com", 3},
 			},
-			wantErr: errInvalidExcludedDomains,
-		},
-		{
-			name: "error - invalid excluded_domains, int",
-			params: transformers.Parameters{
-				"excluded_domains": 3,
-			},
-			wantErr: errInvalidExcludedDomains,
+			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
 			name: "error - invalid email_type",
@@ -126,7 +119,7 @@ func TestEmailTransformer_Transform(t *testing.T) {
 		input              string
 		emailType          string
 		invalidEmailAction string
-		excludedDomains    any
+		excludedDomains    []string
 		maxLength          int
 		preserveDomain     bool
 		preserveLength     bool
@@ -168,7 +161,6 @@ func TestEmailTransformer_Transform(t *testing.T) {
 			input:              "myname@lastname.com",
 			emailType:          "uuidv4",
 			invalidEmailAction: "passthrough",
-			excludedDomains:    "example.com, example.org",
 			maxLength:          17,
 			preserveDomain:     true,
 			preserveLength:     false,
@@ -205,17 +197,9 @@ func TestEmailTransformer_Transform(t *testing.T) {
 			if tc.preserveDomain {
 				require.Equal(t, domainExpected, domainGot)
 			}
+
 			if tc.excludedDomains != nil {
-				excludedDomains := []string{}
-				switch v := tc.excludedDomains.(type) {
-				case string:
-					excludedDomains = strings.Split(v, ",")
-				case []string:
-					excludedDomains = v
-				default:
-					require.Fail(t, "unexpected type for excludedDomains")
-				}
-				require.NotContains(t, excludedDomains, domainGot)
+				require.NotContains(t, tc.excludedDomains, domainGot)
 			}
 
 			if tc.preserveLength {

@@ -16,7 +16,6 @@ type EmailTransformer struct {
 }
 
 var (
-	errInvalidExcludedDomains    = errors.New("excluded_domains must be casteable to []string")
 	errInvalidEmailType          = errors.New("email_type must be one of 'uuidv4', 'fullname' or 'any'")
 	errInvalidInvalidEmailAction = errors.New("invalid_email_action must be one of 'reject', 'passthrough', 'null' or 'generate'")
 
@@ -44,15 +43,13 @@ func NewEmailTransformer(params transformers.Parameters) (*EmailTransformer, err
 		return nil, fmt.Errorf("neosync_email: preserve_domain must be a boolean: %w", err)
 	}
 
-	excludedDomains, err := findParameter[any](params, "excluded_domains")
+	excludedDomains, err := findParameter[[]string](params, "excluded_domains")
 	if err != nil {
 		return nil, fmt.Errorf("neosync_email: excluded_domains must be type of any: %w", err)
 	}
-
+	var excludedDomainsAny any
 	if excludedDomains != nil {
-		if err := validateExcludedDomains(*excludedDomains); err != nil {
-			return nil, err
-		}
+		excludedDomainsAny = *excludedDomains
 	}
 
 	maxLength, err := findParameter[int](params, "max_length")
@@ -81,7 +78,7 @@ func NewEmailTransformer(params transformers.Parameters) (*EmailTransformer, err
 		return nil, errInvalidInvalidEmailAction
 	}
 
-	opts, err := neosynctransformers.NewTransformEmailOpts(preserveLength, preserveDomain, excludedDomains, toInt64Ptr(maxLength), toInt64Ptr(seed), emailType, invalidEmailAction)
+	opts, err := neosynctransformers.NewTransformEmailOpts(preserveLength, preserveDomain, &excludedDomainsAny, toInt64Ptr(maxLength), toInt64Ptr(seed), emailType, invalidEmailAction)
 	if err != nil {
 		return nil, err
 	}
@@ -89,21 +86,4 @@ func NewEmailTransformer(params transformers.Parameters) (*EmailTransformer, err
 	return &EmailTransformer{
 		transformer: New[string](neosynctransformers.NewTransformEmail(), opts),
 	}, nil
-}
-
-func validateExcludedDomains(excludedDomains any) error {
-	switch v := excludedDomains.(type) {
-	case string:
-		return nil
-	case []string:
-		return nil
-	case []any:
-		for _, anyValue := range v {
-			if _, ok := anyValue.(string); !ok {
-				return errInvalidExcludedDomains
-			}
-		}
-		return nil
-	}
-	return errInvalidExcludedDomains
 }
