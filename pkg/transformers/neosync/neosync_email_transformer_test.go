@@ -132,7 +132,8 @@ func TestEmailTransformer_Transform(t *testing.T) {
 		preserveLength     bool
 		seed               int
 
-		wantErr error
+		wantEmail string
+		wantErr   error
 	}{
 		{
 			name:               "ok - valid custom parameters",
@@ -144,7 +145,9 @@ func TestEmailTransformer_Transform(t *testing.T) {
 			preserveDomain:     false,
 			preserveLength:     false,
 			seed:               0,
-			wantErr:            nil,
+
+			wantEmail: "machadopasqui@donga.com",
+			wantErr:   nil,
 		},
 		{
 			name:               "ok - valid custom parameters, preserve length",
@@ -156,7 +159,9 @@ func TestEmailTransformer_Transform(t *testing.T) {
 			preserveDomain:     false,
 			preserveLength:     true,
 			seed:               0,
-			wantErr:            nil,
+
+			wantEmail: "malisuaul@baike.com",
+			wantErr:   nil,
 		},
 		{
 			name:               "ok - valid custom parameters, preserve domain",
@@ -168,7 +173,9 @@ func TestEmailTransformer_Transform(t *testing.T) {
 			preserveDomain:     true,
 			preserveLength:     false,
 			seed:               0,
-			wantErr:            nil,
+
+			wantEmail: "",
+			wantErr:   nil,
 		},
 	}
 	for _, tc := range tests {
@@ -217,6 +224,10 @@ func TestEmailTransformer_Transform(t *testing.T) {
 
 			if tc.maxLength != 0 {
 				require.LessOrEqual(t, len(val), tc.maxLength)
+			}
+
+			if tc.wantEmail != "" {
+				require.Equal(t, tc.wantEmail, val)
 			}
 		})
 	}
