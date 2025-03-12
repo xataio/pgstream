@@ -243,4 +243,5 @@ DROP TABLE tutorial_test;
 
 ## Demo
 
-![Tutorial Demo](../demos/tutorial_pg2pg_demo.mov)
+https://github.com/user-attachments/assets/32e25f8f-6aa4-49c5-8986-0b23f81826db
+
