@@ -268,11 +268,11 @@ One of exponential/constant backoff policies can be provided for the search stor
   <summary>Postgres Batch Writer</summary>
 
 | Environment Variable                         | Default | Required | Description                                                                                                      |
-| -------------------------------------------- | ------- | -------- | ---------------------------------------------------------------------------------------------------------------- | --- |
+| -------------------------------------------- | ------- | -------- | ---------------------------------------------------------------------------------------------------------------- |
 | PGSTREAM_POSTGRES_WRITER_TARGET_URL          | N/A     | Yes      | URL for the PostgreSQL store to connect to                                                                       |
 | PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT       | 1s      | No       | Max time interval at which the batch sending to PostgreSQL is triggered.                                         |
 | PGSTREAM_POSTGRES_WRITER_BATCH_SIZE          | 100     | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to PostgreSQL.         |
-| PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES     | 100MiB  | No       | Max memory used by the postgres batch writer for inflight batches.                                               |     |
+| PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES     | 100MiB  | No       | Max memory used by the postgres batch writer for inflight batches.                                               |
 | PGSTREAM_POSTGRES_WRITER_BATCH_BYTES         | 1572864 | No       | Max size in bytes for a given batch. When this size is reached, the batch is sent to PostgreSQL.                 |
 | PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL | N/A     | No       | URL of the store where the pgstream schemalog table which keeps track of schema changes is.                      |
 | PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS    | False   | No       | Option to disable triggers on the target PostgreSQL database while performing the snaphot/replication streaming. |
