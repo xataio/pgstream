@@ -67,7 +67,6 @@ func toAnyPtr(strArray *[]string) *any {
 		return nil
 	}
 
-	var strArrayAny any
-	strArrayAny = *strArray
+	strArrayAny := any(*strArray)
 	return &strArrayAny
 }
