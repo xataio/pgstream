@@ -34,6 +34,8 @@
 
 - [Usage](#usage)
 - [Configuration](#configuration)
+  - [Listeners](#listeners)
+  - [Processors](#processors)
 - [Documentation](#documentation)
 - [Limitations](#limitations)
 - [Contributing](#contributing)

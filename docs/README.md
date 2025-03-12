@@ -6,8 +6,6 @@
 - [Tracking schema changes](#tracking-schema-changes)
 - [Snapshots](#tracking-schema-changes)
 - [Transformers](#transformers)
-  - [Listeners](#listeners)
-  - [Processors](#processors)
 - [Tutorials](#tutorials)
 - [Glossary](#glossary)
 
