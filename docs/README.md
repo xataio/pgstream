@@ -13,7 +13,9 @@
 
 `pgstream` is constructed as a streaming pipeline, where data from one module streams into the next, eventually reaching the configured outputs. It keeps track of schema changes and replicates them along with the data changes to ensure a consistent view of the source data downstream. This modular approach makes adding and integrating output implementations simple and painless.
 
-![pgstream architecture v1](img/pgstream_arch_v1.png)
+![pgstream architecture v2](img/pgstream_diagram_v2.svg)
+
+![pgstream architecture with kafka v2](img/pgstream_diagram_v2_kafka.svg)
 
 At a high level the implementation is split into WAL listeners and WAL processors.
 
@@ -70,13 +72,25 @@ The schema and data changes are part of the same linear stream - the downstream 
 
 ## Snapshots
 
-`pgstream` can handle the generation of PostgreSQL snapshots, including both schema and data. The current implementations for each are:
+![snapshots diagram](img/pgstream_snapshot_diagram.svg)
 
-- Schema: depending on the configuration, it can use either the pgstream `schema_log` table to get the schema view and process it as events downstream, or rely on the `pg_dump`/`pg_restore` PostgreSQL utilities.
+`pgstream` supports the generation of PostgreSQL schema and data snapshots. It can be done as an initial step before starting the replication listener, or as a standalone mode, where a snapshot of the database is performed without any replication.
+
+The snapshot behaviour is the same in both cases, with the only difference that if we're listening on the replication slot, we will store the current LSN before performing the snapshot, so that we can replay any operations that happened while the snapshot was ongoing.
+
+The snapshot implementation is different for schema and data.
+
+- Schema: depending on the configuration, it can use either the pgstream `schema_log` table to get the schema view and process it as events downstream, or rely on the `pg_dump`/`pg_restore` PostgreSQL utilities if the output is a PostgreSQL database.
 
 - Data: it relies on transaction snapshot ids to obtain a stable view of the database tables, and paralellises the read of all the rows by dividing them into ranges using the `ctid`.
 
+![snapshots sequence](img/pgstream_snapshot_sequence.svg)
+
+For details on how to use and configure the snapshot mode, check the [snapshot tutorial](tutorials/postgres_snapshot.md).
+
 ## Transformers
+
+![transformer diagram](img/pgstream_transformer_diagram.svg)
 
 🚧 Under construction 🚧
 
