@@ -45,7 +45,7 @@ func NewEmailTransformer(params transformers.Parameters) (*EmailTransformer, err
 
 	excludedDomains, err := findParameter[[]string](params, "excluded_domains")
 	if err != nil {
-		return nil, fmt.Errorf("neosync_email: excluded_domains must be type of any: %w", err)
+		return nil, fmt.Errorf("neosync_email: excluded_domains must be type of []string: %w", err)
 	}
 	var excludedDomainsAny any
 	if excludedDomains != nil {
