@@ -61,3 +61,13 @@ func toInt64Ptr(i *int) *int64 {
 	i64 := int64(*i)
 	return &i64
 }
+
+func toAnyPtr(strArray *[]string) *any {
+	if strArray == nil {
+		return nil
+	}
+
+	var strArrayAny any
+	strArrayAny = *strArray
+	return &strArrayAny
+}

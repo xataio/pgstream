@@ -47,10 +47,6 @@ func NewEmailTransformer(params transformers.Parameters) (*EmailTransformer, err
 	if err != nil {
 		return nil, fmt.Errorf("neosync_email: excluded_domains must be type of []string: %w", err)
 	}
-	var excludedDomainsAny any
-	if excludedDomains != nil {
-		excludedDomainsAny = *excludedDomains
-	}
 
 	maxLength, err := findParameter[int](params, "max_length")
 	if err != nil {
@@ -78,7 +74,7 @@ func NewEmailTransformer(params transformers.Parameters) (*EmailTransformer, err
 		return nil, errInvalidInvalidEmailAction
 	}
 
-	opts, err := neosynctransformers.NewTransformEmailOpts(preserveLength, preserveDomain, &excludedDomainsAny, toInt64Ptr(maxLength), toInt64Ptr(seed), emailType, invalidEmailAction)
+	opts, err := neosynctransformers.NewTransformEmailOpts(preserveLength, preserveDomain, toAnyPtr(excludedDomains), toInt64Ptr(maxLength), toInt64Ptr(seed), emailType, invalidEmailAction)
 	if err != nil {
 		return nil, err
 	}
