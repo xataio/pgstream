@@ -243,4 +243,4 @@ DROP TABLE tutorial_test;
 
 ## Demo
 
-![Tutorial Demo](../demos/tutorial_pg2pg_demo.mp4)
+![Tutorial Demo](../demos/tutorial_pg2pg_demo.mov)
