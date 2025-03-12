@@ -8,6 +8,8 @@ The requirements for this tutorial are:
 - A target PostgreSQL database
 - pgstream (see [installation](../../README.md#installation) instructions for more details)
 
+https://github.com/user-attachments/assets/32e25f8f-6aa4-49c5-8986-0b23f81826db
+
 ## Environment setup
 
 The first step is to start the two PostgreSQL databases that will be used as source and target for replication. The `pgstream` repository provides a docker installation that will be used for the purposes of this tutorial, but can be replaced by any available PostgreSQL servers, as long as they have [`wal2json`](https://github.com/eulerto/wal2json) installed.
@@ -240,8 +242,3 @@ ALTER TABLE tutorial_test RENAME COLUMN age TO new_age;
 ALTER TABLE tutorial_test DROP COLUMN new_age;
 DROP TABLE tutorial_test;
 ```
-
-## Demo
-
-https://github.com/user-attachments/assets/32e25f8f-6aa4-49c5-8986-0b23f81826db
-
