@@ -97,8 +97,8 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 ## Tutorials
 
 - [PostgreSQL replication to PostgreSQL](tutorials/postgres_to_postgres.md)
-- PostgreSQL replication to OpenSearch 🚧
-- PostgreSQL replication to webhooks 🚧
+- [PostgreSQL replication to OpenSearch](tutorials/postgres_to_opensearch.md)
+- [PostgreSQL replication to webhooks](tutorials/postgres_to_webhooks.md)
 - PostgreSQL replication using Kafka 🚧
 - [PostgreSQL snapshots](tutorials/postgres_snapshot.md)
 - PostgreSQL column transformations 🚧
