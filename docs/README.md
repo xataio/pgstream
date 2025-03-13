@@ -413,9 +413,9 @@ transformations:
     column_transformers:
       <column_name>:
         name: <transformer_name>
-		generator: <generator_type>
+        generator: <generator_type>
         parameters:
-			<transformer_parameter>: <transformer_parameter_value>
+          <transformer_parameter>: <transformer_parameter_value>
 ```
 
 Example:
@@ -429,13 +429,14 @@ transformations:
         name: neosync_email
         parameters:
           preserve_length: false
-		  preserve_domain: true
-		  min_length: 5
+          preserve_domain: true
+          min_length: 5
           max_length: 10
-	  column_2:
-	  	name: greenmask_firstname
-		parameters:
-		  gender: Female
+      column_2:
+        name: greenmask_firstname
+        generator: deterministic
+        parameters:
+          gender: Female
 ```
 
 For details on how to use and configure the transformer, check the [transformer tutorial](tutorials/postgres_transformer.md).
