@@ -249,7 +249,196 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
 ![transformer diagram](img/pgstream_transformer_diagram.svg)
 
-🚧 Under construction 🚧
+`pgstream` supports column value transformations. This allows you to anonymise data on the go, making sure sensitive information doesn't get replicated downstream. `pgstream` integrates with existing transformer open source libraries, such as [greenmask](https://github.com/GreenmaskIO/greenmask) and [neosync](https://github.com/nucleuscloud/neosync), to leverage a large amount of transformation capabilities, as well as having support for custom transformations.
+
+### Suported transformers
+
+#### Greenmask
+
+ <details>
+  <summary>greenmask_boolean</summary>
+
+| Parameter | Type   | Default | Required | Values               |
+| --------- | ------ | ------- | -------- | -------------------- |
+| generator | string | random  | No       | random,deterministic |
+
+</details>
+
+ <details>
+  <summary>greenmask_choice</summary>
+
+| Parameter | Type     | Default | Required | Values               |
+| --------- | -------- | ------- | -------- | -------------------- |
+| generator | string   | random  | No       | random,deterministic |
+| choices   | string[] | N/A     | Yes      | N/A                  |
+
+</details>
+
+ <details>
+  <summary>greenmask_date</summary>
+
+| Parameter | Type                  | Default | Required | Values               |
+| --------- | --------------------- | ------- | -------- | -------------------- |
+| generator | string                | random  | No       | random,deterministic |
+| min_value | string (`yyyy-MM-dd`) | N/A     | Yes      | N/A                  |
+| max_value | string (`yyyy-MM-dd`) | N/A     | Yes      | N/A                  |
+
+</details>
+
+ <details>
+  <summary>greenmask_firstname</summary>
+
+| Parameter | Type   | Default | Required | Values               |
+| --------- | ------ | ------- | -------- | -------------------- |
+| generator | string | random  | No       | random,deterministic |
+| gender    | string | Any     | No       | Any,Female,Male      |
+
+</details>
+
+ <details>
+  <summary>greenmask_float</summary>
+
+| Parameter | Type   | Default                                       | Required | Values               |
+| --------- | ------ | --------------------------------------------- | -------- | -------------------- |
+| generator | string | random                                        | No       | random,deterministic |
+| min_value | float  | -3.40282346638528859811704183484516925440e+38 | No       | N/A                  |
+| max_value | float  | 3.40282346638528859811704183484516925440e+38  | No       | N/A                  |
+
+</details>
+
+ <details>
+  <summary>greenmask_integer</summary>
+
+| Parameter | Type   | Default     | Required | Values               |
+| --------- | ------ | ----------- | -------- | -------------------- |
+| generator | string | random      | No       | random,deterministic |
+| size      | int    | 4           | No       | 2,4,8                |
+| min_value | int    | -2147483648 | No       | N/A                  |
+| max_value | int    | 2147483647  | No       | N/A                  |
+
+</details>
+
+ <details>
+  <summary>greenmask_string</summary>
+
+| Parameter  | Type   | Default                                                        | Required | Values               |
+| ---------- | ------ | -------------------------------------------------------------- | -------- | -------------------- |
+| generator  | string | random                                                         | No       | random,deterministic |
+| symbols    | string | abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890 | No       | N/A                  |
+| min_length | int    | 1                                                              | No       | N/A                  |
+| max_length | int    | 100                                                            | No       | N/A                  |
+
+</details>
+
+ <details>
+  <summary>greenmask_unix_timestamp</summary>
+
+| Parameter | Type   | Default | Required | Values               |
+| --------- | ------ | ------- | -------- | -------------------- |
+| generator | string | random  | No       | random,deterministic |
+| min_value | int    | N/A     | Yes      | N/A                  |
+| max_value | int    | N/A     | Yes      | N/A                  |
+
+</details>
+
+ <details>
+  <summary>greenmask_utc_timestamp</summary>
+
+| Parameter     | Type               | Default | Required | Values                                                               |
+| ------------- | ------------------ | ------- | -------- | -------------------------------------------------------------------- |
+| generator     | string             | random  | No       | random,deterministic                                                 |
+| truncate_part | string             | ""      | No       | nanosecond,microsecond,millisecond,second,minute,hour,day,month,year |
+| min_timestamp | string (`RFC3339`) | N/A     | Yes      | N/A                                                                  |
+| max_timestamp | string (`RFC3339`) | N/A     | Yes      | N/A                                                                  |
+
+</details>
+
+ <details>
+  <summary>greenmask_uuid</summary>
+
+| Parameter | Type   | Default | Required | Values               |
+| --------- | ------ | ------- | -------- | -------------------- |
+| generator | string | random  | No       | random,deterministic |
+
+</details>
+
+#### Neosync
+
+</details>
+ <details>
+  <summary>neosync_email</summary>
+
+| Parameter            | Type     | Default | Required | Values                           |
+| -------------------- | -------- | ------- | -------- | -------------------------------- |
+| preserve_length      | bool     | false   | No       |                                  |
+| preserve_domain      | bool     | false   | No       |                                  |
+| excluded_domains     | string[] | N/A     | No       |                                  |
+| max_length           | int      | 100     | No       |                                  |
+| email_type           | string   | N/A     | No       | uuidv4,fullname,any              |
+| invalid_email_action | string   | 100     | No       | reject,passthrough,null,generate |
+| seed                 | int      | Rand    | No       |                                  |
+
+</details>
+
+ <details>
+  <summary>neosync_firstname</summary>
+
+| Parameter       | Type | Default | Required |
+| --------------- | ---- | ------- | -------- |
+| preserve_length | bool | false   | No       |
+| max_length      | int  | 100     | No       |
+| seed            | int  | Rand    | No       |
+
+</details>
+ <details>
+  <summary>neosync_string</summary>
+
+| Parameter       | Type | Default | Required |
+| --------------- | ---- | ------- | -------- |
+| preserve_length | bool | false   | No       |
+| min_length      | int  | 1       | No       |
+| max_length      | int  | 100     | No       |
+| seed            | int  | Rand    | No       |
+
+</details>
+
+### Transformation rules
+
+The rules for the transformers are defined in a dedicated yaml file, with the following format:
+
+```yaml
+transformations:
+  - schema: <schema_name>
+    table: <table_name>
+    column_transformers:
+      <column_name>:
+        name: <transformer_name>
+		generator: <generator_type>
+        parameters:
+			<transformer_parameter>: <transformer_parameter_value>
+```
+
+Example:
+
+```yaml
+transformations:
+  - schema: public
+    table: test_table
+    column_transformers:
+      column_1:
+        name: neosync_email
+        parameters:
+          preserve_length: false
+		  preserve_domain: true
+		  min_length: 5
+          max_length: 10
+	  column_2:
+	  	name: greenmask_firstname
+		parameters:
+		  gender: Female
+```
+
+For details on how to use and configure the transformer, check the [transformer tutorial](tutorials/postgres_transformer.md).
 
 ## Tutorials
 
@@ -258,7 +447,7 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 - [PostgreSQL replication to webhooks](tutorials/postgres_to_webhooks.md)
 - [PostgreSQL replication using Kafka](tutorials/postgres_kafka.md)
 - [PostgreSQL snapshots](tutorials/postgres_snapshot.md)
-- PostgreSQL column transformations 🚧
+- [PostgreSQL column transformations](tutorials/postgres_transformer.md)
 
 ## Glossary
 
