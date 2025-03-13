@@ -2,9 +2,9 @@
 
 This tutorial will showcase the use of pgstream to replicate data from a PostgreSQL database to an OpenSearch cluster.
 
+![pg2os tutorial](../img/pgstream_tutorial_pg2os.svg)
 
 https://github.com/user-attachments/assets/5a6b3daa-b57d-492f-a712-166931af89d0
-
 
 The requirements for this tutorial are:
 

@@ -2,6 +2,8 @@
 
 This tutorial will showcase the use of pgstream to replicate data from one PostgreSQL database to another.
 
+![pg2pg tutorial](../img/pgstream_tutorial_pg2pg.svg)
+
 The requirements for this tutorial are:
 
 - A source PostgreSQL database

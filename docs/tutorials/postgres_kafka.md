@@ -2,6 +2,8 @@
 
 This tutorial will showcase the use of pgstream to replicate data from a PostgreSQL database to multiple targets (PostgreSQL and OpenSearch), leveraging Kafka. Kafka can also be used to replicate to a single target, to take advantage of the fan out model that allows for parallel processing of the WAL events thanks to topic partitioning.
 
+![kafka tutorial](../img/pgstream_tutorial_kafka.svg)
+
 The requirements for this tutorial are:
 
 - A source PostgreSQL database

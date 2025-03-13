@@ -2,9 +2,9 @@
 
 This tutorial will showcase the use of pgstream to replicate data from a PostgreSQL database to a webhook server. You can also check out this [blogpost](https://xata.io/blog/postgres-webhooks-with-pgstream) explaining how to use pgstream with webhooks.
 
+![pg2webhooks tutorial](../img/pgstream_tutorial_pg2webhooks.svg)
 
 https://github.com/user-attachments/assets/46797a58-94a1-4283-b431-f18b5853929c
-
 
 The requirements for this tutorial are:
 

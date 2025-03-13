@@ -2,6 +2,8 @@
 
 This tutorial will showcase the use of pgstream to snapshot data from a PostgreSQL database. For this tutorial, we'll use a PostgreSQL output.
 
+![snapshot2pg tutorial](../img/pgstream_tutorial_snapshot2pg.svg)
+
 The requirements for this tutorial are:
 
 - A source PostgreSQL database
