@@ -88,6 +88,20 @@ Here's a list of all the environment variables that can be used to configure the
 </details>
 
 <details>
+  <summary>Postgres Snapshoter</summary>
+
+| Environment Variable                       | Default | Required | Description                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL    | N/A     | Yes      | URL of the Postgres database to snapshot.                                                                                                                                                                                                                                                                    |
+| PGSTREAM_POSTGRES_SNAPSHOT_TABLES          | ""      | No       | Tables for which there will be an initial snapshot generated. The syntax supports wildcards. Tables without a schema defined will be applied the public schema. Example: for `public.test_table` and all tables in the `test_schema` schema, the value would be the following: `"test_table test_schema.\*"` |
+| PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS  | 4       | No       | Number of tables per schema that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                  |
+| PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS   | 4       | No       | Number of concurrent workers that will be used per table by the snapshotting process.                                                                                                                                                                                                                        |
+| PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE | 1000    | No       | Size of the table page range which will be processed concurrently by the table workers from `PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS`.                                                                                                                                                                      |
+| PGSTREAM_POSTGRES_SNAPSHOT_WORKERS         | 1       | No       | Number of schemas that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                            |
+
+</details>
+
+<details>
   <summary>Kafka Listener</summary>
 
 | Environment Variable                               | Default  | Required         | Description                                                                                            |
