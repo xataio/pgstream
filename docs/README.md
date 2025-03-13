@@ -7,7 +7,7 @@
   - [Listeners](#listeners)
   - [Processors](#processors)
 - [Tracking schema changes](#tracking-schema-changes)
-- [Snapshots](#tracking-schema-changes)
+- [Snapshots](#snapshots)
 - [Transformers](#transformers)
 - [Tutorials](#tutorials)
 - [Glossary](#glossary)
@@ -256,7 +256,7 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 - [PostgreSQL replication to PostgreSQL](tutorials/postgres_to_postgres.md)
 - [PostgreSQL replication to OpenSearch](tutorials/postgres_to_opensearch.md)
 - [PostgreSQL replication to webhooks](tutorials/postgres_to_webhooks.md)
-- PostgreSQL replication using Kafka 🚧
+- [PostgreSQL replication using Kafka](tutorials/postgres_kafka.md)
 - [PostgreSQL snapshots](tutorials/postgres_snapshot.md)
 - PostgreSQL column transformations 🚧
 
