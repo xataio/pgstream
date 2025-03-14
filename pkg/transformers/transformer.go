@@ -4,6 +4,7 @@ package transformers
 
 import (
 	"errors"
+	"reflect"
 )
 
 type Transformer interface {
@@ -55,6 +56,21 @@ func FindParameter[T any](params Parameters, name string) (T, bool, error) {
 	valAny, found := params[name]
 	if !found {
 		return *new(T), false, nil
+	}
+
+	if reflect.TypeOf(*new(T)).String() == "[]string" {
+		val, ok := valAny.([]interface{})
+		if !ok {
+			return *new(T), true, ErrInvalidParameters
+		}
+		valStr := make([]string, len(val))
+		for i, v := range val {
+			valStr[i], ok = v.(string)
+			if !ok {
+				return *new(T), true, ErrInvalidParameters
+			}
+		}
+		return any(valStr).(T), true, nil
 	}
 
 	val, ok := valAny.(T)
