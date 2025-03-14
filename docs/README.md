@@ -250,10 +250,10 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
 `pgstream` supports column value transformations. This allows you to anonymise data on the go, making sure sensitive information doesn't get replicated downstream. `pgstream` integrates with existing transformer open source libraries, such as [greenmask](https://github.com/GreenmaskIO/greenmask) and [neosync](https://github.com/nucleuscloud/neosync), to leverage a large amount of transformation capabilities, as well as having support for custom transformations.
 
-### Suported transformers
+### Supported transformers
 
 #### Greenmask
-
+All Greenmask transformers can be configured to be deterministic or random, by simply adding a pair with key named `generator` and value as either `deterministic` or `random`, to the transformer rules file. This pair should not be added into `parameters` though, but should be added to the same level as `parameters` and `name`. This is not required and the default is `random`. Please see below example rules file.
  <details>
   <summary>greenmask_boolean</summary>
 
@@ -261,22 +261,19 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 | -------------------------- |
 | `boolean`                  |
 
-| Parameter | Type   | Default | Required | Values               |
-| --------- | ------ | ------- | -------- | -------------------- |
-| generator | string | random  | No       | random,deterministic |
+No parameters for boolean transformer.
 
 </details>
 
  <details>
   <summary>greenmask_choice</summary>
 
-| Supported PostgreSQL types |
-| -------------------------- |
-| Any                        |
+| Supported PostgreSQL types          |
+| ----------------------------------- |
+| `text`, `varchar`, `char`, `bpchar` |
 
 | Parameter | Type     | Default | Required | Values               |
 | --------- | -------- | ------- | -------- | -------------------- |
-| generator | string   | random  | No       | random,deterministic |
 | choices   | string[] | N/A     | Yes      | N/A                  |
 
 </details>
@@ -290,7 +287,6 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
 | Parameter | Type                  | Default | Required | Values               |
 | --------- | --------------------- | ------- | -------- | -------------------- |
-| generator | string                | random  | No       | random,deterministic |
 | min_value | string (`yyyy-MM-dd`) | N/A     | Yes      | N/A                  |
 | max_value | string (`yyyy-MM-dd`) | N/A     | Yes      | N/A                  |
 
@@ -305,7 +301,6 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
 | Parameter | Type   | Default | Required | Values               |
 | --------- | ------ | ------- | -------- | -------------------- |
-| generator | string | random  | No       | random,deterministic |
 | gender    | string | Any     | No       | Any,Female,Male      |
 
 </details>
@@ -319,7 +314,6 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
 | Parameter | Type   | Default                                       | Required | Values               |
 | --------- | ------ | --------------------------------------------- | -------- | -------------------- |
-| generator | string | random                                        | No       | random,deterministic |
 | min_value | float  | -3.40282346638528859811704183484516925440e+38 | No       | N/A                  |
 | max_value | float  | 3.40282346638528859811704183484516925440e+38  | No       | N/A                  |
 
@@ -334,8 +328,7 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
 | Parameter | Type   | Default     | Required | Values               |
 | --------- | ------ | ----------- | -------- | -------------------- |
-| generator | string | random      | No       | random,deterministic |
-| size      | int    | 4           | No       | 2,4,8                |
+| size      | int    | 4           | No       | 2,4                  |
 | min_value | int    | -2147483648 | No       | N/A                  |
 | max_value | int    | 2147483647  | No       | N/A                  |
 
@@ -350,7 +343,6 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
 | Parameter  | Type   | Default                                                        | Required | Values               |
 | ---------- | ------ | -------------------------------------------------------------- | -------- | -------------------- |
-| generator  | string | random                                                         | No       | random,deterministic |
 | symbols    | string | abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890 | No       | N/A                  |
 | min_length | int    | 1                                                              | No       | N/A                  |
 | max_length | int    | 100                                                            | No       | N/A                  |
@@ -366,7 +358,6 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
 | Parameter | Type   | Default | Required | Values               |
 | --------- | ------ | ------- | -------- | -------------------- |
-| generator | string | random  | No       | random,deterministic |
 | min_value | string | N/A     | Yes      | N/A                  |
 | max_value | string | N/A     | Yes      | N/A                  |
 
@@ -381,7 +372,6 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
 | Parameter     | Type               | Default | Required | Values                                                               |
 | ------------- | ------------------ | ------- | -------- | -------------------------------------------------------------------- |
-| generator     | string             | random  | No       | random,deterministic                                                 |
 | truncate_part | string             | ""      | No       | nanosecond,microsecond,millisecond,second,minute,hour,day,month,year |
 | min_timestamp | string (`RFC3339`) | N/A     | Yes      | N/A                                                                  |
 | max_timestamp | string (`RFC3339`) | N/A     | Yes      | N/A                                                                  |
@@ -395,9 +385,7 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 | ------------------------------------------ |
 | `uuid`,`text`, `varchar`, `char`, `bpchar` |
 
-| Parameter | Type   | Default | Required | Values               |
-| --------- | ------ | ------- | -------- | -------------------- |
-| generator | string | random  | No       | random,deterministic |
+No parameters for uuid transformer.
 
 </details>
 
