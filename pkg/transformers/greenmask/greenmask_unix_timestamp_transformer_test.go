@@ -3,6 +3,7 @@
 package greenmask
 
 import (
+	"strconv"
 	"testing"
 
 	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
@@ -22,10 +23,19 @@ func TestNewUnixTimestampTransformer(t *testing.T) {
 			name:      "ok - valid random",
 			generator: transformers.Random,
 			params: transformers.Parameters{
-				"min_value": int64(-2734919135000),
-				"max_value": int64(72438947289300),
+				"min_value": "-1741957250",
+				"max_value": "1741957250",
 			},
 			wantErr: nil,
+		},
+		{
+			name:      "error - invalid generator",
+			generator: "invalid",
+			params: transformers.Parameters{
+				"min_value": "-1741957250",
+				"max_value": "1741957250",
+			},
+			wantErr: transformers.ErrUnsupportedGenerator,
 		},
 		{
 			name:      "error - invalid min_value",
@@ -39,8 +49,8 @@ func TestNewUnixTimestampTransformer(t *testing.T) {
 			name:      "error - invalid max_value",
 			generator: transformers.Deterministic,
 			params: transformers.Parameters{
-				"min_value": int64(1380002000000),
-				"max_value": "invalid",
+				"min_value": "1741957250",
+				"max_value": 3,
 			},
 			wantErr: transformers.ErrInvalidParameters,
 		},
@@ -48,7 +58,7 @@ func TestNewUnixTimestampTransformer(t *testing.T) {
 			name:      "error - min_value missing",
 			generator: transformers.Deterministic,
 			params: transformers.Parameters{
-				"max_value": int64(72438947289300),
+				"max_value": "1741957250",
 			},
 			wantErr: errMinMaxValueNotSpecified,
 		},
@@ -56,8 +66,8 @@ func TestNewUnixTimestampTransformer(t *testing.T) {
 			name:      "error - invalid limits",
 			generator: transformers.Random,
 			params: transformers.Parameters{
-				"min_value": int64(72438947289300),
-				"max_value": int64(-72438947289300),
+				"min_value": "1741957250",
+				"max_value": "1741957250",
 			},
 			wantErr: greenmasktransformers.ErrWrongLimits,
 		},
@@ -88,8 +98,8 @@ func TestUnixTimestampTransformer_Transform(t *testing.T) {
 			name:      "ok - random",
 			generator: transformers.Random,
 			params: transformers.Parameters{
-				"min_value": int64(1625097600),
-				"max_value": int64(1625184000),
+				"min_value": "1625097600",
+				"max_value": "1625184000",
 			},
 			input: int64(0),
 		},
@@ -97,8 +107,8 @@ func TestUnixTimestampTransformer_Transform(t *testing.T) {
 			name:      "ok - deterministic",
 			generator: transformers.Deterministic,
 			params: transformers.Parameters{
-				"min_value": int64(1625097600),
-				"max_value": int64(1625184000),
+				"min_value": "1625097600",
+				"max_value": "1625184000",
 			},
 			input: int64(-1),
 		},
@@ -114,10 +124,14 @@ func TestUnixTimestampTransformer_Transform(t *testing.T) {
 
 			v, ok := got.(int64)
 			require.True(t, ok)
-			minVal, ok := tt.params["min_value"].(int64)
+			minValStr, ok := tt.params["min_value"].(string)
 			require.True(t, ok)
-			maxVal, ok := tt.params["max_value"].(int64)
+			minVal, err := strconv.ParseInt(minValStr, 10, 64)
+			require.NoError(t, err)
+			maxValStr, ok := tt.params["max_value"].(string)
 			require.True(t, ok)
+			maxVal, err := strconv.ParseInt(maxValStr, 10, 64)
+			require.NoError(t, err)
 			require.GreaterOrEqual(t, v, minVal)
 			require.LessOrEqual(t, v, maxVal)
 
