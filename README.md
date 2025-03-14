@@ -33,6 +33,7 @@
 ## Table of Contents
 
 - [Usage](#usage)
+- [Tutorials](#tutorials)
 - [Documentation](#documentation)
 - [Limitations](#limitations)
 - [Contributing](#contributing)
@@ -149,9 +150,18 @@ pgstream run -c snapshot2pg.env --log-level trace
 
 The run command will parse the configuration provided, and initialise the configured modules. It requires at least one listener and one processor.
 
+## Tutorials
+
+- [PostgreSQL replication to PostgreSQL](docs/tutorials/postgres_to_postgres.md)
+- [PostgreSQL replication to OpenSearch](docs/tutorials/postgres_to_opensearch.md)
+- [PostgreSQL replication to webhooks](docs/tutorials/postgres_to_webhooks.md)
+- [PostgreSQL replication using Kafka](docs/tutorials/postgres_kafka.md)
+- [PostgreSQL snapshots](docs/tutorials/postgres_snapshot.md)
+- [PostgreSQL column transformations](docs/tutorials/postgres_transformer.md)
+
 ## Documentation
 
-For more advanced usage, tutorials, and detailed configuration settings, please refer to the full [Documentation](docs/README.md).
+For more advanced usage, implementation details, and detailed configuration settings, please refer to the full [Documentation](docs/README.md).
 
 ## Limitations
 

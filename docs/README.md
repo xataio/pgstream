@@ -9,7 +9,6 @@
 - [Tracking schema changes](#tracking-schema-changes)
 - [Snapshots](#snapshots)
 - [Transformers](#transformers)
-- [Tutorials](#tutorials)
 - [Glossary](#glossary)
 
 ## Architecture
@@ -440,15 +439,6 @@ transformations:
 ```
 
 For details on how to use and configure the transformer, check the [transformer tutorial](tutorials/postgres_transformer.md).
-
-## Tutorials
-
-- [PostgreSQL replication to PostgreSQL](tutorials/postgres_to_postgres.md)
-- [PostgreSQL replication to OpenSearch](tutorials/postgres_to_opensearch.md)
-- [PostgreSQL replication to webhooks](tutorials/postgres_to_webhooks.md)
-- [PostgreSQL replication using Kafka](tutorials/postgres_kafka.md)
-- [PostgreSQL snapshots](tutorials/postgres_snapshot.md)
-- [PostgreSQL column transformations](tutorials/postgres_transformer.md)
 
 ## Glossary
 
