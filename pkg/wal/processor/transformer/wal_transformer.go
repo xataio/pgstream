@@ -107,7 +107,8 @@ func (t *Transformer) applyTransformations(event *wal.Event) error {
 				"severity":    "DATALOSS",
 				"column_name": col.Name,
 				"schema":      event.Data.Schema,
-				"table":       event.Data.Table})
+				"table":       event.Data.Table,
+			})
 			newValue = nil
 		}
 		t.logger.Trace("applying column transformation", loglib.Fields{"column_name": col.Name, "column_value": col.Value, "new_column_value": newValue})
