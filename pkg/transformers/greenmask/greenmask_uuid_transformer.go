@@ -35,6 +35,8 @@ func (ut *UUIDTransformer) Transform(value any) (any, error) {
 		toTransform = val[:]
 	case []byte:
 		toTransform = val
+	case [16]uint8:
+		toTransform = val[:]
 	default:
 		return nil, transformers.ErrUnsupportedValueType
 	}

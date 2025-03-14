@@ -30,8 +30,8 @@ func TestNewIntegerTransformer(t *testing.T) {
 			generator: transformers.Deterministic,
 			params: transformers.Parameters{
 				"size":      4,
-				"min_value": int64(-100),
-				"max_value": int64(100),
+				"min_value": -100,
+				"max_value": 100,
 			},
 			wantErr: nil,
 		},
@@ -60,8 +60,8 @@ func TestNewIntegerTransformer(t *testing.T) {
 			name:      "error - wrong limits",
 			generator: transformers.Random,
 			params: transformers.Parameters{
-				"min_value": int64(100),
-				"max_value": int64(99),
+				"min_value": 100,
+				"max_value": 99,
 			},
 			wantErr: greenmasktransformers.ErrWrongLimits,
 		},
@@ -69,8 +69,8 @@ func TestNewIntegerTransformer(t *testing.T) {
 			name:      "error - wrong limits not fitting size",
 			generator: transformers.Random,
 			params: transformers.Parameters{
-				"min_value": int64(math.MaxInt32),
-				"size":      4,
+				"min_value": math.MaxInt,
+				"size":      2,
 			},
 			wantErr: greenmasktransformers.ErrWrongLimits,
 		},
@@ -129,9 +129,9 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 			generatorType: transformers.Random,
 			input:         int8(120),
 			params: map[string]any{
-				"size":      8,
-				"min_value": int64(-100),
-				"max_value": int64(100),
+				"size":      4,
+				"min_value": -100,
+				"max_value": 100,
 			},
 		},
 		{
@@ -140,8 +140,8 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 			input:         uint8(120),
 			params: map[string]any{
 				"size":      2,
-				"min_value": int64(-100),
-				"max_value": int64(100),
+				"min_value": -100,
+				"max_value": 100,
 			},
 		},
 		{
@@ -150,8 +150,8 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 			input:         []byte{0, 0, 0, 50},
 			params: map[string]any{
 				"size":      4,
-				"min_value": int64(-100),
-				"max_value": int64(500),
+				"min_value": -100,
+				"max_value": 500,
 			},
 		},
 		{
@@ -159,9 +159,8 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 			generatorType: transformers.Random,
 			input:         int16(500),
 			params: map[string]any{
-				"size":      8,
-				"min_value": int64(-400),
-				"max_value": int64(100),
+				"min_value": -400,
+				"max_value": 100,
 			},
 		},
 		{
@@ -191,7 +190,7 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 			input:         int32(45000),
 			params: map[string]any{
 				"size":      2,
-				"min_value": int64(-100),
+				"min_value": -100,
 			},
 		},
 		{
@@ -200,7 +199,7 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 			input:         uint16(0),
 			params: map[string]any{
 				"size":      2,
-				"min_value": int64(-100),
+				"min_value": -100,
 			},
 		},
 		{
@@ -208,8 +207,8 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 			generatorType: transformers.Deterministic,
 			input:         uint64(1000000000000000000),
 			params: map[string]any{
-				"size":      8,
-				"min_value": int64(math.MaxInt64 - 1),
+				"size":      4,
+				"min_value": math.MaxInt32 - 2,
 			},
 		},
 		{
@@ -218,7 +217,7 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 			input:         []byte{0, 1, 2, 3, 0, 0, 50, 0, 0, 0},
 			params: map[string]any{
 				"size":      2,
-				"min_value": int64(-100),
+				"min_value": -100,
 			},
 		},
 		{
@@ -233,9 +232,9 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 			generatorType: transformers.Random,
 			input:         "invalid",
 			params: map[string]any{
-				"size":      8,
-				"min_value": int64(-100),
-				"max_value": int64(100),
+				"size":      4,
+				"min_value": -100,
+				"max_value": 100,
 			},
 			wantErr: transformers.ErrUnsupportedValueType,
 		},
@@ -253,17 +252,18 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 				return
 			}
 
-			result, ok := got.(int64)
+			result64, ok := got.(int64)
 			require.True(t, ok, "expected got to be of type int64")
+			result := int(result64)
 
 			// check if the result is within the specified range
-			minVal, found, err := transformers.FindParameter[int64](tt.params, "min_value")
+			minVal, found, err := transformers.FindParameter[int](tt.params, "min_value")
 			require.NoError(t, err)
 			if found {
 				require.True(t, result >= minVal)
 			}
 
-			maxVal, found, err := transformers.FindParameter[int64](tt.params, "max_value")
+			maxVal, found, err := transformers.FindParameter[int](tt.params, "max_value")
 			require.NoError(t, err)
 			if found {
 				require.True(t, result <= maxVal)
