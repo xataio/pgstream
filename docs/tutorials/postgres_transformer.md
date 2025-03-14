@@ -223,7 +223,7 @@ SELECT * FROM test;
 +----+---------+------------------+
 ```
 
-When we check the target PostgreSQL database, we should see the tree rows have been inserted, but both the name and the emails have been anonymised.
+When we check the target PostgreSQL database, we should see the three rows have been inserted, but both the name and the emails have been anonymised.
 
 ```sh
 ➜ psql postgresql://postgres:postgres@localhost:7654/postgres
