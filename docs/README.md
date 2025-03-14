@@ -257,6 +257,10 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
  <details>
   <summary>greenmask_boolean</summary>
 
+| Supported PostgreSQL types |
+| -------------------------- |
+| `boolean`                  |
+
 | Parameter | Type   | Default | Required | Values               |
 | --------- | ------ | ------- | -------- | -------------------- |
 | generator | string | random  | No       | random,deterministic |
@@ -265,6 +269,10 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
  <details>
   <summary>greenmask_choice</summary>
+
+| Supported PostgreSQL types |
+| -------------------------- |
+| Any                        |
 
 | Parameter | Type     | Default | Required | Values               |
 | --------- | -------- | ------- | -------- | -------------------- |
@@ -275,6 +283,10 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
  <details>
   <summary>greenmask_date</summary>
+
+| Supported PostgreSQL types         |
+| ---------------------------------- |
+| `date`, `timestamp`, `timestamptz` |
 
 | Parameter | Type                  | Default | Required | Values               |
 | --------- | --------------------- | ------- | -------- | -------------------- |
@@ -287,6 +299,10 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
  <details>
   <summary>greenmask_firstname</summary>
 
+| Supported PostgreSQL types          |
+| ----------------------------------- |
+| `text`, `varchar`, `char`, `bpchar` |
+
 | Parameter | Type   | Default | Required | Values               |
 | --------- | ------ | ------- | -------- | -------------------- |
 | generator | string | random  | No       | random,deterministic |
@@ -296,6 +312,10 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
  <details>
   <summary>greenmask_float</summary>
+
+| Supported PostgreSQL types |
+| -------------------------- |
+| `real`, `double precision` |
 
 | Parameter | Type   | Default                                       | Required | Values               |
 | --------- | ------ | --------------------------------------------- | -------- | -------------------- |
@@ -307,6 +327,10 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
  <details>
   <summary>greenmask_integer</summary>
+
+| Supported PostgreSQL types     |
+| ------------------------------ |
+| `smallint`,`integer`, `bigint` |
 
 | Parameter | Type   | Default     | Required | Values               |
 | --------- | ------ | ----------- | -------- | -------------------- |
@@ -320,6 +344,10 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
  <details>
   <summary>greenmask_string</summary>
 
+| Supported PostgreSQL types          |
+| ----------------------------------- |
+| `text`, `varchar`, `char`, `bpchar` |
+
 | Parameter  | Type   | Default                                                        | Required | Values               |
 | ---------- | ------ | -------------------------------------------------------------- | -------- | -------------------- |
 | generator  | string | random                                                         | No       | random,deterministic |
@@ -332,6 +360,10 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
  <details>
   <summary>greenmask_unix_timestamp</summary>
 
+| Supported PostgreSQL types    |
+| ----------------------------- |
+| `smallint`,`integer`,`bigint` |
+
 | Parameter | Type   | Default | Required | Values               |
 | --------- | ------ | ------- | -------- | -------------------- |
 | generator | string | random  | No       | random,deterministic |
@@ -342,6 +374,10 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
  <details>
   <summary>greenmask_utc_timestamp</summary>
+
+| Supported PostgreSQL types |
+| -------------------------- |
+| `timestamp`                |
 
 | Parameter     | Type               | Default | Required | Values                                                               |
 | ------------- | ------------------ | ------- | -------- | -------------------------------------------------------------------- |
@@ -355,6 +391,10 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
  <details>
   <summary>greenmask_uuid</summary>
 
+| Supported PostgreSQL types                 |
+| ------------------------------------------ |
+| `uuid`,`text`, `varchar`, `char`, `bpchar` |
+
 | Parameter | Type   | Default | Required | Values               |
 | --------- | ------ | ------- | -------- | -------------------- |
 | generator | string | random  | No       | random,deterministic |
@@ -366,6 +406,10 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 </details>
  <details>
   <summary>neosync_email</summary>
+
+| Supported PostgreSQL types          |
+| ----------------------------------- |
+| `text`, `varchar`, `char`, `bpchar` |
 
 | Parameter            | Type     | Default | Required | Values                           |
 | -------------------- | -------- | ------- | -------- | -------------------------------- |
@@ -382,6 +426,10 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
  <details>
   <summary>neosync_firstname</summary>
 
+| Supported PostgreSQL types          |
+| ----------------------------------- |
+| `text`, `varchar`, `char`, `bpchar` |
+
 | Parameter       | Type | Default | Required |
 | --------------- | ---- | ------- | -------- |
 | preserve_length | bool | false   | No       |
@@ -391,6 +439,10 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 </details>
  <details>
   <summary>neosync_string</summary>
+
+| Supported PostgreSQL types          |
+| ----------------------------------- |
+| `text`, `varchar`, `char`, `bpchar` |
 
 | Parameter       | Type | Default | Required |
 | --------------- | ---- | ------- | -------- |
