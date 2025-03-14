@@ -1,0 +1,15 @@
+transformations:
+  - schema: public
+    table: test
+    column_transformers:
+      email:
+        name: neosync_email
+        parameters:
+          preserve_length: true
+          preserve_domain: true
+          email_type: fullname
+      name:
+        name: greenmask_firstname
+        generator: deterministic
+        parameters:
+          gender: Female
