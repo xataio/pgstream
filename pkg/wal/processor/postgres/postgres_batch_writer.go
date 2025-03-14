@@ -195,18 +195,64 @@ func (w *BatchWriter) flushQueries(ctx context.Context, queries []*query) error 
 	if len(queries) == 0 {
 		return nil
 	}
+
+	var err error
+	for {
+		queries, err = w.execQueries(ctx, queries)
+		if err != nil {
+			return err
+		}
+
+		if len(queries) == 0 {
+			return nil
+		}
+	}
+}
+
+func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*query, error) {
+	retryQueries := []*query{}
 	err := w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
-		for _, q := range queries {
+		for i, q := range queries {
 			if _, err := tx.Exec(ctx, q.sql, q.args...); err != nil {
+				w.logger.Error(err, "executing sql query", loglib.Fields{
+					"sql":      q.sql,
+					"args":     q.args,
+					"severity": "DATALOSS",
+				})
+				// if a query returns an error, it will abort the tx. Log it as
+				// dataloss and remove it from the list of queries to be
+				// retried.
+				retryQueries = removeIndex(queries, i)
 				return err
 			}
 		}
 		return nil
 	})
-	if err != nil {
-		return err
+	if err != nil && w.isInternalError(err) {
+		// if there was an internal error in the tx, there's no point in
+		// retrying, return error and stop processing.
+		return nil, err
 	}
 
-	queries = queries[:0]
-	return nil
+	// if there were no errors or no internal errors in the tx, return the
+	// queries to retry (none if the tx was successful)
+	return retryQueries, nil
+}
+
+func (w *BatchWriter) isInternalError(err error) bool {
+	var errRelationDoesNotExist *pglib.ErrRelationDoesNotExist
+	var errConstraintViolation *pglib.ErrConstraintViolation
+	switch {
+	case errors.As(err, &errRelationDoesNotExist),
+		errors.As(err, &errConstraintViolation):
+		return false
+	default:
+		return true
+	}
+}
+
+func removeIndex(s []*query, index int) []*query {
+	ret := make([]*query, 0)
+	ret = append(ret, s[:index]...)
+	return append(ret, s[index+1:]...)
 }

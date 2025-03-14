@@ -5,6 +5,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -235,6 +236,112 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 
 			err := writer.sendBatch(context.Background(), tc.batch)
 			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestBatchWriter_flushQueries(t *testing.T) {
+	t.Parallel()
+
+	testQuerySQL := "INSERT INTO test(id, name) VALUES($1, $2)"
+	args1 := []any{1, "alice"}
+	args2 := []any{1, "bob"}
+
+	testQuery := func(args []any) *query {
+		return &query{
+			sql:  testQuerySQL,
+			args: args,
+		}
+	}
+	execCalls := uint(0)
+
+	tests := []struct {
+		name    string
+		pgconn  *pgmocks.Querier
+		queries []*query
+
+		wantExecCalls uint
+		wantErr       error
+	}{
+		{
+			name: "ok - no queries",
+			pgconn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					return errors.New("ExecInTxFn: should not be called")
+				},
+			},
+			queries: []*query{},
+
+			wantExecCalls: 0,
+			wantErr:       nil,
+		},
+		{
+			name: "ok",
+			pgconn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							execCalls++
+							require.Equal(t, testQuerySQL, query)
+							require.Len(t, args, 2)
+							switch args[1] {
+							case args1[1]:
+								return pglib.CommandTag{}, nil
+							case args2[1]:
+								return pglib.CommandTag{}, &pglib.ErrConstraintViolation{}
+							default:
+								return pglib.CommandTag{}, fmt.Errorf("unexpected argument in sql query: %v", args[1])
+							}
+						},
+					}
+					return f(&mockTx)
+				},
+			},
+			queries: []*query{testQuery(args1), testQuery(args2)},
+
+			wantExecCalls: 3,
+			wantErr:       nil,
+		},
+		{
+			name: "error - internal error in tx exec",
+			pgconn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							execCalls++
+							require.Equal(t, testQuerySQL, query)
+							require.Len(t, args, 2)
+							switch args[1] {
+							case args1[1]:
+								return pglib.CommandTag{}, nil
+							case args2[1]:
+								return pglib.CommandTag{}, errTest
+							default:
+								return pglib.CommandTag{}, fmt.Errorf("unexpected argument in sql query: %v", args[1])
+							}
+						},
+					}
+					return f(&mockTx)
+				},
+			},
+			queries: []*query{testQuery(args1), testQuery(args2)},
+
+			wantExecCalls: 2,
+			wantErr:       errTest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			bw := &BatchWriter{
+				logger: loglib.NewNoopLogger(),
+				pgConn: tc.pgconn,
+			}
+
+			err := bw.flushQueries(context.Background(), tc.queries)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantExecCalls, execCalls)
+			execCalls = 0
 		})
 	}
 }
