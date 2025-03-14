@@ -32,6 +32,14 @@ func (e *ErrConstraintViolation) Error() string {
 	return fmt.Sprintf("constraint violation: %s", e.Details)
 }
 
+type ErrSyntaxError struct {
+	Details string
+}
+
+func (e *ErrSyntaxError) Error() string {
+	return fmt.Sprintf("syntax error: %s", e.Details)
+}
+
 func mapError(err error) error {
 	if pgconn.Timeout(err) {
 		return ErrConnTimeout
@@ -45,6 +53,11 @@ func mapError(err error) error {
 	if errors.As(err, &pgErr) {
 		if pgErr.Code == "42P01" {
 			return &ErrRelationDoesNotExist{
+				Details: pgErr.Message,
+			}
+		}
+		if pgErr.Code == "42601" {
+			return &ErrSyntaxError{
 				Details: pgErr.Message,
 			}
 		}

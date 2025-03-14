@@ -211,6 +211,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 			return err
 		}
 		defer pgBatchWriter.Close()
+		logger.Info("starting postgres batch writer...")
 
 		processor = pgBatchWriter
 
@@ -222,6 +223,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 		logger.Info("adding transformation layer to processor...")
 		transformer, err := transformer.New(config.Processor.Transformer, processor, transformer.WithLogger(logger))
 		if err != nil {
+			logger.Error(err, "creating transformer layer")
 			return err
 		}
 		processor = transformer

@@ -242,9 +242,11 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 func (w *BatchWriter) isInternalError(err error) bool {
 	var errRelationDoesNotExist *pglib.ErrRelationDoesNotExist
 	var errConstraintViolation *pglib.ErrConstraintViolation
+	var errSyntaxError *pglib.ErrSyntaxError
 	switch {
 	case errors.As(err, &errRelationDoesNotExist),
-		errors.As(err, &errConstraintViolation):
+		errors.As(err, &errConstraintViolation),
+		errors.As(err, &errSyntaxError):
 		return false
 	default:
 		return true
