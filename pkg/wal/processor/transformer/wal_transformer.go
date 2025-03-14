@@ -4,7 +4,6 @@ package transformer
 
 import (
 	"context"
-	"fmt"
 
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/transformers"
@@ -92,6 +91,11 @@ func (t *Transformer) applyTransformations(event *wal.Event) error {
 
 	columns := event.Data.Columns
 	for i, col := range columns {
+		// do not transform nil column values for now
+		if col.Value == nil {
+			continue
+		}
+
 		columnTransformer, found := columnTransformers[col.Name]
 		if !found {
 			continue
@@ -99,7 +103,13 @@ func (t *Transformer) applyTransformations(event *wal.Event) error {
 
 		newValue, err := columnTransformer.Transform(col.Value)
 		if err != nil {
-			return fmt.Errorf("transforming column %s from table %s.%s: %w", col.Name, event.Data.Schema, event.Data.Table, err)
+			t.logger.Error(err, "transforming column", loglib.Fields{
+				"severity":    "DATALOSS",
+				"column_name": col.Name,
+				"schema":      event.Data.Schema,
+				"table":       event.Data.Table,
+			})
+			newValue = nil
 		}
 		t.logger.Trace("applying column transformation", loglib.Fields{"column_name": col.Name, "column_value": col.Value, "new_column_value": newValue})
 		columns[i].Value = newValue

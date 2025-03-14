@@ -151,6 +151,34 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - nil column value",
+			event: newTestEvent([]wal.Column{
+				{Name: "column_1", Type: "text", Value: nil},
+				{Name: "column_2", Type: "int", Value: 1},
+			}),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					wantEvent := newTestEvent([]wal.Column{
+						{Name: "column_1", Type: "text", Value: nil},
+						{Name: "column_2", Type: "int", Value: 1},
+					})
+					require.Equal(t, wantEvent, walEvent)
+					return nil
+				},
+			},
+			transformerMap: map[string]columnTransformers{
+				testKey: {
+					"column_1": &transformermocks.Transformer{
+						TransformFn: func(a any) (any, error) {
+							return nil, errors.New("TransformFn: should not be called")
+						},
+					},
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
 			name: "error - transforming",
 			event: newTestEvent([]wal.Column{
 				{Name: "column_1", Type: "text", Value: "one"},
@@ -159,7 +187,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 			processor: &mocks.Processor{
 				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
 					wantEvent := newTestEvent([]wal.Column{
-						{Name: "column_1", Type: "text", Value: "two"},
+						{Name: "column_1", Type: "text", Value: nil},
 						{Name: "column_2", Type: "int", Value: 1},
 					})
 					require.Equal(t, wantEvent, walEvent)
@@ -176,7 +204,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 				},
 			},
 
-			wantErr: errTest,
+			wantErr: nil,
 		},
 	}
 
