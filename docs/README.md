@@ -335,8 +335,8 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 | Parameter | Type   | Default | Required | Values               |
 | --------- | ------ | ------- | -------- | -------------------- |
 | generator | string | random  | No       | random,deterministic |
-| min_value | int    | N/A     | Yes      | N/A                  |
-| max_value | int    | N/A     | Yes      | N/A                  |
+| min_value | string | N/A     | Yes      | N/A                  |
+| max_value | string | N/A     | Yes      | N/A                  |
 
 </details>
 
@@ -373,7 +373,7 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 | preserve_domain      | bool     | false   | No       |                                  |
 | excluded_domains     | string[] | N/A     | No       |                                  |
 | max_length           | int      | 100     | No       |                                  |
-| email_type           | string   | N/A     | No       | uuidv4,fullname,any              |
+| email_type           | string   | uuidv4  | No       | uuidv4,fullname,any              |
 | invalid_email_action | string   | 100     | No       | reject,passthrough,null,generate |
 | seed                 | int      | Rand    | No       |                                  |
 
