@@ -60,5 +60,6 @@ func (t *ChoiceTransformer) Transform(value any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ret, nil
+
+	return ret.Data, nil
 }
