@@ -4,6 +4,8 @@ This tutorial will showcase the use of pgstream to replicate data from PostgreSQ
 
 ![transformer tutorial](../img/pgstream_tutorial_transformer.svg)
 
+https://github.com/user-attachments/assets/905fc81a-5172-4151-aacb-e638fb34e773
+
 The requirements for this tutorial are:
 
 - A source PostgreSQL database
@@ -150,7 +152,7 @@ transformations:
         parameters:
           preserve_length: true
           preserve_domain: true
-		  email_type: fullname
+          email_type: fullname
       name:
         name: greenmask_firstname
         generator: deterministic
