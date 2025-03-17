@@ -19,7 +19,7 @@ var errChoicesEmpty = errors.New("greenmask_choice: choices must not be empty")
 
 func NewChoiceTransformer(generatorType transformers.GeneratorType, params transformers.Parameters) (*ChoiceTransformer, error) {
 	choices := []string{}
-	choices, err := findParameter(params, "choices", choices)
+	choices, err := findParameterArray(params, "choices", choices)
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_choice: choices must be an array: %w", err)
 	}

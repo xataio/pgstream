@@ -47,3 +47,14 @@ func findParameter[T any](params transformers.Parameters, name string, defaultVa
 	}
 	return val, nil
 }
+
+func findParameterArray[T any](params transformers.Parameters, name string, defaultVal []T) ([]T, error) {
+	val, found, err := transformers.FindParameterArray[T](params, name)
+	if err != nil {
+		return val, err
+	}
+	if !found {
+		return defaultVal, nil
+	}
+	return val, nil
+}
