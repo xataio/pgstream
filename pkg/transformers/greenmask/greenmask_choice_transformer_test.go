@@ -114,9 +114,9 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 
 			// check if the result is in the choices
 			require.NotNil(t, got)
-			val, ok := got.(*toolkit.RawValue)
+			val, ok := got.([]byte)
 			require.True(t, ok)
-			require.Contains(t, tt.params["choices"], string(val.Data))
+			require.Contains(t, tt.params["choices"], string(val))
 
 			// if deterministic, check if we get the same result again
 			if tt.generatorType == transformers.Deterministic {
