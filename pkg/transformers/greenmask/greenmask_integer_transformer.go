@@ -25,7 +25,7 @@ var errUnsupportedSizeError = errors.New("greenmask_integer: size must be 2 or 4
 // NewIntegerTransformer creates a new IntegerTransformer with the specified generator and parameters.
 // The size parameter must be 2, 4 or 8, and the min_value and max_value parameters
 // must be valid integers within the range of the specified size.
-func NewIntegerTransformer(generatorType transformers.GeneratorType, params transformers.Parameters) (*IntegerTransformer, error) {
+func NewIntegerTransformer(generatorType GeneratorType, params transformers.Parameters) (*IntegerTransformer, error) {
 	size, err := findParameter(params, "size", int(defaultSize))
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_integer: size must be an integer: %w", err)

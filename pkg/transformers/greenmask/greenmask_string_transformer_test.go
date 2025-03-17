@@ -15,7 +15,7 @@ func Test_NewStringTransformer(t *testing.T) {
 	tests := []struct {
 		name          string
 		params        transformers.Parameters
-		generatorType transformers.GeneratorType
+		generatorType GeneratorType
 
 		wantErr error
 	}{
@@ -26,7 +26,7 @@ func Test_NewStringTransformer(t *testing.T) {
 				"min_length": int(2),
 				"max_length": int(2),
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 
 			wantErr: nil,
 		},
@@ -37,7 +37,7 @@ func Test_NewStringTransformer(t *testing.T) {
 				"min_length": int(2),
 				"max_length": int(2),
 			},
-			generatorType: transformers.Deterministic,
+			generatorType: Deterministic,
 
 			wantErr: nil,
 		},
@@ -46,7 +46,7 @@ func Test_NewStringTransformer(t *testing.T) {
 			params: map[string]any{
 				"symbols": 123,
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 
 			wantErr: transformers.ErrInvalidParameters,
 		},
@@ -55,7 +55,7 @@ func Test_NewStringTransformer(t *testing.T) {
 			params: map[string]any{
 				"min_length": "2",
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 
 			wantErr: transformers.ErrInvalidParameters,
 		},
@@ -64,7 +64,7 @@ func Test_NewStringTransformer(t *testing.T) {
 			params: map[string]any{
 				"max_length": "2",
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 
 			wantErr: transformers.ErrInvalidParameters,
 		},
@@ -94,7 +94,7 @@ func TestStringTransformer_Transform(t *testing.T) {
 		name          string
 		value         any
 		params        transformers.Parameters
-		generatorType transformers.GeneratorType
+		generatorType GeneratorType
 
 		wantLen int
 		wantStr string
@@ -108,7 +108,7 @@ func TestStringTransformer_Transform(t *testing.T) {
 				"min_length": int(2),
 				"max_length": int(2),
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 
 			wantLen: 2,
 			wantErr: nil,
@@ -121,7 +121,7 @@ func TestStringTransformer_Transform(t *testing.T) {
 				"min_length": int(2),
 				"max_length": int(2),
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 
 			wantLen: 2,
 			wantErr: nil,
@@ -134,7 +134,7 @@ func TestStringTransformer_Transform(t *testing.T) {
 				"min_length": int(2),
 				"max_length": int(2),
 			},
-			generatorType: transformers.Deterministic,
+			generatorType: Deterministic,
 
 			wantLen: 2,
 			wantStr: "dc",
@@ -148,7 +148,7 @@ func TestStringTransformer_Transform(t *testing.T) {
 				"min_length": int(2),
 				"max_length": int(2),
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 
 			wantLen: 0,
 			wantErr: transformers.ErrUnsupportedValueType,

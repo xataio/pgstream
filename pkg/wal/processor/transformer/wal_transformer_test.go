@@ -20,7 +20,7 @@ func TestTransformer_New(t *testing.T) {
 	t.Parallel()
 
 	mockProcessor := &mocks.Processor{}
-	testTransformer, err := transformers.NewStringTransformer(transformers.Random, nil)
+	testTransformer, err := transformers.NewStringTransformer(nil)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -229,7 +229,7 @@ func Test_transformerMapFromRules(t *testing.T) {
 
 	testSchema := "test_schema"
 	testTable := "test_table"
-	testTransformer, err := transformers.NewStringTransformer(transformers.Random, nil)
+	testTransformer, err := transformers.NewStringTransformer(nil)
 	require.NoError(t, err)
 	testKey := testSchema + "/" + testTable
 
@@ -249,12 +249,10 @@ func Test_transformerMapFromRules(t *testing.T) {
 						Table:  testTable,
 						ColumnRules: map[string]TransformerRules{
 							"column_1": {
-								Name:      "string",
-								Generator: "random",
+								Name: "string",
 							},
 							"column_2": {
-								Name:      "string",
-								Generator: "random",
+								Name: "string",
 							},
 						},
 					},
@@ -285,8 +283,7 @@ func Test_transformerMapFromRules(t *testing.T) {
 						Table:  testTable,
 						ColumnRules: map[string]TransformerRules{
 							"column_1": {
-								Name:      "invalid",
-								Generator: "random",
+								Name: "invalid",
 							},
 						},
 					},

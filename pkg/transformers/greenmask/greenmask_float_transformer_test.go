@@ -17,7 +17,7 @@ func Test_NewFloatTransformer(t *testing.T) {
 	tests := []struct {
 		name          string
 		params        transformers.Parameters
-		generatorType transformers.GeneratorType
+		generatorType GeneratorType
 		wantErr       error
 	}{
 		{
@@ -26,7 +26,7 @@ func Test_NewFloatTransformer(t *testing.T) {
 				"min_value": 1.01,
 				"max_value": 10.5,
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 			wantErr:       nil,
 		},
 		{
@@ -36,7 +36,7 @@ func Test_NewFloatTransformer(t *testing.T) {
 				"max_value": 100.0,
 				"precision": 44,
 			},
-			generatorType: transformers.Deterministic,
+			generatorType: Deterministic,
 			wantErr:       nil,
 		},
 		{
@@ -47,7 +47,7 @@ func Test_NewFloatTransformer(t *testing.T) {
 		{
 			name:          "ok - deterministic with default",
 			params:        map[string]any{},
-			generatorType: transformers.Deterministic,
+			generatorType: Deterministic,
 			wantErr:       nil,
 		},
 		{
@@ -66,7 +66,7 @@ func Test_NewFloatTransformer(t *testing.T) {
 				"max_value": 10.5,
 				"precision": 2,
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 			wantErr:       transformers.ErrInvalidParameters,
 		},
 		{
@@ -76,7 +76,7 @@ func Test_NewFloatTransformer(t *testing.T) {
 				"max_value": "invalid",
 				"precision": 2,
 			},
-			generatorType: transformers.Deterministic,
+			generatorType: Deterministic,
 			wantErr:       transformers.ErrInvalidParameters,
 		},
 		{
@@ -85,7 +85,7 @@ func Test_NewFloatTransformer(t *testing.T) {
 				"min_value": 1.5,
 				"precision": "invalid",
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 			wantErr:       transformers.ErrInvalidParameters,
 		},
 		{
@@ -120,7 +120,7 @@ func TestFloatTransformer_Transform(t *testing.T) {
 		name          string
 		value         any
 		params        transformers.Parameters
-		generatorType transformers.GeneratorType
+		generatorType GeneratorType
 		wantErr       error
 	}{
 		{
@@ -131,13 +131,13 @@ func TestFloatTransformer_Transform(t *testing.T) {
 				"max_value": 10.0,
 				"precision": 12,
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 			wantErr:       nil,
 		},
 		{
 			name:          "ok - deterministic with float32, with default params",
 			value:         float32(5555.5),
-			generatorType: transformers.Deterministic,
+			generatorType: Deterministic,
 			wantErr:       nil,
 		},
 		{
@@ -147,7 +147,7 @@ func TestFloatTransformer_Transform(t *testing.T) {
 				"min_value": 1.0,
 				"max_value": 100000.0000000001,
 			},
-			generatorType: transformers.Deterministic,
+			generatorType: Deterministic,
 			wantErr:       nil,
 		},
 		{
@@ -158,7 +158,7 @@ func TestFloatTransformer_Transform(t *testing.T) {
 				"max_value": 10.0,
 				"precision": 2,
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 			wantErr:       transformers.ErrUnsupportedValueType,
 		},
 		{
@@ -169,7 +169,7 @@ func TestFloatTransformer_Transform(t *testing.T) {
 				"max_value": 10.0,
 				"precision": 2,
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 			wantErr:       transformers.ErrUnsupportedValueType,
 		},
 	}
@@ -202,7 +202,7 @@ func TestFloatTransformer_Transform(t *testing.T) {
 			}
 
 			// if deterministic, check if we get the same result again
-			if tc.generatorType == transformers.Deterministic {
+			if tc.generatorType == Deterministic {
 				gotAgain, err := transformer.Transform(tc.value)
 				require.NoError(t, err)
 				require.Equal(t, got, gotAgain)

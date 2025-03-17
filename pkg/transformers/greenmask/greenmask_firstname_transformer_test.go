@@ -15,7 +15,7 @@ func Test_NewFirstNameTransformer(t *testing.T) {
 	tests := []struct {
 		name          string
 		params        transformers.Parameters
-		generatorType transformers.GeneratorType
+		generatorType GeneratorType
 
 		wantErr error
 	}{
@@ -24,7 +24,7 @@ func Test_NewFirstNameTransformer(t *testing.T) {
 			params: map[string]any{
 				"gender": "female",
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 
 			wantErr: nil,
 		},
@@ -33,7 +33,7 @@ func Test_NewFirstNameTransformer(t *testing.T) {
 			params: map[string]any{
 				"gender": "male",
 			},
-			generatorType: transformers.Deterministic,
+			generatorType: Deterministic,
 
 			wantErr: nil,
 		},
@@ -42,7 +42,7 @@ func Test_NewFirstNameTransformer(t *testing.T) {
 			params: map[string]any{
 				"gender": "other",
 			},
-			generatorType: transformers.Deterministic,
+			generatorType: Deterministic,
 
 			wantErr: nil,
 		},
@@ -51,7 +51,7 @@ func Test_NewFirstNameTransformer(t *testing.T) {
 			params: map[string]any{
 				"gender": 1,
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 
 			wantErr: transformers.ErrInvalidParameters,
 		},
@@ -81,7 +81,7 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 		name          string
 		value         any
 		params        transformers.Parameters
-		generatorType transformers.GeneratorType
+		generatorType GeneratorType
 
 		wantName string
 		wantErr  error
@@ -92,7 +92,7 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 			params: map[string]any{
 				"gender": "female",
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 
 			wantErr: nil,
 		},
@@ -102,7 +102,7 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 			params: map[string]any{
 				"gender": "male",
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 
 			wantErr: nil,
 		},
@@ -112,7 +112,7 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 			params: map[string]any{
 				"gender": "female",
 			},
-			generatorType: transformers.Deterministic,
+			generatorType: Deterministic,
 
 			wantName: "Pearlie",
 			wantErr:  nil,
@@ -123,7 +123,7 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 			params: map[string]any{
 				"gender": "female",
 			},
-			generatorType: transformers.Random,
+			generatorType: Random,
 
 			wantErr: transformers.ErrUnsupportedValueType,
 		},

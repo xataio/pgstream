@@ -13,17 +13,17 @@ func Test_NewBooleanTransformer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name      string
-		generator transformers.GeneratorType
+		generator GeneratorType
 		wantErr   error
 	}{
 		{
 			name:      "ok - valid random",
-			generator: transformers.Random,
+			generator: Random,
 			wantErr:   nil,
 		},
 		{
 			name:      "ok - valid deterministic",
-			generator: transformers.Deterministic,
+			generator: Deterministic,
 			wantErr:   nil,
 		},
 		{
@@ -49,25 +49,25 @@ func Test_BooleanTransformer_Transform(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name          string
-		generatorType transformers.GeneratorType
+		generatorType GeneratorType
 		input         any
 		wantErr       error
 	}{
 		{
 			name:          "ok - bool, random",
-			generatorType: transformers.Random,
+			generatorType: Random,
 			input:         true,
 			wantErr:       nil,
 		},
 		{
 			name:          "ok - bool, deterministic",
-			generatorType: transformers.Deterministic,
+			generatorType: Deterministic,
 			input:         false,
 			wantErr:       nil,
 		},
 		{
 			name:          "ok - []byte, deterministic",
-			generatorType: transformers.Deterministic,
+			generatorType: Deterministic,
 			input:         []byte("123e4567-e89b-12d3-a456-426655440000"),
 			wantErr:       nil,
 		},
@@ -94,7 +94,7 @@ func Test_BooleanTransformer_Transform(t *testing.T) {
 			require.True(t, ok)
 
 			// if deterministic, the same input should always produce the same output
-			if tc.generatorType == transformers.Deterministic {
+			if tc.generatorType == Deterministic {
 				gotAgain, err := transformer.Transform(tc.input)
 				require.NoError(t, err)
 				require.Equal(t, got, gotAgain)

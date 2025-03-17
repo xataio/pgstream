@@ -20,7 +20,7 @@ var (
 	errInvalidTimestamp            = errors.New("greenmask_timestamp: min_timestamp and max_timestamp must be valid RFC3339 timestamps")
 )
 
-func NewUTCTimestampTransformer(generatorType transformers.GeneratorType, params transformers.Parameters) (*UTCTimestampTransformer, error) {
+func NewUTCTimestampTransformer(generatorType GeneratorType, params transformers.Parameters) (*UTCTimestampTransformer, error) {
 	truncatePart, err := findParameter(params, "truncate_part", "")
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_integer: truncate_part must be a string: %w", err)

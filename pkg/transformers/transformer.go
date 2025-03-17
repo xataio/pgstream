@@ -13,7 +13,6 @@ type Transformer interface {
 
 type Config struct {
 	Name       TransformerType
-	Generator  GeneratorType
 	Parameters Parameters
 }
 
@@ -34,13 +33,6 @@ const (
 	GreenmaskUnixTimestamp TransformerType = "greenmask_unix_timestamp"
 	GreenmaskDate          TransformerType = "greenmask_date"
 	GreenmaskUTCTimestamp  TransformerType = "greenmask_utc_timestamp"
-)
-
-type GeneratorType string
-
-const (
-	Random        GeneratorType = "random"
-	Deterministic GeneratorType = "deterministic"
 )
 
 type Parameters map[string]any

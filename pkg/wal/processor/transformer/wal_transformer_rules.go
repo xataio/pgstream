@@ -23,7 +23,6 @@ type TableRules struct {
 
 type TransformerRules struct {
 	Name       string         `yaml:"name"`
-	Generator  string         `yaml:"generator"`
 	Parameters map[string]any `yaml:"parameters"`
 }
 

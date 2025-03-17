@@ -464,7 +464,6 @@ transformations:
     column_transformers:
       <column_name>:
         name: <transformer_name>
-        generator: <generator_type>
         parameters:
           <transformer_parameter>: <transformer_parameter_value>
 ```
@@ -485,8 +484,8 @@ transformations:
           max_length: 10
       column_2:
         name: greenmask_firstname
-        generator: deterministic
         parameters:
+          generator: deterministic
           gender: Female
 ```
 

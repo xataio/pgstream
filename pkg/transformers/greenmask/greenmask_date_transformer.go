@@ -14,7 +14,7 @@ type DateTransformer struct {
 	transformer *greenmasktransformers.Timestamp
 }
 
-func NewDateTransformer(generatorType transformers.GeneratorType, params transformers.Parameters) (*DateTransformer, error) {
+func NewDateTransformer(generatorType GeneratorType, params transformers.Parameters) (*DateTransformer, error) {
 	minValue, foundMin, err := transformers.FindParameter[string](params, "min_value")
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_date: min_value must be a string: %w", err)

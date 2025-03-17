@@ -14,13 +14,13 @@ func TestNewChoiceTransformer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name      string
-		generator transformers.GeneratorType
+		generator GeneratorType
 		params    transformers.Parameters
 		wantErr   error
 	}{
 		{
 			name:      "ok - valid random",
-			generator: transformers.Random,
+			generator: Random,
 			params: transformers.Parameters{
 				"choices": []string{"a", "b", "c", "d"},
 			},
@@ -36,7 +36,7 @@ func TestNewChoiceTransformer(t *testing.T) {
 		},
 		{
 			name:      "error - invalid choices",
-			generator: transformers.Deterministic,
+			generator: Deterministic,
 			wantErr:   errChoicesEmpty,
 		},
 	}
@@ -58,14 +58,14 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name          string
-		generatorType transformers.GeneratorType
+		generatorType GeneratorType
 		input         any
 		params        transformers.Parameters
 		wantErr       error
 	}{
 		{
 			name:          "ok - transform string randomly",
-			generatorType: transformers.Random,
+			generatorType: Random,
 			input:         "test",
 			params: transformers.Parameters{
 				"choices": []string{"a", "b", "c", "d"},
@@ -74,7 +74,7 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 		},
 		{
 			name:          "ok - transform []byte deterministically",
-			generatorType: transformers.Deterministic,
+			generatorType: Deterministic,
 			input:         []byte("test"),
 			params: transformers.Parameters{
 				"choices": []string{"a", "b", "c", "d"},
@@ -83,7 +83,7 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 		},
 		{
 			name:          "ok - transform RawValue deterministically",
-			generatorType: transformers.Deterministic,
+			generatorType: Deterministic,
 			input:         toolkit.NewRawValue([]byte("test"), false),
 			params: transformers.Parameters{
 				"choices": []string{"a", "b", "c", "d"},
@@ -92,7 +92,7 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 		},
 		{
 			name:          "error - invalid input type",
-			generatorType: transformers.Random,
+			generatorType: Random,
 			input:         1,
 			params: transformers.Parameters{
 				"choices": []string{"a", "b", "c", "d"},
@@ -119,7 +119,7 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 			require.Contains(t, tt.params["choices"], string(val))
 
 			// if deterministic, check if we get the same result again
-			if tt.generatorType == transformers.Deterministic {
+			if tt.generatorType == Deterministic {
 				gotAgain, err := transformer.Transform(tt.input)
 				require.NoError(t, err)
 				require.Equal(t, got, gotAgain)

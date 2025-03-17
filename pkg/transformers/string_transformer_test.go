@@ -45,7 +45,7 @@ func TestStringTransformer_Transform(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			st, err := NewStringTransformer(Random, nil)
+			st, err := NewStringTransformer(nil)
 			require.NoError(t, err)
 			got, err := st.Transform(tc.value)
 			require.ErrorIs(t, err, tc.wantErr)

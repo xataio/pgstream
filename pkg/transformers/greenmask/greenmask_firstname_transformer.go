@@ -13,7 +13,7 @@ type FirstNameTransformer struct {
 	transformer *greenmasktransformers.RandomPersonTransformer
 }
 
-func NewFirstNameTransformer(generatorType transformers.GeneratorType, params transformers.Parameters) (*FirstNameTransformer, error) {
+func NewFirstNameTransformer(generatorType GeneratorType, params transformers.Parameters) (*FirstNameTransformer, error) {
 	gender, err := findParameter(params, "gender", greenmasktransformers.AnyGenderName)
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_string: symbols must be a string: %w", err)

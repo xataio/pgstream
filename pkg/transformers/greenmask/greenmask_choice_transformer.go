@@ -17,7 +17,7 @@ type ChoiceTransformer struct {
 
 var errChoicesEmpty = errors.New("greenmask_choice: choices must not be empty")
 
-func NewChoiceTransformer(generatorType transformers.GeneratorType, params transformers.Parameters) (*ChoiceTransformer, error) {
+func NewChoiceTransformer(generatorType GeneratorType, params transformers.Parameters) (*ChoiceTransformer, error) {
 	choices := []string{}
 	choices, err := findParameterArray(params, "choices", choices)
 	if err != nil {

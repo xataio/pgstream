@@ -15,13 +15,13 @@ func TestNewUnixTimestampTransformer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name      string
-		generator transformers.GeneratorType
+		generator GeneratorType
 		params    transformers.Parameters
 		wantErr   error
 	}{
 		{
 			name:      "ok - valid random",
-			generator: transformers.Random,
+			generator: Random,
 			params: transformers.Parameters{
 				"min_value": "-1741957250",
 				"max_value": "1741957250",
@@ -39,7 +39,7 @@ func TestNewUnixTimestampTransformer(t *testing.T) {
 		},
 		{
 			name:      "error - invalid min_value",
-			generator: transformers.Deterministic,
+			generator: Deterministic,
 			params: transformers.Parameters{
 				"min_value": 3.0,
 			},
@@ -47,7 +47,7 @@ func TestNewUnixTimestampTransformer(t *testing.T) {
 		},
 		{
 			name:      "error - invalid max_value",
-			generator: transformers.Deterministic,
+			generator: Deterministic,
 			params: transformers.Parameters{
 				"min_value": "1741957250",
 				"max_value": 3,
@@ -56,7 +56,7 @@ func TestNewUnixTimestampTransformer(t *testing.T) {
 		},
 		{
 			name:      "error - min_value missing",
-			generator: transformers.Deterministic,
+			generator: Deterministic,
 			params: transformers.Parameters{
 				"max_value": "1741957250",
 			},
@@ -64,7 +64,7 @@ func TestNewUnixTimestampTransformer(t *testing.T) {
 		},
 		{
 			name:      "error - invalid limits",
-			generator: transformers.Random,
+			generator: Random,
 			params: transformers.Parameters{
 				"min_value": "1741957250",
 				"max_value": "1741957250",
@@ -90,13 +90,13 @@ func TestUnixTimestampTransformer_Transform(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name      string
-		generator transformers.GeneratorType
+		generator GeneratorType
 		input     any
 		params    transformers.Parameters
 	}{
 		{
 			name:      "ok - random",
-			generator: transformers.Random,
+			generator: Random,
 			params: transformers.Parameters{
 				"min_value": "1625097600",
 				"max_value": "1625184000",
@@ -105,7 +105,7 @@ func TestUnixTimestampTransformer_Transform(t *testing.T) {
 		},
 		{
 			name:      "ok - deterministic",
-			generator: transformers.Deterministic,
+			generator: Deterministic,
 			params: transformers.Parameters{
 				"min_value": "1625097600",
 				"max_value": "1625184000",
@@ -136,7 +136,7 @@ func TestUnixTimestampTransformer_Transform(t *testing.T) {
 			require.LessOrEqual(t, v, maxVal)
 
 			// if deterministic, check if we get the same result again
-			if tt.generator == transformers.Deterministic {
+			if tt.generator == Deterministic {
 				gotAgain, err := transformer.Transform(tt.input)
 				require.NoError(t, err)
 				require.Equal(t, got, gotAgain)
