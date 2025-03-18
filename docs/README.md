@@ -250,7 +250,7 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
 `pgstream` supports column value transformations. This allows you to anonymise data on the go, making sure sensitive information doesn't get replicated downstream. `pgstream` integrates with existing transformer open source libraries, such as [greenmask](https://github.com/GreenmaskIO/greenmask) and [neosync](https://github.com/nucleuscloud/neosync), to leverage a large amount of transformation capabilities, as well as having support for custom transformations.
 
-### Suported transformers
+### Supported transformers
 
 #### Greenmask
 
@@ -270,9 +270,9 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
  <details>
   <summary>greenmask_choice</summary>
 
-| Supported PostgreSQL types |
-| -------------------------- |
-| Any                        |
+| Supported PostgreSQL types          |
+| ----------------------------------- |
+| `text`, `varchar`, `char`, `bpchar` |
 
 | Parameter | Type     | Default | Required | Values               |
 | --------- | -------- | ------- | -------- | -------------------- |
@@ -335,7 +335,7 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 | Parameter | Type   | Default     | Required | Values               |
 | --------- | ------ | ----------- | -------- | -------------------- |
 | generator | string | random      | No       | random,deterministic |
-| size      | int    | 4           | No       | 2,4,8                |
+| size      | int    | 4           | No       | 2,4                  |
 | min_value | int    | -2147483648 | No       | N/A                  |
 | max_value | int    | 2147483647  | No       | N/A                  |
 
