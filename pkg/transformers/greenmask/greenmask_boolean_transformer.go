@@ -11,9 +11,9 @@ type BooleanTransformer struct {
 	transformer *greenmasktransformers.RandomBoolean
 }
 
-func NewBooleanTransformer(generatorType transformers.GeneratorType) (*BooleanTransformer, error) {
+func NewBooleanTransformer(params transformers.Parameters) (*BooleanTransformer, error) {
 	t := greenmasktransformers.NewRandomBoolean()
-	if err := setGenerator(t, generatorType); err != nil {
+	if err := setGenerator(t, params); err != nil {
 		return nil, err
 	}
 	return &BooleanTransformer{

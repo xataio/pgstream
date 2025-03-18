@@ -14,7 +14,7 @@ type StringTransformer struct {
 	// minLength int
 }
 
-func NewStringTransformer(generator GeneratorType, params Parameters) (*StringTransformer, error) {
+func NewStringTransformer(params Parameters) (*StringTransformer, error) {
 	return &StringTransformer{}, nil
 }
 

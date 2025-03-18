@@ -13,38 +13,39 @@ import (
 func TestNewChoiceTransformer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name      string
-		generator transformers.GeneratorType
-		params    transformers.Parameters
-		wantErr   error
+		name    string
+		params  transformers.Parameters
+		wantErr error
 	}{
 		{
-			name:      "ok - valid random",
-			generator: transformers.Random,
+			name: "ok - valid random",
 			params: transformers.Parameters{
-				"choices": []string{"a", "b", "c", "d"},
+				"generator": random,
+				"choices":   []string{"a", "b", "c", "d"},
 			},
 			wantErr: nil,
 		},
 		{
-			name:      "error - invalid generator type",
-			generator: "invalid",
+			name: "error - invalid generator type",
 			params: transformers.Parameters{
-				"choices": []string{"a", "b", "c", "d"},
+				"generator": "invalid",
+				"choices":   []string{"a", "b", "c", "d"},
 			},
 			wantErr: transformers.ErrUnsupportedGenerator,
 		},
 		{
-			name:      "error - invalid choices",
-			generator: transformers.Deterministic,
-			wantErr:   errChoicesEmpty,
+			name: "error - invalid choices",
+			params: transformers.Parameters{
+				"generator": deterministic,
+			},
+			wantErr: errChoicesEmpty,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			transformer, err := NewChoiceTransformer(tt.generator, tt.params)
+			transformer, err := NewChoiceTransformer(tt.params)
 			require.Equal(t, tt.wantErr, err)
 			if err != nil {
 				return
@@ -57,45 +58,44 @@ func TestNewChoiceTransformer(t *testing.T) {
 func TestChoiceTransformer_Transform(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name          string
-		generatorType transformers.GeneratorType
-		input         any
-		params        transformers.Parameters
-		wantErr       error
+		name    string
+		input   any
+		params  transformers.Parameters
+		wantErr error
 	}{
 		{
-			name:          "ok - transform string randomly",
-			generatorType: transformers.Random,
-			input:         "test",
+			name:  "ok - transform string randomly",
+			input: "test",
 			params: transformers.Parameters{
-				"choices": []string{"a", "b", "c", "d"},
+				"generator": random,
+				"choices":   []string{"a", "b", "c", "d"},
 			},
 			wantErr: nil,
 		},
 		{
-			name:          "ok - transform []byte deterministically",
-			generatorType: transformers.Deterministic,
-			input:         []byte("test"),
+			name:  "ok - transform []byte deterministically",
+			input: []byte("test"),
 			params: transformers.Parameters{
-				"choices": []string{"a", "b", "c", "d"},
+				"generator": deterministic,
+				"choices":   []string{"a", "b", "c", "d"},
 			},
 			wantErr: nil,
 		},
 		{
-			name:          "ok - transform RawValue deterministically",
-			generatorType: transformers.Deterministic,
-			input:         toolkit.NewRawValue([]byte("test"), false),
+			name:  "ok - transform RawValue deterministically",
+			input: toolkit.NewRawValue([]byte("test"), false),
 			params: transformers.Parameters{
-				"choices": []string{"a", "b", "c", "d"},
+				"generator": deterministic,
+				"choices":   []string{"a", "b", "c", "d"},
 			},
 			wantErr: nil,
 		},
 		{
-			name:          "error - invalid input type",
-			generatorType: transformers.Random,
-			input:         1,
+			name:  "error - invalid input type",
+			input: 1,
 			params: transformers.Parameters{
-				"choices": []string{"a", "b", "c", "d"},
+				"generator": random,
+				"choices":   []string{"a", "b", "c", "d"},
 			},
 			wantErr: transformers.ErrUnsupportedValueType,
 		},
@@ -103,7 +103,7 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			transformer, err := NewChoiceTransformer(tt.generatorType, tt.params)
+			transformer, err := NewChoiceTransformer(tt.params)
 			require.NoError(t, err)
 			require.NotNil(t, transformer)
 			got, err := transformer.Transform(tt.input)
@@ -119,7 +119,7 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 			require.Contains(t, tt.params["choices"], string(val))
 
 			// if deterministic, check if we get the same result again
-			if tt.generatorType == transformers.Deterministic {
+			if mustGetGeneratorType(t, tt.params) == deterministic {
 				gotAgain, err := transformer.Transform(tt.input)
 				require.NoError(t, err)
 				require.Equal(t, got, gotAgain)

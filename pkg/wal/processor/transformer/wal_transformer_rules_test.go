@@ -28,8 +28,7 @@ func Test_readRulesFromFile(t *testing.T) {
 						Table:  "test1",
 						ColumnRules: map[string]TransformerRules{
 							"column_1": {
-								Name:      "string",
-								Generator: "random",
+								Name: "string",
 								Parameters: map[string]any{
 									"min_length": 1,
 									"max_length": 2,
@@ -42,8 +41,7 @@ func Test_readRulesFromFile(t *testing.T) {
 						Table:  "test2",
 						ColumnRules: map[string]TransformerRules{
 							"column_2": {
-								Name:      "string",
-								Generator: "deterministic",
+								Name: "string",
 								Parameters: map[string]any{
 									"symbols": "abcdef",
 								},

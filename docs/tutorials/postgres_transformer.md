@@ -155,8 +155,8 @@ transformations:
           email_type: fullname
       name:
         name: greenmask_firstname
-        generator: deterministic
         parameters:
+          generator: deterministic
           gender: Female
 ```
 

@@ -13,65 +13,65 @@ func Test_NewStringTransformer(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		params        transformers.Parameters
-		generatorType transformers.GeneratorType
+		name   string
+		params transformers.Parameters
 
 		wantErr error
 	}{
 		{
 			name: "ok - random",
 			params: map[string]any{
+				"generator":  random,
 				"symbols":    "abcdef",
 				"min_length": int(2),
 				"max_length": int(2),
 			},
-			generatorType: transformers.Random,
 
 			wantErr: nil,
 		},
 		{
 			name: "ok - deterministic",
 			params: map[string]any{
+				"generator":  deterministic,
 				"symbols":    "abcdef",
 				"min_length": int(2),
 				"max_length": int(2),
 			},
-			generatorType: transformers.Deterministic,
 
 			wantErr: nil,
 		},
 		{
 			name: "error - invalid symbols",
 			params: map[string]any{
-				"symbols": 123,
+				"generator": random,
+				"symbols":   123,
 			},
-			generatorType: transformers.Random,
 
 			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
 			name: "error - invalid min length",
 			params: map[string]any{
+				"generator":  random,
 				"min_length": "2",
 			},
-			generatorType: transformers.Random,
 
 			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
 			name: "error - invalid max length",
 			params: map[string]any{
+				"generator":  random,
 				"max_length": "2",
 			},
-			generatorType: transformers.Random,
 
 			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
-			name:          "error - invalid generator",
-			params:        map[string]any{},
-			generatorType: "invalid",
+			name: "error - invalid generator",
+			params: map[string]any{
+				"generator": "invalid",
+			},
 
 			wantErr: transformers.ErrUnsupportedGenerator,
 		},
@@ -81,7 +81,7 @@ func Test_NewStringTransformer(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := NewStringTransformer(tc.generatorType, tc.params)
+			_, err := NewStringTransformer(tc.params)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
@@ -91,10 +91,9 @@ func TestStringTransformer_Transform(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		value         any
-		params        transformers.Parameters
-		generatorType transformers.GeneratorType
+		name   string
+		value  any
+		params transformers.Parameters
 
 		wantLen int
 		wantStr string
@@ -104,11 +103,11 @@ func TestStringTransformer_Transform(t *testing.T) {
 			name:  "ok - random with string",
 			value: "hello",
 			params: map[string]any{
+				"generator":  random,
 				"symbols":    "abcdef",
 				"min_length": int(2),
 				"max_length": int(2),
 			},
-			generatorType: transformers.Random,
 
 			wantLen: 2,
 			wantErr: nil,
@@ -117,11 +116,11 @@ func TestStringTransformer_Transform(t *testing.T) {
 			name:  "ok - random with []byte",
 			value: []byte("hello"),
 			params: map[string]any{
+				"generator":  random,
 				"symbols":    "abcdef",
 				"min_length": int(2),
 				"max_length": int(2),
 			},
-			generatorType: transformers.Random,
 
 			wantLen: 2,
 			wantErr: nil,
@@ -130,11 +129,11 @@ func TestStringTransformer_Transform(t *testing.T) {
 			name:  "ok - deterministic",
 			value: "hello",
 			params: map[string]any{
+				"generator":  deterministic,
 				"symbols":    "abcdef",
 				"min_length": int(2),
 				"max_length": int(2),
 			},
-			generatorType: transformers.Deterministic,
 
 			wantLen: 2,
 			wantStr: "dc",
@@ -144,11 +143,11 @@ func TestStringTransformer_Transform(t *testing.T) {
 			name:  "error - unsupported value type",
 			value: 1,
 			params: map[string]any{
+				"generator":  random,
 				"symbols":    "abcdef",
 				"min_length": int(2),
 				"max_length": int(2),
 			},
-			generatorType: transformers.Random,
 
 			wantLen: 0,
 			wantErr: transformers.ErrUnsupportedValueType,
@@ -159,7 +158,7 @@ func TestStringTransformer_Transform(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			transformer, err := NewStringTransformer(tc.generatorType, tc.params)
+			transformer, err := NewStringTransformer(tc.params)
 			require.NoError(t, err)
 
 			got, err := transformer.Transform(tc.value)

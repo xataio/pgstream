@@ -10,17 +10,22 @@ import (
 	"github.com/xataio/pgstream/pkg/transformers"
 )
 
-func setGenerator(t greenmasktransformers.Transformer, generatorType transformers.GeneratorType) error {
-	// default to using random generator
-	if generatorType == "" {
-		generatorType = transformers.Random
+const (
+	random        = "random"
+	deterministic = "deterministic"
+)
+
+func setGenerator(t greenmasktransformers.Transformer, params transformers.Parameters) error {
+	generatorType, err := getGeneratorType(params)
+	if err != nil {
+		return err
 	}
 
 	var greenmaskGenerator greenmaskgenerators.Generator
 	switch generatorType {
-	case transformers.Random:
+	case random:
 		greenmaskGenerator = greenmaskgenerators.NewRandomBytes(time.Now().UnixNano(), t.GetRequiredGeneratorByteLength())
-	case transformers.Deterministic:
+	case deterministic:
 		var err error
 		greenmaskGenerator, err = greenmaskgenerators.GetHashBytesGen([]byte{}, t.GetRequiredGeneratorByteLength())
 		if err != nil {
@@ -31,6 +36,11 @@ func setGenerator(t greenmasktransformers.Transformer, generatorType transformer
 	}
 
 	return t.SetGenerator(greenmaskGenerator)
+}
+
+func getGeneratorType(params transformers.Parameters) (string, error) {
+	// default to using the random generator
+	return findParameter(params, "generator", random)
 }
 
 func findParameter[T any](params transformers.Parameters, name string, defaultVal T) (T, error) {

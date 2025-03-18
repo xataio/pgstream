@@ -14,58 +14,57 @@ import (
 func TestNewUnixTimestampTransformer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name      string
-		generator transformers.GeneratorType
-		params    transformers.Parameters
-		wantErr   error
+		name    string
+		params  transformers.Parameters
+		wantErr error
 	}{
 		{
-			name:      "ok - valid random",
-			generator: transformers.Random,
+			name: "ok - valid random",
 			params: transformers.Parameters{
+				"generator": random,
 				"min_value": "-1741957250",
 				"max_value": "1741957250",
 			},
 			wantErr: nil,
 		},
 		{
-			name:      "error - invalid generator",
-			generator: "invalid",
+			name: "error - invalid generator",
 			params: transformers.Parameters{
+				"generator": "invalid",
 				"min_value": "-1741957250",
 				"max_value": "1741957250",
 			},
 			wantErr: transformers.ErrUnsupportedGenerator,
 		},
 		{
-			name:      "error - invalid min_value",
-			generator: transformers.Deterministic,
+			name: "error - invalid min_value",
 			params: transformers.Parameters{
+				"generator": deterministic,
 				"min_value": 3.0,
 			},
 			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
-			name:      "error - invalid max_value",
-			generator: transformers.Deterministic,
+			name: "error - invalid max_value",
 			params: transformers.Parameters{
+				"generator": deterministic,
 				"min_value": "1741957250",
 				"max_value": 3,
 			},
 			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
-			name:      "error - min_value missing",
-			generator: transformers.Deterministic,
+			name: "error - min_value missing",
 			params: transformers.Parameters{
+				"generator": deterministic,
 				"max_value": "1741957250",
 			},
 			wantErr: errMinMaxValueNotSpecified,
 		},
 		{
-			name:      "error - invalid limits",
-			generator: transformers.Random,
+			name: "error - invalid limits",
 			params: transformers.Parameters{
+				"generator": random,
 				"min_value": "1741957250",
 				"max_value": "1741957250",
 			},
@@ -75,7 +74,7 @@ func TestNewUnixTimestampTransformer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			transformer, err := NewUnixTimestampTransformer(tt.generator, tt.params)
+			transformer, err := NewUnixTimestampTransformer(tt.params)
 			require.ErrorIs(t, err, tt.wantErr)
 			if err != nil {
 				return
@@ -89,24 +88,23 @@ func TestNewUnixTimestampTransformer(t *testing.T) {
 func TestUnixTimestampTransformer_Transform(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name      string
-		generator transformers.GeneratorType
-		input     any
-		params    transformers.Parameters
+		name   string
+		input  any
+		params transformers.Parameters
 	}{
 		{
-			name:      "ok - random",
-			generator: transformers.Random,
+			name: "ok - random",
 			params: transformers.Parameters{
+				"generator": random,
 				"min_value": "1625097600",
 				"max_value": "1625184000",
 			},
 			input: int64(0),
 		},
 		{
-			name:      "ok - deterministic",
-			generator: transformers.Deterministic,
+			name: "ok - deterministic",
 			params: transformers.Parameters{
+				"generator": deterministic,
 				"min_value": "1625097600",
 				"max_value": "1625184000",
 			},
@@ -116,7 +114,7 @@ func TestUnixTimestampTransformer_Transform(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			transformer, err := NewUnixTimestampTransformer(tt.generator, tt.params)
+			transformer, err := NewUnixTimestampTransformer(tt.params)
 			require.NoError(t, err)
 			got, err := transformer.Transform(tt.input)
 			require.NoError(t, err)
@@ -136,11 +134,17 @@ func TestUnixTimestampTransformer_Transform(t *testing.T) {
 			require.LessOrEqual(t, v, maxVal)
 
 			// if deterministic, check if we get the same result again
-			if tt.generator == transformers.Deterministic {
+			if mustGetGeneratorType(t, tt.params) == deterministic {
 				gotAgain, err := transformer.Transform(tt.input)
 				require.NoError(t, err)
 				require.Equal(t, got, gotAgain)
 			}
 		})
 	}
+}
+
+func mustGetGeneratorType(t *testing.T, params transformers.Parameters) string {
+	gt, err := getGeneratorType(params)
+	require.NoError(t, err)
+	return gt
 }
