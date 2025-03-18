@@ -69,6 +69,12 @@ func WithLogger(logger loglib.Logger) Option {
 
 func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) error {
 	s.logger.Info("creating schema snapshot", loglib.Fields{"schema": ss.SchemaName, "tables": ss.TableNames})
+	// when only the schema filter is provided to pg_dump, it will try to create
+	// it. If there are no tables in the snapshot request, we can skip the
+	// snapshot for public schema, since it already exists by default.
+	if ss.SchemaName == publicSchema && len(ss.TableNames) == 0 {
+		return nil
+	}
 	dump, err := s.pgDumpFn(s.pgdumpOptions(ss))
 	if err != nil {
 		return err
