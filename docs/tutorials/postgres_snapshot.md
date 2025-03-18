@@ -77,6 +77,12 @@ PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE=1000
 PGSTREAM_POSTGRES_SNAPSHOT_WORKERS=1
 ```
 
+The snapshot listener can also be configured to record and update the status of snapshot requests in a dedicated table `snapshot_requests` under the `pgstream` schema. This allows to only perform a given snapshot once by keeping track of what's already been completed. All it's needed is the URL of the database where the table should be created. For this tutorial, we'll use the source database.
+
+```sh
+PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
+```
+
 ### Processor
 
 With the listener side ready, the next step is to configure the processor. Since we want the snapshot reach a PostgreSQL database, we will set the PostgreSQL writer configuration variables. The only required value is the URL of the target database, where the snapshotted schema/data from the source database will be streamed. We use the URL of the docker PostgreSQL database we started earlier (note the port is the only difference between the source and the target PostgreSQL databases).
@@ -107,6 +113,7 @@ PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS=4
 PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS=4
 PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE=1000
 PGSTREAM_POSTGRES_SNAPSHOT_WORKERS=1
+PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 
 # Processor config
 PGSTREAM_POSTGRES_WRITER_TARGET_URL="postgres://postgres:postgres@localhost:7654?sslmode=disable"
@@ -166,6 +173,23 @@ postgres@localhost:postgres> SELECT * FROM test;
 | 3  | charlie |
 +----+---------+
 ```
+
+We can also check the status of the snapshot by querying the `pgstream.snapshot_requests` table on the source database. It should contain the details of the snapshot that has been requested.
+
+```sh
+➜ psql postgresql://postgres:postgres@localhost:5432/postgres
+```
+
+```sql
+postgres@localhost:postgres> SELECT * FROM pgstream.snapshot_requests;
++--------+-------------+-------------+-------------------------------+-------------------------------+-----------+--------+
+| req_id | schema_name | table_names | created_at                    | updated_at                    | status    | errors |
+|--------+-------------+-------------+-------------------------------+-------------------------------+-----------+--------|
+| 1      | public      | ['*']       | 2025-03-18 11:27:21.683361+00 | 2025-03-18 11:27:21.843207+00 | completed | <null> |
++--------+-------------+-------------+-------------------------------+-------------------------------+-----------+--------+
+```
+
+If the snapshot has completed with errors, it will be retried on the next run of pgstream.
 
 ## Troubleshooting
 
