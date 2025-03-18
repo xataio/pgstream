@@ -1,10 +1,26 @@
 # 🐘 PostgreSQL snapshot 📷
 
+## Table of Contents
+
+1. [Introduction](#introduction)
+2. [Environment Setup](#environment-setup)
+3. [Database Initialization](#database-initialisation)
+4. [Prepare `pgstream` Configuration](#prepare-pgstream-configuration)
+   - [Listener](#listener)
+   - [Processor](#processor)
+5. [Preparing Snapshot Data](#preparing-snapshot-data)
+6. [Run `pgstream`](#run-pgstream)
+7. [Verify Snapshot](#verify-snapshot)
+8. [Troubleshooting](#troubleshooting)
+9. [Summary](#summary)
+
+## Introduction
+
 This tutorial will showcase the use of pgstream to snapshot data from a PostgreSQL database. For this tutorial, we'll use a PostgreSQL output.
 
 ![snapshot2pg tutorial](../img/pgstream_tutorial_snapshot2pg.svg)
 
-The requirements for this tutorial are:
+### Requirements
 
 - A source PostgreSQL database
 - A target PostgreSQL database
@@ -17,6 +33,8 @@ The first step is to start the two PostgreSQL databases that will be used as sou
 To start the docker provided PostgreSQL servers, run the following command:
 
 ```sh
+# Start two PostgreSQL databases using Docker.
+# The source database will run on port 5432, and the target database will run on port 7654.
 docker-compose -f build/docker/docker-compose.yml --profile pg2pg up
 ```
 
@@ -35,13 +53,14 @@ If the output is not PostgreSQL, we'd need to initialise pgstream like we do nor
 In order to run pgstream, we need to provide the configuration required to run the PostgreSQL to PostgreSQL snapshot. First, we configure the listener module that will be producing the snapshot of the source PostgreSQL database. This requires the PostgreSQL database URL, which will be the one from the docker PostgreSQL server we started and setup in the previous steps.
 
 ```sh
+# URL of the source PostgreSQL database. This is where the snapshot will be taken from.
 PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 ```
 
 The snapshot listener needs to be configured to indicate the tables/schemas that need to be snapshotted. If the tables are not schema qualified, the `public` schema will be assumed. Wildcards are supported. For example, `test_schema.*` will snapshot all tables in the `test_schema` schema, and `test` will snapshot the `public.test` table.
 
 ```sh
-# We will snapshot all tables in the public schema.
+# Tables to snapshot. Use "*" to snapshot all tables in the public schema.
 PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLES="*"
 ```
 
@@ -116,6 +135,8 @@ With the configuration ready, we can now run pgstream. In this case we set the l
 pgstream run -c snapshot2pg_tutorial.env --log-level trace
 ```
 
+## Verify snapshot
+
 If we connect to the target database, we should now see the test table created and populated with the data from the snapshot.
 
 ```sh
@@ -145,3 +166,92 @@ postgres@localhost:postgres> SELECT * FROM test;
 | 3  | charlie |
 +----+---------+
 ```
+
+## Troubleshooting
+
+Here are some common issues you might encounter while following this tutorial and how to resolve them:
+
+### 1. **Error: `Connection refused`**
+
+- **Cause:** The PostgreSQL database is not running or the connection URL is incorrect.
+- **Solution:**
+  - Ensure the Docker containers for the source and target databases are running.
+  - Verify the database URLs in the configuration file (`snapshot2pg_tutorial.env`).
+  - Test the connection using `psql`:
+    ```sh
+    psql postgresql://postgres:postgres@localhost:5432/postgres
+    ```
+
+### 2. **Error: `pgstream: replication slot not found`**
+
+- **Cause:** The replication slot was not created during initialization.
+- **Solution:**
+  - Ensure the `pgstream` initialization step was completed successfully.
+  - Check the replication slots in the source database:
+    ```sql
+    SELECT slot_name FROM pg_replication_slots;
+    ```
+  - If the slot is missing, reinitialize [pgstream](#database-initialisation) or manually create the slot.
+
+### 3. **Error: `Snapshot failed`**
+
+- **Cause:** There may be issues with the configuration or permissions.
+- **Solution:**
+  - Check the pgstream logs for detailed error messages:
+    ```sh
+    pgstream run -c snapshot2pg_tutorial.env --log-level trace
+    ```
+  - Ensure the source database user has the necessary permissions to read the schema and data.
+  - Check the `pgstream.snapshot_requests` table for error details:
+    ```sql
+    SELECT * FROM pgstream.snapshot_requests;
+    ```
+
+### 4. **Error: `Target database does not contain the snapshot data`**
+
+- **Cause:** The snapshot process did not complete successfully or the target database URL is incorrect.
+- **Solution:**
+
+  - Verify the target database URL in the configuration file.
+  - Check the pgstream logs to confirm the snapshot process completed without errors.
+  - Check the `pgstream.snapshot_requests` table for error details:
+
+    ```sql
+    SELECT * FROM pgstream.snapshot_requests;
+    ```
+
+  - Query the target database to ensure the data was replicated:
+    ```sql
+    SELECT * FROM test;
+    ```
+
+### 5. **Error: `pgstream: invalid configuration`**
+
+- **Cause:** The configuration file contains invalid or missing values.
+- **Solution:**
+  - Double-check the `snapshot2pg_tutorial.env` file for typos or missing variables.
+  - Refer to the [pgstream configuration documentation](../README.md#configuration) for details on required variables.
+
+### 6. **Error: `Permission denied`**
+
+- **Cause:** The database user does not have sufficient privileges.
+- **Solution:**
+  - Ensure the user has the necessary permissions to create tables, replication slots, and perform snapshots.
+  - Grant the required privileges:
+    ```sql
+    GRANT ALL PRIVILEGES ON DATABASE postgres TO postgres;
+    ```
+
+If you encounter issues not listed here, consult the [pgstream documentation](../../README.md) or open an issue on the project's GitHub repository.
+
+## Summary
+
+In this tutorial, we successfully configured `pgstream` to snapshot data from a source PostgreSQL database to a target PostgreSQL database. We covered the following steps:
+
+1. Set up the source and target PostgreSQL databases using Docker.
+2. Configured the `pgstream` listener and processor for snapshotting.
+3. Created a sample table in the source database and populated it with data.
+4. Ran `pgstream` to perform the snapshot.
+5. Verified that the data was successfully replicated to the target database.
+
+This process demonstrates how `pgstream` can be used to efficiently snapshot data between PostgreSQL databases. For more advanced use cases, such as continuous replication or applying transformations, refer to the other [pgstream tutorials](../../README.md#tutorials).

@@ -1,16 +1,34 @@
 # 🐘 PostgreSQL replication to webhooks 🪝
 
+## Table of Contents
+
+1. [Introduction](#introduction)
+2. [Environment Setup](#environment-setup)
+3. [Database Initialization](#database-initialisation)
+4. [Prepare `pgstream` Configuration](#prepare-pgstream-configuration)
+   - [Listener](#listener)
+   - [Processor](#processor)
+5. [Run `pgstream`](#run-pgstream)
+6. [Verify Webhook Events](#verify-webhook-events)
+7. [Populate event metadata](#populate-event-metadata)
+8. [Troubleshooting](#troubleshooting)
+9. [Summary](#summary)
+
+## Introduction
+
 This tutorial will showcase the use of pgstream to replicate data from a PostgreSQL database to a webhook server. You can also check out this [blogpost](https://xata.io/blog/postgres-webhooks-with-pgstream) explaining how to use pgstream with webhooks.
 
 ![pg2webhooks tutorial](../img/pgstream_tutorial_pg2webhooks.svg)
 
-https://github.com/user-attachments/assets/46797a58-94a1-4283-b431-f18b5853929c
-
-The requirements for this tutorial are:
+### Requirements
 
 - A source PostgreSQL database
 - A target webhook server
 - pgstream (see [installation](../../README.md#installation) instructions for more details)
+
+### Demo
+
+https://github.com/user-attachments/assets/46797a58-94a1-4283-b431-f18b5853929c
 
 ## Environment setup
 
@@ -22,7 +40,7 @@ To start the docker provided PostgreSQL server, run the following command:
 docker-compose -f build/docker/docker-compose.yml --profile pg2webhook up
 ```
 
-This will start two PostgreSQL databases on ports `5432`.
+This will start a PostgreSQL databases on port `5432`.
 
 ## Database initialisation
 
@@ -148,7 +166,7 @@ PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_ENABLED=true
 PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_REFRESH_INTERVAL="60s"
 ```
 
-The full configuration for this tutorial can be put into a `pg2webhook_tutorial.env` file to be used in the next step.
+Save the configuration in a file named `pg2webhook_tutorial.env`.
 
 - Without initial snapshot
 
@@ -228,6 +246,8 @@ SELECT * FROM pgstream.webhook_subscriptions;
 | http://localhost:9910/webhook |             |            | ['I']       |
 +-------------------------------+-------------+------------+-------------+
 ```
+
+## Verify webhook events
 
 Now we can start populating the source PostgreSQL database and receiving events in our webhook server.
 
@@ -520,6 +540,8 @@ With a full replica identity the update event will now contain the old values fo
 }
 ```
 
+## Populate event metadata
+
 In this tutorial we haven't used the injector to populate the metadata event information, which is why it appears empty in the events. If the webhook notifier requires that metadata information, the processor configuration can be udpated by setting the injector store URL. This is the database that contains the `pgstream.schema_log` table, which the injector uses to retrieve schema information to populate the metadata (more details can be found in the [architecture section](../README.md#architecture)). In this case, it's the source PostgreSQL database.
 
 ```sh
@@ -579,3 +601,86 @@ If we now run pgstream again with the updated configuration file, the events wil
   }
 }
 ```
+
+## Troubleshooting
+
+Here are some common issues you might encounter while following this tutorial and how to resolve them:
+
+### 1. **Error: `Connection refused`**
+
+- **Cause:** The PostgreSQL database or webhook server is not running.
+- **Solution:**
+  - Ensure the Docker containers for the PostgreSQL database and webhook server are running.
+  - Verify the database and webhook server URLs in the configuration.
+
+### 2. **Error: `Replication slot not found`**
+
+- **Cause:** The replication slot was not created during initialization.
+- **Solution:**
+  - Reinitialize `pgstream` or manually create the replication slot.
+  - Verify the replication slot exists by running:
+    ```sql
+    SELECT slot_name FROM pg_replication_slots;
+    ```
+
+### 3. **Error: `Webhook events not received`**
+
+- **Cause:** The webhook subscription was not registered correctly.
+- **Solution:**
+  - Verify the subscription by querying the `pgstream.webhook_subscriptions` table:
+    ```sql
+    SELECT * FROM pgstream.webhook_subscriptions;
+    ```
+  - Ensure the webhook server is running and reachable.
+
+### 4. **Error: `Permission denied`**
+
+- **Cause:** The database user does not have sufficient privileges.
+- **Solution:**
+  - Grant the required privileges to the database user:
+    ```sql
+    GRANT ALL PRIVILEGES ON DATABASE postgres TO postgres;
+    ```
+
+### 5. **Error: `Invalid configuration`**
+
+- **Cause:** The configuration file contains invalid or missing values.
+- **Solution:**
+  - Double-check the `pg2webhook_tutorial.env` file for typos or missing variables.
+  - Refer to the [pgstream configuration documentation](https://github.com/xataio/pgstream) for details on required variables.
+
+### 6. **Error: `Event metadata not populated`**
+
+- **Cause:** The injector store URL is not configured, or the schema log is not acknowledged.
+- **Solution:**
+  - Add the injector store URL to the configuration:
+    ```sh
+    PGSTREAM_INJECTOR_STORE_POSTGRES_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    ```
+  - Trigger a schema change (e.g., rename a table) to acknowledge the schema log:
+    ```sql
+    ALTER TABLE test RENAME TO tutorial_test;
+    ```
+
+### 7. **Error: `Stale webhook subscription cache`**
+
+- **Cause:** The subscription cache is not refreshing frequently enough.
+- **Solution:**
+  - Adjust the cache refresh interval in the configuration:
+    ```sh
+    PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_REFRESH_INTERVAL="30s"
+    ```
+
+If you encounter issues not listed here, consult the [pgstream documentation](https://github.com/xataio/pgstream) or open an issue on the project's GitHub repository.
+
+## Summary
+
+In this tutorial, we successfully configured `pgstream` to replicate data from a PostgreSQL database to a webhook server. We:
+
+1. Set up the source PostgreSQL database and initialized `pgstream`.
+2. Configured the listener to capture changes from the PostgreSQL WAL.
+3. Configured the processor to send events to a webhook server.
+4. Verified that database changes triggered webhook events.
+5. Explored how to update webhook subscriptions and use the injector for metadata enrichment.
+
+This tutorial demonstrates how `pgstream` can be used to integrate PostgreSQL with webhook-based systems, enabling real-time event-driven architectures. For more advanced use cases, refer to the other [pgstream tutorials](../../README.md#tutorials).

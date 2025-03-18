@@ -1,16 +1,31 @@
 # 🐘 PostgreSQL replication with transformers 🔒
 
+1. [Introduction](#introduction)
+2. [Environment Setup](#environment-setup)
+3. [Database Initialization](#database-initialization)
+4. [Prepare `pgstream` Configuration](#prepare-pgstream-configuration)
+   - [Listener](#listener)
+   - [Processor](#processor)
+5. [Run `pgstream`](#run-pgstream)
+6. [Verify Data Transformation](#verify-data-transformation)
+7. [Troubleshooting](#troubleshooting)
+8. [Summary](#summary)
+
+## Introduction
+
 This tutorial will showcase the use of pgstream to replicate data from PostgreSQL using transformers. We'll use a target PostgreSQL database as output, but the same would apply to any of the supported outputs.
 
 ![transformer tutorial](../img/pgstream_tutorial_transformer.svg)
 
-https://github.com/user-attachments/assets/905fc81a-5172-4151-aacb-e638fb34e773
-
-The requirements for this tutorial are:
+### Requirements
 
 - A source PostgreSQL database
 - A target PostgreSQL database
 - pgstream (see [installation](../../README.md#installation) instructions for more details)
+
+### Demo
+
+https://github.com/user-attachments/assets/905fc81a-5172-4151-aacb-e638fb34e773
 
 ## Environment setup
 
@@ -19,6 +34,8 @@ The first step is to start the two PostgreSQL databases that will be used as sou
 To start the docker provided PostgreSQL servers, run the following command:
 
 ```sh
+# Start two PostgreSQL databases using Docker.
+# The source database will run on port 5432, and the target database will run on port 7654.
 docker-compose -f build/docker/docker-compose.yml --profile pg2pg up
 ```
 
@@ -150,14 +167,14 @@ transformations:
       email:
         name: neosync_email
         parameters:
-          preserve_length: true
-          preserve_domain: true
-          email_type: fullname
+          preserve_length: true # Ensures the transformed email has the same length as the original.
+          preserve_domain: true # Keeps the domain of the original email intact.
+          email_type: fullname # Specifies the type of email transformation.
       name:
         name: greenmask_firstname
         parameters:
-          generator: deterministic
-          gender: Female
+          generator: deterministic # Ensures the same input always produces the same output.
+          gender: Female # Generates female names for the transformation.
 ```
 
 The full configuration for this tutorial can be put into a `pg2pg_transformer_tutorial.env` file to be used in the next step.
@@ -200,6 +217,8 @@ PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@local
 
 With the configuration ready, we can now run pgstream. In this case we set the log level as trace to provide more context for debugging and have more visibility into what pgstream is doing under the hood.
 
+**Important:** Ensure that the source and target databases are running before proceeding.
+
 ```sh
 pgstream run -c pg2pg_transformer_tutorial.env --log-level trace
 ```
@@ -222,6 +241,8 @@ SELECT * FROM test;
 | 3  | charlie | charlie@test.com |
 +----+---------+------------------+
 ```
+
+## Verify data transformation
 
 When we check the target PostgreSQL database, we should see the three rows have been inserted, but both the name and the emails have been anonymised.
 
@@ -280,3 +301,26 @@ SELECT * FROM test;
 ```
 
 To see all the transformers currently supported, check out the [transformers section](../README.md#suported-transformers).
+
+## Troubleshooting
+
+- **Error:** `Connection refused`
+
+  - Ensure the Docker containers for the source and target databases are running.
+  - Verify the database URLs in the configuration.
+
+- **Error:** `Replication slot not found`
+
+  - Check that the replication slot was created successfully during initialization.
+  - Run the following query on the source database to verify:
+    ```sql
+    SELECT slot_name FROM pg_replication_slots;
+    ```
+
+- **Error:** `Transformation rules not applied`
+  - Ensure the `PGSTREAM_TRANSFORMER_RULES_FILE` points to the correct YAML file.
+  - Validate the syntax of the transformer rules using the [pgstream documentation](../README.md#transformation-rules).
+
+## Summary
+
+In this tutorial, we successfully configured `pgstream` to replicate data from a source PostgreSQL database to a target PostgreSQL database, applying transformations to anonymize sensitive data during replication. For more use cases, refer to the [pgstream documentation](https://github.com/xataio/pgstream).

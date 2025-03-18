@@ -698,8 +698,8 @@ transformations:
           gender: Male
       username:
         name: greenmask_string
-        generator: random
         parameters:
+          generator: random
           min_length: 5
           max_length: 15
           symbols: "abcdefghijklmnopqrstuvwxyz1234567890"
@@ -708,13 +708,13 @@ transformations:
     column_transformers:
       status:
         name: greenmask_choice
-        generator: random
         parameters:
+          generator: random
           choices: ["pending", "shipped", "delivered", "cancelled"]
       order_date:
         name: greenmask_date
-        generator: random
         parameters:
+          generator: random
           min_value: "2020-01-01"
           max_value: "2025-12-31"
 ```
