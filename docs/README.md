@@ -1,15 +1,28 @@
 # 📚 `pgstream` Documentation
 
-- [Architecture](#architecture)
-  - [WAL Listener](#wal-listener)
-  - [WAL Processor](#wal-processor)
-- [Configuration](#configuration)
-  - [Listeners](#listeners)
-  - [Processors](#processors)
-- [Tracking schema changes](#tracking-schema-changes)
-- [Snapshots](#snapshots)
-- [Transformers](#transformers)
-- [Glossary](#glossary)
+## Table of Contents
+
+1. [Architecture](#architecture)
+   - [WAL Listener](#wal-listener)
+   - [WAL Processor](#wal-processor)
+2. [Configuration](#configuration)
+   - [Listeners](#listeners)
+     - [Postgres Listener](#postgres-listener)
+     - [Postgres Snapshoter](#postgres-snapshoter)
+     - [Kafka Listener](#kafka-listener)
+   - [Processors](#processors)
+     - [Kafka Batch Writer](#kafka-batch-writer)
+     - [Search Batch Indexer](#search-batch-indexer)
+     - [Webhook Notifier](#webhook-notifier)
+     - [Postgres Batch Writer](#postgres-batch-writer)
+     - [Injector](#injector)
+     - [Transformer](#transformer)
+3. [Tracking Schema Changes](#tracking-schema-changes)
+4. [Snapshots](#snapshots)
+5. [Transformers](#transformers)
+   - [Supported Transformers](#supported-transformers)
+   - [Transformation Rules](#transformation-rules)
+6. [Glossary](#glossary)
 
 ## Architecture
 
@@ -248,7 +261,9 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
 ![transformer diagram](img/pgstream_transformer_diagram.svg)
 
-`pgstream` supports column value transformations. This allows you to anonymise data on the go, making sure sensitive information doesn't get replicated downstream. `pgstream` integrates with existing transformer open source libraries, such as [greenmask](https://github.com/GreenmaskIO/greenmask) and [neosync](https://github.com/nucleuscloud/neosync), to leverage a large amount of transformation capabilities, as well as having support for custom transformations.
+`pgstream` supports column value transformations to anonymize sensitive data during replication and snapshots. This is particularly useful for compliance with data privacy regulations.
+
+`pgstream` integrates with existing transformer open source libraries, such as [greenmask](https://github.com/GreenmaskIO/greenmask) and [neosync](https://github.com/nucleuscloud/neosync), to leverage a large amount of transformation capabilities, as well as having support for custom transformations.
 
 ### Supported transformers
 
@@ -256,6 +271,8 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
  <details>
   <summary>greenmask_boolean</summary>
+
+**Description:** Generates random or deterministic boolean values (`true` or `false`).
 
 | Supported PostgreSQL types |
 | -------------------------- |
@@ -265,10 +282,33 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 | --------- | ------ | ------- | -------- | -------------------- |
 | generator | string | random  | No       | random,deterministic |
 
+**Example Configuration:**
+
+```yaml
+transformations:
+  - schema: public
+    table: users
+    column_transformers:
+      is_active:
+        name: greenmask_boolean
+        parameters:
+          generator: deterministic
+```
+
+**Input-Output Examples:**
+
+| Input Value | Configuration Parameters   | Output Value               |
+| ----------- | -------------------------- | -------------------------- |
+| `true`      | `generator: deterministic` | `false`                    |
+| `false`     | `generator: deterministic` | `true`                     |
+| `true`      | `generator: random`        | `true` or `false` (random) |
+
 </details>
 
  <details>
   <summary>greenmask_choice</summary>
+
+**Description:** Randomly selects a value from a predefined list of choices.
 
 | Supported PostgreSQL types          |
 | ----------------------------------- |
@@ -279,10 +319,34 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 | generator | string   | random  | No       | random,deterministic |
 | choices   | string[] | N/A     | Yes      | N/A                  |
 
+**Example Configuration:**
+
+```yaml
+transformations:
+  - schema: public
+    table: orders
+    column_transformers:
+      status:
+        name: greenmask_choice
+        parameters:
+          generator: random
+          choices: ["pending", "shipped", "delivered", "cancelled"]
+```
+
+**Input-Output Examples:**
+
+| Input Value | Configuration Parameters   | Output Value         |
+| ----------- | -------------------------- | -------------------- |
+| `pending`   | `generator: random`        | `shipped` (random)   |
+| `shipped`   | `generator: deterministic` | `pending`            |
+| `delivered` | `generator: random`        | `cancelled` (random) |
+
 </details>
 
  <details>
   <summary>greenmask_date</summary>
+
+**Description:** Generates random or deterministic dates within a specified range.
 
 | Supported PostgreSQL types         |
 | ---------------------------------- |
@@ -294,10 +358,34 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 | min_value | string (`yyyy-MM-dd`) | N/A     | Yes      | N/A                  |
 | max_value | string (`yyyy-MM-dd`) | N/A     | Yes      | N/A                  |
 
+**Example Configuration:**
+
+```yaml
+transformations:
+  - schema: public
+    table: events
+    column_transformers:
+      event_date:
+        name: greenmask_date
+        parameters:
+          generator: random
+          min_value: "2020-01-01"
+          max_value: "2025-12-31"
+```
+
+**Input-Output Examples:**
+
+| Input Value  | Configuration Parameters                                          | Output Value          |
+| ------------ | ----------------------------------------------------------------- | --------------------- |
+| `2023-01-01` | `generator: random, min_value: 2020-01-01, max_value: 2025-12-31` | `2021-05-15` (random) |
+| `2022-06-15` | `generator: deterministic`                                        | `2020-01-01`          |
+
 </details>
 
  <details>
   <summary>greenmask_firstname</summary>
+
+**Description:** Generates random or deterministic first names, optionally filtered by gender.
 
 | Supported PostgreSQL types          |
 | ----------------------------------- |
@@ -308,10 +396,35 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 | generator | string | random  | No       | random,deterministic |
 | gender    | string | Any     | No       | Any,Female,Male      |
 
+**Example Configuration:**
+
+```yaml
+transformations:
+  - schema: public
+    table: employees
+    column_transformers:
+      first_name:
+        name: greenmask_firstname
+        parameters:
+          generator: deterministic
+          gender: Female
+```
+
+**Input-Output Examples:**
+
+| Input Name | Configuration Parameters | Output Name |
+| ---------- | ------------------------ | ----------- |
+| `John`     | `preserve_gender: true`  | `Michael`   |
+| `Jane`     | `preserve_gender: true`  | `Emily`     |
+| `Alex`     | `preserve_gender: false` | `Jordan`    |
+| `Chris`    | `generator: random`      | `Taylor`    |
+
 </details>
 
  <details>
   <summary>greenmask_float</summary>
+
+**Description:** Generates random or deterministic floating-point numbers within a specified range.
 
 | Supported PostgreSQL types |
 | -------------------------- |
@@ -328,6 +441,8 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
  <details>
   <summary>greenmask_integer</summary>
 
+**Description:** Generates random or deterministic integers within a specified range.
+
 | Supported PostgreSQL types     |
 | ------------------------------ |
 | `smallint`,`integer`, `bigint` |
@@ -339,10 +454,27 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 | min_value | int    | -2147483648 | No       | N/A                  |
 | max_value | int    | 2147483647  | No       | N/A                  |
 
+**Example Configuration:**
+
+```yaml
+transformations:
+  - schema: public
+    table: products
+    column_transformers:
+      stock_quantity:
+        name: greenmask_integer
+        parameters:
+          generator: random
+          min_value: 1
+          max_value: 1000
+```
+
 </details>
 
  <details>
   <summary>greenmask_string</summary>
+
+**Description:** Generates random or deterministic strings with customizable length and character set.
 
 | Supported PostgreSQL types          |
 | ----------------------------------- |
@@ -355,10 +487,28 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 | min_length | int    | 1                                                              | No       | N/A                  |
 | max_length | int    | 100                                                            | No       | N/A                  |
 
+**Example Configuration:**
+
+```yaml
+transformations:
+  - schema: public
+    table: users
+    column_transformers:
+      username:
+        name: greenmask_string
+        parameters:
+          generator: random
+          min_length: 5
+          max_length: 15
+          symbols: "abcdefghijklmnopqrstuvwxyz1234567890"
+```
+
 </details>
 
  <details>
   <summary>greenmask_unix_timestamp</summary>
+
+**Description:** Generates random or deterministic unix timestamps.
 
 | Supported PostgreSQL types    |
 | ----------------------------- |
@@ -374,6 +524,8 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
  <details>
   <summary>greenmask_utc_timestamp</summary>
+
+**Description:** Generates random or deterministic UTC timestamps.
 
 | Supported PostgreSQL types |
 | -------------------------- |
@@ -391,6 +543,8 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
  <details>
   <summary>greenmask_uuid</summary>
 
+**Description:** Generates random or deterministic UUIDs.
+
 | Supported PostgreSQL types                 |
 | ------------------------------------------ |
 | `uuid`,`text`, `varchar`, `char`, `bpchar` |
@@ -407,6 +561,8 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
  <details>
   <summary>neosync_email</summary>
 
+**Description:** Anonymizes email addresses while optionally preserving length and domain.
+
 | Supported PostgreSQL types          |
 | ----------------------------------- |
 | `text`, `varchar`, `char`, `bpchar` |
@@ -421,10 +577,37 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 | invalid_email_action | string   | 100     | No       | reject,passthrough,null,generate |
 | seed                 | int      | Rand    | No       |                                  |
 
+**Example Configuration:**
+
+```yaml
+transformations:
+  - schema: public
+    table: customers
+    column_transformers:
+      email:
+        name: neosync_email
+        parameters:
+          preserve_length: true
+          preserve_domain: true
+```
+
+**Input-Output Examples:**
+
+| Input Email            | Configuration Parameters                        | Output Email           |
+| ---------------------- | ----------------------------------------------- | ---------------------- |
+| `john.doe@example.com` | `preserve_length: true, preserve_domain: true`  | `abcd.efg@example.com` |
+| `jane.doe@company.org` | `preserve_length: false, preserve_domain: true` | `random@company.org`   |
+| `user123@gmail.com`    | `preserve_length: true, preserve_domain: false` | `abcde123@random.com`  |
+| `invalid-email`        | `invalid_email_action: passthrough`             | `invalid-email`        |
+| `invalid-email`        | `invalid_email_action: null`                    | `NULL`                 |
+| `invalid-email`        | `invalid_email_action: generate`                | `generated@random.com` |
+
 </details>
 
  <details>
   <summary>neosync_firstname</summary>
+
+**Description:** Generates anonymized first names while optionally preserving length.
 
 | Supported PostgreSQL types          |
 | ----------------------------------- |
@@ -436,9 +619,24 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 | max_length      | int  | 100     | No       |
 | seed            | int  | Rand    | No       |
 
+**Example Configuration:**
+
+```yaml
+transformations:
+  - schema: public
+    table: users
+    column_transformers:
+      first_name:
+        name: neosync_firstname
+        parameters:
+          preserve_length: true
+```
+
 </details>
  <details>
   <summary>neosync_string</summary>
+
+**Description:** Generates anonymized strings with customizable length.
 
 | Supported PostgreSQL types          |
 | ----------------------------------- |
@@ -450,6 +648,20 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 | min_length      | int  | 1       | No       |
 | max_length      | int  | 100     | No       |
 | seed            | int  | Rand    | No       |
+
+**Example Configuration:**
+
+```yaml
+transformations:
+  - schema: public
+    table: logs
+    column_transformers:
+      log_message:
+        name: neosync_string
+        parameters:
+          min_length: 10
+          max_length: 50
+```
 
 </details>
 
@@ -468,25 +680,43 @@ transformations:
           <transformer_parameter>: <transformer_parameter_value>
 ```
 
-Example:
+Below is a complete example of a transformation rules YAML file:
 
 ```yaml
 transformations:
   - schema: public
-    table: test_table
+    table: users
     column_transformers:
-      column_1:
+      email:
         name: neosync_email
         parameters:
-          preserve_length: false
+          preserve_length: true
           preserve_domain: true
-          min_length: 5
-          max_length: 10
-      column_2:
+      first_name:
         name: greenmask_firstname
         parameters:
-          generator: deterministic
-          gender: Female
+          gender: Male
+      username:
+        name: greenmask_string
+        parameters:
+          generator: random
+          min_length: 5
+          max_length: 15
+          symbols: "abcdefghijklmnopqrstuvwxyz1234567890"
+  - schema: public
+    table: orders
+    column_transformers:
+      status:
+        name: greenmask_choice
+        parameters:
+          generator: random
+          choices: ["pending", "shipped", "delivered", "cancelled"]
+      order_date:
+        name: greenmask_date
+        parameters:
+          generator: random
+          min_value: "2020-01-01"
+          max_value: "2025-12-31"
 ```
 
 For details on how to use and configure the transformer, check the [transformer tutorial](tutorials/postgres_transformer.md).
@@ -497,3 +727,12 @@ For details on how to use and configure the transformer, check the [transformer 
 - [WAL](https://www.postgresql.org/docs/current/wal-intro.html): Write Ahead Logging
 - [LSN](https://pgpedia.info/l/LSN-log-sequence-number.html): Log Sequence Number
 - [DDL](https://en.wikipedia.org/wiki/Data_definition_language): Data Definition Language
+
+## Summary
+
+`pgstream` is a versatile tool for real-time data replication and transformation. Its modular architecture and support for multiple outputs make it ideal for a wide range of use cases, from analytics to compliance.
+
+For more information, check out:
+
+- [pgstream Tutorials](tutorials/)
+- [pgstream GitHub Repository](https://github.com/xataio/pgstream)

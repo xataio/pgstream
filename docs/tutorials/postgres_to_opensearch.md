@@ -1,16 +1,33 @@
 # 🐘 PostgreSQL replication to OpenSearch 🔍
 
+## Table of Contents
+
+1. [Introduction](#introduction)
+2. [Environment Setup](#environment-setup)
+3. [Database Initialization](#database-initialization)
+4. [Prepare `pgstream` Configuration](#prepare-pgstream-configuration)
+   - [Listener](#listener)
+   - [Processor](#processor)
+5. [Run `pgstream`](#run-pgstream)
+6. [Verify Replication](#verify-replication)
+7. [Troubleshooting](#troubleshooting)
+8. [Summary](#summary)
+
+## Introduction
+
 This tutorial will showcase the use of pgstream to replicate data from a PostgreSQL database to an OpenSearch cluster.
 
 ![pg2os tutorial](../img/pgstream_tutorial_pg2os.svg)
 
-https://github.com/user-attachments/assets/5a6b3daa-b57d-492f-a712-166931af89d0
-
-The requirements for this tutorial are:
+### Requirements
 
 - A source PostgreSQL database
 - A target OpenSearch cluster
 - pgstream (see [installation](../../README.md#installation) instructions for more details)
+
+### Demo
+
+https://github.com/user-attachments/assets/5a6b3daa-b57d-492f-a712-166931af89d0
 
 ## Environment setup
 
@@ -214,6 +231,8 @@ With the configuration ready, we can now run pgstream. In this case we set the l
 ```sh
 pgstream run -c pg2os_tutorial.env --log-level trace
 ```
+
+## Verify Replication
 
 Now we can connect to the source database and create a table:
 
@@ -583,3 +602,54 @@ And deleting a table will delete it from the pgstream schema log.
 ```
 
 Dropping the schema would delete the `public` OpenSearch index.
+
+## Troubleshooting
+
+### 1. **Error: `Connection refused`**
+
+- **Cause:** The PostgreSQL database or OpenSearch cluster is not running.
+- **Solution:**
+  - Ensure the Docker containers are running.
+  - Verify the database and OpenSearch URLs in the configuration.
+
+### 2. **Error: `Replication slot not found`**
+
+- **Cause:** The replication slot was not created during initialization.
+- **Solution:**
+  - Reinitialize `pgstream` or manually create the replication slot.
+  - Verify the replication slot exists by running:
+    ```sql
+    SELECT slot_name FROM pg_replication_slots;
+    ```
+
+### 3. **Error: `Data not replicated to OpenSearch`**
+
+- **Cause:** The OpenSearch cluster URL is incorrect or the processor configuration is invalid.
+- **Solution:**
+  - Verify the OpenSearch URL in the configuration file.
+  - Check the `pgstream` logs for errors:
+    ```sh
+    pgstream run -c pg2os_tutorial.env --log-level trace
+    ```
+
+### 4. **Error: `Permission denied`**
+
+- **Cause:** The database user does not have sufficient privileges.
+- **Solution:**
+  - Grant the required privileges to the database user:
+    ```sql
+    GRANT ALL PRIVILEGES ON DATABASE postgres TO postgres;
+    ```
+
+If you encounter issues not listed here, consult the [pgstream documentation](https://github.com/xataio/pgstream) or open an issue on the project's GitHub repository.
+
+## Summary
+
+In this tutorial, we successfully configured `pgstream` to replicate data from a PostgreSQL database to an OpenSearch cluster. We:
+
+1. Set up the source PostgreSQL database and target OpenSearch cluster.
+2. Initialized `pgstream` and created a replication slot.
+3. Configured the listener and processor for OpenSearch replication.
+4. Verified that both schema changes and data changes were replicated correctly.
+
+This tutorial demonstrates how `pgstream` can be used to integrate PostgreSQL with OpenSearch for real-time indexing. For more advanced use cases, refer to the [pgstream tutorials](../../README.md#tutorials).

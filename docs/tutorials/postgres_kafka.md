@@ -1,10 +1,26 @@
 # 🐘 PostgreSQL replication using Kafka 🔀
 
+## Table of Contents
+
+1. [Introduction](#introduction)
+2. [Environment Setup](#environment-setup)
+3. [Database Initialization](#database-initialisation)
+4. [Prepare `pgstream` Configuration](#prepare-pgstream-configuration)
+   - [PostgreSQL to Kafka](#postgresql---kafka)
+   - [Kafka to PostgreSQL](#kafka---postgresql)
+   - [Kafka to OpenSearch](#kafka---opensearch)
+5. [Run `pgstream`](#run-pgstream)
+6. [Verify Replication](#verify-replication)
+7. [Troubleshooting](#troubleshooting)
+8. [Summary](#summary)
+
+## Introduction
+
 This tutorial will showcase the use of pgstream to replicate data from a PostgreSQL database to multiple targets (PostgreSQL and OpenSearch), leveraging Kafka. Kafka can also be used to replicate to a single target, to take advantage of the fan out model that allows for parallel processing of the WAL events thanks to topic partitioning.
 
 ![kafka tutorial](../img/pgstream_tutorial_kafka.svg)
 
-The requirements for this tutorial are:
+### Requirements
 
 - A source PostgreSQL database
 - A target PostgreSQL database
@@ -329,6 +345,8 @@ First we connect and create a table in the source PostgreSQL database.
 CREATE TABLE test(id SERIAL PRIMARY KEY, name TEXT);
 ```
 
+## Verify Replication
+
 We should now be able to see the table created in the target PostgreSQL database:
 
 ```sh
@@ -495,3 +513,98 @@ curl -X GET -u admin:admin http://localhost:9200/public/_search | jq .
 ```
 
 All other operations will be cascaded to both target outputs accordingly. For more details on each individual target, check out the [PostgreSQL to PostgreSQL replication](postgres_to_postgres.md) and the [PostgreSQL to OpenSearch replication](postgres_to_opensearch.md) tutorials.
+
+## Troubleshooting
+
+Here are some common issues you might encounter while following this tutorial and how to resolve them:
+
+### 1. **Error: `Connection refused`**
+
+- **Cause:** The PostgreSQL database, Kafka cluster, or OpenSearch cluster is not running.
+- **Solution:**
+  - Ensure the Docker containers for all services are running.
+  - Verify the database, Kafka, and OpenSearch URLs in the configuration files.
+  - Test the connections using the following commands:
+    ```sh
+    psql postgresql://postgres:postgres@localhost:5432/postgres
+    curl -X GET http://localhost:9200
+    kafka-topics.sh --list --bootstrap-server localhost:9092
+    ```
+
+### 2. **Error: `Replication slot not found`**
+
+- **Cause:** The replication slot was not created during initialization.
+- **Solution:**
+  - Reinitialize `pgstream` or manually create the replication slot.
+  - Verify the replication slot exists by running:
+    ```sql
+    SELECT slot_name FROM pg_replication_slots;
+    ```
+
+### 3. **Error: `Kafka topic not found`**
+
+- **Cause:** The Kafka topic was not created automatically or the topic name is incorrect.
+- **Solution:**
+  - Ensure the `PGSTREAM_KAFKA_TOPIC_AUTO_CREATE` variable is set to `true` in the configuration.
+  - Manually create the topic using the Kafka CLI:
+    ```sh
+    kafka-topics.sh --create --topic pgstream --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+    ```
+
+### 4. **Error: `Data not replicated to targets`**
+
+- **Cause:** The Kafka consumer groups for PostgreSQL or OpenSearch are not configured correctly.
+- **Solution:**
+  - Verify the consumer group IDs in the configuration files.
+  - Check the `pgstream` logs for errors:
+    ```sh
+    pgstream run -c kafka2pg_tutorial.env --log-level trace
+    pgstream run -c kafka2os_tutorial.env --log-level trace
+    ```
+
+### 5. **Error: `Permission denied`**
+
+- **Cause:** The database user does not have sufficient privileges.
+- **Solution:**
+  - Grant the required privileges to the database user:
+    ```sql
+    GRANT ALL PRIVILEGES ON DATABASE postgres TO postgres;
+    ```
+
+### 6. **Error: `OpenSearch index not created`**
+
+- **Cause:** The OpenSearch processor is not configured correctly.
+- **Solution:**
+  - Verify the OpenSearch URL in the configuration file.
+  - Check the `pgstream` logs for errors:
+    ```sh
+    pgstream run -c kafka2os_tutorial.env --log-level trace
+    ```
+
+### 7. **Error: `Kafka TLS connection failed`**
+
+- **Cause:** The Kafka TLS certificates are not configured correctly.
+- **Solution:**
+  - Verify the paths to the certificate files in the configuration:
+    ```sh
+    PGSTREAM_KAFKA_TLS_CA_CERT_FILE="broker.cer.pem"
+    PGSTREAM_KAFKA_TLS_CLIENT_CERT_FILE="client.cer.pem"
+    PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE="client.key.pem"
+    ```
+  - Ensure the certificates are valid and match the Kafka server configuration.
+
+If you encounter issues not listed here, consult the [pgstream documentation](https://github.com/xataio/pgstream) or open an issue on the project's GitHub repository.
+
+## Summary
+
+In this tutorial, we successfully configured `pgstream` to replicate data from a PostgreSQL database to multiple targets (PostgreSQL and OpenSearch) using Kafka as an intermediary. We:
+
+1. Set up the source PostgreSQL database, target PostgreSQL database, OpenSearch cluster, and Kafka cluster.
+2. Initialized `pgstream` on the source database, creating the necessary schema and replication slot.
+3. Configured three separate `pgstream` instances:
+   - PostgreSQL to Kafka
+   - Kafka to PostgreSQL
+   - Kafka to OpenSearch
+4. Verified that schema changes and data changes were replicated correctly across all targets.
+
+This tutorial demonstrates how `pgstream` can leverage Kafka for scalable, real-time replication to multiple targets. For more advanced use cases, refer to the [pgstream tutorials](../../README.md#tutorials).
