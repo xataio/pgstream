@@ -13,52 +13,52 @@ func Test_NewFirstNameTransformer(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		params        transformers.Parameters
-		generatorType GeneratorType
+		name   string
+		params transformers.Parameters
 
 		wantErr error
 	}{
 		{
 			name: "ok - random",
 			params: map[string]any{
-				"gender": "female",
+				"generator": random,
+				"gender":    "female",
 			},
-			generatorType: Random,
 
 			wantErr: nil,
 		},
 		{
 			name: "ok - deterministic",
 			params: map[string]any{
-				"gender": "male",
+				"generator": deterministic,
+				"gender":    "male",
 			},
-			generatorType: Deterministic,
 
 			wantErr: nil,
 		},
 		{
 			name: "ok - unknown gender defaults to any",
 			params: map[string]any{
-				"gender": "other",
+				"generator": deterministic,
+				"gender":    "other",
 			},
-			generatorType: Deterministic,
 
 			wantErr: nil,
 		},
 		{
 			name: "error - invalid gender",
 			params: map[string]any{
-				"gender": 1,
+				"generator": random,
+				"gender":    1,
 			},
-			generatorType: Random,
 
 			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
-			name:          "error - invalid generator",
-			params:        map[string]any{},
-			generatorType: "invalid",
+			name: "error - invalid generator",
+			params: map[string]any{
+				"generator": "invalid",
+			},
 
 			wantErr: transformers.ErrUnsupportedGenerator,
 		},
@@ -68,7 +68,7 @@ func Test_NewFirstNameTransformer(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := NewFirstNameTransformer(tc.generatorType, tc.params)
+			_, err := NewFirstNameTransformer(tc.params)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
@@ -78,10 +78,9 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		value         any
-		params        transformers.Parameters
-		generatorType GeneratorType
+		name   string
+		value  any
+		params transformers.Parameters
 
 		wantName string
 		wantErr  error
@@ -90,9 +89,9 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 			name:  "ok - random with string",
 			value: "alice",
 			params: map[string]any{
-				"gender": "female",
+				"generator": random,
+				"gender":    "female",
 			},
-			generatorType: Random,
 
 			wantErr: nil,
 		},
@@ -100,9 +99,9 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 			name:  "ok - random with []byte",
 			value: []byte("alice"),
 			params: map[string]any{
-				"gender": "male",
+				"generator": random,
+				"gender":    "male",
 			},
-			generatorType: Random,
 
 			wantErr: nil,
 		},
@@ -110,9 +109,9 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 			name:  "ok - deterministic",
 			value: "alice",
 			params: map[string]any{
-				"gender": "female",
+				"generator": deterministic,
+				"gender":    "female",
 			},
-			generatorType: Deterministic,
 
 			wantName: "Pearlie",
 			wantErr:  nil,
@@ -121,9 +120,9 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 			name:  "error - unsupported value type",
 			value: 1,
 			params: map[string]any{
-				"gender": "female",
+				"generator": random,
+				"gender":    "female",
 			},
-			generatorType: Random,
 
 			wantErr: transformers.ErrUnsupportedValueType,
 		},
@@ -133,7 +132,7 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			transformer, err := NewFirstNameTransformer(tc.generatorType, tc.params)
+			transformer, err := NewFirstNameTransformer(tc.params)
 			require.NoError(t, err)
 
 			got, err := transformer.Transform(tc.value)

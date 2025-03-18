@@ -14,41 +14,40 @@ import (
 func TestNewDateTransformer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name      string
-		generator GeneratorType
-		params    transformers.Parameters
-		wantErr   error
+		name    string
+		params  transformers.Parameters
+		wantErr error
 	}{
 		{
-			name:      "ok - valid parameters",
-			generator: Random,
+			name: "ok - valid parameters",
 			params: transformers.Parameters{
+				"generator": random,
 				"min_value": "2021-01-01",
 				"max_value": "2022-01-02",
 			},
 			wantErr: nil,
 		},
 		{
-			name:      "error - min_value missing",
-			generator: Random,
+			name: "error - min_value missing",
 			params: transformers.Parameters{
+				"generator": random,
 				"max_value": "2022-01-02",
 			},
 			wantErr: errMinMaxValueNotSpecified,
 		},
 		{
-			name:      "error - min_value after max_value",
-			generator: Random,
+			name: "error - min_value after max_value",
 			params: transformers.Parameters{
+				"generator": random,
 				"min_value": "2022-01-03",
 				"max_value": "2022-01-02",
 			},
 			wantErr: greenmasktransformers.ErrWrongLimits,
 		},
 		{
-			name:      "error - invalid generator type",
-			generator: "invalid",
+			name: "error - invalid generator type",
 			params: transformers.Parameters{
+				"generator": "invalid",
 				"min_value": "2021-01-01",
 				"max_value": "2022-01-02",
 			},
@@ -58,7 +57,7 @@ func TestNewDateTransformer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			transformer, err := NewDateTransformer(tt.generator, tt.params)
+			transformer, err := NewDateTransformer(tt.params)
 			require.ErrorIs(t, err, tt.wantErr)
 			if err != nil {
 				return
@@ -71,16 +70,15 @@ func TestNewDateTransformer(t *testing.T) {
 func TestDateTransformer_Transform(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name      string
-		generator GeneratorType
-		params    transformers.Parameters
-		input     any
-		wantErr   error
+		name    string
+		params  transformers.Parameters
+		input   any
+		wantErr error
 	}{
 		{
-			name:      "ok - valid random",
-			generator: Random,
+			name: "ok - valid random",
 			params: transformers.Parameters{
+				"generator": random,
 				"min_value": "2021-01-01",
 				"max_value": "2022-01-02",
 			},
@@ -88,9 +86,9 @@ func TestDateTransformer_Transform(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:      "ok - valid deterministic",
-			generator: Deterministic,
+			name: "ok - valid deterministic",
 			params: transformers.Parameters{
+				"generator": deterministic,
 				"min_value": "2021-01-01",
 				"max_value": "2022-01-02",
 			},
@@ -98,9 +96,9 @@ func TestDateTransformer_Transform(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:      "ok - valid with time input",
-			generator: Deterministic,
+			name: "ok - valid with time input",
 			params: transformers.Parameters{
+				"generator": deterministic,
 				"min_value": "2022-01-02",
 				"max_value": "2022-01-02",
 			},
@@ -108,9 +106,9 @@ func TestDateTransformer_Transform(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:      "error - invalid input",
-			generator: Random,
+			name: "error - invalid input",
 			params: transformers.Parameters{
+				"generator": random,
 				"min_value": "2021-01-01",
 				"max_value": "2022-01-02",
 			},
@@ -121,7 +119,7 @@ func TestDateTransformer_Transform(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			transformer, err := NewDateTransformer(tt.generator, tt.params)
+			transformer, err := NewDateTransformer(tt.params)
 			require.NoError(t, err)
 			require.NotNil(t, transformer)
 
@@ -144,7 +142,7 @@ func TestDateTransformer_Transform(t *testing.T) {
 			require.True(t, result.After(minDate) || result.Equal(minDate))
 			require.True(t, result.Before(maxDate) || result.Equal(maxDate))
 
-			if tt.generator == Deterministic {
+			if mustGetGeneratorType(t, tt.params) == deterministic {
 				gotAgain, err := transformer.Transform(tt.input)
 				require.NoError(t, err)
 				require.Equal(t, got, gotAgain)

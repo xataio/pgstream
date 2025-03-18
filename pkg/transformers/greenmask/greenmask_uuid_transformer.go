@@ -12,9 +12,9 @@ type UUIDTransformer struct {
 	transformer *greenmasktransformers.RandomUuidTransformer
 }
 
-func NewUUIDTransformer(generatorType GeneratorType) (*UUIDTransformer, error) {
+func NewUUIDTransformer(params transformers.Parameters) (*UUIDTransformer, error) {
 	t := greenmasktransformers.NewRandomUuidTransformer()
-	if err := setGenerator(t, generatorType); err != nil {
+	if err := setGenerator(t, params); err != nil {
 		return nil, err
 	}
 	return &UUIDTransformer{
