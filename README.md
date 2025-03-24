@@ -17,6 +17,8 @@
 
 `pgstream` is an open source CDC command-line tool and library that offers Postgres replication support with DDL changes to any provided output.
 
+![pgstream_readme](https://github.com/user-attachments/assets/d25ad300-bd89-464d-9a5a-4eefa749154c)
+
 ## Features
 
 - Schema change tracking and replication of DDL changes
