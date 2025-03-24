@@ -71,7 +71,7 @@ Further configuration can be provided to optimize the performance of the snapsho
 PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS=4
 # Number of concurrent workers that will be used per table by the snapshotting process. Defaults to 4.
 PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS=4
-# Size of the table page range which will be processed concurrently by the table workers from PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLE_WORKERS. Defaults to 1000.
+# Size of the table page range which will be processed concurrently by the table workers from PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS. Defaults to 1000.
 PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE=1000
 # Number of schemas that will be processed in parallel by the snapshotting process. Defaults to 1.
 PGSTREAM_POSTGRES_SNAPSHOT_WORKERS=1
