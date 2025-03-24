@@ -61,7 +61,7 @@ The snapshot listener needs to be configured to indicate the tables/schemas that
 
 ```sh
 # Tables to snapshot. Use "*" to snapshot all tables in the public schema.
-PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLES="*"
+PGSTREAM_POSTGRES_SNAPSHOT_TABLES="*"
 ```
 
 Further configuration can be provided to optimize the performance of the snapshot process, mostly focusing on the concurrency.
