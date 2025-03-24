@@ -105,7 +105,13 @@ func (s *Store) GetSnapshotRequestsBySchema(ctx context.Context, schema string) 
 }
 
 func (s *Store) createTable(ctx context.Context) error {
-	createQuery := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(
+	createSchemaQuery := fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s`, store.SchemaName)
+	_, err := s.conn.Exec(ctx, createSchemaQuery)
+	if err != nil {
+		return fmt.Errorf("error creating pgstream schema for snapshot store: %w", err)
+	}
+
+	createTableQuery := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(
 	req_id SERIAL PRIMARY KEY,
 	schema_name TEXT,
 	table_names TEXT[],
@@ -113,7 +119,7 @@ func (s *Store) createTable(ctx context.Context) error {
 	updated_at TIMESTAMP WITH TIME ZONE,
 	status TEXT CHECK (status IN ('requested', 'in progress', 'completed')),
 	errors JSONB )`, snapshotsTable())
-	_, err := s.conn.Exec(ctx, createQuery)
+	_, err = s.conn.Exec(ctx, createTableQuery)
 	if err != nil {
 		return fmt.Errorf("error creating snapshots postgres table: %w", err)
 	}

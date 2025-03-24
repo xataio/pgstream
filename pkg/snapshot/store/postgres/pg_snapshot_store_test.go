@@ -13,6 +13,7 @@ import (
 	"github.com/xataio/pgstream/internal/postgres"
 	postgresmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 	"github.com/xataio/pgstream/pkg/snapshot"
+	"github.com/xataio/pgstream/pkg/snapshot/store"
 )
 
 func TestStore_CreateSnapshotRequest(t *testing.T) {
@@ -428,6 +429,10 @@ func TestStore_createTable(t *testing.T) {
 				ExecFn: func(ctx context.Context, i uint, s string, a ...any) (postgres.CommandTag, error) {
 					switch i {
 					case 1:
+						wantQuery := fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s`, store.SchemaName)
+						require.Equal(t, wantQuery, s)
+						require.Empty(t, a)
+					case 2:
 						wantQuery := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s(
 	req_id SERIAL PRIMARY KEY,
 	schema_name TEXT,
@@ -438,7 +443,7 @@ func TestStore_createTable(t *testing.T) {
 	errors JSONB )`, snapshotsTable())
 						require.Equal(t, wantQuery, s)
 						require.Empty(t, a)
-					case 2:
+					case 3:
 						wantQuery := fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS schema_table_status_unique_index
 	ON %s(schema_name,table_names) WHERE status != 'completed'`, snapshotsTable())
 						require.Equal(t, wantQuery, s)
@@ -453,11 +458,27 @@ func TestStore_createTable(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "error - creating schema",
+			querier: &postgresmocks.Querier{
+				ExecFn: func(ctx context.Context, i uint, s string, a ...any) (postgres.CommandTag, error) {
+					switch i {
+					case 1:
+						return postgres.CommandTag{}, errTest
+					default:
+						return postgres.CommandTag{}, fmt.Errorf("unexpected Exec call: %d", i)
+					}
+				},
+			},
+			wantErr: errTest,
+		},
+		{
 			name: "error - creating table",
 			querier: &postgresmocks.Querier{
 				ExecFn: func(ctx context.Context, i uint, s string, a ...any) (postgres.CommandTag, error) {
 					switch i {
 					case 1:
+						return postgres.CommandTag{}, nil
+					case 2:
 						return postgres.CommandTag{}, errTest
 					default:
 						return postgres.CommandTag{}, fmt.Errorf("unexpected Exec call: %d", i)
@@ -474,6 +495,8 @@ func TestStore_createTable(t *testing.T) {
 					case 1:
 						return postgres.CommandTag{}, nil
 					case 2:
+						return postgres.CommandTag{}, nil
+					case 3:
 						return postgres.CommandTag{}, errTest
 					default:
 						return postgres.CommandTag{}, fmt.Errorf("unexpected Exec call: %d", i)
