@@ -82,7 +82,7 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...Option) (*Batch
 
 	// start the send process in the background
 	go func() {
-		if err := w.batchSender.Send(ctx); err != nil {
+		if err := w.batchSender.Send(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			w.logger.Error(err, "sending stopped")
 		}
 	}()
