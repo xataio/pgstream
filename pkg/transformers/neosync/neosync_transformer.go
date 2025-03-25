@@ -53,6 +53,17 @@ func findParameter[T any](params transformers.Parameters, name string) (*T, erro
 	return val, nil
 }
 
+func findParameterArray[T any](params transformers.Parameters, name string) ([]T, error) {
+	val, found, err := transformers.FindParameterArray[T](params, name)
+	if err != nil {
+		return val, err
+	}
+	if !found {
+		val = nil
+	}
+	return val, nil
+}
+
 func toInt64Ptr(i *int) *int64 {
 	if i == nil {
 		return nil
@@ -62,11 +73,11 @@ func toInt64Ptr(i *int) *int64 {
 	return &i64
 }
 
-func toAnyPtr(strArray *[]string) *any {
-	if strArray == nil {
+func toAnyPtr(strArray []string) *any {
+	if len(strArray) == 0 {
 		return nil
 	}
 
-	strArrayAny := any(*strArray)
+	strArrayAny := any(strArray)
 	return &strArrayAny
 }
