@@ -115,13 +115,14 @@ func parseSnapshotConfig(pgURL, prefix string) *snapshotbuilder.SnapshotListener
 			Tables:          viper.GetStringSlice(fmt.Sprintf("%s_SNAPSHOT_TABLES", prefix)),
 			SnapshotWorkers: viper.GetUint(fmt.Sprintf("%s_SNAPSHOT_WORKERS", prefix)),
 		},
-		Schema: parseSchemaSnapshotConfig(pgURL),
+		Schema: parseSchemaSnapshotConfig(prefix, pgURL),
 	}
 }
 
-func parseSchemaSnapshotConfig(pgurl string) snapshotbuilder.SchemaSnapshotConfig {
+func parseSchemaSnapshotConfig(prefix, pgurl string) snapshotbuilder.SchemaSnapshotConfig {
+	useSchemaLog := viper.GetBool(fmt.Sprintf("%s_SNAPSHOT_USE_SCHEMALOG", prefix))
 	pgTargetURL := viper.GetString("PGSTREAM_POSTGRES_WRITER_TARGET_URL")
-	if pgTargetURL != "" {
+	if pgTargetURL != "" && !useSchemaLog {
 		return snapshotbuilder.SchemaSnapshotConfig{
 			DumpRestore: &pgdumprestore.Config{
 				SourcePGURL: pgurl,
