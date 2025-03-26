@@ -4,6 +4,7 @@ package adapter
 
 import (
 	"context"
+	"time"
 
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/snapshot"
@@ -44,7 +45,12 @@ func WithLogger(logger loglib.Logger) Option {
 	}
 }
 
-func (s *SnapshotGeneratorAdapter) CreateSnapshot(ctx context.Context) error {
+func (s *SnapshotGeneratorAdapter) CreateSnapshot(ctx context.Context) (err error) {
+	startTime := time.Now()
+	defer func() {
+		s.logger.Info("snapshot generation completed", loglib.Fields{"err": err, "duration": time.Since(startTime).String()})
+	}()
+
 	errGroup, ctx := errgroup.WithContext(ctx)
 	snapshotChan := make(chan *snapshot.Snapshot)
 	for i := uint(0); i < s.snapshotWorkers; i++ {
