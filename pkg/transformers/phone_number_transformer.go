@@ -61,7 +61,7 @@ func (t *PhoneNumberTransformer) Transform(value any) (any, error) {
 	case []byte:
 		return t.transform(string(v)), nil
 	default:
-		return nil, fmt.Errorf("unsupported value type: %T", value)
+		return nil, ErrUnsupportedValueType
 	}
 }
 
