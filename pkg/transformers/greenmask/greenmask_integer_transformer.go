@@ -92,6 +92,10 @@ func (t *IntegerTransformer) Transform(value any) (any, error) {
 		toTransform = generators.BuildBytesFromUint64(uint64(val))
 	case uint64:
 		toTransform = generators.BuildBytesFromUint64(uint64(val))
+	case float32:
+		toTransform = generators.BuildBytesFromUint64(uint64(val))
+	case float64:
+		toTransform = generators.BuildBytesFromUint64(uint64(val))
 	case []byte:
 		toTransform = val
 	default:
