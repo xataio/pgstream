@@ -125,7 +125,7 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) 
 	}
 
 	for _, q := range queries {
-		w.logger.Debug("batching query", loglib.Fields{"sql": q.getSQL(), "args": q.getArgs()})
+		w.logger.Debug("batching query", loglib.Fields{"sql": q.getSQL(), "args": q.getArgs(), "commit_position": walEvent.CommitPosition})
 		msg := batch.NewWALMessage(q, walEvent.CommitPosition)
 		if err := w.batchSender.AddToBatch(ctx, msg); err != nil {
 			return err

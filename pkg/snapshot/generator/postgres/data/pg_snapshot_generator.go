@@ -72,6 +72,10 @@ func WithLogger(logger loglib.Logger) Option {
 }
 
 func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) error {
+	// use a transaction snapshot to ensure the table rows can be parallelised.
+	// The transaction snapshot is available for use only until the end of the
+	// transaction that exported it.
+	// https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-SNAPSHOT-SYNCHRONIZATION
 	return sg.conn.ExecInTxWithOptions(ctx, func(tx pglib.Tx) error {
 		snapshotID, err := sg.exportSnapshot(ctx, tx)
 		if err != nil {
@@ -136,45 +140,35 @@ func (sg *SnapshotGenerator) collectSnapshotTableErrors(workerTableErrs []map[st
 }
 
 func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID string, schema, table string) error {
-	return sg.conn.ExecInTxWithOptions(ctx, func(tx pglib.Tx) error {
-		if err := sg.setTransactionSnapshot(ctx, tx, snapshotID); err != nil {
-			return err
-		}
+	tablePageCount, err := sg.getTablePageCount(ctx, schema, table, snapshotID)
+	if err != nil {
+		return err
+	}
 
-		tablePageCount, err := sg.getTablePageCount(ctx, tx, schema, table)
-		if err != nil {
-			return err
-		}
-
-		sg.logger.Debug(fmt.Sprintf("table page count: %d", tablePageCount), loglib.Fields{
-			"schema": schema, "table": table, "snapshotID": snapshotID,
+	// If one page range fails, we abort the entire table snapshot. The
+	// snapshot relies on the transaction snapshot id to ensure all workers
+	// have the same table view, which allows us to use the ctid to
+	// parallelise the work.
+	rangeChan := make(chan pageRange, tablePageCount)
+	errGroup, ctx := errgroup.WithContext(ctx)
+	for i := uint(0); i < sg.tableWorkers; i++ {
+		errGroup.Go(func() error {
+			return sg.snapshotTableRangeWorker(ctx, snapshotID, schema, table, rangeChan)
 		})
+	}
 
-		// If one page range fails, we abort the entire table snapshot. The
-		// snapshot relies on the transaction snapshot id to ensure all workers
-		// have the same table view, which allows us to use the ctid to
-		// parallelise the work.
-		rangeChan := make(chan pageRange, tablePageCount)
-		errGroup, ctx := errgroup.WithContext(ctx)
-		for i := uint(0); i < sg.tableWorkers; i++ {
-			errGroup.Go(func() error {
-				return sg.snapshotTableRangeWorker(ctx, snapshotID, schema, table, rangeChan)
-			})
+	// page count returned by postgres starts at 0, so we need to include it
+	// when creating the page ranges.
+	for start := uint(0); start <= tablePageCount; start += sg.batchPageSize {
+		rangeChan <- pageRange{
+			start: start,
+			end:   start + sg.batchPageSize,
 		}
+	}
 
-		// page count returned by postgres starts at 0, so we need to include it
-		// when creating the page ranges.
-		for start := uint(0); start <= tablePageCount; start += sg.batchPageSize {
-			rangeChan <- pageRange{
-				start: start,
-				end:   start + sg.batchPageSize,
-			}
-		}
-
-		// wait for all table ranges to complete
-		close(rangeChan)
-		return errGroup.Wait()
-	}, snapshotTxOptions())
+	// wait for all table ranges to complete
+	close(rangeChan)
+	return errGroup.Wait()
 }
 
 func (sg *SnapshotGenerator) snapshotTableRangeWorker(ctx context.Context, snapshotID, schema, table string, pageRangeChan <-chan (pageRange)) error {
@@ -187,10 +181,7 @@ func (sg *SnapshotGenerator) snapshotTableRangeWorker(ctx context.Context, snaps
 }
 
 func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID, schema, table string, pageRange pageRange) error {
-	return sg.conn.ExecInTxWithOptions(ctx, func(tx pglib.Tx) error {
-		if err := sg.setTransactionSnapshot(ctx, tx, snapshotID); err != nil {
-			return err
-		}
+	return sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
 		sg.logger.Debug(fmt.Sprintf("querying table page range %d-%d", pageRange.start, pageRange.end), loglib.Fields{
 			"schema": schema, "table": table, "snapshotID": snapshotID,
 		})
@@ -230,7 +221,7 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID,
 		}
 
 		return rows.Err()
-	}, snapshotTxOptions())
+	})
 }
 
 func (sg *SnapshotGenerator) toSnapshotColumns(fieldDescriptions []pgconn.FieldDescription, values []any) []snapshot.Column {
@@ -251,11 +242,21 @@ func (sg *SnapshotGenerator) toSnapshotColumns(fieldDescriptions []pgconn.FieldD
 	return columns
 }
 
-func (sg *SnapshotGenerator) getTablePageCount(ctx context.Context, tx pglib.Tx, schemaName, tableName string) (uint, error) {
-	var pageCount uint
-	query := "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2"
-	if err := tx.QueryRow(ctx, query, tableName, schemaName).Scan(&pageCount); err != nil {
-		return 0, fmt.Errorf("getting page count for table %s.%s: %w", schemaName, tableName, err)
+func (sg *SnapshotGenerator) getTablePageCount(ctx context.Context, schemaName, tableName, snapshotID string) (uint, error) {
+	pageCount := uint(0)
+	err := sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
+		query := "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2"
+		if err := tx.QueryRow(ctx, query, tableName, schemaName).Scan(&pageCount); err != nil {
+			return fmt.Errorf("getting page count for table %s.%s: %w", schemaName, tableName, err)
+		}
+
+		sg.logger.Debug(fmt.Sprintf("table page count: %d", pageCount), loglib.Fields{
+			"schema": schemaName, "table": tableName, "snapshotID": snapshotID,
+		})
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
 
 	return pageCount, nil
@@ -275,6 +276,16 @@ func (sg *SnapshotGenerator) setTransactionSnapshot(ctx context.Context, tx pgli
 		return fmt.Errorf("setting transaction snapshot: %w", err)
 	}
 	return nil
+}
+
+func (sg *SnapshotGenerator) execInSnapshotTx(ctx context.Context, snapshotID string, fn func(tx pglib.Tx) error) error {
+	return sg.conn.ExecInTxWithOptions(ctx, func(tx pglib.Tx) error {
+		if err := sg.setTransactionSnapshot(ctx, tx, snapshotID); err != nil {
+			return err
+		}
+
+		return fn(tx)
+	}, snapshotTxOptions())
 }
 
 func snapshotTxOptions() pglib.TxOptions {
