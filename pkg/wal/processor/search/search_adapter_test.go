@@ -143,7 +143,6 @@ func TestAdapter_walEventToMsg(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			a := newAdapter(noopMapper, testLSNParser)
@@ -220,7 +219,6 @@ func TestAdapter_walDataToLogEntry(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -406,7 +404,6 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -599,7 +596,6 @@ func TestAdapter_parseColumns(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -728,7 +724,6 @@ func TestAdapter_parseIDColumns(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -786,7 +781,6 @@ func TestAdapter_parseVersionColumn(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
