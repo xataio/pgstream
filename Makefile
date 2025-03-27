@@ -1,7 +1,7 @@
 .PHONY: lint
 lint: ## Lint source code
 	@echo "Linting source code..."
-	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.60.1
+	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.0.2
 	@golangci-lint run
 
 .PHONY: test
