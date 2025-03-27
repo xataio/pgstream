@@ -40,6 +40,14 @@ func (e *ErrSyntaxError) Error() string {
 	return fmt.Sprintf("syntax error: %s", e.Details)
 }
 
+type ErrStrValueTooLong struct {
+	Details string
+}
+
+func (e *ErrStrValueTooLong) Error() string {
+	return fmt.Sprintf("string too long: %s", e.Details)
+}
+
 func mapError(err error) error {
 	if pgconn.Timeout(err) {
 		return ErrConnTimeout
@@ -67,6 +75,13 @@ func mapError(err error) error {
 				Details: pgErr.Message,
 			}
 		}
+		// string_data_right_truncation - string too long for column
+		if pgErr.Code == "22001" {
+			return &ErrStrValueTooLong{
+				Details: pgErr.Message,
+			}
+		}
+
 	}
 
 	return err
