@@ -29,6 +29,8 @@ This tutorial will showcase the use of pgstream to replicate data from a Postgre
 
 https://github.com/user-attachments/assets/5a6b3daa-b57d-492f-a712-166931af89d0
 
+Youtube link [here](https://www.youtube.com/watch?v=HC0LeLjD220&list=PLf7KS0svgDP_H8x5lD8HPXK2BjhwO4ffT&index=1&pp=iAQB).
+
 ## Environment setup
 
 The first step is to start the PostgreSQL database that will be used as source and the OpenSearch cluster that will be the target for replication. The `pgstream` repository provides a docker installation that will be used for the purposes of this tutorial, but can be replaced by any available PostgreSQL server, as long as they have [`wal2json`](https://github.com/eulerto/wal2json) installed, and any OpenSearch cluster.

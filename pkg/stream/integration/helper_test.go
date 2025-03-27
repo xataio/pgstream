@@ -29,6 +29,7 @@ import (
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
+	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
@@ -100,6 +101,7 @@ func execQuery(t *testing.T, ctx context.Context, query string) {
 func execQueryWithURL(t *testing.T, ctx context.Context, url, query string) {
 	conn, err := pglib.NewConn(ctx, url)
 	require.NoError(t, err)
+	defer conn.Close(ctx)
 
 	_, err = conn.Exec(ctx, query)
 	require.NoError(t, err)
@@ -237,6 +239,30 @@ func testPostgresProcessorCfg(sourcePGURL string) stream.ProcessorConfig {
 			Store: schemalogpg.Config{
 				URL: sourcePGURL,
 			},
+		},
+	}
+}
+
+func testPostgresProcessorCfgWithTransformer(sourcePGURL string) stream.ProcessorConfig {
+	return stream.ProcessorConfig{
+		Postgres: &stream.PostgresProcessorConfig{
+			BatchWriter: postgres.Config{
+				URL: targetPGURL,
+				BatchConfig: batch.Config{
+					BatchTimeout: 50 * time.Millisecond,
+				},
+				SchemaLogStore: schemalogpg.Config{
+					URL: sourcePGURL,
+				},
+			},
+		},
+		Injector: &injector.Config{
+			Store: schemalogpg.Config{
+				URL: sourcePGURL,
+			},
+		},
+		Transformer: &transformer.Config{
+			TransformerRulesFile: "config/integration_test_transformer_rules.yaml",
 		},
 	}
 }

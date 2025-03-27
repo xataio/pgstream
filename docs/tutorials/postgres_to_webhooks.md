@@ -30,6 +30,8 @@ This tutorial will showcase the use of pgstream to replicate data from a Postgre
 
 https://github.com/user-attachments/assets/46797a58-94a1-4283-b431-f18b5853929c
 
+Youtube link [here](https://www.youtube.com/watch?v=fewe85P5ktk&list=PLf7KS0svgDP_H8x5lD8HPXK2BjhwO4ffT&index=2&pp=iAQB).
+
 ## Environment setup
 
 The first step is to start the PostgreSQL database that will be used as source for replication. The `pgstream` repository provides a docker installation that will be used for the purposes of this tutorial, but can be replaced by any available PostgreSQL server, as long as it has [`wal2json`](https://github.com/eulerto/wal2json) installed.
