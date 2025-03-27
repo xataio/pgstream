@@ -101,6 +101,7 @@ func execQuery(t *testing.T, ctx context.Context, query string) {
 func execQueryWithURL(t *testing.T, ctx context.Context, url, query string) {
 	conn, err := pglib.NewConn(ctx, url)
 	require.NoError(t, err)
+	defer conn.Close(ctx)
 
 	_, err = conn.Exec(ctx, query)
 	require.NoError(t, err)
