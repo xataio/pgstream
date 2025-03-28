@@ -20,6 +20,7 @@ type TransformerType string
 
 const (
 	String                 TransformerType = "string"
+	PhoneNumber            TransformerType = "phone_number"
 	NeosyncString          TransformerType = "neosync_string"
 	GreenmaskString        TransformerType = "greenmask_string"
 	NeosyncFirstName       TransformerType = "neosync_firstname"
