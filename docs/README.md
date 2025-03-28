@@ -263,11 +263,51 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
 ![transformer diagram](img/pgstream_transformer_diagram.svg)
 
-`pgstream` supports column value transformations to anonymize sensitive data during replication and snapshots. This is particularly useful for compliance with data privacy regulations.
+`pgstream` supports column value transformations to anonymize or mask sensitive data during replication and snapshots. This is particularly useful for compliance with data privacy regulations.
 
-`pgstream` integrates with existing transformer open source libraries, such as [greenmask](https://github.com/GreenmaskIO/greenmask) and [neosync](https://github.com/nucleuscloud/neosync), to leverage a large amount of transformation capabilities, as well as having support for custom transformations.
+`pgstream` integrates with existing transformer open source libraries, such as [greenmask](https://github.com/GreenmaskIO/greenmask), [neosync](https://github.com/nucleuscloud/neosync) and [go-masker](https://github.com/ggwhite/go-masker), to leverage a large amount of transformation capabilities, as well as having support for custom transformations.
 
 ### Supported transformers
+
+#### go-masker
+ <details>
+  <summary>masking</summary>
+
+**Description:** Masks string values using the provided masking function.
+
+| Supported PostgreSQL types          |
+| ----------------------------------- |
+| `text`, `varchar`, `char`, `bpchar` |
+
+**Parameter Details:**
+
+| Parameter | Type   | Default  | Required | Values                                                                     |
+| --------- | ------ | -------- | -------- | -------------------------------------------------------------------------- |
+| type      | string | default  | No       | password, name, address, email, mobile, tel, id, credit_card, url, default |
+
+
+**Example Configuration:**
+
+```yaml
+transformations:
+  - schema: public
+    table: users
+    column_transformers:
+      email:
+        name: masking
+        parameters:
+          type: email
+```
+
+**Input-Output Examples:**
+
+| Input Value              | Configuration Parameters | Output Value           |
+| ------------------------ | ------------------------ | ---------------------- |
+| `aVeryStrongPassword123` | `type: password`         | `************`         |
+| `john.doe@example.com`   | `type: email`            | `joh****e@example.com` |
+| `Sensitive Data`         | `type: default`          | `**************`       |
+
+</details>
 
 #### Greenmask
 
