@@ -125,8 +125,9 @@ func parseSchemaSnapshotConfig(prefix, pgurl string) snapshotbuilder.SchemaSnaps
 	if pgTargetURL != "" && !useSchemaLog {
 		return snapshotbuilder.SchemaSnapshotConfig{
 			DumpRestore: &pgdumprestore.Config{
-				SourcePGURL: pgurl,
-				TargetPGURL: pgTargetURL,
+				SourcePGURL:   pgurl,
+				TargetPGURL:   pgTargetURL,
+				CleanTargetDB: viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB"),
 			},
 		}
 	}
