@@ -40,6 +40,14 @@ func (e *ErrSyntaxError) Error() string {
 	return fmt.Sprintf("syntax error: %s", e.Details)
 }
 
+type ErrDataException struct {
+	Details string
+}
+
+func (e *ErrDataException) Error() string {
+	return fmt.Sprintf("data exception: %s", e.Details)
+}
+
 func mapError(err error) error {
 	if pgconn.Timeout(err) {
 		return ErrConnTimeout
@@ -58,6 +66,12 @@ func mapError(err error) error {
 		}
 		if pgErr.Code == "42601" {
 			return &ErrSyntaxError{
+				Details: pgErr.Message,
+			}
+		}
+		// Class 22 — Data Exception
+		if strings.HasPrefix(pgErr.Code, "22") {
+			return &ErrDataException{
 				Details: pgErr.Message,
 			}
 		}
