@@ -6,6 +6,7 @@ require (
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/elastic/go-elasticsearch/v8 v8.14.0
 	github.com/eminano/greenmask v0.0.0-20250307113752-035ee2b102e6
+	github.com/ggwhite/go-masker v1.1.0
 	github.com/go-logr/zerologr v1.2.3
 	github.com/golang-migrate/migrate/v4 v4.18.2
 	github.com/google/go-cmp v0.7.0
@@ -70,7 +71,6 @@ require (
 	github.com/expr-lang/expr v1.17.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
-	github.com/ggwhite/go-masker v1.1.0 // indirect
 	github.com/go-faker/faker/v4 v4.5.0 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
