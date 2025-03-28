@@ -19,6 +19,7 @@ type transformerTestTableRow struct {
 	name           string
 	lastName       string
 	email          string
+	secondaryEmail string
 	address        string
 	age            int
 	totalPurchases float64
@@ -35,6 +36,7 @@ var createTableQuery = `CREATE TABLE %s(
 	name text,
 	last_name varchar(255),
 	email varchar(255),
+	secondary_email varchar(255),
 	address text,
 	age integer,
 	total_purchases double precision,
@@ -78,6 +80,7 @@ func Test_PostgresToPostgres_Transformer(t *testing.T) {
 					name:           "John",
 					lastName:       "Doe",
 					email:          "john.doe@example.com",
+					secondaryEmail: "john.doe2@example.com",
 					address:        "123 Main St",
 					age:            30,
 					totalPurchases: 1000.50,
@@ -124,19 +127,19 @@ func Test_PostgresToPostgres_Transformer(t *testing.T) {
 }
 
 func insertQuery(table string, rows []transformerTestTableRow) string {
-	query := fmt.Sprintf("INSERT INTO %s (name, last_name, email, address, age, total_purchases, customer_id, birth_date, is_active, created_at, updated_at, gender) VALUES", table)
+	query := fmt.Sprintf("INSERT INTO %s (name, last_name, email, secondary_email, address, age, total_purchases, customer_id, birth_date, is_active, created_at, updated_at, gender) VALUES", table)
 	for i, row := range rows {
 		if i > 0 {
 			query += ","
 		}
-		query += fmt.Sprintf(" ('%s', '%s', '%s', '%s', %d, %f, '%s', '%s', %t, %d, '%s', '%s')",
-			row.name, row.lastName, row.email, row.address, row.age, row.totalPurchases, row.customerID, row.birthDate.Format(time.DateOnly), row.isActive, row.createdAt, row.updatedAt.Format(time.RFC3339), row.gender)
+		query += fmt.Sprintf(" ('%s', '%s', '%s', '%s', '%s', %d, %f, '%s', '%s', %t, %d, '%s', '%s')",
+			row.name, row.lastName, row.email, row.secondaryEmail, row.address, row.age, row.totalPurchases, row.customerID, row.birthDate.Format(time.DateOnly), row.isActive, row.createdAt, row.updatedAt.Format(time.RFC3339), row.gender)
 	}
 	return query
 }
 
 func validateRows(t *testing.T, ctx context.Context, conn *pglib.Conn, expectedRows []int, table string) bool {
-	selectQuery := fmt.Sprintf("SELECT id, name, last_name, email, address, age, total_purchases, customer_id, birth_date, is_active, created_at, updated_at, gender FROM %s WHERE id IN (", table)
+	selectQuery := fmt.Sprintf("SELECT id, name, last_name, email, secondary_email, address, age, total_purchases, customer_id, birth_date, is_active, created_at, updated_at, gender FROM %s WHERE id IN (", table)
 	for i, rowID := range expectedRows {
 		if i > 0 {
 			selectQuery += " ,"
@@ -151,7 +154,7 @@ func validateRows(t *testing.T, ctx context.Context, conn *pglib.Conn, expectedR
 	rowsFromDB := []transformerTestTableRow{}
 	for rows.Next() {
 		row := transformerTestTableRow{}
-		err := rows.Scan(&row.id, &row.name, &row.lastName, &row.email, &row.address, &row.age, &row.totalPurchases, &row.customerID, &row.birthDate, &row.isActive, &row.createdAt, &row.updatedAt, &row.gender)
+		err := rows.Scan(&row.id, &row.name, &row.lastName, &row.email, &row.secondaryEmail, &row.address, &row.age, &row.totalPurchases, &row.customerID, &row.birthDate, &row.isActive, &row.createdAt, &row.updatedAt, &row.gender)
 		require.NoError(t, err)
 		rowsFromDB = append(rowsFromDB, row)
 	}
@@ -165,6 +168,7 @@ func validateRows(t *testing.T, ctx context.Context, conn *pglib.Conn, expectedR
 		require.LessOrEqual(t, len(row.name), 5)
 		require.LessOrEqual(t, len(row.lastName), 10)
 		require.LessOrEqual(t, len(row.email), 15)
+		require.Equal(t, row.secondaryEmail, "joh****e2@example.com")
 		require.LessOrEqual(t, len(row.address), 20)
 		require.GreaterOrEqual(t, row.age, 18)
 		require.LessOrEqual(t, row.age, 75)

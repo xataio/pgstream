@@ -11,16 +11,16 @@ import (
 )
 
 const (
-	MPassword   string = "password"
-	MName       string = "name"
-	MAddress    string = "address"
-	MEmail      string = "email"
-	MMobile     string = "mobile"
-	MTelephone  string = "tel"
-	MID         string = "id"
-	MCreditCard string = "credit_card"
-	MURL        string = "url"
-	MDefault    string = "default"
+	mPassword   string = "password"
+	mName       string = "name"
+	mAddress    string = "address"
+	mEmail      string = "email"
+	mMobile     string = "mobile"
+	mTelephone  string = "tel"
+	mID         string = "id"
+	mCreditCard string = "credit_card"
+	mURL        string = "url"
+	mDefault    string = "default"
 )
 
 var errInvalidMaskingType = errors.New("masking_type must be one of 'password', 'name', 'address', 'email', 'mobile', 'tel', 'id', 'credit_card', 'url' or 'default'")
@@ -40,29 +40,29 @@ func NewMaskingTransformer(params Parameters) (*MaskingTransformer, error) {
 		return nil, fmt.Errorf("masking: type must be a string: %w", err)
 	}
 	if !found {
-		maskType = MDefault
+		maskType = mDefault
 	}
 	m := masker.New()
 	switch maskType {
-	case MPassword:
+	case mPassword:
 		mf = m.Password
-	case MName:
+	case mName:
 		mf = m.Name
-	case MAddress:
+	case mAddress:
 		mf = m.Address
-	case MEmail:
+	case mEmail:
 		mf = m.Email
-	case MMobile:
+	case mMobile:
 		mf = m.Mobile
-	case MID:
+	case mID:
 		mf = m.ID
-	case MTelephone:
+	case mTelephone:
 		mf = m.Telephone
-	case MCreditCard:
+	case mCreditCard:
 		mf = m.CreditCard
-	case MURL:
+	case mURL:
 		mf = m.URL
-	case MDefault:
+	case mDefault:
 		mf = func(v string) string {
 			return strings.Repeat("*", len(v))
 		}

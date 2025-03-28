@@ -18,6 +18,10 @@ transformations:
           preserve_length: false
           max_length: 15
           excluded_domains: ["example.com", "example.net"]
+      secondary_email:
+        name: masking
+        parameters:
+          type: email
       address:
         name: greenmask_string
         parameters:
