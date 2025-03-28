@@ -6,14 +6,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/opensearch"
 )
 
+const opensearchImage = "opensearchproject/opensearch:2.11.1"
+
 func SetupOpenSearchContainer(ctx context.Context, url *string) (cleanup, error) {
-	ctr, err := opensearch.RunContainer(ctx,
-		testcontainers.WithImage("opensearchproject/opensearch:2.11.1"),
-	)
+	ctr, err := opensearch.Run(ctx, opensearchImage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start opensearch container: %w", err)
 	}

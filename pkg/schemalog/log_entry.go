@@ -126,7 +126,7 @@ func (s *SchemaCreatedAtTimestamp) Scan(src interface{}) error {
 }
 
 func (s SchemaCreatedAtTimestamp) TimestampValue() (pgtype.Timestamp, error) {
-	return pgtype.Timestamp{Time: s.Time.UTC(), Valid: true}, nil
+	return pgtype.Timestamp{Time: s.UTC(), Valid: true}, nil
 }
 
 func (s SchemaCreatedAtTimestamp) MarshalJSON() ([]byte, error) {

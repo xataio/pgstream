@@ -78,7 +78,7 @@ func newMockWebhookServer() *mockWebhookServer {
 
 func (m *mockWebhookServer) close() {
 	close(m.dataChan)
-	m.Server.Close()
+	m.Close()
 }
 
 func runStream(t *testing.T, ctx context.Context, cfg *stream.Config) {

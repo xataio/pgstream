@@ -245,7 +245,7 @@ func (sg *SnapshotGenerator) toSnapshotColumns(fieldDescriptions []pgconn.FieldD
 func (sg *SnapshotGenerator) getTablePageCount(ctx context.Context, schemaName, tableName, snapshotID string) (uint, error) {
 	pageCount := uint(0)
 	err := sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
-		query := "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2"
+		const query = "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2"
 		if err := tx.QueryRow(ctx, query, tableName, schemaName).Scan(&pageCount); err != nil {
 			return fmt.Errorf("getting page count for table %s.%s: %w", schemaName, tableName, err)
 		}
