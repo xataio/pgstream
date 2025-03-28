@@ -40,12 +40,12 @@ func (e *ErrSyntaxError) Error() string {
 	return fmt.Sprintf("syntax error: %s", e.Details)
 }
 
-type ErrStrValueTooLong struct {
+type ErrDataException struct {
 	Details string
 }
 
-func (e *ErrStrValueTooLong) Error() string {
-	return fmt.Sprintf("string too long: %s", e.Details)
+func (e *ErrDataException) Error() string {
+	return fmt.Sprintf("data exception: %s", e.Details)
 }
 
 func mapError(err error) error {
@@ -69,19 +69,18 @@ func mapError(err error) error {
 				Details: pgErr.Message,
 			}
 		}
+		// Class 22 — Data Exception
+		if strings.HasPrefix(pgErr.Code, "22") {
+			return &ErrDataException{
+				Details: pgErr.Message,
+			}
+		}
 		// Class 23 — Integrity Constraint Violation
 		if strings.HasPrefix(pgErr.Code, "23") {
 			return &ErrConstraintViolation{
 				Details: pgErr.Message,
 			}
 		}
-		// string_data_right_truncation - string too long for column
-		if pgErr.Code == "22001" {
-			return &ErrStrValueTooLong{
-				Details: pgErr.Message,
-			}
-		}
-
 	}
 
 	return err
