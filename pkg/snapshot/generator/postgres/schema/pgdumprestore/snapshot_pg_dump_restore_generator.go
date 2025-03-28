@@ -22,12 +22,14 @@ type SnapshotGenerator struct {
 	pgRestoreFn    pgrestoreFn
 	schemalogStore schemalog.Store
 	connBuilder    pglib.QuerierBuilder
+	cleanTargetDB  bool
 	logger         loglib.Logger
 }
 
 type Config struct {
-	SourcePGURL string
-	TargetPGURL string
+	SourcePGURL   string
+	TargetPGURL   string
+	CleanTargetDB bool
 }
 
 type (
@@ -43,12 +45,13 @@ const publicSchema = "public"
 // uses pg_dump and pg_restore to sync the schema of two postgres databases
 func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*SnapshotGenerator, error) {
 	sg := &SnapshotGenerator{
-		sourceURL:   c.SourcePGURL,
-		targetURL:   c.TargetPGURL,
-		pgDumpFn:    pglib.RunPGDump,
-		pgRestoreFn: pglib.RunPGRestore,
-		connBuilder: pglib.ConnBuilder,
-		logger:      loglib.NewNoopLogger(),
+		sourceURL:     c.SourcePGURL,
+		targetURL:     c.TargetPGURL,
+		pgDumpFn:      pglib.RunPGDump,
+		pgRestoreFn:   pglib.RunPGRestore,
+		connBuilder:   pglib.ConnBuilder,
+		cleanTargetDB: c.CleanTargetDB,
+		logger:        loglib.NewNoopLogger(),
 	}
 
 	for _, opt := range opts {
@@ -146,6 +149,7 @@ func (s *SnapshotGenerator) pgrestoreOptions() pglib.PGRestoreOptions {
 	return pglib.PGRestoreOptions{
 		ConnectionString: s.targetURL,
 		SchemaOnly:       true,
+		Clean:            s.cleanTargetDB,
 	}
 }
 
