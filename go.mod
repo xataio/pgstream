@@ -7,7 +7,7 @@ require (
 	github.com/elastic/go-elasticsearch/v8 v8.14.0
 	github.com/eminano/greenmask v0.0.0-20250307113752-035ee2b102e6
 	github.com/go-logr/zerologr v1.2.3
-	github.com/golang-migrate/migrate/v4 v4.18.1
+	github.com/golang-migrate/migrate/v4 v4.18.2
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
