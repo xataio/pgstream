@@ -3,6 +3,7 @@
 package postgres
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -11,7 +12,29 @@ import (
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
-type dmlAdapter struct{}
+type onConflictAction uint
+
+const (
+	onConflictError onConflictAction = iota
+	onConflictUpdate
+	onConflictDoNothing
+)
+
+var errUnsupportedOnConflictAction = errors.New("unsupported on conflict action")
+
+type dmlAdapter struct {
+	onConflictAction onConflictAction
+}
+
+func newDMLAdapter(action string) (*dmlAdapter, error) {
+	oca, err := parseOnConflictAction(action)
+	if err != nil {
+		return nil, err
+	}
+	return &dmlAdapter{
+		onConflictAction: oca,
+	}, nil
+}
 
 func (a *dmlAdapter) walDataToQuery(d *wal.Data) *query {
 	switch d.Action {
@@ -54,7 +77,7 @@ func (a *dmlAdapter) buildInsertQuery(d *wal.Data) *query {
 	}
 
 	return &query{
-		sql: fmt.Sprintf("INSERT INTO %s(%s) VALUES(%s) %s",
+		sql: fmt.Sprintf("INSERT INTO %s(%s) VALUES(%s)%s",
 			quotedTableName(d.Schema, d.Table), strings.Join(names, ", "),
 			strings.Join(placeholders, ", "),
 			a.buildOnConflictQuery(d)),
@@ -99,15 +122,26 @@ func (a *dmlAdapter) buildSetQuery(cols []wal.Column) (string, []any) {
 }
 
 func (a *dmlAdapter) buildOnConflictQuery(d *wal.Data) string {
-	primaryKeyCols := a.extractPrimaryKeyColumns(d.Metadata.InternalColIDs, d.Columns)
-	conflictCols := []string{}
-	for _, col := range primaryKeyCols {
-		conflictCols = append(conflictCols, col.Name)
-	}
-	if len(conflictCols) == 0 {
+	switch a.onConflictAction {
+	case onConflictUpdate:
+		// on conflict do update requires a conflict target. If there are no
+		// primary keys to use for the conflict target, default to error
+		// behaviour
+		primaryKeyCols := a.extractPrimaryKeyColumnNames(d.Metadata.InternalColIDs, d.Columns)
+		if len(primaryKeyCols) == 0 {
+			return ""
+		}
+
+		cols := make([]string, 0, len(d.Columns))
+		for _, col := range d.Columns {
+			cols = append(cols, fmt.Sprintf("%[1]s = EXCLUDED.%[1]s", pq.QuoteIdentifier(col.Name)))
+		}
+		return fmt.Sprintf(" ON CONFLICT (%s) DO UPDATE SET %s", strings.Join(primaryKeyCols, ","), strings.Join(cols, ", "))
+	case onConflictDoNothing:
+		return " ON CONFLICT DO NOTHING"
+	default:
 		return ""
 	}
-	return fmt.Sprintf("ON CONFLICT (%s) DO NOTHING", strings.Join(conflictCols, ", "))
 }
 
 func (a *dmlAdapter) extractPrimaryKeyColumns(colIDs []string, cols []wal.Column) []wal.Column {
@@ -122,6 +156,31 @@ func (a *dmlAdapter) extractPrimaryKeyColumns(colIDs []string, cols []wal.Column
 	return primaryKeyColumns
 }
 
+func (a *dmlAdapter) extractPrimaryKeyColumnNames(colIDs []string, cols []wal.Column) []string {
+	primaryKeyCols := a.extractPrimaryKeyColumns(colIDs, cols)
+	if len(primaryKeyCols) == 0 {
+		return []string{}
+	}
+	colNames := []string{}
+	for _, col := range primaryKeyCols {
+		colNames = append(colNames, col.Name)
+	}
+	return colNames
+}
+
 func quotedTableName(schemaName, tableName string) string {
 	return fmt.Sprintf("%s.%s", pq.QuoteIdentifier(schemaName), pq.QuoteIdentifier(tableName))
+}
+
+func parseOnConflictAction(action string) (onConflictAction, error) {
+	switch action {
+	case "", "error":
+		return onConflictError, nil
+	case "update":
+		return onConflictUpdate, nil
+	case "nothing":
+		return onConflictDoNothing, nil
+	default:
+		return 0, errUnsupportedOnConflictAction
+	}
 }

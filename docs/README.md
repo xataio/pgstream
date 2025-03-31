@@ -213,6 +213,7 @@ One of exponential/constant backoff policies can be provided for the search stor
 | PGSTREAM_POSTGRES_WRITER_BATCH_BYTES         | 1572864 | No       | Max size in bytes for a given batch. When this size is reached, the batch is sent to PostgreSQL.                 |
 | PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL | N/A     | No       | URL of the store where the pgstream schemalog table which keeps track of schema changes is.                      |
 | PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS    | False   | No       | Option to disable triggers on the target PostgreSQL database while performing the snaphot/replication streaming. |
+| PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION  | error   | No       | Action to apply to inserts on conflict. Options are `nothing`, `update` or `error`.                              |
 
 </details>
 
@@ -271,6 +272,7 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 ### Supported transformers
 
 #### go-masker
+
  <details>
   <summary>masking</summary>
 
@@ -282,10 +284,9 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
 **Parameter Details:**
 
-| Parameter | Type   | Default  | Required | Values                                                                     |
-| --------- | ------ | -------- | -------- | -------------------------------------------------------------------------- |
-| type      | string | default  | No       | password, name, address, email, mobile, tel, id, credit_card, url, default |
-
+| Parameter | Type   | Default | Required | Values                                                                     |
+| --------- | ------ | ------- | -------- | -------------------------------------------------------------------------- |
+| type      | string | default | No       | password, name, address, email, mobile, tel, id, credit_card, url, default |
 
 **Example Configuration:**
 
