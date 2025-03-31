@@ -51,7 +51,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
 				require.Equal(t, pglib.PGDumpOptions{
 					ConnectionString: "source-url",
-					Format:           "c",
+					Format:           "p",
 					SchemaOnly:       true,
 					Schemas:          []string{testSchema},
 					Tables:           []string{testSchema + "." + testTable},
@@ -61,6 +61,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				require.Equal(t, pglib.PGRestoreOptions{
 					ConnectionString: "target-url",
+					Format:           "p",
 					SchemaOnly:       true,
 				}, po)
 				require.Equal(t, testDump, dump)
@@ -319,6 +320,48 @@ func TestSnapshotGenerator_schemalogExists(t *testing.T) {
 			exists, err := sg.schemalogExists(context.Background())
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantExists, exists)
+		})
+	}
+}
+
+func TestSnapshotGenerator_parseDump(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		dump []byte
+
+		wantDump []byte
+	}{
+		{
+			name:     "nil dump",
+			dump:     nil,
+			wantDump: nil,
+		},
+		{
+			name:     "empty dump",
+			dump:     []byte{},
+			wantDump: []byte{},
+		},
+		{
+			name:     "dump updated",
+			dump:     []byte("CREATE SCHEMA test_schema; CREATE TABLE test_schema.test_table; ALTER TABLE test_schema.test_table;"),
+			wantDump: []byte("CREATE SCHEMA IF NOT EXISTS test_schema; CREATE TABLE IF NOT EXISTS test_schema.test_table; ALTER TABLE test_schema.test_table;"),
+		},
+		{
+			name:     "dump not updated",
+			dump:     []byte("ALTER TABLE test"),
+			wantDump: []byte("ALTER TABLE test"),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sg := SnapshotGenerator{}
+			gotDump := sg.parseDump(tc.dump)
+			require.Equal(t, string(tc.wantDump), string(gotDump))
 		})
 	}
 }

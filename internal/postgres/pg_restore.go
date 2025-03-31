@@ -9,7 +9,10 @@ import (
 	"os/exec"
 )
 
-var pgRestoreCmd = "pg_restore"
+const (
+	pgRestoreCmd = "pg_restore"
+	psqlCmd      = "psql"
+)
 
 type PGRestoreOptions struct {
 	// ConnectionString
@@ -18,11 +21,13 @@ type PGRestoreOptions struct {
 	SchemaOnly bool
 	// Clean all the objects that will be restored
 	Clean bool
+	// Format (c custom, d directory, t tar, p plain text)
+	Format string
 	// Options to pass to pg_restore
 	Options []string
 }
 
-func (opts PGRestoreOptions) ToArgs() []string {
+func (opts PGRestoreOptions) toArgs() []string {
 	var options []string
 
 	options = append(options, "-d", opts.ConnectionString)
@@ -40,9 +45,21 @@ func (opts PGRestoreOptions) ToArgs() []string {
 	return options
 }
 
-// Func RunPGRestore runs pg_restore command with the given options and returns the result.
+func (opts PGRestoreOptions) toPSQLArgs() []string {
+	return []string{opts.ConnectionString}
+}
+
+// Func RunPGRestore runs pg_restore command with the given options and returns
+// the result. It the format is plain, it uses `psql` command instead of
+// `pg_restore`.
 func RunPGRestore(opts PGRestoreOptions, dump []byte) (string, error) {
-	cmd := exec.Command(pgRestoreCmd, opts.ToArgs()...) //nolint:gosec
+	var cmd *exec.Cmd
+	switch opts.Format {
+	case "p":
+		cmd = exec.Command(psqlCmd, opts.toPSQLArgs()...) //nolint:gosec
+	default:
+		cmd = exec.Command(pgRestoreCmd, opts.toArgs()...) //nolint:gosec
+	}
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
