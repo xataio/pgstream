@@ -111,7 +111,7 @@ func (t *Transformer) applyTransformations(event *wal.Event) error {
 			})
 			newValue = nil
 		}
-		t.logger.Trace("applying column transformation", loglib.Fields{"column_name": col.Name, "column_value": col.Value, "new_column_value": newValue})
+		t.logger.Trace("applying column transformation", loglib.Fields{"column_name": col.Name, "column_value": col.Value, "column_type": col.Type, "new_column_value": newValue})
 		columns[i].Value = newValue
 	}
 

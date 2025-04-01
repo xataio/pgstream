@@ -1,23 +1,17 @@
-goVersion: &goVersion "1.22"
-
+version: "2"
 run:
-  go: *goVersion
-  timeout: 30m
-
+  go: "1.24"
 linters:
-  disable-all: true
-  # Enable specific linter
-  # https://golangci-lint.run/usage/linters/#enabled-by-default-linters
+  default: none
   enable:
+    - copyloopvar
     - errorlint
-    - exportloopref
     - forbidigo
     - forcetypeassert
+    - gochecksumtype
     - goconst
     - gocritic
-    - gofumpt
     - gosec
-    - gosimple
     - govet
     - ineffassign
     - makezero
@@ -26,59 +20,65 @@ linters:
     - nolintlint
     - prealloc
     - staticcheck
-    - stylecheck
     - unused
-    - gochecksumtype
-
-linters-settings:
-  errorlint:
-    errorf: true
-
-  forbidigo:
-    forbid:
-      - fmt.Print*
-  gomodguard:
-    blocked:
-      # List of blocked modules.
-      modules:
-        # Blocked module.
-        - github.com/pkg/errors:
-            # Recommended modules that should be used instead. (Optional)
-            recommendations:
-              - errors
-              - fmt
-            reason: "This package is deprecated, use `fmt.Errorf` with `%w` instead"
-
-  goconst:
-    ignore-tests: true
-    numbers: true
-
-  gocritic:
-    disabled-checks:
-      - exitAfterDefer
-      - ifElseChain
-      - commentFormatting
-
-  gofumpt:
-    run.go: *goVersion
-    module-path: "pgstream"
-    extra-rules: false
-
-  staticcheck:
-    run.go: *goVersion
-    checks: ["all", "-SA1019"]
-
-  stylecheck:
-    run.go: *goVersion
-    checks: ["all", "-ST1000", "-ST1005"]
-
-  unused:
-    go: *goVersion
-
-  makezero:
-    always: false
-
-  gosec:
-    exclude-generated: true
-    severity: low
-    includes: []
+  settings:
+    errorlint:
+      errorf: true
+    forbidigo:
+      forbid:
+        - pattern: fmt.Print*
+    goconst:
+      numbers: true
+    gocritic:
+      disabled-checks:
+        - exitAfterDefer
+        - ifElseChain
+        - commentFormatting
+    gomodguard:
+      blocked:
+        modules:
+          - github.com/pkg/errors:
+              recommendations:
+                - errors
+                - fmt
+              reason: This package is deprecated, use `fmt.Errorf` with `%w` instead
+    gosec:
+      excludes:
+        - G115
+      severity: low
+    makezero:
+      always: false
+    staticcheck:
+      checks:
+        - -SA1019
+        - -ST1000
+        - -ST1005
+        - all
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - goconst
+        path: (.+)_test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofumpt
+  settings:
+    gofumpt:
+      module-path: pgstream
+      extra-rules: false
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/xataio/pgstream/internal/testcontainers"
 	"github.com/xataio/pgstream/pkg/snapshot"
 )
 
@@ -20,7 +21,8 @@ func Test_PostgresSnapshotGenerator(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	pgCleanup, pgurl, err := setupPostgresContainer(ctx)
+	var pgurl string
+	pgCleanup, err := testcontainers.SetupPostgresContainer(ctx, &pgurl, testcontainers.Postgres14)
 	require.NoError(t, err)
 	defer pgCleanup()
 

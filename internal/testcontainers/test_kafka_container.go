@@ -12,16 +12,19 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
+const kafkaImage = "confluentinc/confluent-local:7.5.0"
+
 func SetupKafkaContainer(ctx context.Context, brokers *[]string) (cleanup, error) {
-	ctr, err := kafka.RunContainer(ctx,
+	opts := []testcontainers.ContainerCustomizer{
 		kafka.WithClusterID("test-cluster"),
-		testcontainers.WithImage("confluentinc/confluent-local:7.5.0"),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("Kafka Server started").
 				WithOccurrence(1).
-				WithStartupTimeout(5*time.Second),
+				WithStartupTimeout(5 * time.Second),
 		),
-	)
+	}
+
+	ctr, err := kafka.Run(ctx, kafkaImage, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start kafka container: %w", err)
 	}

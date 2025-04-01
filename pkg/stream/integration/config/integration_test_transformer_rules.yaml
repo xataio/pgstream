@@ -1,0 +1,64 @@
+transformations:
+  - schema: public
+    table: pg2pg_integration_transformer_test
+    column_transformers:
+      name:
+        name: neosync_firstname
+        parameters:
+          preserve_length: false
+          max_length: 5
+      last_name:
+        name: neosync_string
+        parameters:
+          preserve_length: false
+          max_length: 10
+      email:
+        name: neosync_email
+        parameters:
+          preserve_length: false
+          max_length: 15
+          excluded_domains: ["example.com", "example.net"]
+      secondary_email:
+        name: masking
+        parameters:
+          type: email
+      address:
+        name: greenmask_string
+        parameters:
+          preserve_length: false
+          max_length: 20
+      age:
+        name: greenmask_integer
+        parameters:
+          generator: deterministic
+          min_value: 18
+          max_value: 75
+      total_purchases:
+        name: greenmask_float
+        parameters:
+          generator: deterministic
+          min_value: 0.0
+          max_value: 1000.0
+      customer_id:
+        name: greenmask_uuid
+      birth_date:
+        name: greenmask_date
+        parameters:
+          min_value: 1990-01-01
+          max_value: 2000-12-31
+      is_active:
+        name: greenmask_boolean
+      created_at:
+        name: greenmask_unix_timestamp
+        parameters:
+          min_value: "1741856058"
+          max_value: "1741956058"
+      updated_at:
+        name: greenmask_utc_timestamp
+        parameters:
+          min_timestamp: 2022-01-01T00:00:00Z
+          max_timestamp: 2024-01-01T23:59:59Z
+      gender:
+        name: greenmask_choice
+        parameters:
+          choices: ["M", "F", "None"]

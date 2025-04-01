@@ -57,10 +57,15 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...Option) (*Batch
 		schemaLogStore = schemalog.NewStoreCache(schemaLogStore)
 	}
 
+	adapter, err := newAdapter(schemaLogStore, config.OnConflictAction)
+	if err != nil {
+		return nil, err
+	}
+
 	w := &BatchWriter{
 		logger:          loglib.NewNoopLogger(),
 		pgConn:          pgConn,
-		adapter:         newAdapter(schemaLogStore),
+		adapter:         adapter,
 		disableTriggers: config.DisableTriggers,
 	}
 
@@ -247,10 +252,12 @@ func (w *BatchWriter) isInternalError(err error) bool {
 	var errRelationDoesNotExist *pglib.ErrRelationDoesNotExist
 	var errConstraintViolation *pglib.ErrConstraintViolation
 	var errSyntaxError *pglib.ErrSyntaxError
+	var errDataException *pglib.ErrDataException
 	switch {
 	case errors.As(err, &errRelationDoesNotExist),
 		errors.As(err, &errConstraintViolation),
-		errors.As(err, &errSyntaxError):
+		errors.As(err, &errSyntaxError),
+		errors.As(err, &errDataException):
 		return false
 	default:
 		return true

@@ -197,9 +197,9 @@ func (a *ddlAdapter) buildAlterColumnQueries(schemaName, tableName string, colum
 
 	if columnDiff.DefaultChange != nil {
 		alterQuery := ""
-		switch {
+		switch columnDiff.DefaultChange.New {
 		// removing the default
-		case columnDiff.DefaultChange.New == nil:
+		case nil:
 			alterQuery = fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
 				quotedTableName(schemaName, tableName),
 				columnDiff.ColumnName,

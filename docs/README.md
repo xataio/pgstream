@@ -96,6 +96,7 @@ Here's a list of all the environment variables that can be used to configure the
 | PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLE_WORKERS    | 4                      | No       | Number of concurrent workers that will be used per table by the snapshotting process.                                                                                                                                                                                                                        |
 | PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_BATCH_PAGE_SIZE  | 1000                   | No       | Size of the table page range which will be processed concurrently by the table workers from `PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLE_WORKERS`.                                                                                                                                                              |
 | PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_WORKERS          | 1                      | No       | Number of schemas that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                            |
+| PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_USE_SCHEMALOG    | False                  | No       | Forces the use of the `pgstream.schema_log` for the schema snapshot instead of using `pg_dump`/`pg_restore` for Postgres outputs.                                                                                                                                                                            |
 
 </details>
 
@@ -110,6 +111,8 @@ Here's a list of all the environment variables that can be used to configure the
 | PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS   | 4       | No       | Number of concurrent workers that will be used per table by the snapshotting process.                                                                                                                                                                                                                        |
 | PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE | 1000    | No       | Size of the table page range which will be processed concurrently by the table workers from `PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS`.                                                                                                                                                                      |
 | PGSTREAM_POSTGRES_SNAPSHOT_WORKERS         | 1       | No       | Number of schemas that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                            |
+| PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG   | False   | No       | Forces the use of the `pgstream.schema_log` for the schema snapshot instead of using `pg_dump`/`pg_restore` for Postgres outputs.                                                                                                                                                                            |
+| PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB | False   | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres outputs, option to issue commands to DROP all the objects that will be restored.                                                                                                                                                           |
 
 </details>
 
@@ -210,6 +213,7 @@ One of exponential/constant backoff policies can be provided for the search stor
 | PGSTREAM_POSTGRES_WRITER_BATCH_BYTES         | 1572864 | No       | Max size in bytes for a given batch. When this size is reached, the batch is sent to PostgreSQL.                 |
 | PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL | N/A     | No       | URL of the store where the pgstream schemalog table which keeps track of schema changes is.                      |
 | PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS    | False   | No       | Option to disable triggers on the target PostgreSQL database while performing the snaphot/replication streaming. |
+| PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION  | error   | No       | Action to apply to inserts on conflict. Options are `nothing`, `update` or `error`.                              |
 
 </details>
 
@@ -261,11 +265,51 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
 ![transformer diagram](img/pgstream_transformer_diagram.svg)
 
-`pgstream` supports column value transformations to anonymize sensitive data during replication and snapshots. This is particularly useful for compliance with data privacy regulations.
+`pgstream` supports column value transformations to anonymize or mask sensitive data during replication and snapshots. This is particularly useful for compliance with data privacy regulations.
 
-`pgstream` integrates with existing transformer open source libraries, such as [greenmask](https://github.com/GreenmaskIO/greenmask) and [neosync](https://github.com/nucleuscloud/neosync), to leverage a large amount of transformation capabilities, as well as having support for custom transformations.
+`pgstream` integrates with existing transformer open source libraries, such as [greenmask](https://github.com/GreenmaskIO/greenmask), [neosync](https://github.com/nucleuscloud/neosync) and [go-masker](https://github.com/ggwhite/go-masker), to leverage a large amount of transformation capabilities, as well as having support for custom transformations.
 
 ### Supported transformers
+
+#### go-masker
+
+ <details>
+  <summary>masking</summary>
+
+**Description:** Masks string values using the provided masking function.
+
+| Supported PostgreSQL types          |
+| ----------------------------------- |
+| `text`, `varchar`, `char`, `bpchar` |
+
+**Parameter Details:**
+
+| Parameter | Type   | Default | Required | Values                                                                     |
+| --------- | ------ | ------- | -------- | -------------------------------------------------------------------------- |
+| type      | string | default | No       | password, name, address, email, mobile, tel, id, credit_card, url, default |
+
+**Example Configuration:**
+
+```yaml
+transformations:
+  - schema: public
+    table: users
+    column_transformers:
+      email:
+        name: masking
+        parameters:
+          type: email
+```
+
+**Input-Output Examples:**
+
+| Input Value              | Configuration Parameters | Output Value           |
+| ------------------------ | ------------------------ | ---------------------- |
+| `aVeryStrongPassword123` | `type: password`         | `************`         |
+| `john.doe@example.com`   | `type: email`            | `joh****e@example.com` |
+| `Sensitive Data`         | `type: default`          | `**************`       |
+
+</details>
 
 #### Greenmask
 

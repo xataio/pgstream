@@ -60,45 +60,38 @@ func NewSender[T Message](config *Config, sendfn sendBatchFn[T], logger loglib.L
 	return s, nil
 }
 
-func (s *Sender[T]) AddToBatch(ctx context.Context, m *WALMessage[T]) error {
-	enqueueMsg := func(ctx context.Context, msg *WALMessage[T]) error {
-		if msg == nil {
-			return nil
-		}
-		// make sure we don't reach the queue memory limit before adding the new
-		// message to the channel. This will block until messages have been read
-		// from the channel and their size is released
-		msgSize := int64(msg.Size())
-		if !s.queueBytesSema.TryAcquire(msgSize) {
-			s.logger.Warn(nil, "batch sender: max queue bytes reached, processing blocked")
-			if err := s.queueBytesSema.Acquire(ctx, msgSize); err != nil {
-				return err
-			}
-		}
-
-		select {
-		case s.msgChan <- msg:
-		case sendDoneErr, ok := <-s.sendDone:
-			// check if a different call has closed the send channel already, to
-			// prevent blocking when called concurrently.
-			if ok && sendDoneErr != nil {
-				s.sendErr = sendDoneErr
-			}
-			s.logger.Error(s.sendErr, "stop processing, sending has stopped")
-			return fmt.Errorf("%w: %w", errSendStopped, s.sendErr)
-		}
-
+func (s *Sender[T]) AddToBatch(ctx context.Context, msg *WALMessage[T]) error {
+	if msg == nil {
 		return nil
 	}
-
-	err := enqueueMsg(ctx, m)
-	// close the message channel only if the send thread has stopped, since we
-	// shouldn't keep processing
-	if err != nil && errors.Is(err, errSendStopped) {
-		s.closeMsgChan()
+	// make sure we don't reach the queue memory limit before adding the new
+	// message to the channel. This will block until messages have been read
+	// from the channel and their size is released
+	msgSize := int64(msg.Size())
+	if !s.queueBytesSema.TryAcquire(msgSize) {
+		s.logger.Warn(nil, "batch sender: max queue bytes reached, processing blocked")
+		if err := s.queueBytesSema.Acquire(ctx, msgSize); err != nil {
+			return err
+		}
 	}
 
-	return err
+	// Add the message to the channel for processing. This will block if the
+	// channel is full, or if there are no readers for the channel. If there are no
+	// readers, it's likely the send thread has stopped (and therefore is no
+	// longer processing), and an error will be returned.
+	select {
+	case s.msgChan <- msg:
+	case sendDoneErr, ok := <-s.sendDone:
+		// check if a different call has closed the send channel already, to
+		// prevent blocking when called concurrently.
+		if ok && sendDoneErr != nil {
+			s.sendErr = sendDoneErr
+		}
+		s.logger.Error(s.sendErr, "stop processing, sending has stopped")
+		return fmt.Errorf("%w: %w", errSendStopped, s.sendErr)
+	}
+
+	return nil
 }
 
 func (s *Sender[T]) Send(ctx context.Context) error {

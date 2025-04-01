@@ -47,7 +47,7 @@ func (c *Pool) ExecInTx(ctx context.Context, fn func(Tx) error) error {
 }
 
 func (c *Pool) ExecInTxWithOptions(ctx context.Context, fn func(Tx) error, opts TxOptions) error {
-	tx, err := c.Pool.BeginTx(ctx, toTxOptions(opts))
+	tx, err := c.BeginTx(ctx, toTxOptions(opts))
 	if err != nil {
 		return mapError(err)
 	}

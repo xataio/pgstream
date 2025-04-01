@@ -34,6 +34,7 @@ const (
 	GreenmaskUnixTimestamp TransformerType = "greenmask_unix_timestamp"
 	GreenmaskDate          TransformerType = "greenmask_date"
 	GreenmaskUTCTimestamp  TransformerType = "greenmask_utc_timestamp"
+	Masking                TransformerType = "masking"
 )
 
 type Parameters map[string]any

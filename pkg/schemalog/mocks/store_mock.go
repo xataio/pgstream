@@ -43,7 +43,10 @@ func (m *Store) Ack(ctx context.Context, le *schemalog.LogEntry) error {
 }
 
 func (m *Store) Close() error {
-	return m.CloseFn()
+	if m.CloseFn != nil {
+		return m.CloseFn()
+	}
+	return nil
 }
 
 func (m *Store) GetInsertCalls() uint64 {

@@ -28,14 +28,13 @@ func SetupPostgresContainer(ctx context.Context, url *string, image PostgresImag
 		WithStartupTimeout(5 * time.Second)
 
 	opts := []testcontainers.ContainerCustomizer{
-		testcontainers.WithImage(string(image)),
 		testcontainers.WithWaitStrategy(waitForLogs),
 	}
-
 	if len(configFile) > 0 {
 		opts = append(opts, postgres.WithConfigFile(configFile[0]))
 	}
-	ctr, err := postgres.RunContainer(ctx, opts...)
+
+	ctr, err := postgres.Run(ctx, string(image), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start postgres container: %w", err)
 	}

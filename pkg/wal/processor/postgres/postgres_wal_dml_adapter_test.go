@@ -26,6 +26,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 	tests := []struct {
 		name    string
 		walData *wal.Data
+		action  onConflictAction
 
 		wantQuery *query
 	}{
@@ -100,7 +101,67 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 
 			wantQuery: &query{
-				sql:  fmt.Sprintf("INSERT INTO %s(id, name) VALUES($1, $2) ON CONFLICT (id) DO NOTHING", quotedTestTable),
+				sql:  fmt.Sprintf("INSERT INTO %s(id, name) VALUES($1, $2)", quotedTestTable),
+				args: []any{1, "alice"},
+			},
+		},
+		{
+			name: "insert - on conflict do nothing",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+			action: onConflictDoNothing,
+
+			wantQuery: &query{
+				sql:  fmt.Sprintf("INSERT INTO %s(id, name) VALUES($1, $2) ON CONFLICT DO NOTHING", quotedTestTable),
+				args: []any{1, "alice"},
+			},
+		},
+		{
+			name: "insert - on conflict do update",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+			action: onConflictUpdate,
+
+			wantQuery: &query{
+				sql:  fmt.Sprintf("INSERT INTO %s(id, name) VALUES($1, $2) ON CONFLICT (id) DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"name\" = EXCLUDED.\"name\"", quotedTestTable),
+				args: []any{1, "alice"},
+			},
+		},
+		{
+			name: "insert - on conflict do update without PK",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+				},
+			},
+			action: onConflictUpdate,
+
+			wantQuery: &query{
+				sql:  fmt.Sprintf("INSERT INTO %s(id, name) VALUES($1, $2)", quotedTestTable),
 				args: []any{1, "alice"},
 			},
 		},
@@ -147,9 +208,51 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			a := &dmlAdapter{}
+			a := &dmlAdapter{
+				onConflictAction: tc.action,
+			}
 			query := a.walDataToQuery(tc.walData)
 			require.Equal(t, tc.wantQuery, query)
+		})
+	}
+}
+
+func Test_newDMLAdapter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		action string
+
+		wantErr error
+	}{
+		{
+			action:  "update",
+			wantErr: nil,
+		},
+		{
+			action:  "nothing",
+			wantErr: nil,
+		},
+		{
+			action:  "error",
+			wantErr: nil,
+		},
+		{
+			action:  "",
+			wantErr: nil,
+		},
+		{
+			action:  "invalid",
+			wantErr: errUnsupportedOnConflictAction,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.action, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := newDMLAdapter(tc.action)
+			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
 }

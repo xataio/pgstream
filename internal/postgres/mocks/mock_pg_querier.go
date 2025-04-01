@@ -43,5 +43,8 @@ func (m *Querier) ExecInTxWithOptions(ctx context.Context, fn func(tx postgres.T
 }
 
 func (m *Querier) Close(ctx context.Context) error {
-	return m.CloseFn(ctx)
+	if m.CloseFn != nil {
+		return m.CloseFn(ctx)
+	}
+	return nil
 }

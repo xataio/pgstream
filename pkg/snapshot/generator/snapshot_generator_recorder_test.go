@@ -344,7 +344,6 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -519,7 +518,6 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
