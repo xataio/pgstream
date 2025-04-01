@@ -21,7 +21,7 @@ require (
 	github.com/nucleuscloud/neosync v0.5.15
 	github.com/opensearch-project/opensearch-go v1.1.0
 	github.com/pterm/pterm v0.12.79
-	github.com/rs/xid v1.5.0
+	github.com/rs/xid v1.6.0
 	github.com/rs/zerolog v1.33.0
 	github.com/segmentio/kafka-go v0.4.47
 	github.com/spf13/cobra v1.9.1
