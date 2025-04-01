@@ -48,6 +48,14 @@ func (e *ErrDataException) Error() string {
 	return fmt.Sprintf("data exception: %s", e.Details)
 }
 
+type ErrRelationAlreadyExists struct {
+	Details string
+}
+
+func (e *ErrRelationAlreadyExists) Error() string {
+	return fmt.Sprintf("relation already exists: %v", e.Details)
+}
+
 func mapError(err error) error {
 	if pgconn.Timeout(err) {
 		return ErrConnTimeout

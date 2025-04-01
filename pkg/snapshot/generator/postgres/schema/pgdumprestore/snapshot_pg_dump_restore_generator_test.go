@@ -51,7 +51,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
 				require.Equal(t, pglib.PGDumpOptions{
 					ConnectionString: "source-url",
-					Format:           "p",
+					Format:           "c",
 					SchemaOnly:       true,
 					Schemas:          []string{testSchema},
 					Tables:           []string{testSchema + "." + testTable},
@@ -61,7 +61,6 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				require.Equal(t, pglib.PGRestoreOptions{
 					ConnectionString: "target-url",
-					Format:           "p",
 					SchemaOnly:       true,
 				}, po)
 				require.Equal(t, testDump, dump)
@@ -131,6 +130,46 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			wantErr: errTest,
 		},
 		{
+			name: "error - performing pgrestore output critical error",
+			snapshot: &snapshot.Snapshot{
+				SchemaName: publicSchema,
+				TableNames: []string{testTable},
+			},
+			conn: &mocks.Querier{
+				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
+					return pglib.CommandTag{}, errors.New("ExecFn: should not be called")
+				},
+			},
+			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+				return testDump, nil
+			},
+			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+				return "", pglib.NewPGRestoreErrors(errTest)
+			},
+
+			wantErr: pglib.NewPGRestoreErrors(errTest),
+		},
+		{
+			name: "error - performing pgrestore output ignored errors",
+			snapshot: &snapshot.Snapshot{
+				SchemaName: publicSchema,
+				TableNames: []string{testTable},
+			},
+			conn: &mocks.Querier{
+				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
+					return pglib.CommandTag{}, errors.New("ExecFn: should not be called")
+				},
+			},
+			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+				return testDump, nil
+			},
+			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+				return "", pglib.NewPGRestoreErrors(&pglib.ErrRelationAlreadyExists{})
+			},
+
+			wantErr: nil,
+		},
+		{
 			name: "error - getting target conn",
 			snapshot: &snapshot.Snapshot{
 				SchemaName: testSchema,
@@ -193,7 +232,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr: errTest,
+			wantErr: fmt.Errorf("inserting schemalog entry after schema snapshot: %w", errTest),
 		},
 	}
 
@@ -216,7 +255,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			}
 
 			err := sg.CreateSnapshot(context.Background(), tc.snapshot)
-			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, err, tc.wantErr)
 			sg.Close()
 		})
 	}
@@ -320,48 +359,6 @@ func TestSnapshotGenerator_schemalogExists(t *testing.T) {
 			exists, err := sg.schemalogExists(context.Background())
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantExists, exists)
-		})
-	}
-}
-
-func TestSnapshotGenerator_parseDump(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		dump []byte
-
-		wantDump []byte
-	}{
-		{
-			name:     "nil dump",
-			dump:     nil,
-			wantDump: nil,
-		},
-		{
-			name:     "empty dump",
-			dump:     []byte{},
-			wantDump: []byte{},
-		},
-		{
-			name:     "dump updated",
-			dump:     []byte("CREATE SCHEMA test_schema; CREATE TABLE test_schema.test_table; ALTER TABLE test_schema.test_table;"),
-			wantDump: []byte("CREATE SCHEMA IF NOT EXISTS test_schema; CREATE TABLE IF NOT EXISTS test_schema.test_table; ALTER TABLE test_schema.test_table;"),
-		},
-		{
-			name:     "dump not updated",
-			dump:     []byte("ALTER TABLE test"),
-			wantDump: []byte("ALTER TABLE test"),
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			sg := SnapshotGenerator{}
-			gotDump := sg.parseDump(tc.dump)
-			require.Equal(t, string(tc.wantDump), string(gotDump))
 		})
 	}
 }

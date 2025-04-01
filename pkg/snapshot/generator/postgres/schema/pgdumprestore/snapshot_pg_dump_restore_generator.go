@@ -4,8 +4,8 @@ package pgdumprestore
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
@@ -96,9 +96,18 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		}
 	}
 
-	_, err = s.pgRestoreFn(s.pgrestoreOptions(), s.parseDump(dump))
+	_, err = s.pgRestoreFn(s.pgrestoreOptions(), dump)
+	pgrestoreErr := &pglib.PGRestoreErrors{}
 	if err != nil {
-		return err
+		switch {
+		case errors.As(err, &pgrestoreErr):
+			if pgrestoreErr.HasCriticalErrors() {
+				return err
+			}
+			s.logger.Warn(nil, "pg_restore errors ignored", loglib.Fields{"errors_ignored": len(pgrestoreErr.GetIgnoredErrors())})
+		default:
+			return err
+		}
 	}
 
 	// if we perform a schema snapshot using pg_dump/pg_restore, we need to make
@@ -134,7 +143,7 @@ func (s *SnapshotGenerator) createSchemaIfNotExists(ctx context.Context, schemaN
 func (s *SnapshotGenerator) pgdumpOptions(ss *snapshot.Snapshot) pglib.PGDumpOptions {
 	opts := pglib.PGDumpOptions{
 		ConnectionString: s.sourceURL,
-		Format:           "p",
+		Format:           "c",
 		SchemaOnly:       true,
 		Schemas:          []string{ss.SchemaName},
 	}
@@ -150,7 +159,6 @@ func (s *SnapshotGenerator) pgrestoreOptions() pglib.PGRestoreOptions {
 	return pglib.PGRestoreOptions{
 		ConnectionString: s.targetURL,
 		SchemaOnly:       true,
-		Format:           "p",
 		Clean:            s.cleanTargetDB,
 	}
 }
@@ -186,18 +194,4 @@ func (s *SnapshotGenerator) schemalogExists(ctx context.Context) (bool, error) {
 	}
 
 	return exists, nil
-}
-
-// parseDump will add IF NOT EXISTS to CREATE statements in the dump to avoid
-// errors when restoring the schema changes.
-func (s *SnapshotGenerator) parseDump(dump []byte) []byte {
-	if dump == nil {
-		return nil
-	}
-
-	dumpStr := strings.ReplaceAll(string(dump), "CREATE SCHEMA", "CREATE SCHEMA IF NOT EXISTS")
-	dumpStr = strings.ReplaceAll(dumpStr, "CREATE TABLE", "CREATE TABLE IF NOT EXISTS")
-	dumpStr = strings.ReplaceAll(dumpStr, "CREATE SEQUENCE", "CREATE SEQUENCE IF NOT EXISTS")
-
-	return []byte(dumpStr)
 }

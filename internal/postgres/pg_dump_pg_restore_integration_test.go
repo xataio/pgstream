@@ -48,42 +48,32 @@ func Test_pgdump_pgrestore(t *testing.T) {
 	_, err = sourceConn.Exec(ctx, fmt.Sprintf("insert into %s.%s(name) values('a'),('b'),('c')", testSchema, testTable1))
 	require.NoError(t, err)
 
-	run := func(t *testing.T, format string) {
-		pgdumpOpts := PGDumpOptions{
-			ConnectionString: sourcePGURL,
-			Format:           format,
-			SchemaOnly:       true,
-			Schemas:          []string{testSchema},
-			ExcludeTables:    []string{testSchema + "." + testTable2},
-		}
-
-		dump, err := RunPGDump(pgdumpOpts)
-		require.NoError(t, err)
-
-		pgrestoreOpts := PGRestoreOptions{
-			ConnectionString: targetPGURL,
-			Format:           format,
-			SchemaOnly:       true,
-		}
-
-		_, err = RunPGRestore(pgrestoreOpts, dump)
-		require.NoError(t, err)
-
-		// schema only pgdump, no data should be available but the schema and
-		// selected table should exist.
-		var count int
-		err = targetConn.QueryRow(ctx, fmt.Sprintf("select count(*) from %s.%s", testSchema, testTable1)).Scan(&count)
-		require.NoError(t, err)
-		require.Equal(t, 0, count)
-		// test table 2 should not exist
-		err = targetConn.QueryRow(ctx, fmt.Sprintf("select count(*) from %s.%s", testSchema, testTable2)).Scan(&count)
-		require.Error(t, err)
+	pgdumpOpts := PGDumpOptions{
+		ConnectionString: sourcePGURL,
+		Format:           "c",
+		SchemaOnly:       true,
+		Schemas:          []string{testSchema},
+		ExcludeTables:    []string{testSchema + "." + testTable2},
 	}
 
-	t.Run("custom pg_dump format", func(t *testing.T) {
-		run(t, "c")
-	})
-	t.Run("plain pg_dump format", func(t *testing.T) {
-		run(t, "p")
-	})
+	dump, err := RunPGDump(pgdumpOpts)
+	require.NoError(t, err)
+
+	pgrestoreOpts := PGRestoreOptions{
+		ConnectionString: targetPGURL,
+		SchemaOnly:       true,
+	}
+
+	_, err = RunPGRestore(pgrestoreOpts, dump)
+	require.NoError(t, err)
+
+	// schema only pgdump, no data should be available but the schema and
+	// selected table should exist.
+	var count int
+	err = targetConn.QueryRow(ctx, fmt.Sprintf("select count(*) from %s.%s", testSchema, testTable1)).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 0, count)
+	// test table 2 should not exist
+	err = targetConn.QueryRow(ctx, fmt.Sprintf("select count(*) from %s.%s", testSchema, testTable2)).Scan(&count)
+	require.Error(t, err)
 }
