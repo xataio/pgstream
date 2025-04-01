@@ -18,15 +18,20 @@ type adapter struct {
 	ddlAdapter *ddlAdapter
 }
 
-func newAdapter(schemaQuerier schemalogQuerier) *adapter {
+func newAdapter(schemaQuerier schemalogQuerier, onConflictAction string) (*adapter, error) {
+	dmlAdapter, err := newDMLAdapter(onConflictAction)
+	if err != nil {
+		return nil, err
+	}
+
 	var ddl *ddlAdapter
 	if schemaQuerier != nil {
 		ddl = newDDLAdapter(schemaQuerier)
 	}
 	return &adapter{
-		dmlAdapter: &dmlAdapter{},
+		dmlAdapter: dmlAdapter,
 		ddlAdapter: ddl,
-	}
+	}, nil
 }
 
 func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query, error) {

@@ -4,6 +4,7 @@ package pgdumprestore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
@@ -96,8 +97,17 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	}
 
 	_, err = s.pgRestoreFn(s.pgrestoreOptions(), dump)
+	pgrestoreErr := &pglib.PGRestoreErrors{}
 	if err != nil {
-		return err
+		switch {
+		case errors.As(err, &pgrestoreErr):
+			if pgrestoreErr.HasCriticalErrors() {
+				return err
+			}
+			s.logger.Warn(nil, "pg_restore errors ignored", loglib.Fields{"errors_ignored": len(pgrestoreErr.GetIgnoredErrors())})
+		default:
+			return err
+		}
 	}
 
 	// if we perform a schema snapshot using pg_dump/pg_restore, we need to make

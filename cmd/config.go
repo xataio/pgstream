@@ -287,7 +287,8 @@ func parsePostgresProcessorConfig() *stream.PostgresProcessorConfig {
 			SchemaLogStore: pgschemalog.Config{
 				URL: viper.GetString("PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL"),
 			},
-			DisableTriggers: viper.GetBool("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS"),
+			DisableTriggers:  viper.GetBool("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS"),
+			OnConflictAction: viper.GetString("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION"),
 		},
 	}
 }

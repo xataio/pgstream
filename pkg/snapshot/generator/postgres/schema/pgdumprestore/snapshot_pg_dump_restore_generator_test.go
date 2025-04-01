@@ -130,6 +130,46 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			wantErr: errTest,
 		},
 		{
+			name: "error - performing pgrestore output critical error",
+			snapshot: &snapshot.Snapshot{
+				SchemaName: publicSchema,
+				TableNames: []string{testTable},
+			},
+			conn: &mocks.Querier{
+				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
+					return pglib.CommandTag{}, errors.New("ExecFn: should not be called")
+				},
+			},
+			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+				return testDump, nil
+			},
+			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+				return "", pglib.NewPGRestoreErrors(errTest)
+			},
+
+			wantErr: pglib.NewPGRestoreErrors(errTest),
+		},
+		{
+			name: "error - performing pgrestore output ignored errors",
+			snapshot: &snapshot.Snapshot{
+				SchemaName: publicSchema,
+				TableNames: []string{testTable},
+			},
+			conn: &mocks.Querier{
+				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
+					return pglib.CommandTag{}, errors.New("ExecFn: should not be called")
+				},
+			},
+			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+				return testDump, nil
+			},
+			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+				return "", pglib.NewPGRestoreErrors(&pglib.ErrRelationAlreadyExists{})
+			},
+
+			wantErr: nil,
+		},
+		{
 			name: "error - getting target conn",
 			snapshot: &snapshot.Snapshot{
 				SchemaName: testSchema,
@@ -192,7 +232,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr: errTest,
+			wantErr: fmt.Errorf("inserting schemalog entry after schema snapshot: %w", errTest),
 		},
 	}
 
@@ -215,7 +255,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			}
 
 			err := sg.CreateSnapshot(context.Background(), tc.snapshot)
-			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, err, tc.wantErr)
 			sg.Close()
 		})
 	}

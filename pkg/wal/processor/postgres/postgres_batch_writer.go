@@ -57,10 +57,15 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...Option) (*Batch
 		schemaLogStore = schemalog.NewStoreCache(schemaLogStore)
 	}
 
+	adapter, err := newAdapter(schemaLogStore, config.OnConflictAction)
+	if err != nil {
+		return nil, err
+	}
+
 	w := &BatchWriter{
 		logger:          loglib.NewNoopLogger(),
 		pgConn:          pgConn,
-		adapter:         newAdapter(schemaLogStore),
+		adapter:         adapter,
 		disableTriggers: config.DisableTriggers,
 	}
 

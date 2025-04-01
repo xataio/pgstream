@@ -92,8 +92,16 @@ PGSTREAM_POSTGRES_WRITER_TARGET_URL="postgres://postgres:postgres@localhost:7654
 ```
 
 If we need to disable triggers on the target database during the snapshot process(ie., to avoid foreign key constraint violations), we can do so by setting the following variable:
+
 ```sh
 PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS=true
+```
+
+For further granularity, we can also configure the action that should be taken when an insert has a conflict.
+
+```sh
+# Insert on conflict action. Options are update, nothing or error (error is the default behaviour)
+PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION=update
 ```
 
 The PostgreSQL writer uses batching under the hood to reduce the number of IO calls to the target database and improve performance. The batch size and send timeout can both be configured to be able to better fit the different traffic patterns. The writer will send a batch when the timeout or the batch size is reached, whichever happens first.
