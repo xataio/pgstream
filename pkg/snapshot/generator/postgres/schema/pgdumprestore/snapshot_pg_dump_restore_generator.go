@@ -145,11 +145,11 @@ func (s *SnapshotGenerator) pgdumpOptions(ss *snapshot.Snapshot) pglib.PGDumpOpt
 		ConnectionString: s.sourceURL,
 		Format:           "c",
 		SchemaOnly:       true,
-		Schemas:          []string{ss.SchemaName},
+		Schemas:          []string{pglib.QuoteIdentifier(ss.SchemaName)},
 	}
 
 	for _, table := range ss.TableNames {
-		opts.Tables = append(opts.Tables, ss.SchemaName+"."+table)
+		opts.Tables = append(opts.Tables, pglib.QuoteIdentifier(ss.SchemaName)+"."+pglib.QuoteIdentifier(table))
 	}
 
 	return opts
