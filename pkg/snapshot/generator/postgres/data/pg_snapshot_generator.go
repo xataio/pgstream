@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/lib/pq"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/snapshot"
@@ -187,7 +186,7 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID,
 		})
 
 		query := fmt.Sprintf("SELECT * FROM %s.%s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'",
-			pq.QuoteIdentifier(schema), pq.QuoteIdentifier(table), pageRange.start, pageRange.end)
+			pglib.QuoteIdentifier(schema), pglib.QuoteIdentifier(table), pageRange.start, pageRange.end)
 		rows, err := tx.Query(ctx, query)
 		if err != nil {
 			return fmt.Errorf("querying table rows: %w", err)

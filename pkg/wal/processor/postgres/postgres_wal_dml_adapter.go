@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/lib/pq"
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
@@ -134,7 +134,7 @@ func (a *dmlAdapter) buildOnConflictQuery(d *wal.Data) string {
 
 		cols := make([]string, 0, len(d.Columns))
 		for _, col := range d.Columns {
-			cols = append(cols, fmt.Sprintf("%[1]s = EXCLUDED.%[1]s", pq.QuoteIdentifier(col.Name)))
+			cols = append(cols, fmt.Sprintf("%[1]s = EXCLUDED.%[1]s", pglib.QuoteIdentifier(col.Name)))
 		}
 		return fmt.Sprintf(" ON CONFLICT (%s) DO UPDATE SET %s", strings.Join(primaryKeyCols, ","), strings.Join(cols, ", "))
 	case onConflictDoNothing:
@@ -169,7 +169,7 @@ func (a *dmlAdapter) extractPrimaryKeyColumnNames(colIDs []string, cols []wal.Co
 }
 
 func quotedTableName(schemaName, tableName string) string {
-	return fmt.Sprintf("%s.%s", pq.QuoteIdentifier(schemaName), pq.QuoteIdentifier(tableName))
+	return fmt.Sprintf("%s.%s", pglib.QuoteIdentifier(schemaName), pglib.QuoteIdentifier(tableName))
 }
 
 func parseOnConflictAction(action string) (onConflictAction, error) {

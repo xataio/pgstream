@@ -135,5 +135,5 @@ func (s *Store) createTable(ctx context.Context) error {
 }
 
 func snapshotsTable() string {
-	return fmt.Sprintf("%s.%s", pq.QuoteIdentifier(store.SchemaName), pq.QuoteIdentifier(store.TableName))
+	return fmt.Sprintf("%s.%s", postgres.QuoteIdentifier(store.SchemaName), postgres.QuoteIdentifier(store.TableName))
 }
