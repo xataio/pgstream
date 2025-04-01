@@ -40,12 +40,15 @@ func loadConfig() error {
 	return nil
 }
 
-func pgURL() string {
-	pgurl := viper.GetString("pgurl")
-	if pgurl != "" {
-		return pgurl
+func pgURL() (url string) {
+	switch {
+	case viper.GetString("PGSTREAM_POSTGRES_LISTENER_URL") != "":
+		return viper.GetString("PGSTREAM_POSTGRES_LISTENER_URL")
+	case viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL") != "":
+		return viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL")
+	default:
+		return viper.GetString("pgurl")
 	}
-	return viper.GetString("PGSTREAM_POSTGRES_LISTENER_URL")
 }
 
 func replicationSlotName() string {
