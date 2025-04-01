@@ -28,7 +28,7 @@ require (
 	github.com/spf13/viper v1.19.0
 	github.com/stretchr/testify v1.10.0
 	github.com/testcontainers/testcontainers-go v0.36.0
-	github.com/testcontainers/testcontainers-go/modules/elasticsearch v0.33.0
+	github.com/testcontainers/testcontainers-go/modules/elasticsearch v0.36.0
 	github.com/testcontainers/testcontainers-go/modules/kafka v0.36.0
 	github.com/testcontainers/testcontainers-go/modules/opensearch v0.36.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.36.0
