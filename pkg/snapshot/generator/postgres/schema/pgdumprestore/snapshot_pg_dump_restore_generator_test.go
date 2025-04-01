@@ -53,8 +53,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "source-url",
 					Format:           "c",
 					SchemaOnly:       true,
-					Schemas:          []string{testSchema},
-					Tables:           []string{testSchema + "." + testTable},
+					Schemas:          []string{pglib.QuoteIdentifier(testSchema)},
+					Tables:           []string{pglib.QuoteIdentifier(testSchema) + "." + pglib.QuoteIdentifier(testTable)},
 				}, po)
 				return testDump, nil
 			},
