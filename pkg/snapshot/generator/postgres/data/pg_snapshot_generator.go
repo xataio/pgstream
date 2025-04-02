@@ -185,8 +185,8 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID,
 			"schema": schema, "table": table, "snapshotID": snapshotID,
 		})
 
-		query := fmt.Sprintf("SELECT * FROM %s.%s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'",
-			pglib.QuoteIdentifier(schema), pglib.QuoteIdentifier(table), pageRange.start, pageRange.end)
+		query := fmt.Sprintf("SELECT * FROM %s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'",
+			pglib.QuoteQualifiedIdentifier(schema, table), pageRange.start, pageRange.end)
 		rows, err := tx.Query(ctx, query)
 		if err != nil {
 			return fmt.Errorf("querying table rows: %w", err)

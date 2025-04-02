@@ -156,7 +156,7 @@ func (s *SnapshotGenerator) pgdumpOptions(ss *snapshot.Snapshot) pglib.PGDumpOpt
 			opts.Tables = nil
 			break
 		}
-		opts.Tables = append(opts.Tables, pglib.QuoteIdentifier(ss.SchemaName)+"."+pglib.QuoteIdentifier(table))
+		opts.Tables = append(opts.Tables, pglib.QuoteQualifiedIdentifier(ss.SchemaName, table))
 	}
 
 	return opts

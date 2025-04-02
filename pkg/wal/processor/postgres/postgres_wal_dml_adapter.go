@@ -169,7 +169,7 @@ func (a *dmlAdapter) extractPrimaryKeyColumnNames(colIDs []string, cols []wal.Co
 }
 
 func quotedTableName(schemaName, tableName string) string {
-	return fmt.Sprintf("%s.%s", pglib.QuoteIdentifier(schemaName), pglib.QuoteIdentifier(tableName))
+	return pglib.QuoteQualifiedIdentifier(schemaName, tableName)
 }
 
 func parseOnConflictAction(action string) (onConflictAction, error) {

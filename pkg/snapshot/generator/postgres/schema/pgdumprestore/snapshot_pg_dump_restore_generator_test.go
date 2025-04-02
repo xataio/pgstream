@@ -54,7 +54,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					Format:           "c",
 					SchemaOnly:       true,
 					Schemas:          []string{pglib.QuoteIdentifier(testSchema)},
-					Tables:           []string{pglib.QuoteIdentifier(testSchema) + "." + pglib.QuoteIdentifier(testTable)},
+					Tables:           []string{pglib.QuoteQualifiedIdentifier(testSchema, testTable)},
 				}, po)
 				return testDump, nil
 			},
