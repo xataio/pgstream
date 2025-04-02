@@ -53,8 +53,40 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "source-url",
 					Format:           "c",
 					SchemaOnly:       true,
-					Schemas:          []string{testSchema},
-					Tables:           []string{testSchema + "." + testTable},
+					Schemas:          []string{pglib.QuoteIdentifier(testSchema)},
+					Tables:           []string{pglib.QuoteQualifiedIdentifier(testSchema, testTable)},
+				}, po)
+				return testDump, nil
+			},
+			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+				require.Equal(t, pglib.PGRestoreOptions{
+					ConnectionString: "target-url",
+					SchemaOnly:       true,
+				}, po)
+				require.Equal(t, testDump, dump)
+				return "", nil
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - wildcard",
+			snapshot: &snapshot.Snapshot{
+				SchemaName: testSchema,
+				TableNames: []string{"*"},
+			},
+			conn: &mocks.Querier{
+				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
+					require.Equal(t, "CREATE SCHEMA IF NOT EXISTS "+testSchema, query)
+					return pglib.CommandTag{}, nil
+				},
+			},
+			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+				require.Equal(t, pglib.PGDumpOptions{
+					ConnectionString: "source-url",
+					Format:           "c",
+					SchemaOnly:       true,
+					Schemas:          []string{pglib.QuoteIdentifier(testSchema)},
 				}, po)
 				return testDump, nil
 			},

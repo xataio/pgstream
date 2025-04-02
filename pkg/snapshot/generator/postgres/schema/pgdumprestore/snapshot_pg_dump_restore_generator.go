@@ -145,11 +145,18 @@ func (s *SnapshotGenerator) pgdumpOptions(ss *snapshot.Snapshot) pglib.PGDumpOpt
 		ConnectionString: s.sourceURL,
 		Format:           "c",
 		SchemaOnly:       true,
-		Schemas:          []string{ss.SchemaName},
+		Schemas:          []string{pglib.QuoteIdentifier(ss.SchemaName)},
 	}
 
+	const wildcard = "*"
 	for _, table := range ss.TableNames {
-		opts.Tables = append(opts.Tables, ss.SchemaName+"."+table)
+		if table == wildcard {
+			// wildcard means all tables in the schema, so no table filter
+			// required
+			opts.Tables = nil
+			break
+		}
+		opts.Tables = append(opts.Tables, pglib.QuoteQualifiedIdentifier(ss.SchemaName, table))
 	}
 
 	return opts

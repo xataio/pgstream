@@ -51,8 +51,14 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, proc
 		return nil, err
 	}
 
+	var dataSnapshotGenerator generator.SnapshotGenerator
 	// postgres data snapshot generator
-	dataSnapshotGenerator, err := pgsnapshotgenerator.NewSnapshotGenerator(ctx, &cfg.Generator, processEventAdapter.ProcessRow, pgsnapshotgenerator.WithLogger(logger))
+	dataSnapshotGenerator, err = pgsnapshotgenerator.NewSnapshotGenerator(ctx, &cfg.Generator, processEventAdapter.ProcessRow, pgsnapshotgenerator.WithLogger(logger))
+	if err != nil {
+		return nil, err
+	}
+	// snapshot table finder layer
+	dataSnapshotGenerator, err = pgtablefinder.NewSnapshotTableFinder(ctx, cfg.Generator.URL, dataSnapshotGenerator)
 	if err != nil {
 		return nil, err
 	}
@@ -60,12 +66,6 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, proc
 	var g generator.SnapshotGenerator
 	// snapshot generator aggregator
 	g = generator.NewAggregator([]generator.SnapshotGenerator{schemaSnapshotGenerator, dataSnapshotGenerator})
-
-	// snapshot table finder layer
-	g, err = pgtablefinder.NewSnapshotTableFinder(ctx, cfg.Generator.URL, g)
-	if err != nil {
-		return nil, err
-	}
 
 	if cfg.SnapshotStoreURL != "" {
 		// snapshot activity recorder layer
