@@ -29,7 +29,7 @@ type SnapshotGenerator struct {
 }
 
 type mapper interface {
-	TypeForOID(uint32) string
+	TypeForOID(context.Context, uint32) (string, error)
 }
 
 type pageRange struct {
@@ -47,7 +47,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, processRow snapshot.
 
 	sg := &SnapshotGenerator{
 		logger:        loglib.NewNoopLogger(),
-		mapper:        pglib.NewMapper(),
+		mapper:        pglib.NewMapper(conn),
 		conn:          conn,
 		processRow:    processRow,
 		batchPageSize: cfg.batchPageSize(),
@@ -204,7 +204,7 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID,
 					return fmt.Errorf("retrieving rows values: %w", err)
 				}
 
-				columns := sg.toSnapshotColumns(fieldDescriptions, values)
+				columns := sg.toSnapshotColumns(ctx, fieldDescriptions, values)
 				if len(columns) == 0 {
 					continue
 				}
@@ -223,14 +223,15 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID,
 	})
 }
 
-func (sg *SnapshotGenerator) toSnapshotColumns(fieldDescriptions []pgconn.FieldDescription, values []any) []snapshot.Column {
+func (sg *SnapshotGenerator) toSnapshotColumns(ctx context.Context, fieldDescriptions []pgconn.FieldDescription, values []any) []snapshot.Column {
 	columns := make([]snapshot.Column, 0, len(fieldDescriptions))
 	for i, value := range values {
-		dataType := sg.mapper.TypeForOID(fieldDescriptions[i].DataTypeOID)
-		if dataType == "" {
-			sg.logger.Warn(nil, "unknown data type OID", loglib.Fields{"data_type_oid": fieldDescriptions[i].DataTypeOID})
+		dataType, err := sg.mapper.TypeForOID(ctx, fieldDescriptions[i].DataTypeOID)
+		if err != nil {
+			sg.logger.Warn(err, "unknown data type OID", loglib.Fields{"data_type_oid": fieldDescriptions[i].DataTypeOID})
 			continue
 		}
+
 		columns = append(columns, snapshot.Column{
 			Name:  fieldDescriptions[i].Name,
 			Type:  dataType,

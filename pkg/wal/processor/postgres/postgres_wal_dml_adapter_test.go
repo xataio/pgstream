@@ -61,7 +61,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 
 			wantQuery: &query{
-				sql:  fmt.Sprintf("DELETE FROM %s WHERE id = $1", quotedTestTable),
+				sql:  fmt.Sprintf("DELETE FROM %s WHERE \"id\" = $1", quotedTestTable),
 				args: []any{1},
 			},
 		},
@@ -81,7 +81,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 
 			wantQuery: &query{
-				sql:  fmt.Sprintf("DELETE FROM %s WHERE id = $1 AND name = $2", quotedTestTable),
+				sql:  fmt.Sprintf("DELETE FROM %s WHERE \"id\" = $1 AND \"name\" = $2", quotedTestTable),
 				args: []any{1, "alice"},
 			},
 		},
@@ -101,7 +101,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 
 			wantQuery: &query{
-				sql:  fmt.Sprintf("INSERT INTO %s(id, name) VALUES($1, $2)", quotedTestTable),
+				sql:  fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") VALUES($1, $2)", quotedTestTable),
 				args: []any{1, "alice"},
 			},
 		},
@@ -122,7 +122,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			action: onConflictDoNothing,
 
 			wantQuery: &query{
-				sql:  fmt.Sprintf("INSERT INTO %s(id, name) VALUES($1, $2) ON CONFLICT DO NOTHING", quotedTestTable),
+				sql:  fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") VALUES($1, $2) ON CONFLICT DO NOTHING", quotedTestTable),
 				args: []any{1, "alice"},
 			},
 		},
@@ -143,7 +143,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			action: onConflictUpdate,
 
 			wantQuery: &query{
-				sql:  fmt.Sprintf("INSERT INTO %s(id, name) VALUES($1, $2) ON CONFLICT (id) DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"name\" = EXCLUDED.\"name\"", quotedTestTable),
+				sql:  fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") VALUES($1, $2) ON CONFLICT (\"id\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"name\" = EXCLUDED.\"name\"", quotedTestTable),
 				args: []any{1, "alice"},
 			},
 		},
@@ -161,7 +161,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			action: onConflictUpdate,
 
 			wantQuery: &query{
-				sql:  fmt.Sprintf("INSERT INTO %s(id, name) VALUES($1, $2)", quotedTestTable),
+				sql:  fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") VALUES($1, $2)", quotedTestTable),
 				args: []any{1, "alice"},
 			},
 		},
@@ -181,7 +181,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 
 			wantQuery: &query{
-				sql:  fmt.Sprintf("UPDATE %s SET id = $1, name = $2 WHERE id = $3", quotedTestTable),
+				sql:  fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3", quotedTestTable),
 				args: []any{1, "alice", 1},
 			},
 		},
