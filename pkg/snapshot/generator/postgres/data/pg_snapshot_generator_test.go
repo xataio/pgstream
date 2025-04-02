@@ -214,6 +214,11 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "ok - unsupported column type",
 			querier: &pgmocks.Querier{
+				QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+					return &pgmocks.Row{
+						ScanFn: func(args ...any) error { return errTest },
+					}
+				},
 				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
 					require.Equal(t, txOptions, to)
 					switch i {
@@ -864,7 +869,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					LogLevel: "debug",
 				})),
 				conn:   tc.querier,
-				mapper: pglib.NewMapper(),
+				mapper: pglib.NewMapper(tc.querier),
 				processRow: func(ctx context.Context, e *snapshot.Row) error {
 					rowChan <- e
 					return nil
