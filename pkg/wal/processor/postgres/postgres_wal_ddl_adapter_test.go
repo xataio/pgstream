@@ -178,7 +178,7 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 
 			wantQueries: []*query{
 				{
-					sql:   fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s ( id uuid NOT NULL,\n name text,\n age int NOT NULL DEFAULT 0,\n UNIQUE (name),\n PRIMARY KEY (id)\n)", quotedTableName(testSchema, table1)),
+					sql:   fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s ( \"id\" uuid NOT NULL,\n \"name\" text,\n \"age\" int NOT NULL DEFAULT 0,\n UNIQUE (\"name\"),\n PRIMARY KEY (\"id\")\n)", quotedTableName(testSchema, table1)),
 					isDDL: true,
 				},
 			},
@@ -221,7 +221,7 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 
 			wantQueries: []*query{
 				{
-					sql:   fmt.Sprintf("ALTER TABLE %s DROP COLUMN age", quotedTableName(testSchema, table1)),
+					sql:   fmt.Sprintf("ALTER TABLE %s DROP COLUMN \"age\"", quotedTableName(testSchema, table1)),
 					isDDL: true,
 				},
 			},
@@ -242,7 +242,7 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 
 			wantQueries: []*query{
 				{
-					sql:   fmt.Sprintf("ALTER TABLE %s ADD COLUMN age int NOT NULL DEFAULT 0", quotedTableName(testSchema, table1)),
+					sql:   fmt.Sprintf("ALTER TABLE %s ADD COLUMN \"age\" int NOT NULL DEFAULT 0", quotedTableName(testSchema, table1)),
 					isDDL: true,
 				},
 			},
@@ -266,7 +266,7 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 
 			wantQueries: []*query{
 				{
-					sql:   fmt.Sprintf("ALTER TABLE %s RENAME COLUMN name TO new_name", quotedTableName(testSchema, table1)),
+					sql:   fmt.Sprintf("ALTER TABLE %s RENAME COLUMN \"name\" TO \"new_name\"", quotedTableName(testSchema, table1)),
 					isDDL: true,
 				},
 			},
@@ -290,7 +290,7 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 
 			wantQueries: []*query{
 				{
-					sql:   fmt.Sprintf("ALTER TABLE %s ALTER COLUMN name TYPE int", quotedTableName(testSchema, table1)),
+					sql:   fmt.Sprintf("ALTER TABLE %s ALTER COLUMN \"name\" TYPE int", quotedTableName(testSchema, table1)),
 					isDDL: true,
 				},
 			},
@@ -314,7 +314,7 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 
 			wantQueries: []*query{
 				{
-					sql:   fmt.Sprintf("ALTER TABLE %s ALTER COLUMN name DROP NOT NULL", quotedTableName(testSchema, table1)),
+					sql:   fmt.Sprintf("ALTER TABLE %s ALTER COLUMN \"name\" DROP NOT NULL", quotedTableName(testSchema, table1)),
 					isDDL: true,
 				},
 			},
@@ -338,7 +338,7 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 
 			wantQueries: []*query{
 				{
-					sql:   fmt.Sprintf("ALTER TABLE %s ALTER COLUMN name SET NOT NULL", quotedTableName(testSchema, table1)),
+					sql:   fmt.Sprintf("ALTER TABLE %s ALTER COLUMN \"name\" SET NOT NULL", quotedTableName(testSchema, table1)),
 					isDDL: true,
 				},
 			},
@@ -362,7 +362,7 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 
 			wantQueries: []*query{
 				{
-					sql:   fmt.Sprintf("ALTER TABLE %s ALTER COLUMN age DROP DEFAULT", quotedTableName(testSchema, table1)),
+					sql:   fmt.Sprintf("ALTER TABLE %s ALTER COLUMN \"age\" DROP DEFAULT", quotedTableName(testSchema, table1)),
 					isDDL: true,
 				},
 			},
@@ -386,7 +386,7 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 
 			wantQueries: []*query{
 				{
-					sql:   fmt.Sprintf("ALTER TABLE %s ALTER COLUMN age SET DEFAULT 0", quotedTableName(testSchema, table1)),
+					sql:   fmt.Sprintf("ALTER TABLE %s ALTER COLUMN \"age\" SET DEFAULT 0", quotedTableName(testSchema, table1)),
 					isDDL: true,
 				},
 			},

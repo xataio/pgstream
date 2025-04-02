@@ -71,7 +71,7 @@ func (a *dmlAdapter) buildInsertQuery(d *wal.Data) *query {
 	values := make([]any, 0, len(d.Columns))
 	placeholders := make([]string, 0, len(d.Columns))
 	for i, col := range d.Columns {
-		names = append(names, col.Name)
+		names = append(names, pglib.QuoteIdentifier(col.Name))
 		values = append(values, col.Value)
 		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
 	}
@@ -102,7 +102,7 @@ func (a *dmlAdapter) buildWhereQuery(cols []wal.Column, placeholderOffset int) (
 		if i != 0 {
 			whereQuery = fmt.Sprintf("%s AND", whereQuery)
 		}
-		whereQuery = fmt.Sprintf("%s %s = $%d", whereQuery, c.Name, i+placeholderOffset+1)
+		whereQuery = fmt.Sprintf("%s %s = $%d", whereQuery, pglib.QuoteIdentifier(c.Name), i+placeholderOffset+1)
 		whereValues = append(whereValues, c.Value)
 	}
 	return whereQuery, whereValues
@@ -115,7 +115,7 @@ func (a *dmlAdapter) buildSetQuery(cols []wal.Column) (string, []any) {
 		if i != 0 {
 			setQuery = fmt.Sprintf("%s,", setQuery)
 		}
-		setQuery = fmt.Sprintf("%s %s = $%d", setQuery, c.Name, i+1)
+		setQuery = fmt.Sprintf("%s %s = $%d", setQuery, pglib.QuoteIdentifier(c.Name), i+1)
 		setValues = append(setValues, c.Value)
 	}
 	return setQuery, setValues
@@ -163,7 +163,7 @@ func (a *dmlAdapter) extractPrimaryKeyColumnNames(colIDs []string, cols []wal.Co
 	}
 	colNames := []string{}
 	for _, col := range primaryKeyCols {
-		colNames = append(colNames, col.Name)
+		colNames = append(colNames, pglib.QuoteIdentifier(col.Name))
 	}
 	return colNames
 }

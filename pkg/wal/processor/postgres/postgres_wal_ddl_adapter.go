@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -90,8 +91,13 @@ func (a *ddlAdapter) buildCreateTableQuery(schemaName string, table schemalog.Ta
 		createQuery = fmt.Sprintf("%s %s,\n", createQuery, constraint)
 	}
 
-	if len(table.PrimaryKeyColumns) > 0 {
-		createQuery = fmt.Sprintf("%s PRIMARY KEY (%s)\n", createQuery, strings.Join(table.PrimaryKeyColumns, ","))
+	primaryKeys := make([]string, 0, len(table.PrimaryKeyColumns))
+	for _, col := range table.PrimaryKeyColumns {
+		primaryKeys = append(primaryKeys, pglib.QuoteIdentifier(col))
+	}
+
+	if len(primaryKeys) > 0 {
+		createQuery = fmt.Sprintf("%s PRIMARY KEY (%s)\n", createQuery, strings.Join(primaryKeys, ","))
 	}
 
 	createQuery = fmt.Sprintf("%s)", createQuery)
@@ -100,7 +106,7 @@ func (a *ddlAdapter) buildCreateTableQuery(schemaName string, table schemalog.Ta
 }
 
 func (a *ddlAdapter) buildColumnDefinition(column *schemalog.Column) string {
-	colDefinition := fmt.Sprintf("%s %s", column.Name, column.DataType)
+	colDefinition := fmt.Sprintf("%s %s", pglib.QuoteIdentifier(column.Name), column.DataType)
 	if !column.Nullable {
 		colDefinition = fmt.Sprintf("%s NOT NULL", colDefinition)
 	}
@@ -115,7 +121,7 @@ func (a *ddlAdapter) buildColumnDefinition(column *schemalog.Column) string {
 
 func (a *ddlAdapter) buildUniqueConstraint(column schemalog.Column) string {
 	if column.Unique {
-		return fmt.Sprintf("UNIQUE (%s)", column.Name)
+		return fmt.Sprintf("UNIQUE (%s)", pglib.QuoteIdentifier(column.Name))
 	}
 	return ""
 }
@@ -135,7 +141,7 @@ func (a *ddlAdapter) buildAlterTableQueries(schemaName string, tableDiff schemal
 	}
 
 	for _, col := range tableDiff.ColumnsRemoved {
-		alterQuery := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", quotedTableName(schemaName, tableDiff.TableName), col.Name)
+		alterQuery := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", quotedTableName(schemaName, tableDiff.TableName), pglib.QuoteIdentifier(col.Name))
 		queries = append(queries, a.newDDLQuery(alterQuery))
 	}
 
@@ -161,8 +167,8 @@ func (a *ddlAdapter) buildAlterColumnQueries(schemaName, tableName string, colum
 	if columnDiff.NameChange != nil {
 		alterQuery := fmt.Sprintf("ALTER TABLE %s RENAME COLUMN %s TO %s",
 			quotedTableName(schemaName, tableName),
-			columnDiff.NameChange.Old,
-			columnDiff.NameChange.New,
+			pglib.QuoteIdentifier(columnDiff.NameChange.Old),
+			pglib.QuoteIdentifier(columnDiff.NameChange.New),
 		)
 		queries = append(queries, a.newDDLQuery(alterQuery))
 	}
@@ -170,7 +176,7 @@ func (a *ddlAdapter) buildAlterColumnQueries(schemaName, tableName string, colum
 	if columnDiff.TypeChange != nil {
 		alterQuery := fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s",
 			quotedTableName(schemaName, tableName),
-			columnDiff.ColumnName,
+			pglib.QuoteIdentifier(columnDiff.ColumnName),
 			columnDiff.TypeChange.New,
 		)
 		queries = append(queries, a.newDDLQuery(alterQuery))
@@ -183,13 +189,13 @@ func (a *ddlAdapter) buildAlterColumnQueries(schemaName, tableName string, colum
 		case columnDiff.NullChange.New:
 			alterQuery = fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP NOT NULL",
 				quotedTableName(schemaName, tableName),
-				columnDiff.ColumnName,
+				pglib.QuoteIdentifier(columnDiff.ColumnName),
 			)
 		default:
 			// from nullable to not nullable
 			alterQuery = fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET NOT NULL",
 				quotedTableName(schemaName, tableName),
-				columnDiff.ColumnName,
+				pglib.QuoteIdentifier(columnDiff.ColumnName),
 			)
 		}
 		queries = append(queries, a.newDDLQuery(alterQuery))
@@ -202,7 +208,7 @@ func (a *ddlAdapter) buildAlterColumnQueries(schemaName, tableName string, colum
 		case nil:
 			alterQuery = fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
 				quotedTableName(schemaName, tableName),
-				columnDiff.ColumnName,
+				pglib.QuoteIdentifier(columnDiff.ColumnName),
 			)
 		default:
 			// do not set default values with sequences since they will differ between
@@ -210,7 +216,7 @@ func (a *ddlAdapter) buildAlterColumnQueries(schemaName, tableName string, colum
 			if !strings.Contains(*columnDiff.DefaultChange.New, "seq") {
 				alterQuery = fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s",
 					quotedTableName(schemaName, tableName),
-					columnDiff.ColumnName,
+					pglib.QuoteIdentifier(columnDiff.ColumnName),
 					*columnDiff.DefaultChange.New,
 				)
 			}
