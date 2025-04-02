@@ -42,7 +42,7 @@ func Init(ctx context.Context, pgURL, replicationSlotName string) error {
 		return fmt.Errorf("error creating postgres migrator: %w", err)
 	}
 
-	if err := migrator.Up(); err != nil {
+	if err := migrator.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("failed to run internal pgstream migrations: %w", err)
 	}
 
@@ -85,7 +85,7 @@ func TearDown(ctx context.Context, pgURL, replicationSlotName string) error {
 		return fmt.Errorf("error creating postgres migrator: %w", err)
 	}
 
-	if err := migrator.Down(); err != nil {
+	if err := migrator.Down(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("failed to run internal pgstream migrations: %w", err)
 	}
 
