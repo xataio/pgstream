@@ -10,23 +10,31 @@ import (
 )
 
 type FirstNameTransformer struct {
-	transformer *greenmasktransformers.RandomPersonTransformer
+	transformer   *greenmasktransformers.RandomPersonTransformer
+	dynamicParams map[string]*transformers.DynamicParameter
 }
 
-func NewFirstNameTransformer(params transformers.Parameters) (*FirstNameTransformer, error) {
-	gender, err := findParameter(params, "gender", greenmasktransformers.AnyGenderName)
+const genderParam = "gender"
+
+func NewFirstNameTransformer(params, dynamicParams transformers.Parameters) (*FirstNameTransformer, error) {
+	gender, err := transformers.FindParameterWithDefault(params, genderParam, greenmasktransformers.AnyGenderName)
 	if err != nil {
-		return nil, fmt.Errorf("greenmask_string: symbols must be a string: %w", err)
+		return nil, fmt.Errorf("greenmask_firstname: gender must be a string: %w", err)
+	}
+
+	dynamicParamMap, err := transformers.ParseDynamicParameters(dynamicParams)
+	if err != nil {
+		return nil, err
 	}
 
 	t := greenmasktransformers.NewRandomPersonTransformer(toGreenmaskGender(gender), nil)
-
 	if err := setGenerator(t, params); err != nil {
 		return nil, err
 	}
 
 	return &FirstNameTransformer{
-		transformer: t,
+		transformer:   t,
+		dynamicParams: dynamicParamMap,
 	}, nil
 }
 
@@ -41,7 +49,18 @@ func (fnt *FirstNameTransformer) Transform(value transformers.Value) (any, error
 		return nil, transformers.ErrUnsupportedValueType
 	}
 
-	ret, err := fnt.transformer.GetFullName("", toTransform)
+	gender := ""
+	// If there's a dynamic parameter defined for the gender, get the value and
+	// pass it to the transformer
+	if genderDynamicParam := fnt.dynamicParams[genderParam]; genderDynamicParam != nil {
+		var err error
+		gender, err = transformers.FindDynamicValue(genderDynamicParam, value.DynamicValues, gender)
+		if err != nil {
+			return nil, fmt.Errorf("invalid value type for dynamic parameter %q", genderParam)
+		}
+	}
+
+	ret, err := fnt.transformer.GetFullName(gender, toTransform)
 	if err != nil {
 		return nil, err
 	}

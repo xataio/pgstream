@@ -3,6 +3,7 @@
 package greenmask
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,8 +14,9 @@ func Test_NewFirstNameTransformer(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		params transformers.Parameters
+		name          string
+		params        transformers.Parameters
+		dynamicParams transformers.Parameters
 
 		wantErr error
 	}{
@@ -62,13 +64,24 @@ func Test_NewFirstNameTransformer(t *testing.T) {
 
 			wantErr: transformers.ErrUnsupportedGenerator,
 		},
+		{
+			name:   "error - parsing dynamic parameters",
+			params: map[string]any{},
+			dynamicParams: map[string]any{
+				"gender": map[string]any{
+					"invalid": "blob",
+				},
+			},
+
+			wantErr: transformers.ErrInvalidDynamicParameters,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := NewFirstNameTransformer(tc.params)
+			_, err := NewFirstNameTransformer(tc.params, tc.dynamicParams)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
@@ -78,9 +91,11 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		value  any
-		params transformers.Parameters
+		name          string
+		value         any
+		dynamicValues map[string]any
+		params        transformers.Parameters
+		dynamicParams transformers.Parameters
 
 		wantName string
 		wantErr  error
@@ -117,6 +132,61 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 			wantErr:  nil,
 		},
 		{
+			name:  "ok - deterministic with dynamic parameter",
+			value: "bob",
+			dynamicValues: map[string]any{
+				"sex": "Male",
+			},
+			params: map[string]any{
+				"generator": deterministic,
+				"gender":    "female",
+			},
+			dynamicParams: map[string]any{
+				"gender": map[string]any{
+					"column": "sex",
+				},
+			},
+
+			wantName: "Domingo",
+			wantErr:  nil,
+		},
+		{
+			name:  "error - invalid dynamic value type",
+			value: "bob",
+			dynamicValues: map[string]any{
+				"sex": 1,
+			},
+			params: map[string]any{
+				"generator": deterministic,
+				"gender":    "female",
+			},
+			dynamicParams: map[string]any{
+				"gender": map[string]any{
+					"column": "sex",
+				},
+			},
+
+			wantErr: errors.New("invalid value type for dynamic parameter \"gender\""),
+		},
+		{
+			name:  "error - invalid dynamic value",
+			value: "bob",
+			dynamicValues: map[string]any{
+				"sex": "Banana",
+			},
+			params: map[string]any{
+				"generator": deterministic,
+				"gender":    "female",
+			},
+			dynamicParams: map[string]any{
+				"gender": map[string]any{
+					"column": "sex",
+				},
+			},
+
+			wantErr: errors.New("unable to match gender \"Banana\""),
+		},
+		{
 			name:  "error - unsupported value type",
 			value: 1,
 			params: map[string]any{
@@ -132,11 +202,11 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			transformer, err := NewFirstNameTransformer(tc.params)
+			transformer, err := NewFirstNameTransformer(tc.params, tc.dynamicParams)
 			require.NoError(t, err)
 
-			require.ErrorIs(t, err, tc.wantErr)
-			got, err := transformer.Transform(transformers.NewValue(tc.value, nil))
+			got, err := transformer.Transform(transformers.NewValue(tc.value, tc.dynamicValues))
+			require.Equal(t, err, tc.wantErr)
 			if err != nil {
 				return
 			}

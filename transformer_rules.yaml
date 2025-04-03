@@ -3,7 +3,7 @@ transformations:
     table: test
     column_transformers:
       name:
-        name: neosync_firstname
-        parameters:
-          preserve_length: false
-          max_length: 5
+        name: greenmask_firstname
+        dynamic_parameters:
+          gender:
+            column: sex
