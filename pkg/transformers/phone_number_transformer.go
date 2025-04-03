@@ -16,28 +16,19 @@ type PhoneNumberTransformer struct {
 }
 
 func NewPhoneNumberTransformer(params Parameters) (*PhoneNumberTransformer, error) {
-	prefix, found, err := FindParameter[string](params, "prefix")
+	prefix, err := FindParameterWithDefault(params, "prefix", "")
 	if err != nil {
 		return nil, fmt.Errorf("phone_number: prefix must be a string: %w", err)
 	}
-	if !found {
-		prefix = ""
-	}
 
-	maxLength, found, err := FindParameter[int](params, "max_length")
+	maxLength, err := FindParameterWithDefault(params, "max_length", 10)
 	if err != nil {
 		return nil, fmt.Errorf("phone_number: max_length must be an integer: %w", err)
 	}
-	if !found {
-		maxLength = 10
-	}
 
-	minLength, found, err := FindParameter[int](params, "min_length")
+	minLength, err := FindParameterWithDefault(params, "min_length", 6)
 	if err != nil {
 		return nil, fmt.Errorf("phone_number: min_length must be an integer: %w", err)
-	}
-	if !found {
-		minLength = 6
 	}
 
 	if minLength < 0 {
@@ -75,8 +66,8 @@ func NewPhoneNumberTransformer(params Parameters) (*PhoneNumberTransformer, erro
 	}, nil
 }
 
-func (t *PhoneNumberTransformer) Transform(value any) (any, error) {
-	switch v := value.(type) {
+func (t *PhoneNumberTransformer) Transform(value Value) (any, error) {
+	switch v := value.TransformValue.(type) {
 	case string:
 		return t.transform([]byte(v))
 	case []byte:

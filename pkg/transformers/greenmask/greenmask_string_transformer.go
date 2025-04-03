@@ -45,9 +45,9 @@ func NewStringTransformer(params transformers.Parameters) (*StringTransformer, e
 	}, nil
 }
 
-func (st *StringTransformer) Transform(value any) (any, error) {
+func (st *StringTransformer) Transform(value transformers.Value) (any, error) {
 	var toTransform []byte
-	switch val := value.(type) {
+	switch val := value.TransformValue.(type) {
 	case string:
 		toTransform = []byte(val)
 	case []byte:

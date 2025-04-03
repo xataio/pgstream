@@ -161,7 +161,7 @@ func TestStringTransformer_Transform(t *testing.T) {
 			transformer, err := NewStringTransformer(tc.params)
 			require.NoError(t, err)
 
-			got, err := transformer.Transform(tc.value)
+			got, err := transformer.Transform(transformers.Value{TransformValue: tc.value})
 			require.ErrorIs(t, err, tc.wantErr)
 			if err != nil {
 				return

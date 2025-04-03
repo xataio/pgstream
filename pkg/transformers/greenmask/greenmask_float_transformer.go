@@ -49,9 +49,9 @@ func NewFloatTransformer(params transformers.Parameters) (*FloatTransformer, err
 	}, nil
 }
 
-func (ft *FloatTransformer) Transform(value any) (any, error) {
+func (ft *FloatTransformer) Transform(value transformers.Value) (any, error) {
 	var toTransform []byte
-	switch val := value.(type) {
+	switch val := value.TransformValue.(type) {
 	case float32:
 		toTransform = getBytesForFloat(float64(val))
 	case float64:

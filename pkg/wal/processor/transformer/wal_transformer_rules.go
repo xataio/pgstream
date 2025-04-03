@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 type RulesConfig struct{}
@@ -22,8 +22,9 @@ type TableRules struct {
 }
 
 type TransformerRules struct {
-	Name       string         `yaml:"name"`
-	Parameters map[string]any `yaml:"parameters"`
+	Name              string         `yaml:"name"`
+	Parameters        map[string]any `yaml:"parameters"`
+	DynamicParameters map[string]any `yaml:"dynamic_parameters"`
 }
 
 func readRulesFromFile(filePath string) (*Rules, error) {

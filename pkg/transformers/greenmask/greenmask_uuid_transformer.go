@@ -22,9 +22,9 @@ func NewUUIDTransformer(params transformers.Parameters) (*UUIDTransformer, error
 	}, nil
 }
 
-func (ut *UUIDTransformer) Transform(value any) (any, error) {
+func (ut *UUIDTransformer) Transform(value transformers.Value) (any, error) {
 	var toTransform []byte
-	switch val := value.(type) {
+	switch val := value.TransformValue.(type) {
 	case string:
 		parsed, err := uuid.Parse(val)
 		if err != nil {

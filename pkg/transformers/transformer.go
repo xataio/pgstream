@@ -8,12 +8,22 @@ import (
 )
 
 type Transformer interface {
-	Transform(any) (any, error)
+	Transform(Value) (any, error)
+}
+
+type Value struct {
+	TransformValue any
+	DynamicValues  map[string]any
+}
+
+type DynamicParameter struct {
+	Column string
 }
 
 type Config struct {
-	Name       TransformerType
-	Parameters Parameters
+	Name              TransformerType
+	Parameters        Parameters
+	DynamicParameters Parameters
 }
 
 type TransformerType string
@@ -37,14 +47,26 @@ const (
 	Masking                TransformerType = "masking"
 )
 
+const (
+	columnDynamicParam = "column"
+)
+
 type Parameters map[string]any
 
 var (
-	ErrUnsupportedValueType   = errors.New("unsupported value type for transformer")
-	ErrUnsupportedGenerator   = errors.New("transformer doesn't support the configured generator")
-	ErrUnsupportedTransformer = errors.New("unsupported transformer config")
-	ErrInvalidParameters      = errors.New("invalid transformer parameters")
+	ErrUnsupportedValueType     = errors.New("unsupported value type for transformer")
+	ErrUnsupportedGenerator     = errors.New("transformer doesn't support the configured generator")
+	ErrUnsupportedTransformer   = errors.New("unsupported transformer config")
+	ErrInvalidParameters        = errors.New("invalid transformer parameters")
+	ErrInvalidDynamicParameters = errors.New("invalid transformer dynamic parameters")
 )
+
+func NewValue(transformValue any, dynamicValues map[string]any) Value {
+	return Value{
+		TransformValue: transformValue,
+		DynamicValues:  dynamicValues,
+	}
+}
 
 func FindParameter[T any](params Parameters, name string) (T, bool, error) {
 	valAny, found := params[name]
@@ -58,6 +80,17 @@ func FindParameter[T any](params Parameters, name string) (T, bool, error) {
 	}
 
 	return val, true, nil
+}
+
+func FindParameterWithDefault[T any](params Parameters, name string, defaultValue T) (T, error) {
+	val, found, err := FindParameter[T](params, name)
+	if err != nil {
+		return val, err
+	}
+	if !found {
+		return defaultValue, nil
+	}
+	return val, nil
 }
 
 func FindParameterArray[T any](params Parameters, name string) ([]T, bool, error) {
@@ -83,4 +116,44 @@ func FindParameterArray[T any](params Parameters, name string) ([]T, bool, error
 	}
 
 	return valArray, true, nil
+}
+
+func ParseDynamicParameters(params Parameters) (map[string]*DynamicParameter, error) {
+	dynamicParamMap := make(map[string]*DynamicParameter, len(params))
+	for param, anyVal := range params {
+		if param == "" {
+			return nil, ErrInvalidDynamicParameters
+		}
+
+		dynamicParam, ok := anyVal.(map[string]any)
+		if !ok {
+			return nil, ErrInvalidDynamicParameters
+		}
+
+		column, found, err := FindParameter[string](dynamicParam, columnDynamicParam)
+		if err != nil {
+			return nil, fmt.Errorf("dynamic parameter column must be of type string: %w", err)
+		}
+		if !found {
+			return nil, fmt.Errorf("dynamic parameter must have column field: %w", ErrInvalidDynamicParameters)
+		}
+
+		dynamicParamMap[param] = &DynamicParameter{
+			Column: column,
+		}
+	}
+
+	return dynamicParamMap, nil
+}
+
+func FindDynamicValue[T any](param *DynamicParameter, dynamicValues map[string]any, defaultValue T) (T, error) {
+	dynValue, found, err := FindParameter[T](dynamicValues, param.Column)
+	if err != nil {
+		return dynValue, err
+	}
+	if !found {
+		return defaultValue, nil
+	}
+
+	return dynValue, nil
 }

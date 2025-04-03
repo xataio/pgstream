@@ -138,8 +138,8 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 			transformerMap: map[string]columnTransformers{
 				testKey: {
 					"column_1": &transformermocks.Transformer{
-						TransformFn: func(a any) (any, error) {
-							aStr, ok := a.(string)
+						TransformFn: func(a transformers.Value) (any, error) {
+							aStr, ok := a.TransformValue.(string)
 							require.True(t, ok)
 							require.Equal(t, "one", aStr)
 							return "two", nil
@@ -169,7 +169,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 			transformerMap: map[string]columnTransformers{
 				testKey: {
 					"column_1": &transformermocks.Transformer{
-						TransformFn: func(a any) (any, error) {
+						TransformFn: func(a transformers.Value) (any, error) {
 							return nil, errors.New("TransformFn: should not be called")
 						},
 					},
@@ -197,7 +197,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 			transformerMap: map[string]columnTransformers{
 				testKey: {
 					"column_1": &transformermocks.Transformer{
-						TransformFn: func(a any) (any, error) {
+						TransformFn: func(a transformers.Value) (any, error) {
 							return nil, errTest
 						},
 					},

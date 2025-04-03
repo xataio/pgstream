@@ -13,7 +13,7 @@ func New(cfg *transformers.Config) (transformers.Transformer, error) {
 	case transformers.GreenmaskString:
 		return greenmask.NewStringTransformer(cfg.Parameters)
 	case transformers.GreenmaskFirstName:
-		return greenmask.NewFirstNameTransformer(cfg.Parameters)
+		return greenmask.NewFirstNameTransformer(cfg.Parameters, cfg.DynamicParameters)
 	case transformers.GreenmaskInteger:
 		return greenmask.NewIntegerTransformer(cfg.Parameters)
 	case transformers.GreenmaskFloat:

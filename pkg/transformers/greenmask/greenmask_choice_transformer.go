@@ -44,9 +44,9 @@ func NewChoiceTransformer(params transformers.Parameters) (*ChoiceTransformer, e
 	}, nil
 }
 
-func (t *ChoiceTransformer) Transform(value any) (any, error) {
+func (t *ChoiceTransformer) Transform(value transformers.Value) (any, error) {
 	var toTransform []byte
-	switch val := value.(type) {
+	switch val := value.TransformValue.(type) {
 	case []byte:
 		toTransform = val
 	case string:

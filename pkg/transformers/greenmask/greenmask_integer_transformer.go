@@ -69,9 +69,9 @@ func NewIntegerTransformer(params transformers.Parameters) (*IntegerTransformer,
 // Supported input types are int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, and byte.
 // If the input value is a byte slice, it is passed through the transformer without modification.
 // If the input value is of an unsupported type, an error is returned.
-func (t *IntegerTransformer) Transform(value any) (any, error) {
+func (t *IntegerTransformer) Transform(value transformers.Value) (any, error) {
 	var toTransform []byte
-	switch val := value.(type) {
+	switch val := value.TransformValue.(type) {
 	case int:
 		toTransform = generators.BuildBytesFromUint64(uint64(val))
 	case int8:

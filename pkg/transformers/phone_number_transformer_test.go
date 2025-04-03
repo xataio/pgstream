@@ -86,7 +86,7 @@ func TestPhoneNumberTransformer_Transform(t *testing.T) {
 			}
 			require.NoError(t, err)
 
-			got, err := transformer.Transform(tc.value)
+			got, err := transformer.Transform(Value{TransformValue: tc.value})
 			require.NoError(t, err)
 
 			gotStr, ok := got.(string)

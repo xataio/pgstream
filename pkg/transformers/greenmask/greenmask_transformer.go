@@ -44,18 +44,7 @@ func getGeneratorType(params transformers.Parameters) (string, error) {
 }
 
 func findParameter[T any](params transformers.Parameters, name string, defaultVal T) (T, error) {
-	var found bool
-	var err error
-
-	var val T
-	val, found, err = transformers.FindParameter[T](params, name)
-	if err != nil {
-		return val, err
-	}
-	if !found {
-		return defaultVal, nil
-	}
-	return val, nil
+	return transformers.FindParameterWithDefault(params, name, defaultVal)
 }
 
 func findParameterArray[T any](params transformers.Parameters, name string, defaultVal []T) ([]T, error) {

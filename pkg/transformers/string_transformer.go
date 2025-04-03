@@ -18,8 +18,8 @@ func NewStringTransformer(params Parameters) (*StringTransformer, error) {
 	return &StringTransformer{}, nil
 }
 
-func (st *StringTransformer) Transform(v any) (any, error) {
-	switch str := v.(type) {
+func (st *StringTransformer) Transform(v Value) (any, error) {
+	switch str := v.TransformValue.(type) {
 	case string:
 		return st.transform(str), nil
 	case []byte:

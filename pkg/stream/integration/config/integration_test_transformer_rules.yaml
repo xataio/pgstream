@@ -44,8 +44,8 @@ transformations:
       birth_date:
         name: greenmask_date
         parameters:
-          min_value: 1990-01-01
-          max_value: 2000-12-31
+          min_value: "1990-01-01"
+          max_value: "2000-12-31"
       is_active:
         name: greenmask_boolean
       created_at:
@@ -56,8 +56,8 @@ transformations:
       updated_at:
         name: greenmask_utc_timestamp
         parameters:
-          min_timestamp: 2022-01-01T00:00:00Z
-          max_timestamp: 2024-01-01T23:59:59Z
+          min_timestamp: "2022-01-01T00:00:00Z"
+          max_timestamp: "2024-01-01T23:59:59Z"
       gender:
         name: greenmask_choice
         parameters:
