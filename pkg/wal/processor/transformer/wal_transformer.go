@@ -151,7 +151,8 @@ func transformerMapFromRules(rules *Rules) (map[string]columnTransformers, error
 
 func transformerRulesToConfig(rules TransformerRules) *transformers.Config {
 	return &transformers.Config{
-		Name:       transformers.TransformerType(rules.Name),
-		Parameters: rules.Parameters,
+		Name:              transformers.TransformerType(rules.Name),
+		Parameters:        rules.Parameters,
+		DynamicParameters: rules.DynamicParameters,
 	}
 }
