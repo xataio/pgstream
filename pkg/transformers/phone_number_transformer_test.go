@@ -43,6 +43,18 @@ func TestPhoneNumberTransformer_Transform(t *testing.T) {
 			wantErr:    nil,
 		},
 		{
+			name: "ok - []byte without prefix, deterministic generator",
+			params: Parameters{
+				"min_length": 6,
+				"max_length": 6,
+				"generator":  "deterministic",
+			},
+			value:      []byte("12345"),
+			wantPrefix: "845705", // not prefix but the actual string, deterministic
+			wantLen:    6,
+			wantErr:    nil,
+		},
+		{
 			name: "error - prefix longer than min_length",
 			params: Parameters{
 				"prefix":     "12345678",
