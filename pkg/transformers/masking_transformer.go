@@ -76,8 +76,8 @@ func NewMaskingTransformer(params Parameters) (*MaskingTransformer, error) {
 }
 
 // Transform applies the masking function to the input value and returns the masked value.
-func (t *MaskingTransformer) Transform(value any) (any, error) {
-	switch val := value.(type) {
+func (t *MaskingTransformer) Transform(value Value) (any, error) {
+	switch val := value.TransformValue.(type) {
 	case string:
 		return t.maskingFunction(val), nil
 	case []byte:

@@ -184,7 +184,7 @@ func TestEmailTransformer_Transform(t *testing.T) {
 			}
 			transformer, err := NewEmailTransformer(params)
 			require.NoError(t, err)
-			got, err := transformer.Transform(tc.input)
+			got, err := transformer.Transform(transformers.Value{TransformValue: tc.input})
 			require.ErrorIs(t, err, tc.wantErr)
 			require.NotNil(t, got)
 			val, ok := got.(string)

@@ -75,8 +75,8 @@ func NewPhoneNumberTransformer(params Parameters) (*PhoneNumberTransformer, erro
 	}, nil
 }
 
-func (t *PhoneNumberTransformer) Transform(value any) (any, error) {
-	switch v := value.(type) {
+func (t *PhoneNumberTransformer) Transform(value Value) (any, error) {
+	switch v := value.TransformValue.(type) {
 	case string:
 		return t.transform([]byte(v))
 	case []byte:

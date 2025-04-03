@@ -184,7 +184,7 @@ func TestFloatTransformer_Transform(t *testing.T) {
 			transformer, err := NewFloatTransformer(tc.params)
 			require.NoError(t, err)
 
-			got, err := transformer.Transform(tc.value)
+			got, err := transformer.Transform(transformers.Value{TransformValue: tc.value})
 			require.ErrorIs(t, err, tc.wantErr)
 			if err != nil {
 				return
@@ -207,7 +207,7 @@ func TestFloatTransformer_Transform(t *testing.T) {
 
 			// if deterministic, check if we get the same result again
 			if mustGetGeneratorType(t, tc.params) == deterministic {
-				gotAgain, err := transformer.Transform(tc.value)
+				gotAgain, err := transformer.Transform(transformers.Value{TransformValue: tc.value})
 				require.NoError(t, err)
 				require.Equal(t, got, gotAgain)
 			}

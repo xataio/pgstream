@@ -181,7 +181,7 @@ func TestUTCTimestampTransformer_Transform(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, transformer)
 
-			got, err := transformer.Transform(tt.input)
+			got, err := transformer.Transform(transformers.Value{TransformValue: tt.input})
 			require.ErrorIs(t, err, tt.wantErr)
 			if err != nil {
 				return
@@ -234,7 +234,7 @@ func TestUTCTimestampTransformer_Transform(t *testing.T) {
 
 			// if deterministic, check that the same input always produces the same output
 			if mustGetGeneratorType(t, tt.params) == deterministic {
-				gotAgain, err := transformer.Transform(tt.input)
+				gotAgain, err := transformer.Transform(transformers.Value{TransformValue: tt.input})
 				require.NoError(t, err)
 				require.Equal(t, got, gotAgain)
 			}

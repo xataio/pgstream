@@ -61,9 +61,9 @@ func NewDateTransformer(params transformers.Parameters) (*DateTransformer, error
 	}, nil
 }
 
-func (t *DateTransformer) Transform(value any) (any, error) {
+func (t *DateTransformer) Transform(value transformers.Value) (any, error) {
 	var toTransform []byte
-	switch val := value.(type) {
+	switch val := value.TransformValue.(type) {
 	case time.Time:
 		toTransform = []byte(val.Format(time.DateOnly))
 	case []byte:

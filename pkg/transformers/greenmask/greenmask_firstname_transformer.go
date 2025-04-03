@@ -30,9 +30,9 @@ func NewFirstNameTransformer(params transformers.Parameters) (*FirstNameTransfor
 	}, nil
 }
 
-func (fnt *FirstNameTransformer) Transform(value any) (any, error) {
+func (fnt *FirstNameTransformer) Transform(value transformers.Value) (any, error) {
 	var toTransform []byte
-	switch val := value.(type) {
+	switch val := value.TransformValue.(type) {
 	case string:
 		toTransform = []byte(val)
 	case []byte:

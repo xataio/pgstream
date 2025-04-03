@@ -47,7 +47,7 @@ func TestStringTransformer_Transform(t *testing.T) {
 
 			st, err := NewStringTransformer(nil)
 			require.NoError(t, err)
-			got, err := st.Transform(tc.value)
+			got, err := st.Transform(Value{TransformValue: tc.value})
 			require.ErrorIs(t, err, tc.wantErr)
 			if tc.wantErr != nil {
 				return

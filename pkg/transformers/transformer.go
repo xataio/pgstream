@@ -8,7 +8,12 @@ import (
 )
 
 type Transformer interface {
-	Transform(any) (any, error)
+	Transform(Value) (any, error)
+}
+
+type Value struct {
+	TransformValue any
+	DynamicValues  map[string]any
 }
 
 type Config struct {
@@ -45,6 +50,13 @@ var (
 	ErrUnsupportedTransformer = errors.New("unsupported transformer config")
 	ErrInvalidParameters      = errors.New("invalid transformer parameters")
 )
+
+func NewValue(transformValue any, dynamicValues map[string]any) Value {
+	return Value{
+		TransformValue: transformValue,
+		DynamicValues:  dynamicValues,
+	}
+}
 
 func FindParameter[T any](params Parameters, name string) (T, bool, error) {
 	valAny, found := params[name]

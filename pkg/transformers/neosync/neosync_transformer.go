@@ -25,8 +25,8 @@ func New[T any](t neosyncTransformer, opts any) *transformer[T] {
 	}
 }
 
-func (t *transformer[T]) Transform(value any) (any, error) {
-	retPtr, err := t.neosyncTransformer.Transform(value, t.opts)
+func (t *transformer[T]) Transform(value transformers.Value) (any, error) {
+	retPtr, err := t.neosyncTransformer.Transform(value.TransformValue, t.opts)
 	if err != nil {
 		return nil, err
 	}

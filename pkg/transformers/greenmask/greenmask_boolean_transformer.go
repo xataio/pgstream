@@ -21,9 +21,9 @@ func NewBooleanTransformer(params transformers.Parameters) (*BooleanTransformer,
 	}, nil
 }
 
-func (bt *BooleanTransformer) Transform(value any) (any, error) {
+func (bt *BooleanTransformer) Transform(value transformers.Value) (any, error) {
 	var toTransform []byte
-	switch val := value.(type) {
+	switch val := value.TransformValue.(type) {
 	case bool:
 		if val {
 			toTransform = []byte{1}

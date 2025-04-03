@@ -67,9 +67,9 @@ func NewUTCTimestampTransformer(params transformers.Parameters) (*UTCTimestampTr
 	}, nil
 }
 
-func (t *UTCTimestampTransformer) Transform(value any) (any, error) {
+func (t *UTCTimestampTransformer) Transform(value transformers.Value) (any, error) {
 	var toTransform []byte
-	switch val := value.(type) {
+	switch val := value.TransformValue.(type) {
 	case time.Time:
 		toTransform = []byte(val.Format(time.RFC3339))
 	case []byte:

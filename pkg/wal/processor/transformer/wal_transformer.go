@@ -101,7 +101,7 @@ func (t *Transformer) applyTransformations(event *wal.Event) error {
 			continue
 		}
 
-		newValue, err := columnTransformer.Transform(col.Value)
+		newValue, err := columnTransformer.Transform(t.getTransformValue(&col, event.Data.Columns))
 		if err != nil {
 			t.logger.Error(err, "transforming column", loglib.Fields{
 				"severity":    "DATALOSS",
@@ -116,6 +116,17 @@ func (t *Transformer) applyTransformations(event *wal.Event) error {
 	}
 
 	return nil
+}
+
+func (t *Transformer) getTransformValue(column *wal.Column, columns []wal.Column) transformers.Value {
+	values := make(map[string]any, len(columns)-1)
+	for _, col := range columns {
+		if col.Name == column.Name {
+			continue
+		}
+		values[col.Name] = col.Value
+	}
+	return transformers.NewValue(column.Value, values)
 }
 
 func schemaTableKey(schema, table string) string {

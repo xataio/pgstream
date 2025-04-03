@@ -135,8 +135,8 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 			transformer, err := NewFirstNameTransformer(tc.params)
 			require.NoError(t, err)
 
-			got, err := transformer.Transform(tc.value)
 			require.ErrorIs(t, err, tc.wantErr)
+			got, err := transformer.Transform(transformers.NewValue(tc.value, nil))
 			if err != nil {
 				return
 			}

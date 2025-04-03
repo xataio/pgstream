@@ -255,7 +255,7 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 			transformer, err := NewIntegerTransformer(tt.params)
 			require.NoError(t, err)
 
-			got, err := transformer.Transform(tt.input)
+			got, err := transformer.Transform(transformers.Value{TransformValue: tt.input})
 			require.ErrorIs(t, err, tt.wantErr)
 			if err != nil {
 				return
@@ -280,7 +280,7 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 
 			// if deterministic, check if we get the same result again
 			if mustGetGeneratorType(t, tt.params) == deterministic {
-				gotAgain, err := transformer.Transform(tt.input)
+				gotAgain, err := transformer.Transform(transformers.Value{TransformValue: tt.input})
 				require.NoError(t, err)
 				require.Equal(t, got, gotAgain)
 			}
