@@ -58,12 +58,13 @@ func NewPhoneNumberTransformer(params Parameters) (*PhoneNumberTransformer, erro
 	}
 	var generator generators.Generator
 	if generatorType == "deterministic" {
-		generator, err = generators.NewDeterministicBytesGenerator(maxLength)
+		// Add an extra byte to be used for randomizing the output length as well
+		generator, err = generators.NewDeterministicBytesGenerator(maxLength + 1)
 		if err != nil {
 			return nil, fmt.Errorf("phone_number: error creating deterministic generator: %w", err)
 		}
 	} else {
-		generator = generators.NewRandomBytesGenerator(maxLength)
+		generator = generators.NewRandomBytesGenerator(maxLength + 1)
 	}
 
 	return &PhoneNumberTransformer{
@@ -95,8 +96,9 @@ func (t *PhoneNumberTransformer) transform(value []byte) (string, error) {
 
 	// Generate random length between min and max (accounting for prefix)
 	targetLen := t.minLength
+	firstByte, data := data[0], data[1:] // Remove the first byte used for length calculation
 	if t.maxLength > t.minLength {
-		targetLen += int(data[0]) % (t.maxLength - t.minLength + 1)
+		targetLen += int(firstByte) % (t.maxLength - t.minLength + 1)
 	}
 
 	b := make([]byte, targetLen)
