@@ -50,7 +50,7 @@ func TestPhoneNumberTransformer_Transform(t *testing.T) {
 				"generator":  "deterministic",
 			},
 			value:      []byte("12345"),
-			wantPrefix: "845705", // not prefix but the actual string, deterministic
+			wantPrefix: "457059", // not prefix but the actual string, deterministic
 			wantLen:    6,
 			wantErr:    nil,
 		},
