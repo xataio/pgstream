@@ -98,11 +98,15 @@ func (t *PhoneNumberTransformer) transform(value []byte) (string, error) {
 	b := make([]byte, targetLen)
 	// Add prefix
 	prefixLen := len(t.prefix)
+	remainingLen := targetLen - prefixLen
+	if remainingLen > len(data) {
+		return "", fmt.Errorf("phone_number: generated data not enough for target length")
+	}
 	copy(b[:prefixLen], t.prefix)
 
 	// Fill remaining space with random digits
-	for i := prefixLen; i < targetLen; i++ {
-		b[i] = letterBytes[int(data[i])%len(letterBytes)]
+	for i := 0; i < remainingLen; i++ {
+		b[prefixLen+i] = letterBytes[int(data[i])%len(letterBytes)]
 	}
 
 	return string(b[:targetLen]), nil
