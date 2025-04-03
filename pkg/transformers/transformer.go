@@ -72,6 +72,17 @@ func FindParameter[T any](params Parameters, name string) (T, bool, error) {
 	return val, true, nil
 }
 
+func FindParameterWithDefault[T any](params Parameters, name string, defaultValue T) (T, error) {
+	val, found, err := FindParameter[T](params, name)
+	if err != nil {
+		return val, err
+	}
+	if !found {
+		return defaultValue, nil
+	}
+	return val, nil
+}
+
 func FindParameterArray[T any](params Parameters, name string) ([]T, bool, error) {
 	// first check if the array is of the expected type
 	arrValue, found, err := FindParameter[[]T](params, name)
