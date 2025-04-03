@@ -40,6 +40,10 @@ func NewPhoneNumberTransformer(params Parameters) (*PhoneNumberTransformer, erro
 		minLength = 6
 	}
 
+	if minLength < 0 {
+		return nil, fmt.Errorf("phone_number: min_length must be greater than 0")
+	}
+
 	if maxLength < minLength {
 		return nil, fmt.Errorf("phone_number: max_length must be greater than min_length")
 	}
