@@ -5,13 +5,14 @@ package transformers
 import (
 	"fmt"
 
-	"golang.org/x/exp/rand"
+	"github.com/xataio/pgstream/pkg/transformers/generators"
 )
 
 type PhoneNumberTransformer struct {
 	prefix    string
 	maxLength int
 	minLength int
+	generator generators.Generator
 }
 
 func NewPhoneNumberTransformer(params Parameters) (*PhoneNumberTransformer, error) {
@@ -47,31 +48,51 @@ func NewPhoneNumberTransformer(params Parameters) (*PhoneNumberTransformer, erro
 		return nil, fmt.Errorf("phone_number: prefix must be less than min_length")
 	}
 
+	generatorType, _, err := FindParameter[string](params, "generator")
+	if err != nil {
+		return nil, fmt.Errorf("phone_number: generator must be a string: %w", err)
+	}
+	var generator generators.Generator
+	if generatorType == "deterministic" {
+		generator, err = generators.NewDeterministicBytesGenerator(maxLength)
+		if err != nil {
+			return nil, fmt.Errorf("phone_number: error creating deterministic generator: %w", err)
+		}
+	} else {
+		generator = generators.NewRandomBytesGenerator(maxLength)
+	}
+
 	return &PhoneNumberTransformer{
 		prefix:    prefix,
 		maxLength: maxLength,
 		minLength: minLength,
+		generator: generator,
 	}, nil
 }
 
 func (t *PhoneNumberTransformer) Transform(value any) (any, error) {
 	switch v := value.(type) {
 	case string:
-		return t.transform(v), nil
+		return t.transform([]byte(v))
 	case []byte:
-		return t.transform(string(v)), nil
+		return t.transform(v)
 	default:
 		return nil, ErrUnsupportedValueType
 	}
 }
 
-func (t *PhoneNumberTransformer) transform(str string) string {
+func (t *PhoneNumberTransformer) transform(value []byte) (string, error) {
 	const letterBytes = "0123456789"
+
+	data, err := t.generator.Generate(value)
+	if err != nil {
+		return "", err
+	}
 
 	// Generate random length between min and max (accounting for prefix)
 	targetLen := t.minLength
 	if t.maxLength > t.minLength {
-		targetLen += rand.Intn(t.maxLength - t.minLength + 1)
+		targetLen += int(data[0]) % (t.maxLength - t.minLength + 1)
 	}
 
 	b := make([]byte, targetLen)
@@ -81,8 +102,8 @@ func (t *PhoneNumberTransformer) transform(str string) string {
 
 	// Fill remaining space with random digits
 	for i := prefixLen; i < targetLen; i++ {
-		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+		b[i] = letterBytes[int(data[i])%len(letterBytes)]
 	}
 
-	return string(b[:targetLen])
+	return string(b[:targetLen]), nil
 }
