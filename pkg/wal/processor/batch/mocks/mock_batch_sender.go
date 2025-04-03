@@ -9,9 +9,9 @@ import (
 )
 
 type BatchSender[T batch.Message] struct {
-	AddToBatchFn func(context.Context, *batch.WALMessage[T]) error
-	SendFn       func(context.Context) error
-	msgChan      chan *batch.WALMessage[T]
+	SendMessageFn func(context.Context, *batch.WALMessage[T]) error
+	CloseFn       func()
+	msgChan       chan *batch.WALMessage[T]
 }
 
 func NewBatchSender[T batch.Message]() *BatchSender[T] {
@@ -20,9 +20,9 @@ func NewBatchSender[T batch.Message]() *BatchSender[T] {
 	}
 }
 
-func (m *BatchSender[T]) AddToBatch(ctx context.Context, msg *batch.WALMessage[T]) error {
-	if m.AddToBatchFn != nil {
-		return m.AddToBatchFn(ctx, msg)
+func (m *BatchSender[T]) SendMessage(ctx context.Context, msg *batch.WALMessage[T]) error {
+	if m.SendMessageFn != nil {
+		return m.SendMessageFn(ctx, msg)
 	}
 
 	m.msgChan <- msg
@@ -31,15 +31,9 @@ func (m *BatchSender[T]) AddToBatch(ctx context.Context, msg *batch.WALMessage[T
 
 func (m *BatchSender[T]) Close() {
 	close(m.msgChan)
-}
-
-func (m *BatchSender[T]) Send(ctx context.Context) error {
-	if m.SendFn != nil {
-		return m.SendFn(ctx)
+	if m.CloseFn != nil {
+		m.CloseFn()
 	}
-
-	_ = m.GetWALMessages()
-	return nil
 }
 
 func (m *BatchSender[T]) GetWALMessages() []*batch.WALMessage[T] {
