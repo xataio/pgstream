@@ -35,9 +35,8 @@ type BatchWriter struct {
 type Option func(*BatchWriter)
 
 type queryBatchSender interface {
-	AddToBatch(context.Context, *batch.WALMessage[*query]) error
+	SendMessage(context.Context, *batch.WALMessage[*query]) error
 	Close()
-	Send(context.Context) error
 }
 
 // NewBatchWriter returns a postgres processor that batches and writes data to
@@ -80,17 +79,10 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...Option) (*Batch
 		}
 	}
 
-	w.batchSender, err = batch.NewSender(&config.BatchConfig, w.sendBatch, w.logger)
+	w.batchSender, err = batch.NewSender(ctx, &config.BatchConfig, w.sendBatch, w.logger)
 	if err != nil {
 		return nil, err
 	}
-
-	// start the send process in the background
-	go func() {
-		if err := w.batchSender.Send(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			w.logger.Error(err, "sending stopped")
-		}
-	}()
 
 	return w, nil
 }
@@ -132,7 +124,7 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) 
 	for _, q := range queries {
 		w.logger.Debug("batching query", loglib.Fields{"sql": q.getSQL(), "args": q.getArgs(), "commit_position": walEvent.CommitPosition})
 		msg := batch.NewWALMessage(q, walEvent.CommitPosition)
-		if err := w.batchSender.AddToBatch(ctx, msg); err != nil {
+		if err := w.batchSender.SendMessage(ctx, msg); err != nil {
 			return err
 		}
 	}

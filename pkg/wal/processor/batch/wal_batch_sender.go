@@ -29,7 +29,8 @@ type Sender[T Message] struct {
 	maxBatchSize      int64
 	batchSendInterval time.Duration
 
-	wg *sync.WaitGroup
+	wg       *sync.WaitGroup
+	cancelFn context.CancelFunc
 
 	sendBatchFn sendBatchFn[T]
 }
@@ -38,7 +39,7 @@ type sendBatchFn[T Message] func(context.Context, *Batch[T]) error
 
 var errSendStopped = errors.New("stop processing, sending has stopped")
 
-func NewSender[T Message](config *Config, sendfn sendBatchFn[T], logger loglib.Logger) (*Sender[T], error) {
+func NewSender[T Message](ctx context.Context, config *Config, sendfn sendBatchFn[T], logger loglib.Logger) (*Sender[T], error) {
 	s := &Sender[T]{
 		batchSendInterval: config.GetBatchTimeout(),
 		maxBatchBytes:     config.GetMaxBatchBytes(),
@@ -49,6 +50,7 @@ func NewSender[T Message](config *Config, sendfn sendBatchFn[T], logger loglib.L
 		logger:            logger,
 		sendBatchFn:       sendfn,
 		wg:                &sync.WaitGroup{},
+		cancelFn:          func() {},
 	}
 
 	maxQueueBytes, err := config.GetMaxQueueBytes()
@@ -57,10 +59,22 @@ func NewSender[T Message](config *Config, sendfn sendBatchFn[T], logger loglib.L
 	}
 	s.queueBytesSema = synclib.NewWeightedSemaphore(int64(maxQueueBytes))
 
+	// start the send process in the background
+	go func() {
+		ctx, s.cancelFn = context.WithCancel(ctx)
+		defer s.cancelFn()
+
+		if err := s.send(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			s.logger.Error(err, "sending stopped")
+		}
+	}()
+
 	return s, nil
 }
 
-func (s *Sender[T]) AddToBatch(ctx context.Context, msg *WALMessage[T]) error {
+// SendMessage adds the message to the batch, which will be sent when the interval or the
+// max number of messages is reached by a background process.
+func (s *Sender[T]) SendMessage(ctx context.Context, msg *WALMessage[T]) error {
 	if msg == nil {
 		return nil
 	}
@@ -94,7 +108,7 @@ func (s *Sender[T]) AddToBatch(ctx context.Context, msg *WALMessage[T]) error {
 	return nil
 }
 
-func (s *Sender[T]) Send(ctx context.Context) error {
+func (s *Sender[T]) send(ctx context.Context) error {
 	// make sure we send on a separate go routine to isolate the IO operations,
 	// ensuring the goroutine is always sending, and minimise the wait time
 	// between batch sending
@@ -187,6 +201,8 @@ func (s *Sender[T]) Send(ctx context.Context) error {
 }
 
 func (s *Sender[T]) Close() {
+	s.cancelFn()
+	// wait for the send loop to finish
 	s.wg.Wait()
 	s.closeMsgChan()
 }

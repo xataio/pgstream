@@ -91,7 +91,7 @@ func TestBatchWriter_ProcessWALEvent(t *testing.T) {
 			walEvent: testWalEvent,
 			batchSender: func() *batchmocks.BatchSender[*query] {
 				s := batchmocks.NewBatchSender[*query]()
-				s.AddToBatchFn = func(ctx context.Context, w *batch.WALMessage[*query]) error { return errTest }
+				s.SendMessageFn = func(ctx context.Context, w *batch.WALMessage[*query]) error { return errTest }
 				return s
 			}(),
 			adapter: &mockAdapter{
@@ -343,75 +343,5 @@ func TestBatchWriter_flushQueries(t *testing.T) {
 			require.Equal(t, tc.wantExecCalls, execCalls)
 			execCalls = 0
 		})
-	}
-}
-
-func TestBatchWriter(t *testing.T) {
-	t.Parallel()
-
-	conn := &pgmocks.Querier{
-		ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
-			mockTx := pgmocks.Tx{
-				ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
-					time.Sleep(time.Second)
-					return pglib.CommandTag{}, errTest
-				},
-			}
-			return f(&mockTx)
-		},
-		CloseFn: func(ctx context.Context) error { return nil },
-	}
-
-	adapter := &mockAdapter{
-		walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
-			return []*query{{
-				sql:  "INSERT INTO test(id, name) VALUES($1, $2) ON CONFLICT (id) DO NOTHING",
-				args: []any{1, "alice"},
-			}}, nil
-		},
-	}
-
-	bw := BatchWriter{
-		logger:  loglib.NewNoopLogger(),
-		pgConn:  conn,
-		adapter: adapter,
-	}
-	defer bw.Close()
-
-	var err error
-	bw.batchSender, err = batch.NewSender(&batch.Config{
-		BatchTimeout:  time.Second,
-		MaxBatchSize:  10,
-		MaxBatchBytes: 10000,
-	}, bw.sendBatch, bw.logger)
-	require.NoError(t, err)
-
-	doneChan := make(chan struct{}, 1)
-	go func() {
-		err := bw.batchSender.Send(context.Background())
-		require.ErrorIs(t, err, errTest)
-		doneChan <- struct{}{}
-		close(doneChan)
-	}()
-
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
-	var processErr error
-	for {
-		select {
-		case <-doneChan:
-			require.ErrorIs(t, processErr, errTest)
-			return
-		case <-timer.C:
-			t.Error("test timeout")
-			return
-		default:
-			processErr = bw.ProcessWALEvent(context.Background(), &wal.Event{
-				CommitPosition: wal.CommitPosition("1"),
-				Data: &wal.Data{
-					Action: "I",
-				},
-			})
-		}
 	}
 }

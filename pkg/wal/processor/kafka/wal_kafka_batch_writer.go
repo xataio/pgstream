@@ -37,9 +37,8 @@ type BatchWriter struct {
 type Option func(*BatchWriter)
 
 type batchSender interface {
-	AddToBatch(context.Context, *batch.WALMessage[kafka.Message]) error
+	SendMessage(context.Context, *batch.WALMessage[kafka.Message]) error
 	Close()
-	Send(context.Context) error
 }
 
 var errRecordTooLarge = errors.New("record too large")
@@ -77,17 +76,10 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...Option) (*Batch
 		opt(w)
 	}
 
-	w.batchSender, err = batch.NewSender(&config.Batch, w.sendBatch, w.logger)
+	w.batchSender, err = batch.NewSender(ctx, &config.Batch, w.sendBatch, w.logger)
 	if err != nil {
 		return nil, err
 	}
-
-	// start the send process in the background
-	go func() {
-		if err := w.batchSender.Send(ctx); err != nil {
-			w.logger.Error(err, "sending stopped")
-		}
-	}()
 
 	return w, nil
 }
@@ -159,7 +151,7 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) 
 	}
 
 	msg := batch.NewWALMessage(kafkaMsg, walEvent.CommitPosition)
-	return w.batchSender.AddToBatch(ctx, msg)
+	return w.batchSender.SendMessage(ctx, msg)
 }
 
 func (w *BatchWriter) Name() string {

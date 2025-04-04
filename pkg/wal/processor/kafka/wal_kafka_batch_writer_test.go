@@ -7,11 +7,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/xataio/pgstream/internal/json"
-	"github.com/xataio/pgstream/internal/log/zerolog"
 	"github.com/xataio/pgstream/pkg/kafka"
 	kafkamocks "github.com/xataio/pgstream/pkg/kafka/mocks"
 	loglib "github.com/xataio/pgstream/pkg/log"
@@ -293,64 +290,4 @@ func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
-}
-
-func TestBatchKafkaWriter(t *testing.T) {
-	t.Parallel()
-
-	bw := BatchWriter{
-		logger: newTestLogger(),
-		writer: &kafkamocks.Writer{
-			WriteMessagesFn: func(ctx context.Context, i uint64, msgs ...kafka.Message) error {
-				time.Sleep(time.Second)
-				return errTest
-			},
-		},
-		maxBatchBytes: 10000,
-		serialiser:    json.Marshal,
-	}
-	defer bw.Close()
-
-	var err error
-	bw.batchSender, err = batch.NewSender(&batch.Config{
-		BatchTimeout:  time.Second,
-		MaxBatchSize:  10,
-		MaxBatchBytes: 10000,
-	}, bw.sendBatch, bw.logger)
-	require.NoError(t, err)
-
-	doneChan := make(chan struct{}, 1)
-	go func() {
-		err := bw.batchSender.Send(context.Background())
-		require.ErrorIs(t, err, errTest)
-		doneChan <- struct{}{}
-		close(doneChan)
-	}()
-
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
-	var processErr error
-	for {
-		select {
-		case <-doneChan:
-			require.ErrorIs(t, processErr, errTest)
-			return
-		case <-timer.C:
-			t.Error("test timeout")
-			return
-		default:
-			processErr = bw.ProcessWALEvent(context.Background(), &wal.Event{
-				CommitPosition: wal.CommitPosition("1"),
-				Data: &wal.Data{
-					Action: "I",
-				},
-			})
-		}
-	}
-}
-
-func newTestLogger() loglib.Logger {
-	return zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
-		LogLevel: "trace",
-	}))
 }

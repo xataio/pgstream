@@ -15,7 +15,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
-func TestSender_AddToBatch(t *testing.T) {
+func TestSender_SendMessage(t *testing.T) {
 	t.Parallel()
 
 	noopSendFn := func(ctx context.Context, b *Batch[*mockMessage]) error { return nil }
@@ -117,12 +117,23 @@ func TestSender_AddToBatch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			batchSender, err := NewSender(&Config{}, noopSendFn, log.NewNoopLogger())
-			require.NoError(t, err)
-			batchSender.queueBytesSema = tc.weightedSemaphore
+			ctx := context.Background()
+
+			batchSender := &Sender[*mockMessage]{
+				batchSendInterval: 100 * time.Millisecond,
+				maxBatchSize:      10,
+				msgChan:           make(chan *WALMessage[*mockMessage]),
+				queueBytesSema:    tc.weightedSemaphore,
+				sendDone:          make(chan error, 1),
+				once:              &sync.Once{},
+				logger:            log.NewNoopLogger(),
+				sendBatchFn:       noopSendFn,
+				wg:                &sync.WaitGroup{},
+				cancelFn:          func() {},
+			}
 			defer batchSender.Close()
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 
 			if tc.sendDone {
@@ -137,7 +148,7 @@ func TestSender_AddToBatch(t *testing.T) {
 					batchSender.closeMsgChan()
 					wg.Done()
 				}()
-				err = batchSender.AddToBatch(ctx, tc.msg)
+				err := batchSender.SendMessage(ctx, tc.msg)
 				require.ErrorIs(t, err, tc.wantErr)
 			}()
 
@@ -159,7 +170,7 @@ func TestSender_AddToBatch(t *testing.T) {
 	}
 }
 
-func TestSender_Send(t *testing.T) {
+func TestSender_send(t *testing.T) {
 	t.Parallel()
 
 	testCommitPos := wal.CommitPosition("1")
@@ -264,26 +275,33 @@ func TestSender_Send(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
+			ctx := context.Background()
+
 			doneChan := make(chan struct{}, 1)
 			defer close(doneChan)
 
-			sender, err := NewSender(&Config{
-				BatchTimeout: 100 * time.Millisecond,
-				MaxBatchSize: 10,
-			}, tc.sendFn(doneChan), log.NewNoopLogger())
-			require.NoError(t, err)
+			sender := &Sender[*mockMessage]{
+				batchSendInterval: 100 * time.Millisecond,
+				maxBatchSize:      10,
+				msgChan:           make(chan *WALMessage[*mockMessage]),
+				queueBytesSema:    tc.semaphore,
+				sendDone:          make(chan error, 1),
+				once:              &sync.Once{},
+				logger:            log.NewNoopLogger(),
+				sendBatchFn:       tc.sendFn(doneChan),
+				wg:                &sync.WaitGroup{},
+				cancelFn:          func() {},
+			}
 			defer sender.Close()
 
-			sender.queueBytesSema = tc.semaphore
-
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 
 			wg := sync.WaitGroup{}
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				err := sender.Send(ctx)
+				err := sender.send(ctx)
 				require.ErrorIs(t, err, tc.wantErr)
 			}()
 
@@ -310,6 +328,7 @@ func TestSender_Send(t *testing.T) {
 
 	t.Run("graceful shutdown, drain in-flight batch", func(t *testing.T) {
 		t.Parallel()
+		ctx := context.Background()
 
 		doneChan := make(chan struct{}, 1)
 		defer close(doneChan)
@@ -327,28 +346,33 @@ func TestSender_Send(t *testing.T) {
 			}
 		}
 
-		sender, err := NewSender(&Config{
-			BatchTimeout: 1 * time.Minute,
-			MaxBatchSize: 10,
-		}, sendFn(doneChan), log.NewNoopLogger())
-		require.NoError(t, err)
+		sender := &Sender[*mockMessage]{
+			batchSendInterval: 1 * time.Minute,
+			maxBatchSize:      10,
+			msgChan:           make(chan *WALMessage[*mockMessage]),
+			queueBytesSema: &syncmocks.WeightedSemaphore{
+				ReleaseFn: func(i uint64, bytes int64) {
+					if i == 0 {
+						require.Equal(t, int64(1), bytes)
+					}
+				},
+			},
+			sendDone:    make(chan error, 1),
+			once:        &sync.Once{},
+			logger:      log.NewNoopLogger(),
+			sendBatchFn: sendFn(doneChan),
+			wg:          &sync.WaitGroup{},
+			cancelFn:    func() {},
+		}
 		defer sender.Close()
 
-		sender.queueBytesSema = &syncmocks.WeightedSemaphore{
-			ReleaseFn: func(i uint64, bytes int64) {
-				if i == 0 {
-					require.Equal(t, int64(1), bytes)
-				}
-			},
-		}
-
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(ctx)
 
 		wg := sync.WaitGroup{}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := sender.Send(ctx)
+			err := sender.send(ctx)
 			require.ErrorIs(t, err, context.Canceled)
 		}()
 
@@ -356,4 +380,62 @@ func TestSender_Send(t *testing.T) {
 		cancel()
 		wg.Wait()
 	})
+}
+
+func TestSender(t *testing.T) {
+	ctx := context.Background()
+
+	errTest := errors.New("oh noes")
+	testCommitPos := wal.CommitPosition("1")
+
+	mockMsg := func(i uint) *mockMessage {
+		return &mockMessage{id: i}
+	}
+
+	testWALMsg := func(i uint) *WALMessage[*mockMessage] {
+		return NewWALMessage(mockMsg(i), testCommitPos)
+	}
+
+	doneChan := make(chan struct{}, 1)
+	defer close(doneChan)
+
+	sendFn := func(doneChan chan<- struct{}) sendBatchFn[*mockMessage] {
+		once := sync.Once{}
+		return func(ctx context.Context, b *Batch[*mockMessage]) error {
+			defer once.Do(func() { doneChan <- struct{}{} })
+
+			require.Len(t, b.messages, 1)
+			require.Len(t, b.positions, 1)
+			require.Equal(t, mockMsg(1), b.messages[0])
+			require.Equal(t, testCommitPos, b.positions[0])
+			return errTest
+		}
+	}
+
+	sender, err := NewSender(ctx, &Config{
+		BatchTimeout: 100 * time.Millisecond,
+		MaxBatchSize: 1,
+	}, sendFn(doneChan), log.NewNoopLogger())
+	require.NoError(t, err)
+	defer sender.Close()
+
+	err = sender.SendMessage(ctx, testWALMsg(1))
+	require.NoError(t, err)
+
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case <-doneChan:
+			// give time for the error to cascade
+			time.Sleep(100 * time.Millisecond)
+			err = sender.SendMessage(ctx, testWALMsg(2))
+			require.ErrorIs(t, err, errSendStopped)
+			sender.Close()
+			return
+		case <-timer.C:
+			t.Error("test timeout")
+			return
+		}
+	}
 }

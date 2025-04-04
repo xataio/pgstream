@@ -34,9 +34,8 @@ type BatchIndexer struct {
 type Option func(*BatchIndexer)
 
 type batchSender interface {
-	AddToBatch(context.Context, *batch.WALMessage[*msg]) error
+	SendMessage(context.Context, *batch.WALMessage[*msg]) error
 	Close()
-	Send(context.Context) error
 }
 
 // NewBatchIndexer returns a processor of wal events that indexes data into the
@@ -55,17 +54,10 @@ func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, lsn
 	}
 
 	var err error
-	indexer.batchSender, err = batch.NewSender(&config.Batch, indexer.sendBatch, indexer.logger)
+	indexer.batchSender, err = batch.NewSender(ctx, &config.Batch, indexer.sendBatch, indexer.logger)
 	if err != nil {
 		return nil, err
 	}
-
-	// start the send process in the background
-	go func() {
-		if err := indexer.batchSender.Send(ctx); err != nil {
-			indexer.logger.Error(err, "sending stopped")
-		}
-	}()
 
 	return indexer, nil
 }
@@ -116,7 +108,7 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, event *wal.Event) (e
 		return nil
 	}
 
-	return i.batchSender.AddToBatch(ctx, batch.NewWALMessage(msg, event.CommitPosition))
+	return i.batchSender.SendMessage(ctx, batch.NewWALMessage(msg, event.CommitPosition))
 }
 
 func (i *BatchIndexer) Name() string {
