@@ -42,3 +42,10 @@ func (bt *BooleanTransformer) Transform(value transformers.Value) (any, error) {
 	}
 	return bool(ret), nil
 }
+
+func (bt *BooleanTransformer) CompatibleTypes() []transformers.SupportedDataType {
+	return []transformers.SupportedDataType{
+		transformers.Boolean,
+		transformers.ByteArray,
+	}
+}

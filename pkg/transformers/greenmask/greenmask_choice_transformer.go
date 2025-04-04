@@ -63,3 +63,10 @@ func (t *ChoiceTransformer) Transform(value transformers.Value) (any, error) {
 
 	return ret.Data, nil
 }
+
+func (t *ChoiceTransformer) CompatibleTypes() []transformers.SupportedDataType {
+	return []transformers.SupportedDataType{
+		transformers.ByteArray,
+		transformers.StringDataType,
+	}
+}

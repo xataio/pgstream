@@ -11,3 +11,7 @@ type Transformer struct {
 func (m *Transformer) Transform(val transformers.Value) (any, error) {
 	return m.TransformFn(val)
 }
+
+func (m *Transformer) CompatibleTypes() []transformers.SupportedDataType {
+	return []transformers.SupportedDataType{}
+}

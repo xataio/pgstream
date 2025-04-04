@@ -81,3 +81,11 @@ func (t *UTCTimestampTransformer) Transform(value transformers.Value) (any, erro
 	}
 	return t.transformer.Transform(nil, toTransform)
 }
+
+func (t *UTCTimestampTransformer) CompatibleTypes() []transformers.SupportedDataType {
+	return []transformers.SupportedDataType{
+		transformers.Datetime,
+		transformers.ByteArray,
+		transformers.StringDataType,
+	}
+}

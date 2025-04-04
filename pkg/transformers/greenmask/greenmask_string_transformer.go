@@ -59,3 +59,10 @@ func (st *StringTransformer) Transform(value transformers.Value) (any, error) {
 	ret := st.transformer.Transform(toTransform)
 	return string(ret), nil
 }
+
+func (st *StringTransformer) CompatibleTypes() []transformers.SupportedDataType {
+	return []transformers.SupportedDataType{
+		transformers.StringDataType,
+		transformers.ByteArray,
+	}
+}

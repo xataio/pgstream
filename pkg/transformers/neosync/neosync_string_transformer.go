@@ -43,3 +43,9 @@ func NewStringTransformer(params transformers.Parameters) (*StringTransformer, e
 		transformer: New[string](neosynctransformers.NewTransformString(), opts),
 	}, nil
 }
+
+func (t *StringTransformer) CompatibleTypes() []transformers.SupportedDataType {
+	return []transformers.SupportedDataType{
+		transformers.StringDataType,
+	}
+}

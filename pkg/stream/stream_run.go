@@ -221,9 +221,14 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 
 	if config.Processor.Transformer != nil {
 		logger.Info("adding transformation layer to processor...")
-		transformer, err := transformer.New(config.Processor.Transformer, processor, transformer.WithLogger(logger))
+		validationFunc := transformer.GetTransformerValidationFunc(ctx, config.Listener.Postgres.Replication.PostgresURL, config.Listener.Snapshot.Generator.URL)
+		transformer, err := transformer.New(config.Processor.Transformer, processor, transformer.WithLogger(logger), transformer.WithValidator(validationFunc))
 		if err != nil {
 			logger.Error(err, "creating transformer layer")
+			return err
+		}
+		if err := transformer.Validate(); err != nil {
+			logger.Error(err, "validating transformer")
 			return err
 		}
 		processor = transformer

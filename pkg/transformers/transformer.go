@@ -9,6 +9,7 @@ import (
 
 type Transformer interface {
 	Transform(Value) (any, error)
+	CompatibleTypes() []SupportedDataType
 }
 
 type Value struct {
@@ -45,6 +46,28 @@ const (
 	GreenmaskDate          TransformerType = "greenmask_date"
 	GreenmaskUTCTimestamp  TransformerType = "greenmask_utc_timestamp"
 	Masking                TransformerType = "masking"
+)
+
+type SupportedDataType string
+
+const (
+	ByteArray      SupportedDataType = "byte_array"
+	StringDataType SupportedDataType = "string"
+	Boolean        SupportedDataType = "boolean"
+	Integer8       SupportedDataType = "integer8"
+	UInteger8      SupportedDataType = "uinteger8"
+	Integer16      SupportedDataType = "integer16"
+	UInteger16     SupportedDataType = "uinteger16"
+	Integer32      SupportedDataType = "integer32"
+	UInteger32     SupportedDataType = "uinteger32"
+	Integer64      SupportedDataType = "integer64"
+	UInteger64     SupportedDataType = "uinteger64"
+	Float32        SupportedDataType = "float32"
+	Float64        SupportedDataType = "float64"
+	UUID           SupportedDataType = "uuid"
+	UInt8ArrayOf16 SupportedDataType = "uint8_array_of_16"
+	Date           SupportedDataType = "date"
+	Datetime       SupportedDataType = "Datetime"
 )
 
 const (

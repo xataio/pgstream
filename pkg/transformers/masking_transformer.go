@@ -87,3 +87,10 @@ func (t *MaskingTransformer) Transform(value Value) (any, error) {
 		return nil, ErrUnsupportedValueType
 	}
 }
+
+func (t *MaskingTransformer) CompatibleTypes() []SupportedDataType {
+	return []SupportedDataType{
+		StringDataType,
+		ByteArray,
+	}
+}

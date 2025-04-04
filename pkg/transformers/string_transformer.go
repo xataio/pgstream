@@ -38,3 +38,10 @@ func (st *StringTransformer) transform(str string) string {
 	}
 	return string(b)
 }
+
+func (st *StringTransformer) CompatibleTypes() []SupportedDataType {
+	return []SupportedDataType{
+		StringDataType,
+		ByteArray,
+	}
+}

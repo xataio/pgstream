@@ -110,6 +110,22 @@ func (t *IntegerTransformer) Transform(value transformers.Value) (any, error) {
 	return int64(ret), nil
 }
 
+func (t *IntegerTransformer) CompatibleTypes() []transformers.SupportedDataType {
+	return []transformers.SupportedDataType{
+		transformers.Integer8,
+		transformers.UInteger8,
+		transformers.Integer16,
+		transformers.UInteger16,
+		transformers.Integer32,
+		transformers.UInteger32,
+		transformers.Integer64,
+		transformers.UInteger64,
+		transformers.Float32,
+		transformers.Float64,
+		transformers.ByteArray,
+	}
+}
+
 func minMaxValueForSize(size int) (int, int, error) {
 	switch size {
 	case 2:

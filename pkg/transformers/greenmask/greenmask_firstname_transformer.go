@@ -78,3 +78,10 @@ func toGreenmaskGender(gender string) string {
 		return greenmasktransformers.AnyGenderName
 	}
 }
+
+func (fnt *FirstNameTransformer) CompatibleTypes() []transformers.SupportedDataType {
+	return []transformers.SupportedDataType{
+		transformers.StringDataType,
+		transformers.ByteArray,
+	}
+}

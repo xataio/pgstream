@@ -59,10 +59,10 @@ func TestTransformer_New(t *testing.T) {
 				logger:    log.NewNoopLogger(),
 				processor: mockProcessor,
 				transformerMap: map[string]columnTransformers{
-					"public/test1": {
+					"\"public\".\"test1\"": {
 						"column_1": testTransformer,
 					},
-					"test/test2": {
+					"\"test\".\"test2\"": {
 						"column_2": testTransformer,
 					},
 				},
@@ -88,7 +88,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 	testSchema := "test_schema"
 	testTable := "test_table"
 	errTest := errors.New("oh noes")
-	testKey := testSchema + "/" + testTable
+	testKey := "\"test_schema\".\"test_table\""
 
 	newTestEvent := func(cols []wal.Column) *wal.Event {
 		return &wal.Event{
@@ -250,7 +250,7 @@ func Test_transformerMapFromRules(t *testing.T) {
 	testTable := "test_table"
 	testTransformer, err := transformers.NewStringTransformer(nil)
 	require.NoError(t, err)
-	testKey := testSchema + "/" + testTable
+	testKey := "\"test_schema\".\"test_table\""
 
 	tests := []struct {
 		name  string

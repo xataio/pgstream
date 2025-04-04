@@ -5,6 +5,7 @@ package transformer
 import (
 	"context"
 
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/transformers"
 	"github.com/xataio/pgstream/pkg/transformers/builder"
@@ -18,6 +19,7 @@ type Transformer struct {
 	logger         loglib.Logger
 	processor      processor.Processor
 	transformerMap map[string]columnTransformers
+	validator      func(*Transformer) error
 }
 
 type columnTransformers map[string]transformers.Transformer
@@ -57,6 +59,16 @@ func WithLogger(l loglib.Logger) Option {
 	}
 }
 
+func WithValidator(validator func(*Transformer) error) Option {
+	return func(in *Transformer) {
+		in.validator = validator
+	}
+}
+
+func (t *Transformer) GetTransformerMap() map[string]columnTransformers {
+	return t.transformerMap
+}
+
 func (t *Transformer) ProcessWALEvent(ctx context.Context, event *wal.Event) error {
 	err := t.applyTransformations(event)
 	if err != nil {
@@ -71,6 +83,13 @@ func (t *Transformer) Name() string {
 }
 
 func (t *Transformer) Close() error {
+	return nil
+}
+
+func (t *Transformer) Validate() error {
+	if t.validator != nil {
+		return t.validator(t)
+	}
 	return nil
 }
 
@@ -125,7 +144,7 @@ func (t *Transformer) getTransformValue(column *wal.Column, columns []wal.Column
 }
 
 func schemaTableKey(schema, table string) string {
-	return schema + "/" + table
+	return pglib.QuoteQualifiedIdentifier(schema, table)
 }
 
 func transformerMapFromRules(rules []TableRules) (map[string]columnTransformers, error) {

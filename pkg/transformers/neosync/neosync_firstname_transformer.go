@@ -38,3 +38,9 @@ func NewFirstNameTransformer(params transformers.Parameters) (*FirstNameTransfor
 		transformer: New[string](neosynctransformers.NewTransformFirstName(), opts),
 	}, nil
 }
+
+func (t *FirstNameTransformer) CompatibleTypes() []transformers.SupportedDataType {
+	return []transformers.SupportedDataType{
+		transformers.StringDataType,
+	}
+}
