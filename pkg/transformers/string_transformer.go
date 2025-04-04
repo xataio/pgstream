@@ -38,3 +38,7 @@ func (st *StringTransformer) transform(str string) string {
 	}
 	return string(b)
 }
+
+func (t *StringTransformer) Type() TransformerType {
+	return String
+}

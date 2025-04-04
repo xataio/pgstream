@@ -81,3 +81,7 @@ func (t *DateTransformer) Transform(value transformers.Value) (any, error) {
 
 	return time.Date(result.Year(), result.Month(), result.Day(), 0, 0, 0, 0, time.UTC), nil
 }
+
+func (t *DateTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskDate
+}

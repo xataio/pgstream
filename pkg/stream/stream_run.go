@@ -226,6 +226,10 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 			logger.Error(err, "creating transformer layer")
 			return err
 		}
+		if err := transformer.Validate(ctx, config.Listener.Postgres.Replication.PostgresURL); err != nil {
+			logger.Error(err, "validating transformer")
+			return err
+		}
 		processor = transformer
 	}
 

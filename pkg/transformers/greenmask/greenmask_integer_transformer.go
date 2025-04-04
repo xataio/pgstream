@@ -110,6 +110,10 @@ func (t *IntegerTransformer) Transform(value transformers.Value) (any, error) {
 	return int64(ret), nil
 }
 
+func (t *IntegerTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskInteger
+}
+
 func minMaxValueForSize(size int) (int, int, error) {
 	switch size {
 	case 2:

@@ -9,6 +9,7 @@ import (
 
 type Transformer interface {
 	Transform(Value) (any, error)
+	Type() TransformerType
 }
 
 type Value struct {

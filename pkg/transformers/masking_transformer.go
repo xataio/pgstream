@@ -87,3 +87,7 @@ func (t *MaskingTransformer) Transform(value Value) (any, error) {
 		return nil, ErrUnsupportedValueType
 	}
 }
+
+func (t *MaskingTransformer) Type() TransformerType {
+	return Masking
+}

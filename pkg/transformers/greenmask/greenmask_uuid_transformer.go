@@ -46,3 +46,7 @@ func (ut *UUIDTransformer) Transform(value transformers.Value) (any, error) {
 	}
 	return ret, nil
 }
+
+func (t *UUIDTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskUUID
+}

@@ -59,10 +59,11 @@ func Test_PostgresToPostgres_Transformer(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	runStream(t, ctx, cfg)
 
 	testTable := "pg2pg_integration_transformer_test"
 	execQuery(t, ctx, fmt.Sprintf(createTableQuery, testTable))
+
+	runStream(t, ctx, cfg)
 
 	targetConn, err := pglib.NewConn(ctx, targetPGURL)
 	require.NoError(t, err)

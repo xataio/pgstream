@@ -108,3 +108,7 @@ func (t *PhoneNumberTransformer) transform(value []byte) (string, error) {
 
 	return string(b[:targetLen]), nil
 }
+
+func (t *PhoneNumberTransformer) Type() TransformerType {
+	return PhoneNumber
+}

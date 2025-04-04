@@ -59,3 +59,7 @@ func (st *StringTransformer) Transform(value transformers.Value) (any, error) {
 	ret := st.transformer.Transform(toTransform)
 	return string(ret), nil
 }
+
+func (st *StringTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskString
+}
