@@ -83,3 +83,7 @@ func NewEmailTransformer(params transformers.Parameters) (*EmailTransformer, err
 		transformer: New[string](neosynctransformers.NewTransformEmail(), opts),
 	}, nil
 }
+
+func (t *EmailTransformer) Type() transformers.TransformerType {
+	return transformers.NeosyncEmail
+}

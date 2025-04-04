@@ -63,3 +63,7 @@ func (t *ChoiceTransformer) Transform(value transformers.Value) (any, error) {
 
 	return ret.Data, nil
 }
+
+func (t *ChoiceTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskChoice
+}

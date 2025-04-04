@@ -42,3 +42,7 @@ func (bt *BooleanTransformer) Transform(value transformers.Value) (any, error) {
 	}
 	return bool(ret), nil
 }
+
+func (t *BooleanTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskBoolean
+}

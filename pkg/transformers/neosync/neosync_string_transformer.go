@@ -43,3 +43,7 @@ func NewStringTransformer(params transformers.Parameters) (*StringTransformer, e
 		transformer: New[string](neosynctransformers.NewTransformString(), opts),
 	}, nil
 }
+
+func (t *StringTransformer) Type() transformers.TransformerType {
+	return transformers.NeosyncString
+}

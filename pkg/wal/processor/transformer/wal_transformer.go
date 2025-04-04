@@ -4,7 +4,10 @@ package transformer
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/jackc/pgx/v5/pgtype"
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/transformers"
 	"github.com/xataio/pgstream/pkg/transformers/builder"
@@ -79,6 +82,50 @@ func (t *Transformer) Close() error {
 	return nil
 }
 
+func (t *Transformer) Validate(ctx context.Context, url string) error {
+	conn, err := pglib.NewConnPool(ctx, url)
+	if err != nil {
+		return fmt.Errorf("creating postgres connection pool: %w", err)
+	}
+	defer conn.Close(context.Background())
+
+	for schemaTable, columnTransformers := range t.transformerMap {
+		query := fmt.Sprintf("SELECT * FROM %s LIMIT 0", schemaTable)
+		rows, err := conn.Query(ctx, query)
+		if err != nil {
+			return fmt.Errorf("querying table rows: %w", err)
+		}
+		defer rows.Close()
+		fieldDescriptions := rows.FieldDescriptions()
+
+		// TODO: maybe error out if len(fieldDescriptions) != len(columnTransformers)
+		// if we start requiring a transformer for every column (noop transformers)
+
+		// map column names to column pg type OIDs, skip columns that don't have a transformer
+		mappedColumns := make(map[string]uint32, len(fieldDescriptions))
+		for _, desc := range fieldDescriptions {
+			if _, found := columnTransformers[string(desc.Name)]; !found {
+				continue
+			}
+
+			mappedColumns[string(desc.Name)] = desc.DataTypeOID
+		}
+
+		// check that all column transformers are compatible with corresponding column types
+		for colName, tr := range columnTransformers {
+			datatype, found := mappedColumns[colName]
+			if !found {
+				return fmt.Errorf("column %s not found in table %s", colName, schemaTable)
+			}
+			if !columnTransformerCompatibleWithPGType(tr.Type(), datatype) {
+				return fmt.Errorf("transformer %s is not compatible with type of column %s", tr.Type(), colName)
+			}
+		}
+	}
+
+	return nil
+}
+
 func (t *Transformer) applyTransformations(event *wal.Event) error {
 	if event.Data == nil || len(t.transformerMap) == 0 {
 		return nil
@@ -130,7 +177,7 @@ func (t *Transformer) getTransformValue(column *wal.Column, columns []wal.Column
 }
 
 func schemaTableKey(schema, table string) string {
-	return schema + "/" + table
+	return pglib.QuoteQualifiedIdentifier(schema, table)
 }
 
 func transformerMapFromRules(rules *Rules) (map[string]columnTransformers, error) {
@@ -154,5 +201,26 @@ func transformerRulesToConfig(rules TransformerRules) *transformers.Config {
 		Name:              transformers.TransformerType(rules.Name),
 		Parameters:        rules.Parameters,
 		DynamicParameters: rules.DynamicParameters,
+	}
+}
+
+func columnTransformerCompatibleWithPGType(t transformers.TransformerType, pgType uint32) bool {
+	switch t {
+	case transformers.Masking, transformers.PhoneNumber, transformers.String, transformers.NeosyncString, transformers.NeosyncFirstName, transformers.NeosyncEmail, transformers.GreenmaskString, transformers.GreenmaskFirstName, transformers.GreenmaskChoice:
+		return pgType == pgtype.TextOID || pgType == pgtype.VarcharOID || pgType == pgtype.BPCharOID
+	case transformers.GreenmaskInteger, transformers.GreenmaskUnixTimestamp:
+		return pgType == pgtype.Int2OID || pgType == pgtype.Int4OID || pgType == pgtype.Int8OID
+	case transformers.GreenmaskFloat:
+		return pgType == pgtype.Float4OID || pgType == pgtype.Float8OID
+	case transformers.GreenmaskUUID:
+		return pgType == pgtype.UUIDOID || pgType == pgtype.TextOID || pgType == pgtype.VarcharOID || pgType == pgtype.BPCharOID
+	case transformers.GreenmaskBoolean:
+		return pgType == pgtype.BoolOID
+	case transformers.GreenmaskDate:
+		return pgType == pgtype.DateOID || pgType == pgtype.TimestampOID || pgType == pgtype.TimestamptzOID
+	case transformers.GreenmaskUTCTimestamp:
+		return pgType == pgtype.TimestamptzOID || pgType == pgtype.TimestampOID
+	default:
+		return false
 	}
 }

@@ -68,6 +68,10 @@ func (ft *FloatTransformer) Transform(value transformers.Value) (any, error) {
 	return float64(ret), nil
 }
 
+func (t *FloatTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskFloat
+}
+
 func getBytesForFloat(f float64) []byte {
 	var buf [8]byte
 	binary.BigEndian.PutUint64(buf[:], math.Float64bits(f))

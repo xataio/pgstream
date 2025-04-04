@@ -78,3 +78,7 @@ func toGreenmaskGender(gender string) string {
 		return greenmasktransformers.AnyGenderName
 	}
 }
+
+func (t *FirstNameTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskFirstName
+}

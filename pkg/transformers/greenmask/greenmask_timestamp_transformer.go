@@ -81,3 +81,7 @@ func (t *UTCTimestampTransformer) Transform(value transformers.Value) (any, erro
 	}
 	return t.transformer.Transform(nil, toTransform)
 }
+
+func (t *UTCTimestampTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskUTCTimestamp
+}

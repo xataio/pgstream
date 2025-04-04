@@ -38,3 +38,7 @@ func NewFirstNameTransformer(params transformers.Parameters) (*FirstNameTransfor
 		transformer: New[string](neosynctransformers.NewTransformFirstName(), opts),
 	}, nil
 }
+
+func (t *FirstNameTransformer) Type() transformers.TransformerType {
+	return transformers.NeosyncFirstName
+}
