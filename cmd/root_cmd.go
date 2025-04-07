@@ -18,7 +18,7 @@ var (
 )
 
 func Prepare() *cobra.Command {
-	var rootCmd = &cobra.Command{
+	rootCmd := &cobra.Command{
 		Use:          "pgstream",
 		SilenceUsage: true,
 		Version:      Version,

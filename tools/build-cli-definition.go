@@ -37,7 +37,7 @@ type Flag struct {
 }
 
 func main() {
-	fmt.Println("Generating CLI JSON schema...")
+	log.Println("Generating CLI JSON schema...")
 
 	rootCmd := cmd.Prepare()
 
@@ -51,7 +51,7 @@ func main() {
 		log.Fatalf("failed to write JSON to file: %v", err)
 	}
 
-	fmt.Println("CLI JSON schema generated successfully")
+	log.Println("CLI JSON schema generated successfully")
 }
 
 func extractCommands(cmds []*cobra.Command) []Command {
