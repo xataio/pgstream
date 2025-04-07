@@ -72,6 +72,7 @@ jobs:
           # Note: By default, the `.golangci.yml` file should be at the root of the repository.
           # The location of the configuration file can be changed by using `--config=`
           args: --timeout=30m --config=.golangci.yml
+
   coverage:
     if: github.event_name == 'pull_request' # Do not run when workflow is triggered by push to main branch
     runs-on: ubuntu-latest
@@ -95,6 +96,28 @@ jobs:
 
       - name: Ensure .go files have a license reference
         run: make license-check
+
+  code-generation:
+    name: code generation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+
+      - name: Generate code
+        run: make generate
+
+      - name: Ensure generated code is up-to-date
+        run: |
+          if ! git diff --quiet; then
+            echo "generated code is out of date!"
+            echo "run 'make generate' to regenerate"
+            exit 1
+          fi
 
   release:
     runs-on: ubuntu-latest

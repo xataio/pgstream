@@ -21,3 +21,7 @@ license-check:
 gen-migrations:
 	@go install github.com/go-bindata/go-bindata/...
 	@go-bindata -o migrations/postgres/migrations.go -pkg pgmigrations -ignore migrations.go -prefix "migrations/postgres/" migrations/postgres/
+
+generate:
+	# Generate the cli-definition.json file
+	go run tools/build-cli-definition.go

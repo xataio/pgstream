@@ -17,7 +17,16 @@ var (
 	Version = "development"
 )
 
-func init() {
+func Prepare() *cobra.Command {
+	rootCmd := &cobra.Command{
+		Use:          "pgstream",
+		SilenceUsage: true,
+		Version:      Version,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return loadConfig()
+		},
+	}
+
 	viper.SetEnvPrefix("PGSTREAM")
 	viper.AutomaticEnv()
 
@@ -30,25 +39,19 @@ func init() {
 	viper.BindPFlag("replication-slot", rootCmd.PersistentFlags().Lookup("replication-slot"))
 	viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config"))
 	viper.BindPFlag("PGSTREAM_LOG_LEVEL", rootCmd.PersistentFlags().Lookup("log-level"))
-}
 
-var rootCmd = &cobra.Command{
-	Use:          "pgstream",
-	SilenceUsage: true,
-	Version:      Version,
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		return loadConfig()
-	},
-}
-
-// Execute executes the root command.
-func Execute() error {
 	// register subcommands
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(tearDownCmd)
 	rootCmd.AddCommand(runCmd)
 
-	return rootCmd.Execute()
+	return rootCmd
+}
+
+// Execute executes the root command.
+func Execute() error {
+	cmd := Prepare()
+	return cmd.Execute()
 }
 
 func withSignalWatcher(fn func(ctx context.Context) error) func(cmd *cobra.Command, args []string) error {

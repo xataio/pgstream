@@ -1,0 +1,55 @@
+{
+  "name": "pgstream",
+  "commands": [
+    {
+      "name": "init",
+      "short": "Initialises pgstream, creating the replication slot and the relevant tables/functions/triggers under the configured internal schema.",
+      "use": "init",
+      "example": "",
+      "flags": [],
+      "subcommands": [],
+      "args": []
+    },
+    {
+      "name": "run",
+      "short": "Run starts all the configured pgstream modules",
+      "use": "run",
+      "example": "",
+      "flags": [],
+      "subcommands": [],
+      "args": []
+    },
+    {
+      "name": "tear-down",
+      "short": "It tears down any pgstream setup, removing the replication slot and all the relevant tables/functions/triggers, the internal pgstream schema.",
+      "use": "tear-down",
+      "example": "",
+      "flags": [],
+      "subcommands": [],
+      "args": []
+    }
+  ],
+  "flags": [
+    {
+      "name": "config",
+      "shorthand": "c",
+      "description": ".env config file to use if any",
+      "default": ""
+    },
+    {
+      "name": "log-level",
+      "description": "log level for the application. One of trace, debug, info, warn, error, fatal, panic",
+      "default": "debug"
+    },
+    {
+      "name": "pgurl",
+      "description": "Postgres URL",
+      "default": "postgres://postgres:postgres@localhost?sslmode=disable"
+    },
+    {
+      "name": "replication-slot",
+      "description": "Name of the postgres replication slot to be created",
+      "default": ""
+    }
+  ]
+}
