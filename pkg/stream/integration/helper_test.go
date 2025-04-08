@@ -262,7 +262,7 @@ func testPostgresProcessorCfgWithTransformer(sourcePGURL string) stream.Processo
 			},
 		},
 		Transformer: &transformer.Config{
-			TransformerRulesFile: "config/integration_test_transformer_rules.yaml",
+			TransformerRules: testTransformationRules(),
 		},
 	}
 }
@@ -276,6 +276,101 @@ func testKafkaCfg() kafkalib.ConnConfig {
 		},
 		TLS: tls.Config{
 			Enabled: false,
+		},
+	}
+}
+
+func testTransformationRules() []transformer.TableRules {
+	return []transformer.TableRules{
+		{
+			Schema: "public",
+			Table:  "pg2pg_integration_transformer_test",
+			ColumnRules: map[string]transformer.TransformerRules{
+				"name": {
+					Name: "neosync_firstname",
+					Parameters: map[string]any{
+						"preserve_length": false,
+						"max_length":      5,
+					},
+				},
+				"last_name": {
+					Name: "neosync_string",
+					Parameters: map[string]any{
+						"preserve_length": false,
+						"max_length":      10,
+					},
+				},
+				"email": {
+					Name: "neosync_email",
+					Parameters: map[string]any{
+						"preserve_length":  false,
+						"max_length":       15,
+						"excluded_domains": []string{"example.com", "example.net"},
+					},
+				},
+				"secondary_email": {
+					Name: "masking",
+					Parameters: map[string]any{
+						"type": "email",
+					},
+				},
+				"address": {
+					Name: "greenmask_string",
+					Parameters: map[string]any{
+						"preserve_length": false,
+						"max_length":      20,
+					},
+				},
+				"age": {
+					Name: "greenmask_integer",
+					Parameters: map[string]any{
+						"generator": "deterministic",
+						"min_value": 18,
+						"max_value": 75,
+					},
+				},
+				"total_purchases": {
+					Name: "greenmask_float",
+					Parameters: map[string]any{
+						"generator": "deterministic",
+						"min_value": 0.0,
+						"max_value": 1000.0,
+					},
+				},
+				"customer_id": {
+					Name: "greenmask_uuid",
+				},
+				"birth_date": {
+					Name: "greenmask_date",
+					Parameters: map[string]any{
+						"min_value": "1990-01-01",
+						"max_value": "2000-12-31",
+					},
+				},
+				"is_active": {
+					Name: "greenmask_boolean",
+				},
+				"created_at": {
+					Name: "greenmask_unix_timestamp",
+					Parameters: map[string]any{
+						"min_value": "1741856058",
+						"max_value": "1741956058",
+					},
+				},
+				"updated_at": {
+					Name: "greenmask_utc_timestamp",
+					Parameters: map[string]any{
+						"min_timestamp": "2022-01-01T00:00:00Z",
+						"max_timestamp": "2024-01-01T23:59:59Z",
+					},
+				},
+				"gender": {
+					Name: "greenmask_choice",
+					Parameters: map[string]any{
+						"choices": []string{"M", "F", "None"},
+					},
+				},
+			},
 		},
 	}
 }
