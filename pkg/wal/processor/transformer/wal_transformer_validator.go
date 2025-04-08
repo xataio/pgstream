@@ -63,25 +63,25 @@ func pgTypeCompatibleWithTransformerType(compatibleTypes []transformers.Supporte
 	case pgtype.TextOID, pgtype.VarcharOID, pgtype.BPCharOID:
 		return slices.Contains(compatibleTypes, transformers.StringDataType)
 	case pgtype.Float4OID:
-		return slices.Contains(compatibleTypes, transformers.Float32)
+		return slices.Contains(compatibleTypes, transformers.Float32DataType)
 	case pgtype.Float8OID:
-		return slices.Contains(compatibleTypes, transformers.Float64)
+		return slices.Contains(compatibleTypes, transformers.Float64DataType)
 	case pgtype.Int2OID:
-		return slices.Contains(compatibleTypes, transformers.Integer16)
+		return slices.Contains(compatibleTypes, transformers.Integer16DataType)
 	case pgtype.Int4OID:
-		return slices.Contains(compatibleTypes, transformers.Integer32)
+		return slices.Contains(compatibleTypes, transformers.Integer32DataType)
 	case pgtype.Int8OID:
-		return slices.Contains(compatibleTypes, transformers.Integer64)
+		return slices.Contains(compatibleTypes, transformers.Integer64DataType)
 	case pgtype.BoolOID:
-		return slices.Contains(compatibleTypes, transformers.Boolean)
+		return slices.Contains(compatibleTypes, transformers.BooleanDataType)
 	case pgtype.UUIDOID:
-		return slices.Contains(compatibleTypes, transformers.UInt8ArrayOf16)
+		return slices.Contains(compatibleTypes, transformers.UInt8ArrayOf16DataType)
 	case pgtype.ByteaOID:
-		return slices.Contains(compatibleTypes, transformers.ByteArray)
+		return slices.Contains(compatibleTypes, transformers.ByteArrayDataType)
 	case pgtype.DateOID:
-		return slices.Contains(compatibleTypes, transformers.Date)
+		return slices.Contains(compatibleTypes, transformers.DateDataType)
 	case pgtype.TimestampOID, pgtype.TimestamptzOID:
-		return slices.Contains(compatibleTypes, transformers.Datetime)
+		return slices.Contains(compatibleTypes, transformers.DatetimeDataType)
 	default:
 		return false
 	}

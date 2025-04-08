@@ -63,6 +63,6 @@ func (st *StringTransformer) Transform(value transformers.Value) (any, error) {
 func (st *StringTransformer) CompatibleTypes() []transformers.SupportedDataType {
 	return []transformers.SupportedDataType{
 		transformers.StringDataType,
-		transformers.ByteArray,
+		transformers.ByteArrayDataType,
 	}
 }

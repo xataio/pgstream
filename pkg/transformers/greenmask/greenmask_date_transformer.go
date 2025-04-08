@@ -84,8 +84,8 @@ func (t *DateTransformer) Transform(value transformers.Value) (any, error) {
 
 func (t *DateTransformer) CompatibleTypes() []transformers.SupportedDataType {
 	return []transformers.SupportedDataType{
-		transformers.Date,
-		transformers.ByteArray,
+		transformers.DateDataType,
+		transformers.ByteArrayDataType,
 		transformers.StringDataType,
 	}
 }

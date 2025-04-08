@@ -91,6 +91,6 @@ func (t *MaskingTransformer) Transform(value Value) (any, error) {
 func (t *MaskingTransformer) CompatibleTypes() []SupportedDataType {
 	return []SupportedDataType{
 		StringDataType,
-		ByteArray,
+		ByteArrayDataType,
 	}
 }

@@ -50,8 +50,8 @@ func (ut *UUIDTransformer) Transform(value transformers.Value) (any, error) {
 func (ut *UUIDTransformer) CompatibleTypes() []transformers.SupportedDataType {
 	return []transformers.SupportedDataType{
 		transformers.StringDataType,
-		transformers.UUID,
-		transformers.ByteArray,
-		transformers.UInt8ArrayOf16,
+		transformers.UUIDDataType,
+		transformers.ByteArrayDataType,
+		transformers.UInt8ArrayOf16DataType,
 	}
 }

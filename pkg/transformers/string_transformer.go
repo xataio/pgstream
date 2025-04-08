@@ -42,6 +42,6 @@ func (st *StringTransformer) transform(str string) string {
 func (st *StringTransformer) CompatibleTypes() []SupportedDataType {
 	return []SupportedDataType{
 		StringDataType,
-		ByteArray,
+		ByteArrayDataType,
 	}
 }

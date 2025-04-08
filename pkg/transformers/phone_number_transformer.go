@@ -112,6 +112,6 @@ func (t *PhoneNumberTransformer) transform(value []byte) (string, error) {
 func (t *PhoneNumberTransformer) CompatibleTypes() []SupportedDataType {
 	return []SupportedDataType{
 		StringDataType,
-		ByteArray,
+		ByteArrayDataType,
 	}
 }

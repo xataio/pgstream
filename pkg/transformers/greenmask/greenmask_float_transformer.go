@@ -70,9 +70,9 @@ func (ft *FloatTransformer) Transform(value transformers.Value) (any, error) {
 
 func (ft *FloatTransformer) CompatibleTypes() []transformers.SupportedDataType {
 	return []transformers.SupportedDataType{
-		transformers.Float32,
-		transformers.Float64,
-		transformers.ByteArray,
+		transformers.Float32DataType,
+		transformers.Float64DataType,
+		transformers.ByteArrayDataType,
 	}
 }
 

@@ -45,7 +45,7 @@ func (bt *BooleanTransformer) Transform(value transformers.Value) (any, error) {
 
 func (bt *BooleanTransformer) CompatibleTypes() []transformers.SupportedDataType {
 	return []transformers.SupportedDataType{
-		transformers.Boolean,
-		transformers.ByteArray,
+		transformers.BooleanDataType,
+		transformers.ByteArrayDataType,
 	}
 }

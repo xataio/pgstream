@@ -112,17 +112,17 @@ func (t *IntegerTransformer) Transform(value transformers.Value) (any, error) {
 
 func (t *IntegerTransformer) CompatibleTypes() []transformers.SupportedDataType {
 	return []transformers.SupportedDataType{
-		transformers.Integer8,
-		transformers.UInteger8,
-		transformers.Integer16,
-		transformers.UInteger16,
-		transformers.Integer32,
-		transformers.UInteger32,
-		transformers.Integer64,
-		transformers.UInteger64,
-		transformers.Float32,
-		transformers.Float64,
-		transformers.ByteArray,
+		transformers.Integer8DataType,
+		transformers.UInteger8DataType,
+		transformers.Integer16DataType,
+		transformers.UInteger16DataType,
+		transformers.Integer32DataType,
+		transformers.UInteger32DataType,
+		transformers.Integer64DataType,
+		transformers.UInteger64DataType,
+		transformers.Float32DataType,
+		transformers.Float64DataType,
+		transformers.ByteArrayDataType,
 	}
 }
 

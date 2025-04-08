@@ -66,7 +66,7 @@ func (t *ChoiceTransformer) Transform(value transformers.Value) (any, error) {
 
 func (t *ChoiceTransformer) CompatibleTypes() []transformers.SupportedDataType {
 	return []transformers.SupportedDataType{
-		transformers.ByteArray,
+		transformers.ByteArrayDataType,
 		transformers.StringDataType,
 	}
 }
