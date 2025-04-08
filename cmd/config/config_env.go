@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package cmd
+package config
 
 import (
 	"fmt"
@@ -28,42 +28,15 @@ import (
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
-func loadConfig() error {
-	cfgFile := viper.GetString("config")
-	if cfgFile != "" {
-		fmt.Printf("using config file: %s\n", cfgFile) //nolint:forbidigo //logger hasn't been configured yet
-		viper.SetConfigFile(cfgFile)
-		if err := viper.ReadInConfig(); err != nil {
-			return fmt.Errorf("error reading config: %w", err)
-		}
+func envConfigToStreamConfig() (*stream.Config, error) {
+	processorCfg, err := parseProcessorConfig()
+	if err != nil {
+		return nil, err
 	}
-	return nil
-}
-
-func pgURL() (url string) {
-	switch {
-	case viper.GetString("PGSTREAM_POSTGRES_LISTENER_URL") != "":
-		return viper.GetString("PGSTREAM_POSTGRES_LISTENER_URL")
-	case viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL") != "":
-		return viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL")
-	default:
-		return viper.GetString("pgurl")
-	}
-}
-
-func replicationSlotName() string {
-	replicationslot := viper.GetString("replication-slot")
-	if replicationslot != "" {
-		return replicationslot
-	}
-	return viper.GetString("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME")
-}
-
-func parseStreamConfig() *stream.Config {
 	return &stream.Config{
 		Listener:  parseListenerConfig(),
-		Processor: parseProcessorConfig(),
-	}
+		Processor: processorCfg,
+	}, nil
 }
 
 // listener parsing
@@ -85,7 +58,7 @@ func parsePostgresListenerConfig() *stream.PostgresListenerConfig {
 	cfg := &stream.PostgresListenerConfig{
 		Replication: pgreplication.Config{
 			PostgresURL:         pgURL,
-			ReplicationSlotName: replicationSlotName(),
+			ReplicationSlotName: ReplicationSlotName(),
 		},
 	}
 
@@ -177,15 +150,19 @@ func parseKafkaCheckpointConfig() kafkacheckpoint.Config {
 
 // processor parsing
 
-func parseProcessorConfig() stream.ProcessorConfig {
+func parseProcessorConfig() (stream.ProcessorConfig, error) {
+	transformerCfg, err := parseTransformerConfig()
+	if err != nil {
+		return stream.ProcessorConfig{}, err
+	}
 	return stream.ProcessorConfig{
 		Kafka:       parseKafkaProcessorConfig(),
 		Search:      parseSearchProcessorConfig(),
 		Webhook:     parseWebhookProcessorConfig(),
 		Postgres:    parsePostgresProcessorConfig(),
 		Injector:    parseInjectorConfig(),
-		Transformer: parseTransformerConfig(),
-	}
+		Transformer: transformerCfg,
+	}, nil
 }
 
 func parseKafkaProcessorConfig() *stream.KafkaProcessorConfig {
@@ -235,6 +212,7 @@ func parseSearchProcessorConfig() *stream.SearchProcessorConfig {
 				MaxBatchSize:  viper.GetInt64("PGSTREAM_SEARCH_INDEXER_BATCH_SIZE"),
 				BatchTimeout:  viper.GetDuration("PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT"),
 				MaxQueueBytes: viper.GetInt64("PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES"),
+				MaxBatchBytes: viper.GetInt64("PGSTREAM_SEARCH_INDEXER_BATCH_BYTES"),
 			},
 		},
 		Store: store.Config{
@@ -341,14 +319,17 @@ func parseInjectorConfig() *injector.Config {
 	}
 }
 
-func parseTransformerConfig() *transformer.Config {
-	transformerRulesFile := viper.GetString("PGSTREAM_TRANSFORMER_RULES_FILE")
-	if transformerRulesFile == "" {
-		return nil
+func parseTransformerConfig() (*transformer.Config, error) {
+	if viper.GetString("PGSTREAM_TRANSFORMER_RULES_FILE") == "" {
+		return nil, nil
 	}
-	return &transformer.Config{
-		TransformerRulesFile: transformerRulesFile,
+	yamlConfig := struct {
+		Transformations TransformationsConfig `mapstructure:"transformations"`
+	}{}
+	if err := viper.Unmarshal(&yamlConfig); err != nil {
+		return nil, err
 	}
+	return yamlConfig.Transformations.parseTransformationConfig(), nil
 }
 
 func parseTLSConfig(prefix string) tls.Config {

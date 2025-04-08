@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/xataio/pgstream/cmd/config"
 	"github.com/xataio/pgstream/internal/log/zerolog"
 	"github.com/xataio/pgstream/pkg/stream"
 )
@@ -22,5 +23,10 @@ func run(ctx context.Context) error {
 		LogLevel: viper.GetString("PGSTREAM_LOG_LEVEL"),
 	})
 	zerolog.SetGlobalLogger(logger)
-	return stream.Run(ctx, zerolog.NewStdLogger(logger), parseStreamConfig(), nil)
+
+	streamConfig, err := config.ParseStreamConfig()
+	if err != nil {
+		return err
+	}
+	return stream.Run(ctx, zerolog.NewStdLogger(logger), streamConfig, nil)
 }
