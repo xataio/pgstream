@@ -1,0 +1,9 @@
+transformations:
+  - schema: public
+    table: test
+    column_transformers:
+      name:
+        name: greenmask_firstname
+        dynamic_parameters:
+          gender:
+            column: sex
