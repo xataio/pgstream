@@ -48,6 +48,12 @@ func New(cfg *Config, processor processor.Processor, opts ...Option) (*Transform
 		opt(t)
 	}
 
+	if t.validator != nil {
+		if err := t.validator(t); err != nil {
+			return nil, err
+		}
+	}
+
 	return t, nil
 }
 
@@ -83,13 +89,6 @@ func (t *Transformer) Name() string {
 }
 
 func (t *Transformer) Close() error {
-	return nil
-}
-
-func (t *Transformer) Validate() error {
-	if t.validator != nil {
-		return t.validator(t)
-	}
 	return nil
 }
 
