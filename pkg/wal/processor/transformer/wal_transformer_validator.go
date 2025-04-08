@@ -46,6 +46,7 @@ func PgTransformerValidator(ctx context.Context, pgurl string) ValidatorFn {
 			for colName, tr := range columnTransformers {
 				datatype, found := mappedColumns[colName]
 				if !found {
+					// validate that all column in the rules are present in the table
 					return fmt.Errorf("column %s not found in table %s", colName, schemaTable)
 				}
 				if !pgTypeCompatibleWithTransformerType(tr.CompatibleTypes(), datatype) {
