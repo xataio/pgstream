@@ -23,7 +23,7 @@ type Transformer struct {
 type columnTransformers map[string]transformers.Transformer
 
 type Config struct {
-	TransformerRulesFile string
+	TransformerRules []TableRules
 }
 
 type Option func(t *Transformer)
@@ -31,12 +31,7 @@ type Option func(t *Transformer)
 // New will return a transformer processor wrapper that will transform incoming
 // wal event column values as configured by the transformation rules.
 func New(cfg *Config, processor processor.Processor, opts ...Option) (*Transformer, error) {
-	rules, err := readRulesFromFile(cfg.TransformerRulesFile)
-	if err != nil {
-		return nil, err
-	}
-
-	transformerMap, err := transformerMapFromRules(rules)
+	transformerMap, err := transformerMapFromRules(cfg.TransformerRules)
 	if err != nil {
 		return nil, err
 	}
@@ -133,10 +128,10 @@ func schemaTableKey(schema, table string) string {
 	return schema + "/" + table
 }
 
-func transformerMapFromRules(rules *Rules) (map[string]columnTransformers, error) {
+func transformerMapFromRules(rules []TableRules) (map[string]columnTransformers, error) {
 	var err error
 	transformerMap := map[string]columnTransformers{}
-	for _, table := range rules.Transformers {
+	for _, table := range rules {
 		schemaTableTransformers := make(map[string]transformers.Transformer)
 		transformerMap[schemaTableKey(table.Schema, table.Table)] = schemaTableTransformers
 		for colName, transformerRules := range table.ColumnRules {

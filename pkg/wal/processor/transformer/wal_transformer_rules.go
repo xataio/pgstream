@@ -2,15 +2,6 @@
 
 package transformer
 
-import (
-	"fmt"
-	"os"
-
-	"gopkg.in/yaml.v3"
-)
-
-type RulesConfig struct{}
-
 type Rules struct {
 	Transformers []TableRules `yaml:"transformations"`
 }
@@ -25,18 +16,4 @@ type TransformerRules struct {
 	Name              string         `yaml:"name"`
 	Parameters        map[string]any `yaml:"parameters"`
 	DynamicParameters map[string]any `yaml:"dynamic_parameters"`
-}
-
-func readRulesFromFile(filePath string) (*Rules, error) {
-	yamlFile, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("reading rules from file: %w", err)
-	}
-
-	rules := &Rules{}
-	err = yaml.Unmarshal(yamlFile, &rules)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshaling yaml file into transformer rules: %w", err)
-	}
-	return rules, nil
 }

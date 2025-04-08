@@ -33,7 +33,26 @@ func TestTransformer_New(t *testing.T) {
 		{
 			name: "ok",
 			config: &Config{
-				TransformerRulesFile: "test/test_transformer_rules.yaml",
+				TransformerRules: []TableRules{
+					{
+						Schema: "public",
+						Table:  "test1",
+						ColumnRules: map[string]TransformerRules{
+							"column_1": {
+								Name: "string",
+							},
+						},
+					},
+					{
+						Schema: "test",
+						Table:  "test2",
+						ColumnRules: map[string]TransformerRules{
+							"column_2": {
+								Name: "string",
+							},
+						},
+					},
+				},
 			},
 
 			wantTransformer: &Transformer{
@@ -235,25 +254,23 @@ func Test_transformerMapFromRules(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		rules *Rules
+		rules []TableRules
 
 		wantTransformerMap map[string]columnTransformers
 		wantErr            error
 	}{
 		{
 			name: "ok",
-			rules: &Rules{
-				Transformers: []TableRules{
-					{
-						Schema: testSchema,
-						Table:  testTable,
-						ColumnRules: map[string]TransformerRules{
-							"column_1": {
-								Name: "string",
-							},
-							"column_2": {
-								Name: "string",
-							},
+			rules: []TableRules{
+				{
+					Schema: testSchema,
+					Table:  testTable,
+					ColumnRules: map[string]TransformerRules{
+						"column_1": {
+							Name: "string",
+						},
+						"column_2": {
+							Name: "string",
 						},
 					},
 				},
@@ -269,22 +286,20 @@ func Test_transformerMapFromRules(t *testing.T) {
 		},
 		{
 			name:  "ok - no rules",
-			rules: &Rules{},
+			rules: []TableRules{},
 
 			wantTransformerMap: map[string]columnTransformers{},
 			wantErr:            nil,
 		},
 		{
 			name: "error - invalid transformer rules",
-			rules: &Rules{
-				Transformers: []TableRules{
-					{
-						Schema: testSchema,
-						Table:  testTable,
-						ColumnRules: map[string]TransformerRules{
-							"column_1": {
-								Name: "invalid",
-							},
+			rules: []TableRules{
+				{
+					Schema: testSchema,
+					Table:  testTable,
+					ColumnRules: map[string]TransformerRules{
+						"column_1": {
+							Name: "invalid",
 						},
 					},
 				},
