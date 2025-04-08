@@ -12,7 +12,7 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-func PgTransformerValidator(ctx context.Context, pgurl string) func(transformerMap map[string]ColumnTransformers) error {
+func PgTransformerValidator(ctx context.Context, pgurl string) ValidatorFn {
 	return func(transformerMap map[string]ColumnTransformers) error {
 		conn, err := pglib.NewConn(ctx, pgurl)
 		if err != nil {

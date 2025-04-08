@@ -19,8 +19,10 @@ type Transformer struct {
 	logger         loglib.Logger
 	processor      processor.Processor
 	transformerMap map[string]ColumnTransformers
-	validator      func(transformerMap map[string]ColumnTransformers) error
+	validator      ValidatorFn
 }
+
+type ValidatorFn func(transformerMap map[string]ColumnTransformers) error
 
 type ColumnTransformers map[string]transformers.Transformer
 
@@ -65,7 +67,7 @@ func WithLogger(l loglib.Logger) Option {
 	}
 }
 
-func WithValidator(validator func(transformerMap map[string]ColumnTransformers) error) Option {
+func WithValidator(validator ValidatorFn) Option {
 	return func(in *Transformer) {
 		in.validator = validator
 	}
