@@ -191,8 +191,13 @@ type WebhookNotifierConfig struct {
 }
 
 type ModifiersConfig struct {
-	MetadataInjection bool                  `mapstructure:"metadata_injection" yaml:"metadata_injection"`
-	Transformations   TransformationsConfig `mapstructure:"transformations" yaml:"transformations"`
+	Injector        *InjectorConfig       `mapstructure:"injector" yaml:"injector"`
+	Transformations TransformationsConfig `mapstructure:"transformations" yaml:"transformations"`
+}
+
+type InjectorConfig struct {
+	Enabled      bool   `mapstructure:"enabled" yaml:"enabled"`
+	SchemalogURL string `mapstructure:"schemalog_url" yaml:"schemalog_url"`
 }
 
 type TransformationsConfig []TransformationConfig
@@ -240,6 +245,8 @@ var (
 	errUnsupportedSnapshotMode       = errors.New("unsupported snapshot mode, must be one of 'full', 'schema' or 'data'")
 	errUnsupportedPostgresSourceMode = errors.New("unsupported postgres source mode, must be one of 'replication', 'snapshot' or 'snapshot_and_replication'")
 	errUnsupportedSearchEngine       = errors.New("unsupported search engine, must be one of 'opensearch' or 'elasticsearch'")
+	errInvalidPgdumpPgrestoreConfig  = errors.New("pgdump_pgrestore snapshot mode requires target postgres config")
+	errInvalidInjectorConfig         = errors.New("injector config can't infer schemalog url from source postgres url, schemalog_url must be provided")
 )
 
 func (c *YAMLConfig) toStreamConfig() (*stream.Config, error) {
@@ -275,11 +282,15 @@ func (c *YAMLConfig) parseProcessorConfig() (stream.ProcessorConfig, error) {
 		Kafka:       c.parseKafkaProcessorConfig(),
 		Postgres:    c.parsePostgresProcessorConfig(),
 		Webhook:     c.parseWebhookProcessorConfig(),
-		Injector:    c.parserInjectorConfig(),
 		Transformer: c.parseTransformationConfig(),
 	}
 
 	var err error
+	streamCfg.Injector, err = c.parseInjectorConfig()
+	if err != nil {
+		return stream.ProcessorConfig{}, err
+	}
+
 	streamCfg.Search, err = c.parseSearchProcessorConfig()
 	if err != nil {
 		return stream.ProcessorConfig{}, err
@@ -381,6 +392,9 @@ func (c *YAMLConfig) parseSchemaSnapshotConfig() (snapshotbuilder.SchemaSnapshot
 			},
 		}, nil
 	case pgdumprestoreSchemaMode:
+		if c.Target.Postgres == nil {
+			return snapshotbuilder.SchemaSnapshotConfig{}, errInvalidPgdumpPgrestoreConfig
+		}
 		streamSchemaCfg := snapshotbuilder.SchemaSnapshotConfig{
 			DumpRestore: &pgdumprestore.Config{
 				SourcePGURL: c.Source.Postgres.URL,
@@ -398,15 +412,24 @@ func (c *YAMLConfig) parseSchemaSnapshotConfig() (snapshotbuilder.SchemaSnapshot
 	}
 }
 
-func (c *YAMLConfig) parserInjectorConfig() *injector.Config {
-	if !c.Modifiers.MetadataInjection {
-		return nil
+func (c *YAMLConfig) parseInjectorConfig() (*injector.Config, error) {
+	if c.Modifiers.Injector == nil || !c.Modifiers.Injector.Enabled {
+		return nil, nil
 	}
+
+	url := c.Modifiers.Injector.SchemalogURL
+	if url == "" {
+		if c.Source.Postgres == nil || c.Source.Postgres.URL == "" {
+			return nil, errInvalidInjectorConfig
+		}
+		url = c.Source.Postgres.URL
+	}
+
 	return &injector.Config{
 		Store: pgschemalog.Config{
-			URL: c.Source.Postgres.URL,
+			URL: url,
 		},
-	}
+	}, nil
 }
 
 func (c *YAMLConfig) parseKafkaProcessorConfig() *stream.KafkaProcessorConfig {

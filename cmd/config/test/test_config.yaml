@@ -96,7 +96,8 @@ target:
 
 
 modifiers:
-  metadata_injection: true # whether to inject pgstream metadata into the WAL events
+  injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events
   transformations:
   - schema: public
     table: test

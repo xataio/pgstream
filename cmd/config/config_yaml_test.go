@@ -76,16 +76,55 @@ func TestYAMLConfig_toStreamConfig_ErrorCases(t *testing.T) {
 			wantErr: errUnsupportedSchemaSnapshotMode,
 		},
 		{
-			name: "err - invalid search engine",
+			name: "err - invalid postgres snapshot schema mode",
 			config: YAMLConfig{
-				Target: TargetConfig{
-					Search: &SearchConfig{
-						Engine: "invalid",
+				Source: SourceConfig{
+					Postgres: &PostgresConfig{
+						Mode: snapshotMode,
+						Snapshot: &SnapshotConfig{
+							Mode: schemaSnapshotMode,
+							Schema: &SnapshotSchemaConfig{
+								Mode: "invalid",
+							},
+						},
 					},
 				},
 			},
 
-			wantErr: errUnsupportedSearchEngine,
+			wantErr: errUnsupportedSchemaSnapshotMode,
+		},
+		{
+			name: "err - invalid pgdump pgrestore config",
+			config: YAMLConfig{
+				Source: SourceConfig{
+					Postgres: &PostgresConfig{
+						Mode: snapshotMode,
+						Snapshot: &SnapshotConfig{
+							Mode: schemaSnapshotMode,
+							Schema: &SnapshotSchemaConfig{
+								Mode: pgdumprestoreSchemaMode,
+								PgDumpPgRestore: &PgDumpPgRestoreConfig{
+									CleanTargetDB: false,
+								},
+							},
+						},
+					},
+				},
+			},
+
+			wantErr: errInvalidPgdumpPgrestoreConfig,
+		},
+		{
+			name: "err - invalid injector config",
+			config: YAMLConfig{
+				Modifiers: ModifiersConfig{
+					Injector: &InjectorConfig{
+						Enabled: true,
+					},
+				},
+			},
+
+			wantErr: errInvalidInjectorConfig,
 		},
 	}
 

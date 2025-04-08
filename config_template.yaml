@@ -96,7 +96,9 @@ target:
 
 
 modifiers:
-  metadata_injection: true # whether to inject pgstream metadata into the WAL events
+  injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events
+    schemalog_url: "postgresql://user:password@localhost:5432/mydatabase" # URL of the schemalog database, if different from the source database
   transformations:
   - schema: public
     table: test
