@@ -1,0 +1,108 @@
+source:
+  postgres:
+    url: "postgresql://user:password@localhost:5432/mydatabase"
+    mode: snapshot_and_replication # options are replication, snapshot or snapshot_and_replication
+    snapshot: # when mode is snapshot or snapshot_and_replication
+      mode: full # options are data_and, schema or data
+      tables: ["test", "test_schema.test", "another_schema.*"] # tables to snapshot, can be a list of table names or a pattern
+      recorder_enabled: true # whether to record snapshot status in a table under the pgstream schema in the source database
+      snapshot_workers: 4 # number of schemas to be snapshotted in parallel
+      data: # when mode is full or data
+        schema_workers: 4 # number of schema tables to be snapshotted in parallel
+        table_workers: 4 # number of workers to snapshot a table in parallel
+        batch_page_size: 1000 # number of pages to read per batch
+      schema: # when mode is full or schema
+        mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
+        pgdump_pgrestore:
+          clean_target_db: true # whether to clean the target database before restoring
+    replication: # when mode is replication or snapshot_and_replication
+      replication_slot: "pgstream_mydatabase_slot"
+  kafka:
+    servers: ["localhost:9092"]
+    topic:
+      name: "mytopic"
+    consumer_group:
+      id: "mygroup"
+      start_offset: "earliest" # options are earliest or latest
+    tls:
+      ca_cert: "/path/to/ca.crt" # path to CA certificate
+      client_cert: "/path/to/client.crt" # path to client certificate
+      client_key: "/path/to/client.key" # path to client key
+    backoff: # one of exponential or constant
+      exponential:
+        max_retries: 5 # maximum number of retries
+        initial_interval: 1000 # initial interval in milliseconds
+        max_interval: 60000 # maximum interval in milliseconds
+      constant:
+        max_retries: 5 # maximum number of retries
+        interval: 1000 # interval in milliseconds
+
+target:
+  postgres:
+    url: "postgresql://user:password@localhost:5432/mytargetdatabase"
+    batch:
+      timeout: 1000 # batch timeout in milliseconds
+      size: 100 # number of messages in a batch
+      max_bytes: 1572864 # max size of batch in bytes (1.5MiB)
+      max_queue_bytes: 204800 # max size of memory guard queue in bytes (100MiB)
+    disable_triggers: false # whether to disable triggers on the target database
+    on_conflict_action: "nothing" # options are update, nothing or error
+  kafka:
+    servers: ["localhost:9092"]
+    topic:
+      name: "mytopic" # name of the Kafka topic
+      partitions: 1 # number of partitions for the topic
+      replication_factor: 1 # replication factor for the topic
+      auto_create: true # whether to automatically create the topic if it doesn't exist
+    tls:
+      ca_cert: "/path/to/ca.crt" # path to CA certificate
+      client_cert: "/path/to/client.crt" # path to client certificate
+      client_key: "/path/to/client.key" # path to client key
+    batch:
+      timeout: 1000 # batch timeout in milliseconds
+      size: 100 # number of messages in a batch
+      max_bytes: 1572864 # max size of batch in bytes (1.5MiB)
+      max_queue_bytes: 204800 # max size of memory guard queue in bytes (100MiB)
+  search:
+    engine: "elasticsearch" # options are elasticsearch or opensearch
+    url: "http://localhost:9200" # URL of the search engine
+    batch:
+      timeout: 1000 # batch timeout in milliseconds
+      size: 100 # number of messages in a batch
+      max_bytes: 1572864 # max size of batch in bytes (1.5MiB)
+      max_queue_bytes: 204800 # max size of memory guard queue in bytes (100MiB)
+    backoff: # one of exponential or constant
+      exponential:
+        max_retries: 5 # maximum number of retries
+        initial_interval: 1000 # initial interval in milliseconds
+        max_interval: 60000 # maximum interval in milliseconds
+      constant:
+        max_retries: 5 # maximum number of retries
+        interval: 1000 # interval in milliseconds
+  webhooks:
+    subscriptions:
+      store:
+        url: "postgresql://user:password@localhost:5432/mydatabase" # URL of the database where the webhook subscriptions are stored
+        cache:
+          enabled: true # whether to enable caching for the subscription store
+          refresh_interval: 60 # interval in seconds to refresh the cache
+      server:
+        address: "localhost:9090" # address of the subscription server
+        read_timeout: 60 # read timeout in seconds
+        write_timeout: 60 # write timeout in seconds
+    notifier:
+      worker_count: 4 # number of notifications to be processed in parallel
+      client_timeout: 1000 # timeout for the webhook client in milliseconds
+
+
+modifiers:
+  metadata_injection: true # whether to inject pgstream metadata into the WAL events
+  transformations:
+  - schema: public
+    table: test
+    column_transformers:
+      name:
+        name: greenmask_firstname
+        dynamic_parameters:
+          gender:
+            column: sex
