@@ -12,18 +12,7 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-func GetTransformerValidationFunc(ctx context.Context, pgurl, snapshoturl string) func(*Transformer) error {
-	// if pgurl or snapshot url is provided, use postgres validator
-	if pgurl == "" {
-		if snapshoturl == "" {
-			return nil
-		}
-		pgurl = snapshoturl
-	}
-	return pgTransformerValidator(ctx, pgurl)
-}
-
-func pgTransformerValidator(ctx context.Context, pgurl string) func(t *Transformer) error {
+func PgTransformerValidator(ctx context.Context, pgurl string) func(t *Transformer) error {
 	return func(t *Transformer) error {
 		conn, err := pglib.NewConn(ctx, pgurl)
 		if err != nil {
