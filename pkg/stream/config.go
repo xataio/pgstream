@@ -131,7 +131,7 @@ func (c *ProcessorConfig) IsValid() error {
 		// Only one processor is configured, do nothing
 		return nil
 	default:
-		// More than one listener is configured, return an error
-		return fmt.Errorf("only one processorCount can be configured at a time, found %d", processorCount)
+		// More than one processor is configured, return an error
+		return fmt.Errorf("only one processor can be configured at a time, found %d", processorCount)
 	}
 }
