@@ -1,0 +1,31 @@
+source:
+  kafka:
+    servers: ["localhost:9092"]
+    topic:
+      name: "pgstream"
+    consumer_group:
+      id: "pgstream-consumer-group"
+      start_offset: "earliest" # options are earliest or latest
+    backoff: # one of exponential or constant
+      exponential:
+        max_retries: 60 # maximum number of retries
+        initial_interval: 1000 # initial interval in milliseconds
+        max_interval: 60000 # maximum interval in milliseconds
+
+target:
+  search:
+    engine: "opensearch" # options are elasticsearch or opensearch
+    url: "http://admin:admin@localhost:9200" # URL of the search engine
+    batch:
+      timeout: 5000 # batch timeout in milliseconds
+      size: 100 # number of messages in a batch
+    backoff: # one of exponential or constant
+      exponential:
+        max_retries: 0 # maximum number of retries
+        initial_interval: 1000 # initial interval in milliseconds
+        max_interval: 60000 # maximum interval in milliseconds
+
+modifiers:
+  injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events
+    schemalog_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the schemalog database, if different from the source database
