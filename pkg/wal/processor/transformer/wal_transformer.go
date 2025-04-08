@@ -18,11 +18,11 @@ import (
 type Transformer struct {
 	logger         loglib.Logger
 	processor      processor.Processor
-	transformerMap map[string]columnTransformers
-	validator      func(*Transformer) error
+	transformerMap map[string]ColumnTransformers
+	validator      func(transformerMap map[string]ColumnTransformers) error
 }
 
-type columnTransformers map[string]transformers.Transformer
+type ColumnTransformers map[string]transformers.Transformer
 
 type Config struct {
 	TransformerRules []TableRules
@@ -49,7 +49,7 @@ func New(cfg *Config, processor processor.Processor, opts ...Option) (*Transform
 	}
 
 	if t.validator != nil {
-		if err := t.validator(t); err != nil {
+		if err := t.validator(t.transformerMap); err != nil {
 			return nil, err
 		}
 	}
@@ -65,14 +65,10 @@ func WithLogger(l loglib.Logger) Option {
 	}
 }
 
-func WithValidator(validator func(*Transformer) error) Option {
+func WithValidator(validator func(transformerMap map[string]ColumnTransformers) error) Option {
 	return func(in *Transformer) {
 		in.validator = validator
 	}
-}
-
-func (t *Transformer) GetTransformerMap() map[string]columnTransformers {
-	return t.transformerMap
 }
 
 func (t *Transformer) ProcessWALEvent(ctx context.Context, event *wal.Event) error {
@@ -146,9 +142,9 @@ func schemaTableKey(schema, table string) string {
 	return pglib.QuoteQualifiedIdentifier(schema, table)
 }
 
-func transformerMapFromRules(rules []TableRules) (map[string]columnTransformers, error) {
+func transformerMapFromRules(rules []TableRules) (map[string]ColumnTransformers, error) {
 	var err error
-	transformerMap := map[string]columnTransformers{}
+	transformerMap := map[string]ColumnTransformers{}
 	for _, table := range rules {
 		schemaTableTransformers := make(map[string]transformers.Transformer)
 		transformerMap[schemaTableKey(table.Schema, table.Table)] = schemaTableTransformers

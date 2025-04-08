@@ -12,15 +12,14 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-func PgTransformerValidator(ctx context.Context, pgurl string) func(t *Transformer) error {
-	return func(t *Transformer) error {
+func PgTransformerValidator(ctx context.Context, pgurl string) func(transformerMap map[string]ColumnTransformers) error {
+	return func(transformerMap map[string]ColumnTransformers) error {
 		conn, err := pglib.NewConn(ctx, pgurl)
 		if err != nil {
 			return fmt.Errorf("creating postgres connection pool: %w", err)
 		}
 		defer conn.Close(context.Background())
 
-		transformerMap := t.GetTransformerMap()
 		for schemaTable, columnTransformers := range transformerMap {
 			query := fmt.Sprintf("SELECT * FROM %s LIMIT 0", schemaTable)
 			rows, err := conn.Query(ctx, query)
