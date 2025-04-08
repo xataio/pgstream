@@ -33,7 +33,7 @@
     {
       "name": "config",
       "shorthand": "c",
-      "description": ".env config file to use if any",
+      "description": ".env or .yaml config file to use with pgstream if any",
       "default": ""
     },
     {
