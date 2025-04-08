@@ -16,7 +16,7 @@ func PgTransformerValidator(ctx context.Context, pgurl string) ValidatorFn {
 	return func(transformerMap map[string]ColumnTransformers) error {
 		conn, err := pglib.NewConn(ctx, pgurl)
 		if err != nil {
-			return fmt.Errorf("creating postgres connection pool: %w", err)
+			return fmt.Errorf("creating postgres connection: %w", err)
 		}
 		defer conn.Close(context.Background())
 
