@@ -26,6 +26,7 @@ require (
 	github.com/rs/zerolog v1.34.0
 	github.com/segmentio/kafka-go v0.4.47
 	github.com/spf13/cobra v1.9.1
+	github.com/spf13/pflag v1.0.6
 	github.com/spf13/viper v1.19.0
 	github.com/stretchr/testify v1.10.0
 	github.com/testcontainers/testcontainers-go v0.36.0
@@ -37,7 +38,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.35.0
 	go.opentelemetry.io/otel/trace v1.35.0
 	golang.org/x/exp v0.0.0-20250128182459-e0ece0dbea4c
-	golang.org/x/sync v0.12.0
+	golang.org/x/sync v0.13.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -127,7 +128,6 @@ require (
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/spf13/afero v1.12.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
-	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
