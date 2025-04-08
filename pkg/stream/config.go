@@ -4,6 +4,7 @@ package stream
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/xataio/pgstream/pkg/kafka"
@@ -77,13 +78,60 @@ type WebhookSubscriptionStoreConfig struct {
 }
 
 func (c *Config) IsValid() error {
-	if c.Listener.Kafka == nil && c.Listener.Postgres == nil && c.Listener.Snapshot == nil {
+	if err := c.Listener.IsValid(); err != nil {
+		return err
+	}
+
+	return c.Processor.IsValid()
+}
+
+func (c *ListenerConfig) IsValid() error {
+	listenerCount := 0
+	if c.Kafka != nil {
+		listenerCount++
+	}
+	if c.Postgres != nil {
+		listenerCount++
+	}
+	if c.Snapshot != nil {
+		listenerCount++
+	}
+
+	switch listenerCount {
+	case 0:
 		return errors.New("need at least one listener configured")
+	case 1:
+		// Only one listener is configured, do nothing
+		return nil
+	default:
+		// More than one listener is configured, return an error
+		return fmt.Errorf("only one listener can be configured at a time, found %d", listenerCount)
+	}
+}
+
+func (c *ProcessorConfig) IsValid() error {
+	processorCount := 0
+	if c.Kafka != nil {
+		processorCount++
+	}
+	if c.Postgres != nil {
+		processorCount++
+	}
+	if c.Search != nil {
+		processorCount++
+	}
+	if c.Webhook != nil {
+		processorCount++
 	}
 
-	if c.Processor.Kafka == nil && c.Processor.Search == nil && c.Processor.Webhook == nil && c.Processor.Postgres == nil {
+	switch processorCount {
+	case 0:
 		return errors.New("need at least one processor configured")
+	case 1:
+		// Only one processor is configured, do nothing
+		return nil
+	default:
+		// More than one listener is configured, return an error
+		return fmt.Errorf("only one processorCount can be configured at a time, found %d", processorCount)
 	}
-
-	return nil
 }
