@@ -108,3 +108,10 @@ func (t *PhoneNumberTransformer) transform(value []byte) (string, error) {
 
 	return string(b[:targetLen]), nil
 }
+
+func (t *PhoneNumberTransformer) CompatibleTypes() []SupportedDataType {
+	return []SupportedDataType{
+		StringDataType,
+		ByteArrayDataType,
+	}
+}

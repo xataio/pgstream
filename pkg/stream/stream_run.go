@@ -221,11 +221,25 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 
 	if config.Processor.Transformer != nil {
 		logger.Info("adding transformation layer to processor...")
-		transformer, err := transformer.New(config.Processor.Transformer, processor, transformer.WithLogger(logger))
+		opts := []transformer.Option{transformer.WithLogger(logger)}
+		// if a source pg url is provided, use it to validate the transformer
+		pgURL := ""
+		switch {
+		case config.Listener.Postgres != nil:
+			pgURL = config.Listener.Postgres.Replication.PostgresURL
+		case config.Listener.Snapshot != nil:
+			pgURL = config.Listener.Snapshot.Generator.URL
+		}
+		if pgURL != "" {
+			pgValidator := transformer.NewPostgresTransformerValidator(pgURL)
+			opts = append(opts, transformer.WithValidator(pgValidator.Validate))
+		}
+		transformer, err := transformer.New(ctx, config.Processor.Transformer, processor, opts...)
 		if err != nil {
 			logger.Error(err, "creating transformer layer")
 			return err
 		}
+
 		processor = transformer
 	}
 

@@ -81,3 +81,11 @@ func (t *DateTransformer) Transform(value transformers.Value) (any, error) {
 
 	return time.Date(result.Year(), result.Month(), result.Day(), 0, 0, 0, 0, time.UTC), nil
 }
+
+func (t *DateTransformer) CompatibleTypes() []transformers.SupportedDataType {
+	return []transformers.SupportedDataType{
+		transformers.DateDataType,
+		transformers.ByteArrayDataType,
+		transformers.StringDataType,
+	}
+}

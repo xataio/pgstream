@@ -5,6 +5,7 @@ package transformer
 import (
 	"context"
 
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/transformers"
 	"github.com/xataio/pgstream/pkg/transformers/builder"
@@ -17,10 +18,13 @@ import (
 type Transformer struct {
 	logger         loglib.Logger
 	processor      processor.Processor
-	transformerMap map[string]columnTransformers
+	transformerMap map[string]ColumnTransformers
+	validator      ValidatorFn
 }
 
-type columnTransformers map[string]transformers.Transformer
+type ValidatorFn func(ctx context.Context, transformerMap map[string]ColumnTransformers) error
+
+type ColumnTransformers map[string]transformers.Transformer
 
 type Config struct {
 	TransformerRules []TableRules
@@ -30,7 +34,7 @@ type Option func(t *Transformer)
 
 // New will return a transformer processor wrapper that will transform incoming
 // wal event column values as configured by the transformation rules.
-func New(cfg *Config, processor processor.Processor, opts ...Option) (*Transformer, error) {
+func New(ctx context.Context, cfg *Config, processor processor.Processor, opts ...Option) (*Transformer, error) {
 	transformerMap, err := transformerMapFromRules(cfg.TransformerRules)
 	if err != nil {
 		return nil, err
@@ -46,6 +50,12 @@ func New(cfg *Config, processor processor.Processor, opts ...Option) (*Transform
 		opt(t)
 	}
 
+	if t.validator != nil {
+		if err := t.validator(ctx, t.transformerMap); err != nil {
+			return nil, err
+		}
+	}
+
 	return t, nil
 }
 
@@ -54,6 +64,12 @@ func WithLogger(l loglib.Logger) Option {
 		in.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
 			loglib.ModuleField: "wal_transformer",
 		})
+	}
+}
+
+func WithValidator(validator ValidatorFn) Option {
+	return func(in *Transformer) {
+		in.validator = validator
 	}
 }
 
@@ -125,12 +141,12 @@ func (t *Transformer) getTransformValue(column *wal.Column, columns []wal.Column
 }
 
 func schemaTableKey(schema, table string) string {
-	return schema + "/" + table
+	return pglib.QuoteQualifiedIdentifier(schema, table)
 }
 
-func transformerMapFromRules(rules []TableRules) (map[string]columnTransformers, error) {
+func transformerMapFromRules(rules []TableRules) (map[string]ColumnTransformers, error) {
 	var err error
-	transformerMap := map[string]columnTransformers{}
+	transformerMap := map[string]ColumnTransformers{}
 	for _, table := range rules {
 		schemaTableTransformers := make(map[string]transformers.Transformer)
 		transformerMap[schemaTableKey(table.Schema, table.Table)] = schemaTableTransformers

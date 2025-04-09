@@ -58,11 +58,11 @@ func TestTransformer_New(t *testing.T) {
 			wantTransformer: &Transformer{
 				logger:    log.NewNoopLogger(),
 				processor: mockProcessor,
-				transformerMap: map[string]columnTransformers{
-					"public/test1": {
+				transformerMap: map[string]ColumnTransformers{
+					"\"public\".\"test1\"": {
 						"column_1": testTransformer,
 					},
-					"test/test2": {
+					"\"test\".\"test2\"": {
 						"column_2": testTransformer,
 					},
 				},
@@ -75,7 +75,7 @@ func TestTransformer_New(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			transformer, err := New(tc.config, mockProcessor)
+			transformer, err := New(context.Background(), tc.config, mockProcessor)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantTransformer, transformer)
 		})
@@ -88,7 +88,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 	testSchema := "test_schema"
 	testTable := "test_table"
 	errTest := errors.New("oh noes")
-	testKey := testSchema + "/" + testTable
+	testKey := "\"test_schema\".\"test_table\""
 
 	newTestEvent := func(cols []wal.Column) *wal.Event {
 		return &wal.Event{
@@ -106,7 +106,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 		name           string
 		event          *wal.Event
 		processor      processor.Processor
-		transformerMap map[string]columnTransformers
+		transformerMap map[string]ColumnTransformers
 
 		wantErr error
 	}{
@@ -119,7 +119,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			transformerMap: map[string]columnTransformers{},
+			transformerMap: map[string]ColumnTransformers{},
 
 			wantErr: nil,
 		},
@@ -132,7 +132,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			transformerMap: map[string]columnTransformers{
+			transformerMap: map[string]ColumnTransformers{
 				"anotherschema/table": {},
 			},
 
@@ -154,7 +154,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			transformerMap: map[string]columnTransformers{
+			transformerMap: map[string]ColumnTransformers{
 				testKey: {
 					"column_1": &transformermocks.Transformer{
 						TransformFn: func(a transformers.Value) (any, error) {
@@ -185,7 +185,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			transformerMap: map[string]columnTransformers{
+			transformerMap: map[string]ColumnTransformers{
 				testKey: {
 					"column_1": &transformermocks.Transformer{
 						TransformFn: func(a transformers.Value) (any, error) {
@@ -213,7 +213,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			transformerMap: map[string]columnTransformers{
+			transformerMap: map[string]ColumnTransformers{
 				testKey: {
 					"column_1": &transformermocks.Transformer{
 						TransformFn: func(a transformers.Value) (any, error) {
@@ -250,13 +250,13 @@ func Test_transformerMapFromRules(t *testing.T) {
 	testTable := "test_table"
 	testTransformer, err := transformers.NewStringTransformer(nil)
 	require.NoError(t, err)
-	testKey := testSchema + "/" + testTable
+	testKey := "\"test_schema\".\"test_table\""
 
 	tests := []struct {
 		name  string
 		rules []TableRules
 
-		wantTransformerMap map[string]columnTransformers
+		wantTransformerMap map[string]ColumnTransformers
 		wantErr            error
 	}{
 		{
@@ -276,7 +276,7 @@ func Test_transformerMapFromRules(t *testing.T) {
 				},
 			},
 
-			wantTransformerMap: map[string]columnTransformers{
+			wantTransformerMap: map[string]ColumnTransformers{
 				testKey: {
 					"column_1": testTransformer,
 					"column_2": testTransformer,
@@ -288,7 +288,7 @@ func Test_transformerMapFromRules(t *testing.T) {
 			name:  "ok - no rules",
 			rules: []TableRules{},
 
-			wantTransformerMap: map[string]columnTransformers{},
+			wantTransformerMap: map[string]ColumnTransformers{},
 			wantErr:            nil,
 		},
 		{
