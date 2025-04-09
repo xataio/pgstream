@@ -22,8 +22,7 @@ func TestPostgresTransformerValidator(t *testing.T) {
 	testSchemaTable := "\"public\".\"test\""
 	testQuerier := &pgmocks.Querier{
 		QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-			require.Equal(t, "SELECT * FROM $1 LIMIT 0", query)
-			require.Equal(t, []any{testSchemaTable}, args)
+			require.Equal(t, "SELECT * FROM \"public\".\"test\" LIMIT 0", query)
 			return &pgmocks.Rows{
 				FieldDescriptionsFn: func() []pgconn.FieldDescription {
 					return []pgconn.FieldDescription{

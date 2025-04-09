@@ -35,8 +35,8 @@ func (v *PostgresTransformerValidator) Validate(ctx context.Context) ValidatorFn
 		defer conn.Close(context.Background())
 
 		for schemaTable, columnTransformers := range transformerMap {
-			query := "SELECT * FROM $1 LIMIT 0"
-			rows, err := conn.Query(ctx, query, schemaTable)
+			query := fmt.Sprintf("SELECT * FROM %s LIMIT 0", schemaTable)
+			rows, err := conn.Query(ctx, query)
 			if err != nil {
 				return fmt.Errorf("querying table rows: %w", err)
 			}
