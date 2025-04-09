@@ -10,6 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/xataio/pgstream/cmd/config"
 )
 
 // Version is the pgstream version
@@ -23,7 +25,7 @@ func Prepare() *cobra.Command {
 		SilenceUsage: true,
 		Version:      Version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			return loadConfig()
+			return config.Load()
 		},
 	}
 
@@ -32,7 +34,7 @@ func Prepare() *cobra.Command {
 
 	rootCmd.PersistentFlags().String("pgurl", "postgres://postgres:postgres@localhost?sslmode=disable", "Postgres URL")
 	rootCmd.PersistentFlags().String("replication-slot", "", "Name of the postgres replication slot to be created")
-	rootCmd.PersistentFlags().StringP("config", "c", "", ".env config file to use if any")
+	rootCmd.PersistentFlags().StringP("config", "c", "", ".env or .yaml config file to use with pgstream if any")
 	rootCmd.PersistentFlags().String("log-level", "debug", "log level for the application. One of trace, debug, info, warn, error, fatal, panic")
 
 	viper.BindPFlag("pgurl", rootCmd.PersistentFlags().Lookup("pgurl"))

@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 
+	"github.com/xataio/pgstream/cmd/config"
 	"github.com/xataio/pgstream/pkg/stream"
 
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -18,7 +19,7 @@ var initCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sp, _ := pterm.DefaultSpinner.WithText("initialising pgstream...").Start()
 
-		if err := stream.Init(context.Background(), pgURL(), replicationSlotName()); err != nil {
+		if err := stream.Init(context.Background(), config.PostgresURL(), config.ReplicationSlotName()); err != nil {
 			sp.Fail(err.Error())
 			return err
 		}
@@ -34,7 +35,7 @@ var tearDownCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sp, _ := pterm.DefaultSpinner.WithText("tearing down pgstream...").Start()
 
-		if err := stream.TearDown(context.Background(), pgURL(), replicationSlotName()); err != nil {
+		if err := stream.TearDown(context.Background(), config.PostgresURL(), config.ReplicationSlotName()); err != nil {
 			sp.Fail(err.Error())
 			return err
 		}

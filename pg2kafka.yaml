@@ -1,0 +1,32 @@
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: snapshot_and_replication # options are replication, snapshot or snapshot_and_replication
+    snapshot: # when mode is snapshot or snapshot_and_replication
+      mode: full # options are data_and, schema or data
+      tables: ["*"] # tables to snapshot, can be a list of table names or a pattern
+      recorder_enabled: true # whether to record snapshot status in a table under the pgstream schema in the source database
+      snapshot_workers: 1 # number of schemas to be snapshotted in parallel
+      data: # when mode is full or data
+        schema_workers: 4 # number of schema tables to be snapshotted in parallel
+        table_workers: 4 # number of workers to snapshot a table in parallel
+        batch_page_size: 1000 # number of pages to read per batch
+      schema: # when mode is full or schema
+        mode: schemalog # options are pgdump_pgrestore or schemalog
+
+target:
+  kafka:
+    servers: ["localhost:9092"]
+    topic:
+      name: "pgstream" # name of the Kafka topic
+      partitions: 1 # number of partitions for the topic
+      replication_factor: 1 # replication factor for the topic
+      auto_create: true # whether to automatically create the topic if it doesn't exist
+    batch:
+      timeout: 2000 # batch timeout in milliseconds
+      size: 100 # number of messages in a batch
+      max_bytes: 1572864 # max size of batch in bytes (1.5MiB)
+
+modifiers:
+  injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events

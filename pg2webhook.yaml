@@ -1,0 +1,24 @@
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: replication # options are replication, snapshot or snapshot_and_replication
+
+target:
+  webhooks:
+    subscriptions:
+      store:
+        url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the database where the webhook subscriptions are stored
+        cache:
+          enabled: false # whether to enable caching for the subscription store
+      server:
+        address: "localhost:9090" # address of the subscription server
+        read_timeout: 60 # read timeout in seconds
+        write_timeout: 60 # write timeout in seconds
+    notifier:
+      worker_count: 4 # number of notifications to be processed in parallel
+      client_timeout: 10000 # timeout for the webhook client in milliseconds
+
+modifiers:
+   injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events
+    schemalog_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the schemalog database, if different from the source database
