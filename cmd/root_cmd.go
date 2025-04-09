@@ -47,6 +47,10 @@ func Prepare() *cobra.Command {
 	rootCmd.AddCommand(tearDownCmd)
 	rootCmd.AddCommand(runCmd)
 
+	// register command PersistentFlags
+	runCmd.PersistentFlags().Bool("require-transformations", false, "Transformation rules must be provided for all relevant tables or the run will fail")
+	viper.BindPFlag("require-transformations", runCmd.PersistentFlags().Lookup("require-transformations"))
+
 	return rootCmd
 }
 
