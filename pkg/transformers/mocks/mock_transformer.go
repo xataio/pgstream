@@ -5,7 +5,8 @@ package mocks
 import "github.com/xataio/pgstream/pkg/transformers"
 
 type Transformer struct {
-	TransformFn func(transformers.Value) (any, error)
+	TransformFn       func(transformers.Value) (any, error)
+	CompatibleTypesFn func() []transformers.SupportedDataType
 }
 
 func (m *Transformer) Transform(val transformers.Value) (any, error) {
@@ -13,5 +14,5 @@ func (m *Transformer) Transform(val transformers.Value) (any, error) {
 }
 
 func (m *Transformer) CompatibleTypes() []transformers.SupportedDataType {
-	return []transformers.SupportedDataType{}
+	return m.CompatibleTypesFn()
 }

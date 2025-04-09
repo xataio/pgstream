@@ -67,7 +67,7 @@ const (
 	UUIDDataType           SupportedDataType = "uuid"
 	UInt8ArrayOf16DataType SupportedDataType = "uint8_array_of_16"
 	DateDataType           SupportedDataType = "date"
-	DatetimeDataType       SupportedDataType = "Datetime"
+	DatetimeDataType       SupportedDataType = "datetime"
 )
 
 const (
