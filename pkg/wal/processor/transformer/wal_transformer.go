@@ -22,7 +22,7 @@ type Transformer struct {
 	validator      ValidatorFn
 }
 
-type ValidatorFn func(transformerMap map[string]ColumnTransformers) error
+type ValidatorFn func(ctx context.Context, transformerMap map[string]ColumnTransformers) error
 
 type ColumnTransformers map[string]transformers.Transformer
 
@@ -34,7 +34,7 @@ type Option func(t *Transformer)
 
 // New will return a transformer processor wrapper that will transform incoming
 // wal event column values as configured by the transformation rules.
-func New(cfg *Config, processor processor.Processor, opts ...Option) (*Transformer, error) {
+func New(ctx context.Context, cfg *Config, processor processor.Processor, opts ...Option) (*Transformer, error) {
 	transformerMap, err := transformerMapFromRules(cfg.TransformerRules)
 	if err != nil {
 		return nil, err
@@ -51,7 +51,7 @@ func New(cfg *Config, processor processor.Processor, opts ...Option) (*Transform
 	}
 
 	if t.validator != nil {
-		if err := t.validator(t.transformerMap); err != nil {
+		if err := t.validator(ctx, t.transformerMap); err != nil {
 			return nil, err
 		}
 	}

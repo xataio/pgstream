@@ -232,9 +232,9 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 		}
 		if pgURL != "" {
 			pgValidator := transformer.NewPostgresTransformerValidator(pgURL)
-			opts = append(opts, transformer.WithValidator(pgValidator.Validate(ctx)))
+			opts = append(opts, transformer.WithValidator(pgValidator.Validate))
 		}
-		transformer, err := transformer.New(config.Processor.Transformer, processor, opts...)
+		transformer, err := transformer.New(ctx, config.Processor.Transformer, processor, opts...)
 		if err != nil {
 			logger.Error(err, "creating transformer layer")
 			return err

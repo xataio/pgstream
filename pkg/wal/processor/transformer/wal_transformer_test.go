@@ -75,7 +75,7 @@ func TestTransformer_New(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			transformer, err := New(tc.config, mockProcessor)
+			transformer, err := New(context.Background(), tc.config, mockProcessor)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantTransformer, transformer)
 		})
