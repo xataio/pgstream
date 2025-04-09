@@ -134,4 +134,15 @@ func TestYAMLConfig_toStreamConfig_ErrorCases(t *testing.T) {
 			require.ErrorIs(t, err, tt.wantErr)
 		})
 	}
+
+	t.Run("error - transformations required", func(t *testing.T) {
+		viper.Set("require-transformations", true)
+		config := YAMLConfig{
+			Modifiers: ModifiersConfig{
+				Transformations: nil,
+			},
+		}
+		_, err := config.toStreamConfig()
+		require.ErrorIs(t, err, errTransformationRulesRequired)
+	})
 }

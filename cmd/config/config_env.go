@@ -321,8 +321,12 @@ func parseInjectorConfig() *injector.Config {
 
 func parseTransformerConfig() (*transformer.Config, error) {
 	if viper.GetString("PGSTREAM_TRANSFORMER_RULES_FILE") == "" {
+		if requireTransformations() {
+			return nil, errTransformationRulesRequired
+		}
 		return nil, nil
 	}
+
 	yamlConfig := struct {
 		Transformations TransformationsConfig `mapstructure:"transformations"`
 	}{}

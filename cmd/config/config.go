@@ -10,6 +10,8 @@ import (
 	"github.com/xataio/pgstream/pkg/stream"
 )
 
+var errTransformationRulesRequired = fmt.Errorf("transformation rules are required")
+
 func Load() error {
 	return LoadFile(viper.GetString("config"))
 }
@@ -79,4 +81,8 @@ func ParseStreamConfig() (*stream.Config, error) {
 	default:
 		return envConfigToStreamConfig()
 	}
+}
+
+func requireTransformations() bool {
+	return viper.GetBool("require-transformations")
 }

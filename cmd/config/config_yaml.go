@@ -279,14 +279,18 @@ func (c *YAMLConfig) parseListenerConfig() (stream.ListenerConfig, error) {
 
 func (c *YAMLConfig) parseProcessorConfig() (stream.ProcessorConfig, error) {
 	streamCfg := stream.ProcessorConfig{
-		Kafka:       c.parseKafkaProcessorConfig(),
-		Postgres:    c.parsePostgresProcessorConfig(),
-		Webhook:     c.parseWebhookProcessorConfig(),
-		Transformer: c.parseTransformationConfig(),
+		Kafka:    c.parseKafkaProcessorConfig(),
+		Postgres: c.parsePostgresProcessorConfig(),
+		Webhook:  c.parseWebhookProcessorConfig(),
 	}
 
 	var err error
 	streamCfg.Injector, err = c.parseInjectorConfig()
+	if err != nil {
+		return stream.ProcessorConfig{}, err
+	}
+
+	streamCfg.Transformer, err = c.parseTransformationConfig()
 	if err != nil {
 		return stream.ProcessorConfig{}, err
 	}
@@ -526,12 +530,15 @@ func (c *YAMLConfig) parseWebhookProcessorConfig() *stream.WebhookProcessorConfi
 	return streamCfg
 }
 
-func (c *YAMLConfig) parseTransformationConfig() *transformer.Config {
+func (c *YAMLConfig) parseTransformationConfig() (*transformer.Config, error) {
 	if c.Modifiers.Transformations == nil {
-		return nil
+		if requireTransformations() {
+			return nil, errTransformationRulesRequired
+		}
+		return nil, nil
 	}
 
-	return c.Modifiers.Transformations.parseTransformationConfig()
+	return c.Modifiers.Transformations.parseTransformationConfig(), nil
 }
 
 func (c TransformationsConfig) parseTransformationConfig() *transformer.Config {
