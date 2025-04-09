@@ -12,9 +12,23 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-func PgTransformerValidator(ctx context.Context, pgurl string) ValidatorFn {
+type PostgresTransformerValidator struct {
+	connBuilder connBuilder
+}
+
+type connBuilder func(context.Context) (pglib.Querier, error)
+
+func NewPostgresTransformerValidator(pgURL string) *PostgresTransformerValidator {
+	return &PostgresTransformerValidator{
+		connBuilder: func(ctx context.Context) (pglib.Querier, error) {
+			return pglib.NewConn(ctx, pgURL)
+		},
+	}
+}
+
+func (v *PostgresTransformerValidator) Validate(ctx context.Context) ValidatorFn {
 	return func(transformerMap map[string]ColumnTransformers) error {
-		conn, err := pglib.NewConn(ctx, pgurl)
+		conn, err := v.connBuilder(ctx)
 		if err != nil {
 			return fmt.Errorf("creating postgres connection: %w", err)
 		}
