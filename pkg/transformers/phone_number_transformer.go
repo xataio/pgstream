@@ -15,7 +15,13 @@ type PhoneNumberTransformer struct {
 	generator generators.Generator
 }
 
+var phoneNumberTransformerParams = []string{"prefix", "max_length", "min_length", "generator"}
+
 func NewPhoneNumberTransformer(params Parameters) (*PhoneNumberTransformer, error) {
+	if err := ValidateParameters(params, phoneNumberTransformerParams); err != nil {
+		return nil, err
+	}
+
 	prefix, err := FindParameterWithDefault(params, "prefix", "")
 	if err != nil {
 		return nil, fmt.Errorf("phone_number: prefix must be a string: %w", err)

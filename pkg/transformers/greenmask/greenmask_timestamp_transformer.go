@@ -20,18 +20,24 @@ var (
 	errInvalidTimestamp            = errors.New("greenmask_timestamp: min_timestamp and max_timestamp must be valid RFC3339 timestamps")
 )
 
+var UTCTimestampTransformerParams = []string{"truncate_part", "min_timestamp", "max_timestamp", "generator"}
+
 func NewUTCTimestampTransformer(params transformers.Parameters) (*UTCTimestampTransformer, error) {
+	if err := transformers.ValidateParameters(params, UTCTimestampTransformerParams); err != nil {
+		return nil, err
+	}
+
 	truncatePart, err := findParameter(params, "truncate_part", "")
 	if err != nil {
-		return nil, fmt.Errorf("greenmask_integer: truncate_part must be a string: %w", err)
+		return nil, fmt.Errorf("greenmask_utc_timestamp: truncate_part must be a string: %w", err)
 	}
 	minDateStr, err := findParameter(params, "min_timestamp", "")
 	if err != nil {
-		return nil, fmt.Errorf("greenmask_integer: min_timestamp must be a string: %w", err)
+		return nil, fmt.Errorf("greenmask_utc_timestamp: min_timestamp must be a string: %w", err)
 	}
 	maxDateStr, err := findParameter(params, "max_timestamp", "")
 	if err != nil {
-		return nil, fmt.Errorf("greenmask_integer: max_timestamp must be a string: %w", err)
+		return nil, fmt.Errorf("greenmask_utc_timestamp: max_timestamp must be a string: %w", err)
 	}
 	if minDateStr == "" || maxDateStr == "" {
 		return nil, errMinMaxTimestampNotSpecified

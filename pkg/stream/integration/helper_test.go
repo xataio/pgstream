@@ -317,8 +317,7 @@ func testTransformationRules() []transformer.TableRules {
 				"address": {
 					Name: "greenmask_string",
 					Parameters: map[string]any{
-						"preserve_length": false,
-						"max_length":      20,
+						"max_length": 20,
 					},
 				},
 				"age": {

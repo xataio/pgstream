@@ -82,6 +82,7 @@ var (
 	ErrUnsupportedTransformer   = errors.New("unsupported transformer config")
 	ErrInvalidParameters        = errors.New("invalid transformer parameters")
 	ErrInvalidDynamicParameters = errors.New("invalid transformer dynamic parameters")
+	ErrUnknownParameter         = errors.New("unknown parameter provided to transformer")
 )
 
 func NewValue(transformValue any, dynamicValues map[string]any) Value {
@@ -179,4 +180,20 @@ func FindDynamicValue[T any](param *DynamicParameter, dynamicValues map[string]a
 	}
 
 	return dynValue, nil
+}
+
+// ValidateParameters checks if all provided parameters are in the expected set
+func ValidateParameters(provided map[string]any, expected []string) error {
+	expectedMap := make(map[string]struct{}, len(expected))
+	for _, param := range expected {
+		expectedMap[param] = struct{}{}
+	}
+
+	for key := range provided {
+		if _, ok := expectedMap[key]; !ok {
+			return fmt.Errorf("%w: unexpected parameter '%s'", ErrUnknownParameter, key)
+		}
+	}
+
+	return nil
 }

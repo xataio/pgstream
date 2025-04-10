@@ -30,9 +30,23 @@ var (
 		neosynctransformers.InvalidEmailAction_Null.String(),
 		neosynctransformers.InvalidEmailAction_Generate.String(),
 	}
+
+	emailTransformerParams = []string{
+		"preserve_length",
+		"preserve_domain",
+		"excluded_domains",
+		"max_length",
+		"seed",
+		"email_type",
+		"invalid_email_action",
+	}
 )
 
 func NewEmailTransformer(params transformers.Parameters) (*EmailTransformer, error) {
+	if err := transformers.ValidateParameters(params, emailTransformerParams); err != nil {
+		return nil, err
+	}
+
 	preserveLength, err := findParameter[bool](params, "preserve_length")
 	if err != nil {
 		return nil, fmt.Errorf("neosync_email: preserve_length must be a boolean: %w", err)

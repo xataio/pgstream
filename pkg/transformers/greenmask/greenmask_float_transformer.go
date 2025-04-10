@@ -21,7 +21,13 @@ type FloatTransformer struct {
 	transformer *greenmasktransformers.RandomFloat64Transformer
 }
 
+var floatTransformerParams = []string{"min_value", "max_value", "precision", "generator"}
+
 func NewFloatTransformer(params transformers.Parameters) (*FloatTransformer, error) {
+	if err := transformers.ValidateParameters(params, floatTransformerParams); err != nil {
+		return nil, err
+	}
+
 	minValue, err := findParameter(params, "min_value", defaultMinFloat)
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_float: min_value must be a float: %w", err)

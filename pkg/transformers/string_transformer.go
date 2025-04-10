@@ -14,7 +14,12 @@ type StringTransformer struct {
 	// minLength int
 }
 
+var stringTransformerParams = []string{}
+
 func NewStringTransformer(params Parameters) (*StringTransformer, error) {
+	if err := ValidateParameters(params, stringTransformerParams); err != nil {
+		return nil, err
+	}
 	return &StringTransformer{}, nil
 }
 
