@@ -1,0 +1,40 @@
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: snapshot # options are replication, snapshot or snapshot_and_replication
+    snapshot: # when mode is snapshot or snapshot_and_replication
+      mode: full # options are data_and, schema or data
+      tables: ["*"] # tables to snapshot, can be a list of table names or a pattern
+      recorder:
+        postgres_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the database where the snapshot status is recorded
+      snapshot_workers: 1 # number of schemas to be snapshotted in parallel
+      data: # when mode is full or data
+        schema_workers: 4 # number of schema tables to be snapshotted in parallel
+        table_workers: 4 # number of workers to snapshot a table in parallel
+        batch_page_size: 1000 # number of pages to read per batch
+      schema: # when mode is full or schema
+        mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
+        pgdump_pgrestore:
+          clean_target_db: true # whether to clean the target database before restoring
+
+target:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:7654?sslmode=disable"
+    batch:
+      timeout: 5000 # batch timeout in milliseconds
+      size: 100 # number of messages in a batch
+    disable_triggers: false # whether to disable triggers on the target database
+    on_conflict_action: "nothing" # options are update, nothing or error
+
+modifiers:
+  injector:
+    enabled: false # whether to inject pgstream metadata into the WAL events
+  transformations:
+  - schema: public
+    table: test
+    column_transformers:
+      name:
+        name: greenmask_firstname
+        dynamic_parameters:
+          gender:
+            column: sex
