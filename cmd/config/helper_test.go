@@ -25,6 +25,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 	assert.Equal(t, uint(1000), streamConfig.Listener.Postgres.Snapshot.Generator.BatchPageSize)
 	assert.NotNil(t, streamConfig.Listener.Postgres.Snapshot.Schema.DumpRestore)
 	assert.True(t, streamConfig.Listener.Postgres.Snapshot.Schema.DumpRestore.CleanTargetDB)
+	assert.Equal(t, "postgresql://user:password@localhost:5432/mytargetdatabase", streamConfig.Listener.Postgres.Snapshot.SnapshotStoreURL)
 
 	assert.NotNil(t, streamConfig.Listener.Kafka)
 	assert.Equal(t, []string{"localhost:9092"}, streamConfig.Listener.Kafka.Reader.Conn.Servers)

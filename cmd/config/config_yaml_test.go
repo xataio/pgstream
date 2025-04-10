@@ -58,6 +58,22 @@ func TestYAMLConfig_toStreamConfig_ErrorCases(t *testing.T) {
 			wantErr: errUnsupportedSnapshotMode,
 		},
 		{
+			name: "err - invalid snapshot recorder config",
+			config: YAMLConfig{
+				Source: SourceConfig{
+					Postgres: &PostgresConfig{
+						Mode: snapshotMode,
+						Snapshot: &SnapshotConfig{
+							Mode:     fullSnapshotMode,
+							Recorder: &SnapshotRecorderConfig{},
+						},
+					},
+				},
+			},
+
+			wantErr: errInvalidSnapshotRecorderConfig,
+		},
+		{
 			name: "err - invalid postgres snapshot schema mode",
 			config: YAMLConfig{
 				Source: SourceConfig{

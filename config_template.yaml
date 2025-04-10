@@ -5,7 +5,8 @@ source:
     snapshot: # when mode is snapshot or snapshot_and_replication
       mode: full # options are data_and, schema or data
       tables: ["test", "test_schema.test", "another_schema.*"] # tables to snapshot, can be a list of table names or a pattern
-      recorder_enabled: true # whether to record snapshot status in a table under the pgstream schema in the source database
+      recorder:
+        postgres_url: "postgresql://user:password@localhost:5432/mydatabase" # URL of the database where the snapshot status is recorded
       snapshot_workers: 4 # number of schemas to be snapshotted in parallel
       data: # when mode is full or data
         schema_workers: 4 # number of schema tables to be snapshotted in parallel
