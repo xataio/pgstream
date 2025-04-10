@@ -64,7 +64,8 @@ type SnapshotConfig struct {
 }
 
 type SnapshotRecorderConfig struct {
-	PostgresURL string `mapstructure:"postgres_url" yaml:"postgres_url"`
+	RepeatableSnapshots bool   `mapstructure:"repeatable_snapshots" yaml:"repeatable_snapshots"`
+	PostgresURL         string `mapstructure:"postgres_url" yaml:"postgres_url"`
 }
 
 type SnapshotDataConfig struct {
@@ -357,7 +358,10 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 		if snapshotConfig.Recorder.PostgresURL == "" {
 			return nil, errInvalidSnapshotRecorderConfig
 		}
-		streamCfg.SnapshotStoreURL = snapshotConfig.Recorder.PostgresURL
+		streamCfg.Recorder = &snapshotbuilder.SnapshotRecorderConfig{
+			RepeatableSnapshots: snapshotConfig.Recorder.RepeatableSnapshots,
+			SnapshotStoreURL:    snapshotConfig.Recorder.PostgresURL,
+		}
 	}
 
 	switch snapshotConfig.Mode {

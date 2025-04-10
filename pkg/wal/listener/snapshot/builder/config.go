@@ -10,13 +10,18 @@ import (
 )
 
 type SnapshotListenerConfig struct {
-	Generator        pgsnapshotgenerator.Config
-	Adapter          adapter.SnapshotConfig
-	SnapshotStoreURL string
-	Schema           SchemaSnapshotConfig
+	Generator pgsnapshotgenerator.Config
+	Adapter   adapter.SnapshotConfig
+	Recorder  *SnapshotRecorderConfig
+	Schema    SchemaSnapshotConfig
 }
 
 type SchemaSnapshotConfig struct {
 	SchemaLogStore *schemalogpg.Config
 	DumpRestore    *pgdumprestore.Config
+}
+
+type SnapshotRecorderConfig struct {
+	RepeatableSnapshots bool
+	SnapshotStoreURL    string
 }

@@ -14,8 +14,9 @@ import (
 // SnapshotRecorder is a decorator around a snapshot generator that will record
 // the snapshot request status.
 type SnapshotRecorder struct {
-	wrapped SnapshotGenerator
-	store   snapshotstore.Store
+	wrapped             SnapshotGenerator
+	store               snapshotstore.Store
+	repeatableSnapshots bool
 }
 
 const updateTimeout = time.Minute
@@ -23,10 +24,11 @@ const updateTimeout = time.Minute
 // NewSnapshotRecorder will return the generator on input wrapped with an
 // activity recorder that will keep track of the status of the snapshot
 // requests.
-func NewSnapshotRecorder(store snapshotstore.Store, generator SnapshotGenerator) *SnapshotRecorder {
+func NewSnapshotRecorder(store snapshotstore.Store, generator SnapshotGenerator, repeatableSnapshots bool) *SnapshotRecorder {
 	return &SnapshotRecorder{
-		wrapped: generator,
-		store:   store,
+		wrapped:             generator,
+		store:               store,
+		repeatableSnapshots: repeatableSnapshots,
 	}
 }
 
@@ -88,6 +90,11 @@ func (s *SnapshotRecorder) markSnapshotCompleted(req *snapshot.Request, err erro
 }
 
 func (s *SnapshotRecorder) filterOutExistingSnapshots(ctx context.Context, schema string, tables []string) ([]string, error) {
+	// if we want to be able to repeat snapshots, we don't filter out existing ones
+	if s.repeatableSnapshots {
+		return tables, nil
+	}
+
 	snapshotRequests, err := s.store.GetSnapshotRequestsBySchema(ctx, schema)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving existing snapshots for schema: %w", err)

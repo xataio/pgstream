@@ -347,7 +347,7 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			sr := NewSnapshotRecorder(tc.store, tc.generator)
+			sr := NewSnapshotRecorder(tc.store, tc.generator, false)
 			defer sr.Close()
 
 			err := sr.CreateSnapshot(context.Background(), newTestSnapshot())
@@ -364,9 +364,10 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 	errTest := errors.New("oh noes")
 
 	tests := []struct {
-		name   string
-		store  snapshotstore.Store
-		tables []string
+		name                string
+		store               snapshotstore.Store
+		tables              []string
+		repeatableSnapshots bool
 
 		wantTables []string
 		wantErr    error
@@ -414,6 +415,16 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 				},
 			},
 			wantTables: []string{"table1"},
+		},
+		{
+			name: "ok - existing snapshots with repeatable snapshots",
+			store: &snapshotstoremocks.Store{
+				GetSnapshotRequestsBySchemaFn: func(ctx context.Context, s string) ([]*snapshot.Request, error) {
+					return nil, errors.New("unexpected call to GetSnapshotRequestsBySchemaFn")
+				},
+			},
+			repeatableSnapshots: true,
+			wantTables:          []string{"table1", "table2"},
 		},
 		{
 			name: "ok - existing wildcard snapshot with wildcard table",
@@ -522,7 +533,8 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 			t.Parallel()
 
 			sr := SnapshotRecorder{
-				store: tc.store,
+				store:               tc.store,
+				repeatableSnapshots: tc.repeatableSnapshots,
 			}
 
 			tables := testTables
