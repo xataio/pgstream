@@ -15,6 +15,8 @@ type StringTransformer struct {
 
 const defaultSymbols = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
 
+var StringTransformerParams = []string{"symbols", "min_length", "max_length", "generator"}
+
 func NewStringTransformer(params transformers.Parameters) (*StringTransformer, error) {
 	symbols, err := findParameter(params, "symbols", defaultSymbols)
 	if err != nil {

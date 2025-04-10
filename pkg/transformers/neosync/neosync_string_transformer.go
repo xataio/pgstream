@@ -13,6 +13,8 @@ type StringTransformer struct {
 	*transformer[string]
 }
 
+var StringTransformerParams = []string{"preserve_length", "min_length", "max_length", "seed"}
+
 func NewStringTransformer(params transformers.Parameters) (*StringTransformer, error) {
 	preserveLength, err := findParameter[bool](params, "preserve_length")
 	if err != nil {

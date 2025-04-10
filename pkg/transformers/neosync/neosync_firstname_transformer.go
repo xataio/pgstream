@@ -13,6 +13,8 @@ type FirstNameTransformer struct {
 	*transformer[string]
 }
 
+var FirstNameTransformerParams = []string{"preserve_length", "max_length", "seed"}
+
 func NewFirstNameTransformer(params transformers.Parameters) (*FirstNameTransformer, error) {
 	preserveLength, err := findParameter[bool](params, "preserve_length")
 	if err != nil {

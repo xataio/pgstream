@@ -14,6 +14,8 @@ type DateTransformer struct {
 	transformer *greenmasktransformers.Timestamp
 }
 
+var DateTransformerParams = []string{"min_value", "max_value", "generator"}
+
 func NewDateTransformer(params transformers.Parameters) (*DateTransformer, error) {
 	minValue, foundMin, err := transformers.FindParameter[string](params, "min_value")
 	if err != nil {

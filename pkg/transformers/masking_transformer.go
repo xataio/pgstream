@@ -32,6 +32,8 @@ type MaskingTransformer struct {
 	maskingFunction maskingFunction
 }
 
+var MaskingTransformerParams = []string{"type"}
+
 // NewMaskingTransformer creates a new MaskingTransformer with the given masking function.
 func NewMaskingTransformer(params Parameters) (*MaskingTransformer, error) {
 	var mf maskingFunction

@@ -15,6 +15,8 @@ type ChoiceTransformer struct {
 	transformer *greenmasktransformers.RandomChoiceTransformer
 }
 
+var ChoiceTransformerParams = []string{"choices", "generator"}
+
 var errChoicesEmpty = errors.New("greenmask_choice: choices must not be empty")
 
 func NewChoiceTransformer(params transformers.Parameters) (*ChoiceTransformer, error) {

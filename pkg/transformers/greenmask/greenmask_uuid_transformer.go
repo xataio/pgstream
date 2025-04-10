@@ -12,6 +12,8 @@ type UUIDTransformer struct {
 	transformer *greenmasktransformers.RandomUuidTransformer
 }
 
+var UUIDTransformerParams = []string{"generator"}
+
 func NewUUIDTransformer(params transformers.Parameters) (*UUIDTransformer, error) {
 	t := greenmasktransformers.NewRandomUuidTransformer()
 	if err := setGenerator(t, params); err != nil {

@@ -25,7 +25,6 @@ transformations:
       address:
         name: greenmask_string
         parameters:
-          preserve_length: false
           max_length: 20
       age:
         name: greenmask_integer

@@ -21,6 +21,8 @@ type FloatTransformer struct {
 	transformer *greenmasktransformers.RandomFloat64Transformer
 }
 
+var FloatTransformerParams = []string{"min_value", "max_value", "precision", "generator"}
+
 func NewFloatTransformer(params transformers.Parameters) (*FloatTransformer, error) {
 	minValue, err := findParameter(params, "min_value", defaultMinFloat)
 	if err != nil {

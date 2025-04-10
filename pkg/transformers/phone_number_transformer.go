@@ -15,6 +15,8 @@ type PhoneNumberTransformer struct {
 	generator generators.Generator
 }
 
+var PhoneNumberTransformerParams = []string{"prefix", "max_length", "min_length", "generator"}
+
 func NewPhoneNumberTransformer(params Parameters) (*PhoneNumberTransformer, error) {
 	prefix, err := FindParameterWithDefault(params, "prefix", "")
 	if err != nil {

@@ -22,6 +22,8 @@ type IntegerTransformer struct {
 
 var errUnsupportedSizeError = errors.New("greenmask_integer: size must be 2 or 4")
 
+var IntegerTransformerParams = []string{"size", "min_value", "max_value", "generator"}
+
 // NewIntegerTransformer creates a new IntegerTransformer with the specified
 // generator and parameters. The size parameter must be 2 or 4, and the
 // min_value and max_value parameters must be valid integers within the range of

@@ -30,6 +30,16 @@ var (
 		neosynctransformers.InvalidEmailAction_Null.String(),
 		neosynctransformers.InvalidEmailAction_Generate.String(),
 	}
+
+	EmailTransformerParams = []string{
+		"preserve_length",
+		"preserve_domain",
+		"excluded_domains",
+		"max_length",
+		"seed",
+		"email_type",
+		"invalid_email_action",
+	}
 )
 
 func NewEmailTransformer(params transformers.Parameters) (*EmailTransformer, error) {
