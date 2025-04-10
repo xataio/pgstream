@@ -13,9 +13,13 @@ import (
 
 var errMinMaxValueNotSpecified = errors.New("min_value and max_value must be specified")
 
-var UnixTimestampTransformerParams = []string{"min_value", "max_value", "generator"}
+var unixTimestampTransformerParams = []string{"min_value", "max_value", "generator"}
 
 func NewUnixTimestampTransformer(params transformers.Parameters) (*IntegerTransformer, error) {
+	if err := transformers.ValidateParameters(params, unixTimestampTransformerParams); err != nil {
+		return nil, err
+	}
+
 	minValueStr, foundMin, err := transformers.FindParameter[string](params, "min_value")
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_unix_timestamp: min_value must be a string: %w", err)

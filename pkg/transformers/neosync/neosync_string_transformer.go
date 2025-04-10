@@ -13,9 +13,13 @@ type StringTransformer struct {
 	*transformer[string]
 }
 
-var StringTransformerParams = []string{"preserve_length", "min_length", "max_length", "seed"}
+var stringTransformerParams = []string{"preserve_length", "min_length", "max_length", "seed"}
 
 func NewStringTransformer(params transformers.Parameters) (*StringTransformer, error) {
+	if err := transformers.ValidateParameters(params, stringTransformerParams); err != nil {
+		return nil, err
+	}
+
 	preserveLength, err := findParameter[bool](params, "preserve_length")
 	if err != nil {
 		return nil, fmt.Errorf("neosync_string: preserve_length must be a boolean: %w", err)

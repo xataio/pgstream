@@ -15,11 +15,15 @@ type ChoiceTransformer struct {
 	transformer *greenmasktransformers.RandomChoiceTransformer
 }
 
-var ChoiceTransformerParams = []string{"choices", "generator"}
+var choiceTransformerParams = []string{"choices", "generator"}
 
 var errChoicesEmpty = errors.New("greenmask_choice: choices must not be empty")
 
 func NewChoiceTransformer(params transformers.Parameters) (*ChoiceTransformer, error) {
+	if err := transformers.ValidateParameters(params, choiceTransformerParams); err != nil {
+		return nil, err
+	}
+
 	choices := []string{}
 	choices, err := findParameterArray(params, "choices", choices)
 	if err != nil {

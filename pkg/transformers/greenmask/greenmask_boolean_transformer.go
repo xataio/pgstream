@@ -11,9 +11,12 @@ type BooleanTransformer struct {
 	transformer *greenmasktransformers.RandomBoolean
 }
 
-var BooleanTransformerParams = []string{"generator"}
+var booleanTransformerParams = []string{"generator"}
 
 func NewBooleanTransformer(params transformers.Parameters) (*BooleanTransformer, error) {
+	if err := transformers.ValidateParameters(params, booleanTransformerParams); err != nil {
+		return nil, err
+	}
 	t := greenmasktransformers.NewRandomBoolean()
 	if err := setGenerator(t, params); err != nil {
 		return nil, err

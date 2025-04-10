@@ -29,7 +29,7 @@ func TestNew(t *testing.T) {
 				Name:       transformers.String,
 				Parameters: map[string]any{"invalid": "param"},
 			},
-			wantErr: ErrUnknownParameter,
+			wantErr: transformers.ErrUnknownParameter,
 		},
 		{
 			name: "unsupported transformer",

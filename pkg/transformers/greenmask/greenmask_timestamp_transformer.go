@@ -23,6 +23,10 @@ var (
 var UTCTimestampTransformerParams = []string{"truncate_part", "min_timestamp", "max_timestamp", "generator"}
 
 func NewUTCTimestampTransformer(params transformers.Parameters) (*UTCTimestampTransformer, error) {
+	if err := transformers.ValidateParameters(params, UTCTimestampTransformerParams); err != nil {
+		return nil, err
+	}
+
 	truncatePart, err := findParameter(params, "truncate_part", "")
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_utc_timestamp: truncate_part must be a string: %w", err)
