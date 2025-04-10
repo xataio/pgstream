@@ -67,13 +67,13 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, proc
 	// snapshot generator aggregator
 	g = generator.NewAggregator([]generator.SnapshotGenerator{schemaSnapshotGenerator, dataSnapshotGenerator})
 
-	if cfg.SnapshotStoreURL != "" {
+	if cfg.Recorder != nil && cfg.Recorder.SnapshotStoreURL != "" {
 		// snapshot activity recorder layer
-		snapshotStore, err := pgsnapshotstore.New(ctx, cfg.SnapshotStoreURL)
+		snapshotStore, err := pgsnapshotstore.New(ctx, cfg.Recorder.SnapshotStoreURL)
 		if err != nil {
 			return nil, fmt.Errorf("create postgres snapshot store: %w", err)
 		}
-		g = generator.NewSnapshotRecorder(snapshotStore, g)
+		g = generator.NewSnapshotRecorder(snapshotStore, g, cfg.Recorder.RepeatableSnapshots)
 	}
 
 	return adapter.NewSnapshotGeneratorAdapter(&cfg.Adapter, g, adapter.WithLogger(logger)), nil
