@@ -184,7 +184,7 @@ func FindDynamicValue[T any](param *DynamicParameter, dynamicValues map[string]a
 
 // ValidateParameters checks if all provided parameters are in the expected set
 func ValidateParameters(provided map[string]any, expected []string) error {
-	expectedMap := make(map[string]struct{})
+	expectedMap := make(map[string]struct{}, len(expected))
 	for _, param := range expected {
 		expectedMap[param] = struct{}{}
 	}
