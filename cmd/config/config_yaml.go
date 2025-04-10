@@ -55,12 +55,16 @@ type PostgresConfig struct {
 }
 
 type SnapshotConfig struct {
-	Mode            string                `mapstructure:"mode" yaml:"mode"`
-	Tables          []string              `mapstructure:"tables" yaml:"tables"`
-	RecorderEnabled bool                  `mapstructure:"recorder_enabled" yaml:"recorder_enabled"`
-	SnapshotWorkers int                   `mapstructure:"snapshot_workers" yaml:"snapshot_workers"`
-	Data            *SnapshotDataConfig   `mapstructure:"data" yaml:"data"`
-	Schema          *SnapshotSchemaConfig `mapstructure:"schema" yaml:"schema"`
+	Mode            string                  `mapstructure:"mode" yaml:"mode"`
+	Tables          []string                `mapstructure:"tables" yaml:"tables"`
+	Recorder        *SnapshotRecorderConfig `mapstructure:"recorder" yaml:"recorder"`
+	SnapshotWorkers int                     `mapstructure:"snapshot_workers" yaml:"snapshot_workers"`
+	Data            *SnapshotDataConfig     `mapstructure:"data" yaml:"data"`
+	Schema          *SnapshotSchemaConfig   `mapstructure:"schema" yaml:"schema"`
+}
+
+type SnapshotRecorderConfig struct {
+	PostgresURL string `mapstructure:"postgres_url" yaml:"postgres_url"`
 }
 
 type SnapshotDataConfig struct {
@@ -247,6 +251,7 @@ var (
 	errUnsupportedSearchEngine       = errors.New("unsupported search engine, must be one of 'opensearch' or 'elasticsearch'")
 	errInvalidPgdumpPgrestoreConfig  = errors.New("pgdump_pgrestore snapshot mode requires target postgres config")
 	errInvalidInjectorConfig         = errors.New("injector config can't infer schemalog url from source postgres url, schemalog_url must be provided")
+	errInvalidSnapshotRecorderConfig = errors.New("snapshot recorder config requires a postgres url")
 )
 
 func (c *YAMLConfig) toStreamConfig() (*stream.Config, error) {
@@ -348,6 +353,13 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 		},
 	}
 
+	if snapshotConfig.Recorder != nil {
+		if snapshotConfig.Recorder.PostgresURL == "" {
+			return nil, errInvalidSnapshotRecorderConfig
+		}
+		streamCfg.SnapshotStoreURL = snapshotConfig.Recorder.PostgresURL
+	}
+
 	switch snapshotConfig.Mode {
 	case fullSnapshotMode, dataSnapshotMode, schemaSnapshotMode:
 	default:
@@ -369,10 +381,6 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	if snapshotConfig.RecorderEnabled {
-		streamCfg.SnapshotStoreURL = c.Source.Postgres.URL
 	}
 
 	return streamCfg, nil
