@@ -27,6 +27,23 @@ func TestMaskingTransformer(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "error - invalid, custom masking",
+			params: Parameters{
+				"type":         "custom",
+				"mask_begin":   "4",
+				"unmask_begin": "4",
+			},
+			wantErr: errMaskUnmaskCannotBeUsedTogether,
+		},
+		{
+			name: "error - invalid param type, custom masking",
+			params: Parameters{
+				"type":       "custom",
+				"mask_begin": 4,
+			},
+			wantErr: ErrInvalidParameters,
+		},
+		{
 			name: "error - invalid masking type",
 			params: Parameters{
 				"type": "invalid",
@@ -153,6 +170,37 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 			},
 			input:   "Sensitive Data",
 			want:    "**************",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking",
+			params: Parameters{
+				"type": "custom",
+			},
+			input:   "Sensitive Data",
+			want:    "**************",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with mask indexes",
+			params: Parameters{
+				"type":       "custom",
+				"mask_begin": "4",
+				"mask_end":   "400%",
+			},
+			input:   "Sensitive Data",
+			want:    "Sens**********",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with unmask indexes",
+			params: Parameters{
+				"type":         "custom",
+				"unmask_begin": "78%",
+				"unmask_end":   "-4%",
+			},
+			input:   "Sensitive Data",
+			want:    "Sensitive ****",
 			wantErr: nil,
 		},
 		{
