@@ -3,6 +3,8 @@
 package builder
 
 import (
+	"fmt"
+
 	"github.com/xataio/pgstream/pkg/transformers"
 	"github.com/xataio/pgstream/pkg/transformers/greenmask"
 	"github.com/xataio/pgstream/pkg/transformers/neosync"
@@ -43,6 +45,6 @@ func New(cfg *transformers.Config) (transformers.Transformer, error) {
 	case transformers.Masking:
 		return transformers.NewMaskingTransformer(cfg.Parameters)
 	default:
-		return nil, transformers.ErrUnsupportedTransformer
+		return nil, fmt.Errorf("%w: unexpected transformer name '%s'", transformers.ErrUnsupportedTransformer, cfg.Name)
 	}
 }
