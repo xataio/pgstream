@@ -27,7 +27,7 @@ const (
 
 var (
 	errInvalidMaskingType = errors.New(
-		"masking_type must be one of 'custom', 'password', 'name', 'address', 'email', 'mobile', 'tel', 'id', 'credit_card', 'url' or 'default'",
+		"type must be one of 'custom', 'password', 'name', 'address', 'email', 'mobile', 'tel', 'id', 'credit_card', 'url' or 'default'",
 	)
 	errMaskUnmaskCannotBeUsedTogether = errors.New("masking: mask and unmask parameters cannot be used together")
 )
