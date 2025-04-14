@@ -15,7 +15,13 @@ type StringTransformer struct {
 
 const defaultSymbols = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
 
+var stringTransformerParams = []string{"symbols", "min_length", "max_length", "generator"}
+
 func NewStringTransformer(params transformers.Parameters) (*StringTransformer, error) {
+	if err := transformers.ValidateParameters(params, stringTransformerParams); err != nil {
+		return nil, err
+	}
+
 	symbols, err := findParameter(params, "symbols", defaultSymbols)
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_string: symbols must be a string: %w", err)
