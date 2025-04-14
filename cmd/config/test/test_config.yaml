@@ -100,15 +100,15 @@ target:
 modifiers:
   injector:
     enabled: true # whether to inject pgstream metadata into the WAL events
-  filter:
-    whitelist_tables:
-      - "test"
-      - "test_schema.test"
-      - "another_schema.*"
-    blacklist_tables:
-      - "blacklist_test"
-      - "blacklist_schema.test"
-      - "another_blacklist_schema.*"
+  filter: # one of whitelist_tables or blacklist_tables
+    whitelist_tables: # list of tables for which events should be allowed. Tables should be schema qualified. If no schema is provided, the public schema will be assumed. Wildcards "*" are supported.
+     - "test"
+     - "test_schema.test"
+     - "another_schema.*"
+    blacklist_tables: # list of tables for which events should be skipped. Tables should be schema qualified. If no schema is provided, the public schema will be assumed. Wildcards "*" are supported.
+     - "blacklist_test"
+     - "blacklist_schema.test"
+     - "another_blacklist_schema.*"
   transformations:
   - schema: public
     table: test

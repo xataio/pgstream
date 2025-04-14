@@ -12,6 +12,8 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor"
 )
 
+// Filter is a processor wrapper that filter table WAL events based on the
+// configured table whitelist/blacklists.
 type Filter struct {
 	processor      processor.Processor
 	tableWhitelist schemaTableMap
@@ -20,7 +22,13 @@ type Filter struct {
 }
 
 type Config struct {
+	// List of tables to allow. Tables should be schema qualified. If no schema
+	// is provided, the public schema will be assumed. Wildcards "*" are
+	// supported.
 	WhitelistTables []string
+	// List of tables to skip. Tables should be schema qualified. If no schema
+	// is provided, the public schema will be assumed. Wildcards "*" are
+	// supported.
 	BlacklistTables []string
 }
 
@@ -39,6 +47,9 @@ const (
 	publicSchema = "public"
 )
 
+// New will return a filter processor wrapper that will skip WAL events as per
+// the configuration provided. Only whitelist or blacklist can be provided (not
+// both).
 func New(processor processor.Processor, cfg *Config, opts ...Option) (*Filter, error) {
 	if len(cfg.BlacklistTables) > 0 && len(cfg.WhitelistTables) > 0 {
 		return nil, errWhitelistBlacklist
