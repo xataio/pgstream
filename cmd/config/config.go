@@ -15,12 +15,14 @@ func Load() error {
 }
 
 func LoadFile(file string) error {
-	if file != "" {
-		viper.SetConfigFile(file)
-		viper.SetConfigType(filepath.Ext(file)[1:])
-		if err := viper.ReadInConfig(); err != nil {
-			return fmt.Errorf("reading config: %w", err)
-		}
+	if file == "" {
+		return nil
+	}
+	fmt.Printf("using config file: %s\n", file) //nolint:forbidigo //logger hasn't been configured yet
+	viper.SetConfigFile(file)
+	viper.SetConfigType(filepath.Ext(file)[1:])
+	if err := viper.ReadInConfig(); err != nil {
+		return fmt.Errorf("reading config: %w", err)
 	}
 
 	transformerRulesFile := viper.GetString("PGSTREAM_TRANSFORMER_RULES_FILE")
@@ -30,7 +32,11 @@ func LoadFile(file string) error {
 		if err := viper.MergeInConfig(); err != nil {
 			return fmt.Errorf("reading transformer rules config: %w", err)
 		}
+		// reset after merge
+		viper.SetConfigFile(file)
+		viper.SetConfigType(filepath.Ext(file)[1:])
 	}
+
 	return nil
 }
 
