@@ -11,6 +11,7 @@ import (
 	kafkainstrumentation "github.com/xataio/pgstream/pkg/kafka/instrumentation"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
+	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	pgcheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/postgres"
@@ -20,6 +21,7 @@ import (
 	snapshotlistener "github.com/xataio/pgstream/pkg/wal/listener/snapshot"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor"
+	"github.com/xataio/pgstream/pkg/wal/processor/filter"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	processinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/instrumentation"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
@@ -257,6 +259,20 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 		}
 		defer injector.Close()
 		processor = injector
+	}
+
+	if config.Processor.Filter != nil {
+		logger.Info("adding filtering to processor...")
+		var err error
+		processor, err = filter.New(processor, config.Processor.Filter,
+			filter.WithLogger(logger),
+			// by default we whitelist the pgstream schema log table, since we won't
+			// be able to replicate DDL changes otherwise. This behaviour can be
+			// disabled by adding it to the blacklist tables.
+			filter.WithDefaultWhitelist([]string{schemalog.SchemaName + "." + schemalog.TableName}))
+		if err != nil {
+			return err
+		}
 	}
 
 	if processor != nil && instrumentation.IsEnabled() {
