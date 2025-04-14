@@ -5,6 +5,7 @@ package transformers
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/ggwhite/go-masker"
@@ -21,9 +22,15 @@ const (
 	mCreditCard string = "credit_card"
 	mURL        string = "url"
 	mDefault    string = "default"
+	mCustom     string = "custom"
 )
 
-var errInvalidMaskingType = errors.New("masking_type must be one of 'password', 'name', 'address', 'email', 'mobile', 'tel', 'id', 'credit_card', 'url' or 'default'")
+var (
+	errInvalidMaskingType = errors.New(
+		"type must be one of 'custom', 'password', 'name', 'address', 'email', 'mobile', 'tel', 'id', 'credit_card', 'url' or 'default'",
+	)
+	errMaskUnmaskCannotBeUsedTogether = errors.New("masking: mask and unmask parameters cannot be used together")
+)
 
 type maskingFunction func(val string) string
 
@@ -32,7 +39,7 @@ type MaskingTransformer struct {
 	maskingFunction maskingFunction
 }
 
-var maskingTransformerParams = []string{"type"}
+var maskingTransformerParams = []string{"type", "mask_begin", "mask_end", "unmask_begin", "unmask_end"}
 
 // NewMaskingTransformer creates a new MaskingTransformer with the given masking function.
 func NewMaskingTransformer(params Parameters) (*MaskingTransformer, error) {
@@ -68,6 +75,11 @@ func NewMaskingTransformer(params Parameters) (*MaskingTransformer, error) {
 		mf = m.CreditCard
 	case mURL:
 		mf = m.URL
+	case mCustom:
+		mf, err = getCustomMaskingFn(params)
+		if err != nil {
+			return nil, err
+		}
 	case mDefault:
 		mf = func(v string) string {
 			return strings.Repeat("*", len(v))
@@ -99,4 +111,107 @@ func (t *MaskingTransformer) CompatibleTypes() []SupportedDataType {
 		StringDataType,
 		ByteArrayDataType,
 	}
+}
+
+func getCustomMaskingFn(params Parameters) (maskingFunction, error) {
+	maskBegin, maskBeginFound, err := FindParameter[string](params, "mask_begin")
+	if err != nil {
+		return nil, fmt.Errorf("masking: mask_begin must be a string: %w", err)
+	}
+	maskEnd, maskEndFound, err := FindParameter[string](params, "mask_end")
+	if err != nil {
+		return nil, fmt.Errorf("masking: mask_end must be a string: %w", err)
+	}
+	unmaskBegin, unmaskBeginFound, err := FindParameter[string](params, "unmask_begin")
+	if err != nil {
+		return nil, fmt.Errorf("masking: unmask_begin must be a string: %w", err)
+	}
+	unmaskEnd, unmaskEndFound, err := FindParameter[string](params, "unmask_end")
+	if err != nil {
+		return nil, fmt.Errorf("masking: unmask_end must be a string: %w", err)
+	}
+
+	if (unmaskBeginFound || unmaskEndFound) && (maskBeginFound || maskEndFound) {
+		return nil, errMaskUnmaskCannotBeUsedTogether
+	}
+
+	begin, beginAbs := 0, false
+	end, endAbs := 100, false
+	mask := true
+
+	if unmaskBeginFound {
+		mask = false
+		begin, beginAbs, err = getMaskingIndex(unmaskBegin)
+		if err != nil {
+			return nil, fmt.Errorf("masking: unable to read unmask_begin: %w", err)
+		}
+	}
+	if unmaskEndFound {
+		mask = false
+		end, endAbs, err = getMaskingIndex(unmaskEnd)
+		if err != nil {
+			return nil, fmt.Errorf("masking: unable to read unmask_end: %w", err)
+		}
+	}
+	if maskBeginFound {
+		begin, beginAbs, err = getMaskingIndex(maskBegin)
+		if err != nil {
+			return nil, fmt.Errorf("masking: unable to read mask_begin: %w", err)
+		}
+	}
+	if maskEndFound {
+		end, endAbs, err = getMaskingIndex(maskEnd)
+		if err != nil {
+			return nil, fmt.Errorf("masking: unable to read mask_end: %w", err)
+		}
+	}
+	return func(v string) string {
+		var beginIndex, endIndex int
+		length := len(v)
+
+		if beginAbs {
+			beginIndex = getIntegerInRange(begin, 0, length)
+		} else {
+			beginIndex = length * getIntegerInRange(begin, 0, 100) / 100
+		}
+		if endAbs {
+			endIndex = getIntegerInRange(end, 0, length)
+		} else {
+			endIndex = length * getIntegerInRange(end, 0, 100) / 100
+		}
+
+		if beginIndex > endIndex {
+			beginIndex, endIndex = endIndex, beginIndex
+		}
+
+		if mask {
+			return v[:beginIndex] + strings.Repeat("*", endIndex-beginIndex) + v[endIndex:]
+		}
+		return strings.Repeat("*", beginIndex) + v[beginIndex:endIndex] + strings.Repeat("*", length-endIndex)
+	}, nil
+}
+
+func getIntegerInRange(v, min, max int) int {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
+}
+
+func getMaskingIndex(s string) (int, bool, error) {
+	isAbsolute := true
+	if strings.HasSuffix(s, "%") {
+		isAbsolute = false
+		s = strings.TrimSuffix(s, "%")
+	}
+
+	index, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, false, err
+	}
+
+	return int(index), isAbsolute, nil
 }

@@ -286,9 +286,9 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
 **Parameter Details:**
 
-| Parameter | Type   | Default | Required | Values                                                                     |
-| --------- | ------ | ------- | -------- | -------------------------------------------------------------------------- |
-| type      | string | default | No       | password, name, address, email, mobile, tel, id, credit_card, url, default |
+| Parameter | Type   | Default | Required | Values                                                                             |
+| --------- | ------ | ------- | -------- | ---------------------------------------------------------------------------------- |
+| type      | string | default | No       | custom, password, name, address, email, mobile, tel, id, credit_card, url, default |
 
 **Example Configuration:**
 
@@ -310,6 +310,86 @@ transformations:
 | `aVeryStrongPassword123` | `type: password`         | `************`         |
 | `john.doe@example.com`   | `type: email`            | `joh****e@example.com` |
 | `Sensitive Data`         | `type: default`          | `**************`       |
+
+With `custom` type, the masking function is defined by the user, by providing beginning and end indexes for masking. If the input is shorter than the end index, the rest of the string will all be masked. See the third example below.
+```yaml
+transformations:
+  - schema: public
+    table: users
+    column_transformers:
+      email:
+        name: masking
+        parameters:
+          type: custom
+          mask_begin: "4"
+          mask_end: "12"
+```
+
+**Input-Output Examples:**
+
+| Input Value              | Output Value           |
+| ------------------------ | ---------------------- |
+| `1234567812345678`       | `1234********5678`     |
+| `sensitive@example.com`  | `sens********ample.com`|
+| `sensitive`              | `sens*****`            |
+
+If the begin index is not provided, it defaults to 0. If the end is not provided, it defaults to input length.
+```yaml
+transformations:
+  - schema: public
+    table: users
+    column_transformers:
+      email:
+        name: masking
+        parameters:
+          type: custom
+          mask_end: "5"
+```
+
+| Input Value              | Output Value           |
+| ------------------------ | ---------------------- |
+| `1234567812345678`       | `*****67812345678`     |
+| `sensitive@example.com`  | `*****tive@example.com`|
+| `sensitive`              | `*****tive`            |
+
+Alternatively, since input length may vary, user can provide relative beginning and end indexes, as percentages of the input length.
+```yaml
+transformations:
+  - schema: public
+    table: users
+    column_transformers:
+      email:
+        name: masking
+        parameters:
+          type: custom
+          mask_begin: "15%"
+          mask_end: "85%"
+```
+| Input Value              | Output Value           |
+| ------------------------ | ---------------------- |
+| `1234567812345678`       | `12***********678`     |
+| `sensitive@example.com`  | `sen***************com`|
+| `sensitive`              | `s******ve`            |
+
+Alternatively, user can provide unmask begin and end indexes. In that case, the specified part of the input will remain unmasked, while all the rest is masked.
+Mask and unmask parameters cannot be provided at the same time. 
+```yaml
+transformations:
+  - schema: public
+    table: users
+    column_transformers:
+      email:
+        name: masking
+        parameters:
+          type: custom
+          unmask_end: "3"
+```
+| Input Value              | Output Value           |
+| ------------------------ | ---------------------- |
+| `1234567812345678`       | `123*************`     |
+| `sensitive@example.com`  | `sen******************`|
+| `sensitive`              | `sen******`            |
+
 
 </details>
 
