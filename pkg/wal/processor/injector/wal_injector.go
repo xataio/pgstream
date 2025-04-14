@@ -24,8 +24,6 @@ type Injector struct {
 	logger               loglib.Logger
 	processor            processor.Processor
 	walToLogEntryAdapter walToLogEntryAdapter
-	skipDataEvent        dataEventFilter
-	skipSchemaEvent      schemaEventFilter
 	schemaLogStore       schemalog.Store
 	idFinder             columnFinder
 	versionFinder        columnFinderWithErr
@@ -40,8 +38,6 @@ type Config struct {
 // configurable filters that allow the user of this library to have flexibility
 // when processing and injecting the wal event metadata
 type (
-	dataEventFilter     func(*wal.Data) bool
-	schemaEventFilter   func(*schemalog.LogEntry) bool
 	columnFinder        func(*schemalog.Column, *schemalog.Table) bool
 	columnFinderWithErr func(*schemalog.Column, *schemalog.Table) (bool, error)
 )
@@ -68,9 +64,6 @@ func New(cfg *Config, p processor.Processor, opts ...Option) (*Injector, error) 
 		processor:            p,
 		schemaLogStore:       schemaLogStore,
 		walToLogEntryAdapter: processor.WalDataToLogEntry,
-		// by default all events are processed
-		skipDataEvent:   func(*wal.Data) bool { return false },
-		skipSchemaEvent: func(*schemalog.LogEntry) bool { return false },
 		// by default we look for the primary key to use as identity column
 		idFinder: primaryKeyFinder,
 	}
@@ -91,18 +84,6 @@ func WithIDFinder(idFinder columnFinder) Option {
 func WithVersionFinder(versionFinder columnFinderWithErr) Option {
 	return func(in *Injector) {
 		in.versionFinder = versionFinder
-	}
-}
-
-func WithSkipSchemaEvent(skip schemaEventFilter) Option {
-	return func(in *Injector) {
-		in.skipSchemaEvent = skip
-	}
-}
-
-func WithSkipDataEvent(skip dataEventFilter) Option {
-	return func(in *Injector) {
-		in.skipDataEvent = skip
 	}
 }
 
@@ -128,9 +109,6 @@ func (in *Injector) ProcessWALEvent(ctx context.Context, event *wal.Event) error
 	}
 
 	data := event.Data
-	if in.skipDataEvent(data) {
-		return nil
-	}
 
 	switch {
 	case isSchemaLogSchema(data.Schema):
@@ -142,10 +120,6 @@ func (in *Injector) ProcessWALEvent(ctx context.Context, event *wal.Event) error
 		logEntry, err := in.walToLogEntryAdapter(data)
 		if err != nil {
 			return err
-		}
-
-		if in.skipSchemaEvent(logEntry) {
-			return nil
 		}
 
 		if err := in.schemaLogStore.Ack(ctx, logEntry); err != nil {

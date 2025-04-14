@@ -22,31 +22,15 @@ func TestInjector_ProcessWALEvent(t *testing.T) {
 	testLogEntry := newTestLogEntry()
 
 	tests := []struct {
-		name            string
-		event           *wal.Event
-		store           schemalog.Store
-		adapter         walToLogEntryAdapter
-		skipDataEvent   dataEventFilter
-		skipSchemaEvent schemaEventFilter
-		idFinder        columnFinder
-		processor       processor.Processor
+		name      string
+		event     *wal.Event
+		store     schemalog.Store
+		adapter   walToLogEntryAdapter
+		idFinder  columnFinder
+		processor processor.Processor
 
 		wantErr error
 	}{
-		{
-			name:          "ok - skip schema",
-			event:         newTestDataEvent("I"),
-			skipDataEvent: func(*wal.Data) bool { return true },
-
-			wantErr: nil,
-		},
-		{
-			name:            "ok - skip log entry schema log",
-			event:           newTestSchemaChangeEvent("I"),
-			skipSchemaEvent: func(s *schemalog.LogEntry) bool { return s.SchemaName == testSchemaName },
-
-			wantErr: nil,
-		},
 		{
 			name: "ok - schema event from ignored table",
 			event: func() *wal.Event {
@@ -186,8 +170,6 @@ func TestInjector_ProcessWALEvent(t *testing.T) {
 				logger:               loglib.NewNoopLogger(),
 				processor:            tc.processor,
 				schemaLogStore:       tc.store,
-				skipDataEvent:        func(d *wal.Data) bool { return false },
-				skipSchemaEvent:      func(*schemalog.LogEntry) bool { return false },
 				idFinder:             func(c *schemalog.Column, _ *schemalog.Table) bool { return c.Name == "col-1" },
 				versionFinder:        func(c *schemalog.Column, _ *schemalog.Table) (bool, error) { return c.Name == "col-2", nil },
 				walToLogEntryAdapter: func(d *wal.Data) (*schemalog.LogEntry, error) { return testLogEntry, nil },
@@ -199,14 +181,6 @@ func TestInjector_ProcessWALEvent(t *testing.T) {
 
 			if tc.adapter != nil {
 				injector.walToLogEntryAdapter = tc.adapter
-			}
-
-			if tc.skipSchemaEvent != nil {
-				injector.skipSchemaEvent = tc.skipSchemaEvent
-			}
-
-			if tc.skipDataEvent != nil {
-				injector.skipDataEvent = tc.skipDataEvent
 			}
 
 			err := injector.ProcessWALEvent(context.Background(), tc.event)
