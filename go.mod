@@ -19,7 +19,7 @@ require (
 	github.com/labstack/echo/v4 v4.13.3
 	github.com/lib/pq v1.10.9
 	github.com/mitchellh/mapstructure v1.5.0
-	github.com/nucleuscloud/neosync v0.5.36
+	github.com/nucleuscloud/neosync v0.5.37
 	github.com/opensearch-project/opensearch-go v1.1.0
 	github.com/pterm/pterm v0.12.80
 	github.com/rs/xid v1.6.0
@@ -39,7 +39,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.35.0
 	golang.org/x/exp v0.0.0-20250128182459-e0ece0dbea4c
 	golang.org/x/sync v0.13.0
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -169,4 +168,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250303144028-a0af3efb3deb // indirect
 	google.golang.org/grpc v1.71.0 // indirect
 	google.golang.org/protobuf v1.36.5 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
