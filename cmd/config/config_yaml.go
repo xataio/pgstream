@@ -18,6 +18,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/adapter"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
+	"github.com/xataio/pgstream/pkg/wal/processor/filter"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/postgres"
@@ -198,11 +199,17 @@ type WebhookNotifierConfig struct {
 type ModifiersConfig struct {
 	Injector        *InjectorConfig       `mapstructure:"injector" yaml:"injector"`
 	Transformations TransformationsConfig `mapstructure:"transformations" yaml:"transformations"`
+	Filter          *FilterConfig         `mapstructure:"filter" yaml:"filter"`
 }
 
 type InjectorConfig struct {
 	Enabled      bool   `mapstructure:"enabled" yaml:"enabled"`
 	SchemalogURL string `mapstructure:"schemalog_url" yaml:"schemalog_url"`
+}
+
+type FilterConfig struct {
+	WhitelistTables []string `mapstructure:"whitelist_tables" yaml:"whitelist_tables"`
+	BlacklistTables []string `mapstructure:"blacklist_tables" yaml:"blacklist_tables"`
 }
 
 type TransformationsConfig []TransformationConfig
@@ -289,6 +296,7 @@ func (c *YAMLConfig) parseProcessorConfig() (stream.ProcessorConfig, error) {
 		Postgres:    c.parsePostgresProcessorConfig(),
 		Webhook:     c.parseWebhookProcessorConfig(),
 		Transformer: c.parseTransformationConfig(),
+		Filter:      c.parseFilterConfig(),
 	}
 
 	var err error
@@ -544,6 +552,16 @@ func (c *YAMLConfig) parseTransformationConfig() *transformer.Config {
 	}
 
 	return c.Modifiers.Transformations.parseTransformationConfig()
+}
+
+func (c YAMLConfig) parseFilterConfig() *filter.Config {
+	if c.Modifiers.Filter == nil {
+		return nil
+	}
+	return &filter.Config{
+		BlacklistTables: c.Modifiers.Filter.BlacklistTables,
+		WhitelistTables: c.Modifiers.Filter.WhitelistTables,
+	}
 }
 
 func (c TransformationsConfig) parseTransformationConfig() *transformer.Config {

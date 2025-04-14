@@ -101,6 +101,11 @@ modifiers:
   injector:
     enabled: true # whether to inject pgstream metadata into the WAL events
     schemalog_url: "postgresql://user:password@localhost:5432/mydatabase" # URL of the schemalog database, if different from the source database
+  filter:
+    whitelist_tables:
+      - "test"
+    blacklist_tables:
+      - "another_test"
   transformations:
   - schema: public
     table: test

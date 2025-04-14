@@ -103,4 +103,8 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 	column, ok := dynParamGender["column"].(string)
 	assert.True(t, ok)
 	assert.Equal(t, "sex", column)
+
+	assert.NotNil(t, streamConfig.Processor.Filter)
+	assert.ElementsMatch(t, []string{"test", "test_schema.test", "another_schema.*"}, streamConfig.Processor.Filter.WhitelistTables)
+	assert.ElementsMatch(t, []string{"blacklist_test", "blacklist_schema.test", "another_blacklist_schema.*"}, streamConfig.Processor.Filter.BlacklistTables)
 }

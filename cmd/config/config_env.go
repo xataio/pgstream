@@ -17,6 +17,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/adapter"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
+	"github.com/xataio/pgstream/pkg/wal/processor/filter"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/postgres"
@@ -170,6 +171,7 @@ func parseProcessorConfig() (stream.ProcessorConfig, error) {
 		Postgres:    parsePostgresProcessorConfig(),
 		Injector:    parseInjectorConfig(),
 		Transformer: transformerCfg,
+		Filter:      parseFilterConfig(),
 	}, nil
 }
 
@@ -338,6 +340,19 @@ func parseTransformerConfig() (*transformer.Config, error) {
 		return nil, err
 	}
 	return yamlConfig.Transformations.parseTransformationConfig(), nil
+}
+
+func parseFilterConfig() *filter.Config {
+	whitelistTables := viper.GetStringSlice("PGSTREAM_FILTER_WHITELIST_TABLES")
+	blacklistTables := viper.GetStringSlice("PGSTREAM_FILTER_BLACKLIST_TABLES")
+	if len(whitelistTables) == 0 && len(blacklistTables) == 0 {
+		return nil
+	}
+
+	return &filter.Config{
+		WhitelistTables: whitelistTables,
+		BlacklistTables: blacklistTables,
+	}
 }
 
 func parseTLSConfig(prefix string) tls.Config {

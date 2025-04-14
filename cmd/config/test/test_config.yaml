@@ -100,6 +100,15 @@ target:
 modifiers:
   injector:
     enabled: true # whether to inject pgstream metadata into the WAL events
+  filter:
+    whitelist_tables:
+      - "test"
+      - "test_schema.test"
+      - "another_schema.*"
+    blacklist_tables:
+      - "blacklist_test"
+      - "blacklist_schema.test"
+      - "another_blacklist_schema.*"
   transformations:
   - schema: public
     table: test
