@@ -93,10 +93,10 @@ func parseSnapshotConfig(pgURL, prefix string) *snapshotbuilder.SnapshotListener
 		Schema: parseSchemaSnapshotConfig(prefix, pgURL),
 	}
 
-	if viper.GetString(fmt.Sprintf("%s_SNAPSHOT_STORE_URL", prefix)) != "" {
+	if storeURL := viper.GetString(fmt.Sprintf("%s_SNAPSHOT_STORE_URL", prefix)); storeURL != "" {
 		cfg.Recorder = &snapshotbuilder.SnapshotRecorderConfig{
 			RepeatableSnapshots: viper.GetBool(fmt.Sprintf("%s_SNAPSHOT_STORE_REPEATABLE", prefix)),
-			SnapshotStoreURL:    viper.GetString(fmt.Sprintf("%s_SNAPSHOT_STORE_URL", prefix)),
+			SnapshotStoreURL:    storeURL,
 		}
 	}
 
