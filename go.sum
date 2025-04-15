@@ -311,8 +311,8 @@ github.com/nexus-rpc/sdk-go v0.3.0 h1:Y3B0kLYbMhd4C2u00kcYajvmOrfozEtTV/nHSnV57j
 github.com/nexus-rpc/sdk-go v0.3.0/go.mod h1:TpfkM2Cw0Rlk9drGkoiSMpFqflKTiQLWUNyKJjF8mKQ=
 github.com/nsf/jsondiff v0.0.0-20230430225905-43f6cf3098c1 h1:dOYG7LS/WK00RWZc8XGgcUTlTxpp3mKhdR2Q9z9HbXM=
 github.com/nsf/jsondiff v0.0.0-20230430225905-43f6cf3098c1/go.mod h1:mpRZBD8SJ55OIICQ3iWH0Yz3cjzA61JdqMLoWXeB2+8=
-github.com/nucleuscloud/neosync v0.5.36 h1:QF+0fbJCi2oXn+2UmoiKqdMwJ7b5pnW9VNrPpjcGyC0=
-github.com/nucleuscloud/neosync v0.5.36/go.mod h1:p06z7P5jSPGFlUPEjJqtSrfciOMVIF/lbtbeKvh75ds=
+github.com/nucleuscloud/neosync v0.5.37 h1:IWKkAFgEckQjL2aUtx5IdN90blsindGQ2QekAm5UaUY=
+github.com/nucleuscloud/neosync v0.5.37/go.mod h1:p06z7P5jSPGFlUPEjJqtSrfciOMVIF/lbtbeKvh75ds=
 github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8Oi/yOhh5U=
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJwooC2xJA040=
