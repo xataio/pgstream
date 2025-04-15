@@ -140,12 +140,22 @@ func (s *SnapshotGenerator) createSchemaIfNotExists(ctx context.Context, schemaN
 	return err
 }
 
-func (s *SnapshotGenerator) pgdumpOptions(ss *snapshot.Snapshot) pglib.PGDumpOptions {
-	opts := pglib.PGDumpOptions{
+func (s *SnapshotGenerator) pgrestoreOptions() pglib.PGRestoreOptions {
+	return pglib.PGRestoreOptions{
+		ConnectionString: s.targetURL,
+		SchemaOnly:       true,
+		Clean:            s.cleanTargetDB,
+		Format:           "p",
+	}
+}
+
+func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, ss *snapshot.Snapshot) (*pglib.PGDumpOptions, error) {
+	opts := &pglib.PGDumpOptions{
 		ConnectionString: s.sourceURL,
-		Format:           "c",
+		Format:           "p",
 		SchemaOnly:       true,
 		Schemas:          []string{pglib.QuoteIdentifier(ss.SchemaName)},
+		Clean:            s.cleanTargetDB,
 	}
 
 	const wildcard = "*"
@@ -162,11 +172,6 @@ func (s *SnapshotGenerator) pgdumpOptions(ss *snapshot.Snapshot) pglib.PGDumpOpt
 	return opts
 }
 
-func (s *SnapshotGenerator) pgrestoreOptions() pglib.PGRestoreOptions {
-	return pglib.PGRestoreOptions{
-		ConnectionString: s.targetURL,
-		SchemaOnly:       true,
-		Clean:            s.cleanTargetDB,
 	}
 }
 
