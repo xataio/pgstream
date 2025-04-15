@@ -4,10 +4,12 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/viper"
 	"github.com/xataio/pgstream/pkg/stream"
+	"gopkg.in/yaml.v3"
 )
 
 func Load() error {
@@ -77,9 +79,14 @@ func ParseStreamConfig() (*stream.Config, error) {
 	cfgFile := viper.GetViper().ConfigFileUsed()
 	switch ext := filepath.Ext(cfgFile); ext {
 	case ".yml", ".yaml":
-		yamlCfg := YAMLConfig{}
-		if err := viper.Unmarshal(&yamlCfg); err != nil {
+		buf, err := os.ReadFile(cfgFile)
+		if err != nil {
 			return nil, err
+		}
+		yamlCfg := YAMLConfig{}
+		err = yaml.Unmarshal(buf, &yamlCfg)
+		if err != nil {
+			return nil, fmt.Errorf("in file %q: %w", cfgFile, err)
 		}
 		return yamlCfg.toStreamConfig()
 	default:
