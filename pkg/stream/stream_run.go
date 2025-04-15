@@ -266,10 +266,10 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 		var err error
 		processor, err = filter.New(processor, config.Processor.Filter,
 			filter.WithLogger(logger),
-			// by default we whitelist the pgstream schema log table, since we won't
+			// by default we include the pgstream schema log table, since we won't
 			// be able to replicate DDL changes otherwise. This behaviour can be
-			// disabled by adding it to the blacklist tables.
-			filter.WithDefaultWhitelist([]string{schemalog.SchemaName + "." + schemalog.TableName}))
+			// disabled by adding it to the exclude tables.
+			filter.WithDefaultIncludeTables([]string{schemalog.SchemaName + "." + schemalog.TableName}))
 		if err != nil {
 			return err
 		}

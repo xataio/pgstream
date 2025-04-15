@@ -343,15 +343,15 @@ func parseTransformerConfig() (*transformer.Config, error) {
 }
 
 func parseFilterConfig() *filter.Config {
-	whitelistTables := viper.GetStringSlice("PGSTREAM_FILTER_WHITELIST_TABLES")
-	blacklistTables := viper.GetStringSlice("PGSTREAM_FILTER_BLACKLIST_TABLES")
-	if len(whitelistTables) == 0 && len(blacklistTables) == 0 {
+	includeTables := viper.GetStringSlice("PGSTREAM_FILTER_INCLUDE_TABLES")
+	excludeTables := viper.GetStringSlice("PGSTREAM_FILTER_EXCLUDE_TABLES")
+	if len(includeTables) == 0 && len(excludeTables) == 0 {
 		return nil
 	}
 
 	return &filter.Config{
-		WhitelistTables: whitelistTables,
-		BlacklistTables: blacklistTables,
+		IncludeTables: includeTables,
+		ExcludeTables: excludeTables,
 	}
 }
 

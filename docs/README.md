@@ -77,7 +77,7 @@ There current implementations of the processor that act as modifier decorators a
   - Schema events:
     - Acknolwedging the new incoming schema in the Postgres `pgstream.schema_log` table.
 
-- **Filter**: allows to filter out WAL events for certain schemas/tables. It can be configured by providing either a whitelist or a blacklist. WAL events for the tables in the whitelist will be processed, while those for the tables in the blacklist or not present in the whitelist will be skipped. The format for the lists is similar to the snapshot tables, tables are expected to be schema qualified, and if not, the `public` schema will be assumed. Wildcards are supported, but not regex. Example of table list: `["test_table", "public.test_table", "test_schema.test_table", "test_schema.*", "*.test", "*.*"]`. By default, the filter whitelist will include the `pgstream.schema_log` table, since pgstream relies on it to replicate DDL changes. It can be disabled by adding it to the blacklist.
+- **Filter**: allows to filter out WAL events for certain schemas/tables. It can be configured by providing either an include or exclude table list. WAL events for the tables in the include list will be processed, while those for the tables in the exclude list or not present in the include list will be skipped. The format for the lists is similar to the snapshot tables, tables are expected to be schema qualified, and if not, the `public` schema will be assumed. Wildcards are supported, but not regex. Example of table list: `["test_table", "public.test_table", "test_schema.test_table", "test_schema.*", "*.test", "*.*"]`. By default, the filter will include the `pgstream.schema_log` table in the include table list, since pgstream relies on it to replicate DDL changes. It can be disabled by adding it to the exclude list.
 
 - **Transformer**: it modifies the column values in insert/update events according to the rules defined in the configured yaml file. It can be used for anonymising data from the source Postgres database. An example of the rules definition file can be found in the repo under `transformer_rules.yaml`. The rules have per column granularity, and certain transformers from opensource sources, such as greenmask or neosync, are supported. More details can be found in the [transformers section](#transformers).
 
@@ -246,10 +246,10 @@ One of exponential/constant backoff policies can be provided for the search stor
 <details>
   <summary>Filter</summary>
 
-| Environment Variable             | Default | Required | Description                                                                                                                                                       |
-| -------------------------------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PGSTREAM_FILTER_WHITELIST_TABLES | N/A     | No       | List of schema qualified tables for which the WAL events should be processed. If no schema is provided, `public` schema will be assumed. Wildcards are supported. |
-| PGSTREAM_FILTER_BLACKLIST_TABLES | N/A     | No       | List of schema qualified tables for which the WAL events should be skipped. If no schema is provided, `public` schema will be assumed. Wildcards are supported.   |
+| Environment Variable           | Default | Required | Description                                                                                                                                                       |
+| ------------------------------ | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PGSTREAM_FILTER_INCLUDE_TABLES | N/A     | No       | List of schema qualified tables for which the WAL events should be processed. If no schema is provided, `public` schema will be assumed. Wildcards are supported. |
+| PGSTREAM_FILTER_EXCLUDE_TABLES | N/A     | No       | List of schema qualified tables for which the WAL events should be skipped. If no schema is provided, `public` schema will be assumed. Wildcards are supported.   |
 
 </details>
 

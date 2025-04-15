@@ -105,6 +105,6 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 	assert.Equal(t, "sex", column)
 
 	assert.NotNil(t, streamConfig.Processor.Filter)
-	assert.ElementsMatch(t, []string{"test", "test_schema.test", "another_schema.*"}, streamConfig.Processor.Filter.WhitelistTables)
-	assert.ElementsMatch(t, []string{"blacklist_test", "blacklist_schema.test", "another_blacklist_schema.*"}, streamConfig.Processor.Filter.BlacklistTables)
+	assert.ElementsMatch(t, []string{"test", "test_schema.test", "another_schema.*"}, streamConfig.Processor.Filter.IncludeTables)
+	assert.ElementsMatch(t, []string{"excluded_test", "excluded_schema.test", "another_excluded_schema.*"}, streamConfig.Processor.Filter.ExcludeTables)
 }

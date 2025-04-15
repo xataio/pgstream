@@ -30,7 +30,7 @@ modifiers:
   injector:
     enabled: true # whether to inject pgstream metadata into the WAL events
   filter:
-    whitelist_tables:
+    include_tables:
     - test
   transformations:
   - schema: public

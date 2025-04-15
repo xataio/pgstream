@@ -13,23 +13,23 @@ import (
 )
 
 // Filter is a processor wrapper that filter table WAL events based on the
-// configured table whitelist/blacklists.
+// configured table include/exclude lists.
 type Filter struct {
-	processor      processor.Processor
-	tableWhitelist schemaTableMap
-	tableBlacklist schemaTableMap
-	logger         loglib.Logger
+	processor       processor.Processor
+	includeTableMap schemaTableMap
+	excludeTableMap schemaTableMap
+	logger          loglib.Logger
 }
 
 type Config struct {
 	// List of tables to allow. Tables should be schema qualified. If no schema
 	// is provided, the public schema will be assumed. Wildcards "*" are
 	// supported.
-	WhitelistTables []string
+	IncludeTables []string
 	// List of tables to skip. Tables should be schema qualified. If no schema
 	// is provided, the public schema will be assumed. Wildcards "*" are
 	// supported.
-	BlacklistTables []string
+	ExcludeTables []string
 }
 
 type schemaTableMap map[string]map[string]struct{}
@@ -37,7 +37,7 @@ type schemaTableMap map[string]map[string]struct{}
 type Option func(*Filter)
 
 var (
-	errWhitelistBlacklist     = errors.New("cannot use both whitelist and blacklist for table filtering")
+	errIncludeExcludeList     = errors.New("cannot use both include and exclude lists for table filtering")
 	errMissingFilteringConfig = errors.New("missing filtering configuration")
 	errInvalidTableName       = errors.New("invalid table name format")
 )
@@ -48,13 +48,13 @@ const (
 )
 
 // New will return a filter processor wrapper that will skip WAL events as per
-// the configuration provided. Only whitelist or blacklist can be provided (not
-// both).
+// the configuration provided. Only one of include or exclude table list can be
+// provided (not both).
 func New(processor processor.Processor, cfg *Config, opts ...Option) (*Filter, error) {
-	if len(cfg.BlacklistTables) > 0 && len(cfg.WhitelistTables) > 0 {
-		return nil, errWhitelistBlacklist
+	if len(cfg.ExcludeTables) > 0 && len(cfg.IncludeTables) > 0 {
+		return nil, errIncludeExcludeList
 	}
-	if len(cfg.BlacklistTables) == 0 && len(cfg.WhitelistTables) == 0 {
+	if len(cfg.ExcludeTables) == 0 && len(cfg.IncludeTables) == 0 {
 		return nil, errMissingFilteringConfig
 	}
 
@@ -64,15 +64,15 @@ func New(processor processor.Processor, cfg *Config, opts ...Option) (*Filter, e
 	}
 
 	var err error
-	if len(cfg.WhitelistTables) > 0 {
-		f.tableWhitelist, err = parseTables(cfg.WhitelistTables)
+	if len(cfg.IncludeTables) > 0 {
+		f.includeTableMap, err = parseTables(cfg.IncludeTables)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	if len(cfg.BlacklistTables) > 0 {
-		f.tableBlacklist, err = parseTables(cfg.BlacklistTables)
+	if len(cfg.ExcludeTables) > 0 {
+		f.excludeTableMap, err = parseTables(cfg.ExcludeTables)
 		if err != nil {
 			return nil, err
 		}
@@ -93,13 +93,13 @@ func WithLogger(logger loglib.Logger) Option {
 	}
 }
 
-// WithDefaultWhitelist will use the tables on input as default whitelist or add
-// them to the configured one if provided. If the filter has a blacklist
-// configured, the default whitelist won't apply, since only one can be
-// provided.
-func WithDefaultWhitelist(tables []string) Option {
+// WithDefaultIncludeTables will use the tables on input as default include
+// table list or add them to the configured one if provided. If the filter has
+// an exclude table list configured, the default include table list won't apply,
+// since only one can be provided.
+func WithDefaultIncludeTables(tables []string) Option {
 	return func(f *Filter) {
-		if len(f.tableBlacklist) > 0 {
+		if len(f.excludeTableMap) > 0 {
 			return
 		}
 		for _, table := range tables {
@@ -108,7 +108,7 @@ func WithDefaultWhitelist(tables []string) Option {
 			if err != nil {
 				panic(err)
 			}
-			f.tableWhitelist.add(schema, table)
+			f.includeTableMap.add(schema, table)
 		}
 	}
 }
@@ -126,17 +126,17 @@ func (f *Filter) Name() string {
 	return f.processor.Name()
 }
 
-// skip event for table if it's not in the whitelist or if it's in the blacklist
+// skip event for table if it's not in the include table list or if it's in the exclude one
 func (f *Filter) skipEvent(event *wal.Event) bool {
 	if event == nil || event.Data == nil {
 		return false
 	}
 
-	if len(f.tableWhitelist) > 0 {
-		return !f.tableWhitelist.containsSchemaTable(event.Data.Schema, event.Data.Table)
+	if len(f.includeTableMap) > 0 {
+		return !f.includeTableMap.containsSchemaTable(event.Data.Schema, event.Data.Table)
 	}
-	if len(f.tableBlacklist) > 0 {
-		return f.tableBlacklist.containsSchemaTable(event.Data.Schema, event.Data.Table)
+	if len(f.excludeTableMap) > 0 {
+		return f.excludeTableMap.containsSchemaTable(event.Data.Schema, event.Data.Table)
 	}
 
 	return false

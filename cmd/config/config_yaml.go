@@ -208,8 +208,8 @@ type InjectorConfig struct {
 }
 
 type FilterConfig struct {
-	WhitelistTables []string `mapstructure:"whitelist_tables" yaml:"whitelist_tables"`
-	BlacklistTables []string `mapstructure:"blacklist_tables" yaml:"blacklist_tables"`
+	IncludeTables []string `mapstructure:"include_tables" yaml:"include_tables"`
+	ExcludeTables []string `mapstructure:"exclude_tables" yaml:"exclude_tables"`
 }
 
 type TransformationsConfig []TransformationConfig
@@ -559,8 +559,8 @@ func (c YAMLConfig) parseFilterConfig() *filter.Config {
 		return nil
 	}
 	return &filter.Config{
-		BlacklistTables: c.Modifiers.Filter.BlacklistTables,
-		WhitelistTables: c.Modifiers.Filter.WhitelistTables,
+		ExcludeTables: c.Modifiers.Filter.ExcludeTables,
+		IncludeTables: c.Modifiers.Filter.IncludeTables,
 	}
 }
 

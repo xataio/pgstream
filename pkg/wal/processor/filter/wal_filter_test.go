@@ -23,18 +23,18 @@ func Test_New(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		config        *Config
-		wantWhitelist schemaTableMap
-		wantBlacklist schemaTableMap
-		wantErr       error
+		name         string
+		config       *Config
+		wantIncluded schemaTableMap
+		wantExcluded schemaTableMap
+		wantErr      error
 	}{
 		{
-			name: "valid whitelist configuration",
+			name: "valid included configuration",
 			config: &Config{
-				WhitelistTables: []string{"users", "public.orders", "public.*", "*.*"},
+				IncludeTables: []string{"users", "public.orders", "public.*", "*.*"},
 			},
-			wantWhitelist: schemaTableMap{
+			wantIncluded: schemaTableMap{
 				"public": map[string]struct{}{
 					"*":       {},
 					"orders":  {},
@@ -48,11 +48,11 @@ func Test_New(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "valid blacklist configuration",
+			name: "valid excluded configuration",
 			config: &Config{
-				BlacklistTables: []string{"public.users", "public.orders"},
+				ExcludeTables: []string{"public.users", "public.orders"},
 			},
-			wantBlacklist: schemaTableMap{
+			wantExcluded: schemaTableMap{
 				"public": map[string]struct{}{
 					"orders": {},
 					"users":  {},
@@ -61,24 +61,24 @@ func Test_New(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "both whitelist and blacklist configured",
+			name: "both included and excluded configured",
 			config: &Config{
-				WhitelistTables: []string{"public.users"},
-				BlacklistTables: []string{"public.orders"},
+				IncludeTables: []string{"public.users"},
+				ExcludeTables: []string{"public.orders"},
 			},
-			wantErr: errWhitelistBlacklist,
+			wantErr: errIncludeExcludeList,
 		},
 		{
-			name: "invalid table name in whitelist",
+			name: "invalid table name in included",
 			config: &Config{
-				WhitelistTables: []string{"invalid.table.name"},
+				IncludeTables: []string{"invalid.table.name"},
 			},
 			wantErr: errInvalidTableName,
 		},
 		{
-			name: "invalid table name in blacklist",
+			name: "invalid table name in excluded",
 			config: &Config{
-				BlacklistTables: []string{"invalid.table.name"},
+				ExcludeTables: []string{"invalid.table.name"},
 			},
 			wantErr: errInvalidTableName,
 		},
@@ -94,14 +94,14 @@ func Test_New(t *testing.T) {
 			t.Parallel()
 
 			filter, err := New(mockProcessor, tc.config,
-				WithDefaultWhitelist([]string{"default"}),
+				WithDefaultIncludeTables([]string{"default"}),
 				WithLogger(log.NewNoopLogger()))
 			require.ErrorIs(t, err, tc.wantErr)
 			if filter == nil {
 				return
 			}
-			require.Equal(t, tc.wantWhitelist, filter.tableWhitelist)
-			require.Equal(t, tc.wantBlacklist, filter.tableBlacklist)
+			require.Equal(t, tc.wantIncluded, filter.includeTableMap)
+			require.Equal(t, tc.wantExcluded, filter.excludeTableMap)
 		})
 	}
 }
@@ -123,8 +123,8 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 	tests := []struct {
 		name      string
 		processor *mocks.Processor
-		whitelist schemaTableMap
-		blacklist schemaTableMap
+		included  schemaTableMap
+		excluded  schemaTableMap
 		event     *wal.Event
 
 		wantErr error
@@ -138,12 +138,12 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			whitelist: nil,
-			blacklist: nil,
-			wantErr:   nil,
+			included: nil,
+			excluded: nil,
+			wantErr:  nil,
 		},
 		{
-			name:  "event matches whitelist",
+			name:  "event matches included",
 			event: testEvent,
 			processor: &mocks.Processor{
 				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
@@ -151,40 +151,40 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			whitelist: schemaTableMap{
+			included: schemaTableMap{
 				testSchema: {
 					testTable: struct{}{},
 				},
 			},
-			blacklist: nil,
-			wantErr:   nil,
+			excluded: nil,
+			wantErr:  nil,
 		},
 		{
-			name:  "event does not match whitelist",
+			name:  "event does not match included",
 			event: testEvent,
 			processor: &mocks.Processor{
 				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
 					return errors.New("ProcessWALEventFn: should not be called")
 				},
 			},
-			whitelist: schemaTableMap{
+			included: schemaTableMap{
 				"public": {
 					"orders": struct{}{},
 				},
 			},
-			blacklist: nil,
-			wantErr:   nil,
+			excluded: nil,
+			wantErr:  nil,
 		},
 		{
-			name:  "event matches blacklist",
+			name:  "event matches excluded",
 			event: testEvent,
 			processor: &mocks.Processor{
 				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
 					return errors.New("ProcessWALEventFn: should not be called")
 				},
 			},
-			whitelist: nil,
-			blacklist: schemaTableMap{
+			included: nil,
+			excluded: schemaTableMap{
 				testSchema: {
 					testTable: struct{}{},
 				},
@@ -192,7 +192,7 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:  "event does not match blacklist",
+			name:  "event does not match excluded",
 			event: testEvent,
 			processor: &mocks.Processor{
 				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
@@ -200,8 +200,8 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			whitelist: nil,
-			blacklist: schemaTableMap{
+			included: nil,
+			excluded: schemaTableMap{
 				"public": {
 					"orders": struct{}{},
 				},
@@ -215,10 +215,10 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 			t.Parallel()
 
 			f := &Filter{
-				logger:         log.NewNoopLogger(),
-				processor:      tc.processor,
-				tableBlacklist: tc.blacklist,
-				tableWhitelist: tc.whitelist,
+				logger:          log.NewNoopLogger(),
+				processor:       tc.processor,
+				excludeTableMap: tc.excluded,
+				includeTableMap: tc.included,
 			}
 
 			err := f.ProcessWALEvent(ctx, tc.event)
