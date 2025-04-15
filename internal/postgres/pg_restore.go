@@ -14,6 +14,7 @@ import (
 
 const (
 	pgRestoreCmd = "pg_restore"
+	psqlCmd      = "psql"
 )
 
 type PGRestoreOptions struct {
@@ -23,6 +24,8 @@ type PGRestoreOptions struct {
 	SchemaOnly bool
 	// Clean all the objects that will be restored
 	Clean bool
+	// Format (c custom, d directory, t tar, p plain text)
+	Format string
 	// Options to pass to pg_restore
 	Options []string
 }
@@ -45,10 +48,20 @@ func (opts PGRestoreOptions) toArgs() []string {
 	return options
 }
 
+func (opts PGRestoreOptions) toPSQLArgs() []string {
+	return []string{opts.ConnectionString}
+}
+
 // Func RunPGRestore runs pg_restore command with the given options and returns
 // the result.
 func RunPGRestore(opts PGRestoreOptions, dump []byte) (string, error) {
-	cmd := exec.Command(pgRestoreCmd, opts.toArgs()...) //nolint:gosec
+	var cmd *exec.Cmd
+	switch opts.Format {
+	case "c":
+		cmd = exec.Command(pgRestoreCmd, opts.toArgs()...) //nolint:gosec
+	default:
+		cmd = exec.Command(psqlCmd, opts.toPSQLArgs()...) //nolint:gosec
+	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -74,14 +87,19 @@ func parsePgRestoreOutputErrs(out []byte) error {
 	scanner := bufio.NewScanner(bytes.NewReader(out))
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.Contains(line, "pg_restore: error:") {
+		if strings.Contains(line, "pg_restore: error:") || strings.Contains(line, "ERROR") {
 			switch {
 			case strings.Contains(line, "already exists"),
 				strings.Contains(line, "multiple primary keys for table"):
 				errs.addError(&ErrRelationAlreadyExists{Details: line})
+			case strings.Contains(line, "cannot drop schema public because other objects depend on it"):
+				errs.addError(&ErrConstraintViolation{Details: line})
 			default:
 				errs.addError(errors.New(line))
 			}
+		}
+		if strings.Contains(line, "psql: error:") {
+			errs.addError(errors.New(line))
 		}
 	}
 	return errs
@@ -122,8 +140,10 @@ func (e *PGRestoreErrors) addError(err error) {
 	}
 
 	var errAlreadyExists *ErrRelationAlreadyExists
+	var errConstraintViolation *ErrConstraintViolation
 	switch {
-	case errors.As(err, &errAlreadyExists):
+	case errors.As(err, &errAlreadyExists),
+		errors.As(err, &errConstraintViolation):
 		e.ignoredErrs = append(e.ignoredErrs, err)
 	default:
 		e.criticalErrs = append(e.criticalErrs, err)
