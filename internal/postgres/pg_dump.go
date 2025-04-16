@@ -25,6 +25,8 @@ type PGDumpOptions struct {
 	SchemaOnly bool
 	// do not dump privileges (grant/revoke)
 	NoPrivileges bool
+	// Clean all the objects that will be dumped
+	Clean bool
 	// Options to pass to pg_dump
 	Options []string
 }
@@ -56,6 +58,11 @@ func (opts *PGDumpOptions) ToArgs() []string {
 
 	for _, table := range opts.ExcludeTables {
 		options = append(options, fmt.Sprintf("--exclude-table=%v", table))
+	}
+
+	if opts.Clean {
+		options = append(options, "--clean")
+		options = append(options, "--if-exists")
 	}
 
 	options = append(options, opts.Options...)

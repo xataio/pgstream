@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
@@ -40,7 +42,10 @@ type (
 
 type Option func(s *SnapshotGenerator)
 
-const publicSchema = "public"
+const (
+	publicSchema = "public"
+	wildcard     = "*"
+)
 
 // NewSnapshotGenerator will return a postgres schema snapshot generator that
 // uses pg_dump and pg_restore to sync the schema of two postgres databases
@@ -82,7 +87,13 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	if ss.SchemaName == publicSchema && len(ss.TableNames) == 0 {
 		return nil
 	}
-	dump, err := s.pgDumpFn(s.pgdumpOptions(ss))
+
+	pgdumpOpts, err := s.pgdumpOptions(ctx, ss)
+	if err != nil {
+		return fmt.Errorf("preparing pg_dump options: %w", err)
+	}
+
+	dump, err := s.pgDumpFn(*pgdumpOpts)
 	if err != nil {
 		return err
 	}
@@ -104,7 +115,8 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 			if pgrestoreErr.HasCriticalErrors() {
 				return err
 			}
-			s.logger.Warn(nil, "pg_restore errors ignored", loglib.Fields{"errors_ignored": len(pgrestoreErr.GetIgnoredErrors())})
+			ignoredErrors := pgrestoreErr.GetIgnoredErrors()
+			s.logger.Warn(nil, fmt.Sprintf("pg_restore: %d errors ignored", len(ignoredErrors)), loglib.Fields{"errors_ignored": ignoredErrors})
 		default:
 			return err
 		}
@@ -140,34 +152,80 @@ func (s *SnapshotGenerator) createSchemaIfNotExists(ctx context.Context, schemaN
 	return err
 }
 
-func (s *SnapshotGenerator) pgdumpOptions(ss *snapshot.Snapshot) pglib.PGDumpOptions {
-	opts := pglib.PGDumpOptions{
-		ConnectionString: s.sourceURL,
-		Format:           "c",
-		SchemaOnly:       true,
-		Schemas:          []string{pglib.QuoteIdentifier(ss.SchemaName)},
-	}
-
-	const wildcard = "*"
-	for _, table := range ss.TableNames {
-		if table == wildcard {
-			// wildcard means all tables in the schema, so no table filter
-			// required
-			opts.Tables = nil
-			break
-		}
-		opts.Tables = append(opts.Tables, pglib.QuoteQualifiedIdentifier(ss.SchemaName, table))
-	}
-
-	return opts
-}
-
 func (s *SnapshotGenerator) pgrestoreOptions() pglib.PGRestoreOptions {
 	return pglib.PGRestoreOptions{
 		ConnectionString: s.targetURL,
 		SchemaOnly:       true,
 		Clean:            s.cleanTargetDB,
+		Format:           "p",
 	}
+}
+
+func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, ss *snapshot.Snapshot) (*pglib.PGDumpOptions, error) {
+	opts := &pglib.PGDumpOptions{
+		ConnectionString: s.sourceURL,
+		Format:           "p",
+		SchemaOnly:       true,
+		Schemas:          []string{pglib.QuoteIdentifier(ss.SchemaName)},
+		Clean:            s.cleanTargetDB,
+	}
+
+	// wildcard means all tables in the schema, so no table filter required
+	if slices.Contains(ss.TableNames, wildcard) {
+		return opts, nil
+	}
+
+	// we use the excluded tables flag to make sure we still dump non table
+	// objects for the schema in question. If we use the tables filter, only
+	// those tables are dumped, and any related non table objects will not be
+	// dumped, causing the restore to fail due to missing related objects.
+	if len(ss.TableNames) > 0 {
+		var err error
+		opts.ExcludeTables, err = s.pgdumpExcludedTables(ctx, ss.SchemaName, ss.TableNames)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return opts, nil
+}
+
+func (s *SnapshotGenerator) pgdumpExcludedTables(ctx context.Context, schemaName string, includeTables []string) ([]string, error) {
+	conn, err := s.connBuilder(ctx, s.sourceURL)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close(ctx)
+
+	paramRefs := make([]string, 0, len(includeTables))
+	tableParams := make([]any, 0, len(includeTables))
+	for i, table := range includeTables {
+		tableParams = append(tableParams, table)
+		paramRefs = append(paramRefs, fmt.Sprintf("$%d", i+1))
+	}
+
+	// get all tables in the schema that are not in the include list
+	query := fmt.Sprintf("SELECT tablename FROM pg_tables WHERE schemaname = '%s' AND tablename NOT IN (%s)", schemaName, strings.Join(paramRefs, ","))
+	rows, err := conn.Query(ctx, query, tableParams...)
+	if err != nil {
+		return nil, fmt.Errorf("retrieving tables from schema: %w", err)
+	}
+	defer rows.Close()
+
+	excludeTables := []string{}
+	for rows.Next() {
+		tableName := ""
+		if err := rows.Scan(&tableName); err != nil {
+			return nil, fmt.Errorf("scanning table name: %w", err)
+		}
+		excludeTables = append(excludeTables, pglib.QuoteIdentifier(tableName))
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return excludeTables, nil
 }
 
 func (s *SnapshotGenerator) initialiseSchemaLogStore(ctx context.Context) error {
