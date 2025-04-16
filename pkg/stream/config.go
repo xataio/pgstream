@@ -10,6 +10,7 @@ import (
 	"github.com/xataio/pgstream/pkg/kafka"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
+	"github.com/xataio/pgstream/pkg/wal/processor/filter"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/postgres"
@@ -49,6 +50,7 @@ type ProcessorConfig struct {
 	Postgres    *PostgresProcessorConfig
 	Injector    *injector.Config
 	Transformer *transformer.Config
+	Filter      *filter.Config
 }
 
 type KafkaProcessorConfig struct {

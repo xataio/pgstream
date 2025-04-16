@@ -29,6 +29,9 @@ target:
 modifiers:
   injector:
     enabled: true # whether to inject pgstream metadata into the WAL events
+  filter:
+    include_tables:
+    - test
   transformations:
   - schema: public
     table: test

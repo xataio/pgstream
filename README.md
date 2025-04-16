@@ -171,7 +171,7 @@ Some of the limitations of the initial release include:
 
 - Single Kafka topic support
 - Postgres plugin support limited to `wal2json`
-- Limited filtering
+- No row level filtering support
 - Primary key/unique not null column required for replication
 - Kafka serialisation support limited to JSON
 

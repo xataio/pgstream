@@ -60,9 +60,11 @@ The current implementations of the processor include:
 
 - **Postgres batch writer**: it writes the WAL events into a PostgreSQL compatible database. It implements the same kind of mechanism than the Kafka and the search batch writers to ensure continuous processing from the listener, and it also uses a batching mechanism to minimise PostgreSQL IO traffic.
 
-In addition to the implementations described above, there are optional processor decorators, which work in conjunction with one of the main processor implementations described above. Their goal is to act as modifiers to enrich the wal event being processed.
+In addition to the implementations described above, there are optional processor decorators, which work in conjunction with one of the main processor implementations described above. Their goal is to act as modifiers to enrich the wal event being processed. We will refer to them as modifiers.
 
-There are currently two implementations of the processor that act as decorators:
+#### Modifiers
+
+There current implementations of the processor that act as modifier decorators are:
 
 - **Injector**: injects some of the pgstream logic into the WAL event. This includes:
 
@@ -74,6 +76,8 @@ There are currently two implementations of the processor that act as decorators:
 
   - Schema events:
     - Acknolwedging the new incoming schema in the Postgres `pgstream.schema_log` table.
+
+- **Filter**: allows to filter out WAL events for certain schemas/tables. It can be configured by providing either an include or exclude table list. WAL events for the tables in the include list will be processed, while those for the tables in the exclude list or not present in the include list will be skipped. The format for the lists is similar to the snapshot tables, tables are expected to be schema qualified, and if not, the `public` schema will be assumed. Wildcards are supported, but not regex. Example of table list: `["test_table", "public.test_table", "test_schema.test_table", "test_schema.*", "*.test", "*.*"]`. By default, the filter will include the `pgstream.schema_log` table in the include table list, since pgstream relies on it to replicate DDL changes. It can be disabled by adding it to the exclude list.
 
 - **Transformer**: it modifies the column values in insert/update events according to the rules defined in the configured yaml file. It can be used for anonymising data from the source Postgres database. An example of the rules definition file can be found in the repo under `transformer_rules.yaml`. The rules have per column granularity, and certain transformers from opensource sources, such as greenmask or neosync, are supported. More details can be found in the [transformers section](#transformers).
 
@@ -219,6 +223,8 @@ One of exponential/constant backoff policies can be provided for the search stor
 
 </details>
 
+#### Modifiers
+
 <details>
   <summary>Injector</summary>
 
@@ -234,6 +240,16 @@ One of exponential/constant backoff policies can be provided for the search stor
 | Environment Variable            | Default | Required | Description                                                          |
 | ------------------------------- | ------- | -------- | -------------------------------------------------------------------- |
 | PGSTREAM_TRANSFORMER_RULES_FILE | N/A     | No       | Filepath pointing to the yaml file containing the transformer rules. |
+
+</details>
+
+<details>
+  <summary>Filter</summary>
+
+| Environment Variable           | Default | Required | Description                                                                                                                                                       |
+| ------------------------------ | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PGSTREAM_FILTER_INCLUDE_TABLES | N/A     | No       | List of schema qualified tables for which the WAL events should be processed. If no schema is provided, `public` schema will be assumed. Wildcards are supported. |
+| PGSTREAM_FILTER_EXCLUDE_TABLES | N/A     | No       | List of schema qualified tables for which the WAL events should be skipped. If no schema is provided, `public` schema will be assumed. Wildcards are supported.   |
 
 </details>
 
@@ -312,6 +328,7 @@ transformations:
 | `Sensitive Data`         | `type: default`          | `**************`       |
 
 With `custom` type, the masking function is defined by the user, by providing beginning and end indexes for masking. If the input is shorter than the end index, the rest of the string will all be masked. See the third example below.
+
 ```yaml
 transformations:
   - schema: public
@@ -327,13 +344,14 @@ transformations:
 
 **Input-Output Examples:**
 
-| Input Value              | Output Value           |
-| ------------------------ | ---------------------- |
-| `1234567812345678`       | `1234********5678`     |
-| `sensitive@example.com`  | `sens********ample.com`|
-| `sensitive`              | `sens*****`            |
+| Input Value             | Output Value            |
+| ----------------------- | ----------------------- |
+| `1234567812345678`      | `1234********5678`      |
+| `sensitive@example.com` | `sens********ample.com` |
+| `sensitive`             | `sens*****`             |
 
 If the begin index is not provided, it defaults to 0. If the end is not provided, it defaults to input length.
+
 ```yaml
 transformations:
   - schema: public
@@ -346,13 +364,14 @@ transformations:
           mask_end: "5"
 ```
 
-| Input Value              | Output Value           |
-| ------------------------ | ---------------------- |
-| `1234567812345678`       | `*****67812345678`     |
-| `sensitive@example.com`  | `*****tive@example.com`|
-| `sensitive`              | `*****tive`            |
+| Input Value             | Output Value            |
+| ----------------------- | ----------------------- |
+| `1234567812345678`      | `*****67812345678`      |
+| `sensitive@example.com` | `*****tive@example.com` |
+| `sensitive`             | `*****tive`             |
 
 Alternatively, since input length may vary, user can provide relative beginning and end indexes, as percentages of the input length.
+
 ```yaml
 transformations:
   - schema: public
@@ -365,14 +384,16 @@ transformations:
           mask_begin: "15%"
           mask_end: "85%"
 ```
-| Input Value              | Output Value           |
-| ------------------------ | ---------------------- |
-| `1234567812345678`       | `12***********678`     |
-| `sensitive@example.com`  | `sen***************com`|
-| `sensitive`              | `s******ve`            |
+
+| Input Value             | Output Value            |
+| ----------------------- | ----------------------- |
+| `1234567812345678`      | `12***********678`      |
+| `sensitive@example.com` | `sen***************com` |
+| `sensitive`             | `s******ve`             |
 
 Alternatively, user can provide unmask begin and end indexes. In that case, the specified part of the input will remain unmasked, while all the rest is masked.
-Mask and unmask parameters cannot be provided at the same time. 
+Mask and unmask parameters cannot be provided at the same time.
+
 ```yaml
 transformations:
   - schema: public
@@ -384,12 +405,12 @@ transformations:
           type: custom
           unmask_end: "3"
 ```
-| Input Value              | Output Value           |
-| ------------------------ | ---------------------- |
-| `1234567812345678`       | `123*************`     |
-| `sensitive@example.com`  | `sen******************`|
-| `sensitive`              | `sen******`            |
 
+| Input Value             | Output Value            |
+| ----------------------- | ----------------------- |
+| `1234567812345678`      | `123*************`      |
+| `sensitive@example.com` | `sen******************` |
+| `sensitive`             | `sen******`             |
 
 </details>
 
