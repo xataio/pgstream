@@ -159,10 +159,16 @@ func (t schemaTableMap) containsSchemaTable(schema, table string) bool {
 
 func (t schemaTableMap) getSchemaTables(schema string) map[string]struct{} {
 	tables, found := t[schema]
-	if found {
-		return tables
+	if !found {
+		return t[wildcard]
 	}
-	return t[wildcard]
+
+	// make sure it's merged with the wildcard schema tables if any
+	for table := range t[wildcard] {
+		tables[table] = struct{}{}
+	}
+
+	return tables
 }
 
 func (t schemaTableMap) add(schema, table string) {
