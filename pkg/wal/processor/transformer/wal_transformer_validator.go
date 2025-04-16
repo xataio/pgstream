@@ -42,13 +42,11 @@ func (v *PostgresTransformerValidator) Validate(ctx context.Context, transformer
 		defer rows.Close()
 		fieldDescriptions := rows.FieldDescriptions()
 
-		// TODO: maybe error out if len(fieldDescriptions) != len(columnTransformers)
-		// if we start requiring a transformer for every column (noop transformers)
-
 		// map column names to column pg type OIDs, skip columns that don't have a transformer
 		mappedColumns := make(map[string]uint32, len(fieldDescriptions))
 		for _, desc := range fieldDescriptions {
 			if _, found := columnTransformers[string(desc.Name)]; !found {
+				// TODO: error here in case of strict validation
 				continue
 			}
 
@@ -72,6 +70,10 @@ func (v *PostgresTransformerValidator) Validate(ctx context.Context, transformer
 }
 
 func pgTypeCompatibleWithTransformerType(compatibleTypes []transformers.SupportedDataType, pgType uint32) bool {
+	if slices.Contains(compatibleTypes, transformers.AllDataType) {
+		return true
+	}
+
 	switch pgType {
 	case pgtype.TextOID, pgtype.VarcharOID, pgtype.BPCharOID:
 		return slices.Contains(compatibleTypes, transformers.StringDataType)

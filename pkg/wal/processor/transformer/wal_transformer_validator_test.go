@@ -66,6 +66,10 @@ func TestPostgresTransformerValidator(t *testing.T) {
 							Name:        "created_at",
 							DataTypeOID: pgtype.TimestamptzOID,
 						},
+						{
+							Name:        "column_with_noop_transformer",
+							DataTypeOID: pgtype.Float8OID,
+						},
 					}
 				},
 				CloseFn: func() {},
@@ -178,6 +182,13 @@ func TestPostgresTransformerValidator(t *testing.T) {
 						CompatibleTypesFn: func() []transformers.SupportedDataType {
 							return []transformers.SupportedDataType{
 								transformers.DatetimeDataType,
+							}
+						},
+					},
+					"column_with_noop_transformer": &mocks.Transformer{
+						CompatibleTypesFn: func() []transformers.SupportedDataType {
+							return []transformers.SupportedDataType{
+								transformers.AllDataType,
 							}
 						},
 					},

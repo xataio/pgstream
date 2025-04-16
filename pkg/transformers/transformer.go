@@ -46,6 +46,7 @@ const (
 	GreenmaskDate          TransformerType = "greenmask_date"
 	GreenmaskUTCTimestamp  TransformerType = "greenmask_utc_timestamp"
 	Masking                TransformerType = "masking"
+	Noop                   TransformerType = "noop"
 )
 
 type SupportedDataType string
@@ -68,6 +69,7 @@ const (
 	UInt8ArrayOf16DataType SupportedDataType = "uint8_array_of_16"
 	DateDataType           SupportedDataType = "date"
 	DatetimeDataType       SupportedDataType = "datetime"
+	AllDataType            SupportedDataType = "all"
 )
 
 const (
@@ -196,4 +198,10 @@ func ValidateParameters(provided map[string]any, expected []string) error {
 	}
 
 	return nil
+}
+
+// IsNoopTransformer checks if a transformer is a NoopTransformer.
+func IsNoopTransformer(t Transformer) bool {
+	_, isNoop := t.(*NoopTransformer)
+	return isNoop
 }

@@ -50,6 +50,9 @@ func TestTransformer_New(t *testing.T) {
 							"column_2": {
 								Name: "string",
 							},
+							"column_3": {
+								Name: "noop",
+							},
 						},
 					},
 				},

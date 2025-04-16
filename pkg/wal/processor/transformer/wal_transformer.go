@@ -56,6 +56,9 @@ func New(ctx context.Context, cfg *Config, processor processor.Processor, opts .
 		}
 	}
 
+	// Noop transformers are only for validation phase. After validation, we can safely delete them.
+	t.DeleteNoopTransformers()
+
 	return t, nil
 }
 
@@ -138,6 +141,19 @@ func (t *Transformer) getTransformValue(column *wal.Column, columns []wal.Column
 		values[col.Name] = col.Value
 	}
 	return transformers.NewValue(column.Value, values)
+}
+
+func (t *Transformer) DeleteNoopTransformers() {
+	for schemaTable, columnTransformers := range t.transformerMap {
+		for colName, transformer := range columnTransformers {
+			if transformers.IsNoopTransformer(transformer) {
+				delete(columnTransformers, colName)
+			}
+		}
+		if len(columnTransformers) == 0 {
+			delete(t.transformerMap, schemaTable)
+		}
+	}
 }
 
 func schemaTableKey(schema, table string) string {
