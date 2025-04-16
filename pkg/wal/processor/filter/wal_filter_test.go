@@ -41,8 +41,8 @@ func Test_New(t *testing.T) {
 					"users":   {},
 					"default": {},
 				},
-				"*": map[string]struct{}{
-					"*": {},
+				wildcard: map[string]struct{}{
+					wildcard: {},
 				},
 			},
 			wantErr: nil,
@@ -127,7 +127,8 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 		excluded  schemaTableMap
 		event     *wal.Event
 
-		wantErr error
+		wantProcessCalls uint
+		wantErr          error
 	}{
 		{
 			name:  "event is nil",
@@ -140,7 +141,9 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 			},
 			included: nil,
 			excluded: nil,
-			wantErr:  nil,
+
+			wantProcessCalls: 1,
+			wantErr:          nil,
 		},
 		{
 			name:  "event matches included",
@@ -157,7 +160,53 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 				},
 			},
 			excluded: nil,
-			wantErr:  nil,
+
+			wantProcessCalls: 1,
+			wantErr:          nil,
+		},
+		{
+			name:  "event matches included *.*",
+			event: testEvent,
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					require.Equal(t, testEvent, walEvent)
+					return nil
+				},
+			},
+			included: schemaTableMap{
+				testSchema: {
+					"blah": {},
+				},
+				wildcard: {
+					wildcard: {},
+				},
+			},
+			excluded: nil,
+
+			wantProcessCalls: 1,
+			wantErr:          nil,
+		},
+		{
+			name:  "event matches included *.table",
+			event: testEvent,
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					require.Equal(t, testEvent, walEvent)
+					return nil
+				},
+			},
+			included: schemaTableMap{
+				testSchema: {
+					"blah": {},
+				},
+				wildcard: {
+					testTable: {},
+				},
+			},
+			excluded: nil,
+
+			wantProcessCalls: 1,
+			wantErr:          nil,
 		},
 		{
 			name:  "event does not match included",
@@ -173,7 +222,9 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 				},
 			},
 			excluded: nil,
-			wantErr:  nil,
+
+			wantProcessCalls: 0,
+			wantErr:          nil,
 		},
 		{
 			name:  "event matches excluded",
@@ -189,7 +240,9 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 					testTable: struct{}{},
 				},
 			},
-			wantErr: nil,
+
+			wantProcessCalls: 0,
+			wantErr:          nil,
 		},
 		{
 			name:  "event does not match excluded",
@@ -206,7 +259,9 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 					"orders": struct{}{},
 				},
 			},
-			wantErr: nil,
+
+			wantProcessCalls: 1,
+			wantErr:          nil,
 		},
 	}
 
@@ -223,6 +278,7 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 
 			err := f.ProcessWALEvent(ctx, tc.event)
 			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantProcessCalls, tc.processor.GetProcessCalls())
 		})
 	}
 }
