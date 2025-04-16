@@ -50,7 +50,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
 					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname = 'test_schema' AND tablename NOT IN ($1)", query)
-					require.Equal(t, []any{pglib.QuoteIdentifier(testTable)}, args)
+					require.Equal(t, []any{testTable}, args)
 					return &mocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
@@ -72,7 +72,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					Clean:            false,
 					SchemaOnly:       true,
 					Schemas:          []string{pglib.QuoteIdentifier(testSchema)},
-					ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(testSchema, excludedTable)},
+					ExcludeTables:    []string{pglib.QuoteIdentifier(excludedTable)},
 				}, po)
 				return testDump, nil
 			},

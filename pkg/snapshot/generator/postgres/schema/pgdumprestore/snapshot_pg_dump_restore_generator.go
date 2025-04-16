@@ -200,7 +200,7 @@ func (s *SnapshotGenerator) pgdumpExcludedTables(ctx context.Context, schemaName
 	paramRefs := make([]string, 0, len(includeTables))
 	tableParams := make([]any, 0, len(includeTables))
 	for i, table := range includeTables {
-		tableParams = append(tableParams, pglib.QuoteIdentifier(table))
+		tableParams = append(tableParams, table)
 		paramRefs = append(paramRefs, fmt.Sprintf("$%d", i+1))
 	}
 
@@ -218,7 +218,7 @@ func (s *SnapshotGenerator) pgdumpExcludedTables(ctx context.Context, schemaName
 		if err := rows.Scan(&tableName); err != nil {
 			return nil, fmt.Errorf("scanning table name: %w", err)
 		}
-		excludeTables = append(excludeTables, pglib.QuoteQualifiedIdentifier(schemaName, tableName))
+		excludeTables = append(excludeTables, pglib.QuoteIdentifier(tableName))
 	}
 
 	if err := rows.Err(); err != nil {
