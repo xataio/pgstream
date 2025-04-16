@@ -4,6 +4,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/viper"
 	"github.com/xataio/pgstream/pkg/backoff"
@@ -27,7 +28,88 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
+	"gopkg.in/yaml.v3"
 )
+
+func init() {
+	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_URL")
+	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_INITIAL_SNAPSHOT_ENABLED")
+	viper.BindEnv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_BATCH_PAGE_SIZE")
+	viper.BindEnv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_SCHEMA_WORKERS")
+	viper.BindEnv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLE_WORKERS")
+	viper.BindEnv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLES")
+	viper.BindEnv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_WORKERS")
+	viper.BindEnv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_STORE_URL")
+	viper.BindEnv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_STORE_REPEATABLE")
+	viper.BindEnv("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME")
+
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_TABLES")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG")
+
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_TARGET_URL")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB")
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT")
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_BYTES")
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_SIZE")
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES")
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL")
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS")
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION")
+
+	viper.BindEnv("PGSTREAM_KAFKA_SERVERS")
+	viper.BindEnv("PGSTREAM_KAFKA_TOPIC_NAME")
+	viper.BindEnv("PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID")
+	viper.BindEnv("PGSTREAM_KAFKA_READER_CONSUMER_GROUP_START_OFFSET")
+	viper.BindEnv("PGSTREAM_KAFKA_COMMIT_EXP_BACKOFF_INITIAL_INTERVAL")
+	viper.BindEnv("PGSTREAM_KAFKA_COMMIT_EXP_BACKOFF_MAX_INTERVAL")
+	viper.BindEnv("PGSTREAM_KAFKA_COMMIT_EXP_BACKOFF_MAX_RETRIES")
+	viper.BindEnv("PGSTREAM_KAFKA_COMMIT_BACKOFF_INTERVAL")
+	viper.BindEnv("PGSTREAM_KAFKA_COMMIT_BACKOFF_MAX_RETRIES")
+	viper.BindEnv("PGSTREAM_KAFKA_TOPIC_PARTITIONS")
+	viper.BindEnv("PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR")
+	viper.BindEnv("PGSTREAM_KAFKA_TOPIC_AUTO_CREATE")
+	viper.BindEnv("PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT")
+	viper.BindEnv("PGSTREAM_KAFKA_WRITER_BATCH_BYTES")
+	viper.BindEnv("PGSTREAM_KAFKA_WRITER_BATCH_SIZE")
+	viper.BindEnv("PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES")
+
+	viper.BindEnv("PGSTREAM_OPENSEARCH_STORE_URL")
+	viper.BindEnv("PGSTREAM_ELASTICSEARCH_STORE_URL")
+	viper.BindEnv("PGSTREAM_SEARCH_INDEXER_BATCH_SIZE")
+	viper.BindEnv("PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT")
+	viper.BindEnv("PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES")
+	viper.BindEnv("PGSTREAM_SEARCH_INDEXER_BATCH_BYTES")
+	viper.BindEnv("PGSTREAM_SEARCH_STORE_EXP_BACKOFF_INITIAL_INTERVAL")
+	viper.BindEnv("PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_INTERVAL")
+	viper.BindEnv("PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_RETRIES")
+	viper.BindEnv("PGSTREAM_SEARCH_STORE_BACKOFF_INTERVAL")
+	viper.BindEnv("PGSTREAM_SEARCH_STORE_BACKOFF_MAX_RETRIES")
+
+	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_URL")
+	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_ENABLED")
+	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_REFRESH_INTERVAL")
+	viper.BindEnv("PGSTREAM_WEBHOOK_NOTIFIER_MAX_QUEUE_BYTES")
+	viper.BindEnv("PGSTREAM_WEBHOOK_NOTIFIER_WORKER_COUNT")
+	viper.BindEnv("PGSTREAM_WEBHOOK_NOTIFIER_CLIENT_TIMEOUT")
+	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_ADDRESS")
+	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_READ_TIMEOUT")
+	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_WRITE_TIMEOUT")
+
+	viper.BindEnv("PGSTREAM_INJECTOR_STORE_POSTGRES_URL")
+	viper.BindEnv("PGSTREAM_TRANSFORMER_RULES_FILE")
+
+	viper.BindEnv("PGSTREAM_KAFKA_TLS_ENABLED")
+	viper.BindEnv("PGSTREAM_KAFKA_TLS_CA_CERT_FILE")
+	viper.BindEnv("PGSTREAM_KAFKA_TLS_CLIENT_CERT_FILE")
+	viper.BindEnv("PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE")
+}
 
 func envConfigToStreamConfig() (*stream.Config, error) {
 	processorCfg, err := parseProcessorConfig()
@@ -330,15 +412,24 @@ func parseInjectorConfig() *injector.Config {
 }
 
 func parseTransformerConfig() (*transformer.Config, error) {
-	if viper.GetString("PGSTREAM_TRANSFORMER_RULES_FILE") == "" {
+	filename := viper.GetString("PGSTREAM_TRANSFORMER_RULES_FILE")
+	if filename == "" {
 		return nil, nil
 	}
-	yamlConfig := struct {
-		Transformations TransformationsConfig `mapstructure:"transformations"`
-	}{}
-	if err := viper.Unmarshal(&yamlConfig); err != nil {
+
+	buf, err := os.ReadFile(filename)
+	if err != nil {
 		return nil, err
 	}
+
+	yamlConfig := struct {
+		Transformations TransformationsConfig `mapstructure:"transformations" yaml:"transformations"`
+	}{}
+	err = yaml.Unmarshal(buf, &yamlConfig)
+	if err != nil {
+		return nil, fmt.Errorf("in file %q: %w", filename, err)
+	}
+
 	return yamlConfig.Transformations.parseTransformationConfig(), nil
 }
 
