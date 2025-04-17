@@ -26,45 +26,39 @@ func NewPostgresTransformerValidator(pgURL string) *PostgresTransformerValidator
 	}
 }
 
-func (v *PostgresTransformerValidator) Validate(ctx context.Context, transformerMap map[string]ColumnTransformers) error {
+func (v *PostgresTransformerValidator) Validate(ctx context.Context, schemaTable string, transformers ColumnTransformers, columns []string) error {
 	conn, err := v.connBuilder(ctx)
 	if err != nil {
 		return fmt.Errorf("creating postgres connection: %w", err)
 	}
 	defer conn.Close(context.Background())
 
-	for schemaTable, columnTransformers := range transformerMap {
-		query := fmt.Sprintf("SELECT * FROM %s LIMIT 0", schemaTable)
-		rows, err := conn.Query(ctx, query)
-		if err != nil {
-			return fmt.Errorf("querying table rows: %w", err)
+	query := fmt.Sprintf("SELECT * FROM %s LIMIT 0", schemaTable)
+	rows, err := conn.Query(ctx, query)
+	if err != nil {
+		return fmt.Errorf("querying table rows: %w", err)
+	}
+	defer rows.Close()
+	fieldDescriptions := rows.FieldDescriptions()
+
+	// map column names to column pg type OIDs
+	mappedColumns := make(map[string]uint32, len(fieldDescriptions))
+	for _, desc := range fieldDescriptions {
+		mappedColumns[string(desc.Name)] = desc.DataTypeOID
+		if !slices.Contains(columns, string(desc.Name)) {
+			// if strict validation is enabled, return error
 		}
-		defer rows.Close()
-		fieldDescriptions := rows.FieldDescriptions()
+	}
 
-		// TODO: maybe error out if len(fieldDescriptions) != len(columnTransformers)
-		// if we start requiring a transformer for every column (noop transformers)
-
-		// map column names to column pg type OIDs, skip columns that don't have a transformer
-		mappedColumns := make(map[string]uint32, len(fieldDescriptions))
-		for _, desc := range fieldDescriptions {
-			if _, found := columnTransformers[string(desc.Name)]; !found {
-				continue
-			}
-
-			mappedColumns[string(desc.Name)] = desc.DataTypeOID
+	// check that all column transformers are compatible with corresponding column types
+	for colName, tr := range transformers {
+		datatype, found := mappedColumns[colName]
+		if !found {
+			// validate that all columns in the transformers map are present in the table
+			return fmt.Errorf("column %s not found in table %s", colName, schemaTable)
 		}
-
-		// check that all column transformers are compatible with corresponding column types
-		for colName, tr := range columnTransformers {
-			datatype, found := mappedColumns[colName]
-			if !found {
-				// validate that all column in the rules are present in the table
-				return fmt.Errorf("column %s not found in table %s", colName, schemaTable)
-			}
-			if !pgTypeCompatibleWithTransformerType(tr.CompatibleTypes(), datatype) {
-				return fmt.Errorf("transformer specified for column %s does not support pg data type", colName)
-			}
+		if !pgTypeCompatibleWithTransformerType(tr.CompatibleTypes(), datatype) {
+			return fmt.Errorf("transformer specified for column %s does not support pg data type", colName)
 		}
 	}
 
