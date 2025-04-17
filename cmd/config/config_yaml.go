@@ -212,12 +212,15 @@ type FilterConfig struct {
 	ExcludeTables []string `mapstructure:"exclude_tables" yaml:"exclude_tables"`
 }
 
-type TransformationsConfig []TransformationConfig
-
-type TransformationConfig struct {
-	Schema      string                              `mapstructure:"schema" yaml:"schema"`
-	Table       string                              `mapstructure:"table" yaml:"table"`
-	ColumnRules map[string]ColumnTransformersConfig `mapstructure:"column_transformers" yaml:"column_transformers"`
+type TransformationsConfig struct {
+	TransformerRules []TableTransformersConfig `mapstructure:"table_transformers" yaml:"table_transformers"`
+	ValidationMode   string                    `mapstructure:"validation_mode" yaml:"validation_mode"`
+}
+type TableTransformersConfig struct {
+	Schema         string                              `mapstructure:"schema" yaml:"schema"`
+	Table          string                              `mapstructure:"table" yaml:"table"`
+	ColumnRules    map[string]ColumnTransformersConfig `mapstructure:"column_transformers" yaml:"column_transformers"`
+	ValidationMode string                              `mapstructure:"validation_mode" yaml:"validation_mode"`
 }
 
 type ColumnTransformersConfig struct {
@@ -252,14 +255,24 @@ const (
 	opensearchEngine    = "opensearch"
 )
 
+// transformer validation modes
+const (
+	strictValidationMode     = "strict"
+	tableLevelValidationMode = "table_level"
+	relaxedValidationMode    = "relaxed"
+)
+
 var (
-	errUnsupportedSchemaSnapshotMode = errors.New("unsupported schema snapshot mode, must be one of 'pgdump_pgrestore' or 'schemalog'")
-	errUnsupportedSnapshotMode       = errors.New("unsupported snapshot mode, must be one of 'full', 'schema' or 'data'")
-	errUnsupportedPostgresSourceMode = errors.New("unsupported postgres source mode, must be one of 'replication', 'snapshot' or 'snapshot_and_replication'")
-	errUnsupportedSearchEngine       = errors.New("unsupported search engine, must be one of 'opensearch' or 'elasticsearch'")
-	errInvalidPgdumpPgrestoreConfig  = errors.New("pgdump_pgrestore snapshot mode requires target postgres config")
-	errInvalidInjectorConfig         = errors.New("injector config can't infer schemalog url from source postgres url, schemalog_url must be provided")
-	errInvalidSnapshotRecorderConfig = errors.New("snapshot recorder config requires a postgres url")
+	errUnsupportedSchemaSnapshotMode           = errors.New("unsupported schema snapshot mode, must be one of 'pgdump_pgrestore' or 'schemalog'")
+	errUnsupportedSnapshotMode                 = errors.New("unsupported snapshot mode, must be one of 'full', 'schema' or 'data'")
+	errUnsupportedPostgresSourceMode           = errors.New("unsupported postgres source mode, must be one of 'replication', 'snapshot' or 'snapshot_and_replication'")
+	errUnsupportedTransformationValidationMode = errors.New("unsupported transformation validation mode, must be one of 'strict', 'table_level' or 'relaxed'")
+	errUnsupportedTableValidationMode          = errors.New("unsupported table level validation mode, must be either 'strict' or 'relaxed'")
+	errInvalidTableValidationConfig            = errors.New("table level validation mode should be used when transformation validation mode is set to 'table_level'")
+	errUnsupportedSearchEngine                 = errors.New("unsupported search engine, must be one of 'opensearch' or 'elasticsearch'")
+	errInvalidPgdumpPgrestoreConfig            = errors.New("pgdump_pgrestore snapshot mode requires target postgres config")
+	errInvalidInjectorConfig                   = errors.New("injector config can't infer schemalog url from source postgres url, schemalog_url must be provided")
+	errInvalidSnapshotRecorderConfig           = errors.New("snapshot recorder config requires a postgres url")
 )
 
 func (c *YAMLConfig) toStreamConfig() (*stream.Config, error) {
@@ -292,11 +305,10 @@ func (c *YAMLConfig) parseListenerConfig() (stream.ListenerConfig, error) {
 
 func (c *YAMLConfig) parseProcessorConfig() (stream.ProcessorConfig, error) {
 	streamCfg := stream.ProcessorConfig{
-		Kafka:       c.parseKafkaProcessorConfig(),
-		Postgres:    c.parsePostgresProcessorConfig(),
-		Webhook:     c.parseWebhookProcessorConfig(),
-		Transformer: c.parseTransformationConfig(),
-		Filter:      c.parseFilterConfig(),
+		Kafka:    c.parseKafkaProcessorConfig(),
+		Postgres: c.parsePostgresProcessorConfig(),
+		Webhook:  c.parseWebhookProcessorConfig(),
+		Filter:   c.parseFilterConfig(),
 	}
 
 	var err error
@@ -306,6 +318,11 @@ func (c *YAMLConfig) parseProcessorConfig() (stream.ProcessorConfig, error) {
 	}
 
 	streamCfg.Search, err = c.parseSearchProcessorConfig()
+	if err != nil {
+		return stream.ProcessorConfig{}, err
+	}
+
+	streamCfg.Transformer, err = c.parseTransformationConfig()
 	if err != nil {
 		return stream.ProcessorConfig{}, err
 	}
@@ -546,9 +563,9 @@ func (c *YAMLConfig) parseWebhookProcessorConfig() *stream.WebhookProcessorConfi
 	return streamCfg
 }
 
-func (c *YAMLConfig) parseTransformationConfig() *transformer.Config {
-	if c.Modifiers.Transformations == nil {
-		return nil
+func (c *YAMLConfig) parseTransformationConfig() (*transformer.Config, error) {
+	if c.Modifiers.Transformations.TransformerRules == nil {
+		return nil, nil
 	}
 
 	return c.Modifiers.Transformations.parseTransformationConfig()
@@ -564,12 +581,39 @@ func (c YAMLConfig) parseFilterConfig() *filter.Config {
 	}
 }
 
-func (c TransformationsConfig) parseTransformationConfig() *transformer.Config {
-	if len(c) == 0 {
-		return nil
+func (c TransformationsConfig) parseTransformationConfig() (*transformer.Config, error) {
+	if len(c.TransformerRules) == 0 {
+		return nil, nil
 	}
-	rules := make([]transformer.TableRules, 0, len(c))
-	for _, t := range c {
+
+	var globalValidationMode string
+	switch c.ValidationMode {
+	case strictValidationMode, relaxedValidationMode, tableLevelValidationMode:
+		globalValidationMode = c.ValidationMode
+	case "":
+		globalValidationMode = relaxedValidationMode
+	default:
+		return nil, errUnsupportedTransformationValidationMode
+	}
+
+	rules := make([]transformer.TableRules, 0, len(c.TransformerRules))
+	for _, t := range c.TransformerRules {
+		var tableValidationMode string
+		switch t.ValidationMode {
+		case strictValidationMode, relaxedValidationMode:
+			if globalValidationMode != tableLevelValidationMode {
+				return nil, errInvalidTableValidationConfig
+			}
+			tableValidationMode = t.ValidationMode
+		case "":
+			if globalValidationMode == tableLevelValidationMode {
+				return nil, errInvalidTableValidationConfig
+			}
+			tableValidationMode = globalValidationMode
+		default:
+			return nil, errUnsupportedTableValidationMode
+		}
+
 		columnRules := make(map[string]transformer.TransformerRules, len(t.ColumnRules))
 		for column, cr := range t.ColumnRules {
 			columnRules[column] = transformer.TransformerRules{
@@ -579,15 +623,16 @@ func (c TransformationsConfig) parseTransformationConfig() *transformer.Config {
 			}
 		}
 		rules = append(rules, transformer.TableRules{
-			Schema:      t.Schema,
-			Table:       t.Table,
-			ColumnRules: columnRules,
+			Schema:         t.Schema,
+			Table:          t.Table,
+			ColumnRules:    columnRules,
+			ValidationMode: tableValidationMode,
 		})
 	}
 
 	return &transformer.Config{
 		TransformerRules: rules,
-	}
+	}, nil
 }
 
 func (c *KafkaConfig) parseKafkaListenerConfig() *stream.KafkaListenerConfig {

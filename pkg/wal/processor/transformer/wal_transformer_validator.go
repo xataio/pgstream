@@ -26,7 +26,7 @@ func NewPostgresTransformerValidator(pgURL string) *PostgresTransformerValidator
 	}
 }
 
-func (v *PostgresTransformerValidator) Validate(ctx context.Context, schemaTable string, transformers ColumnTransformers, columns []string) error {
+func (v *PostgresTransformerValidator) Validate(ctx context.Context, schemaTable string, transformers ColumnTransformers, columns []string, validateStrict bool) error {
 	conn, err := v.connBuilder(ctx)
 	if err != nil {
 		return fmt.Errorf("creating postgres connection: %w", err)
@@ -45,8 +45,8 @@ func (v *PostgresTransformerValidator) Validate(ctx context.Context, schemaTable
 	mappedColumns := make(map[string]uint32, len(fieldDescriptions))
 	for _, desc := range fieldDescriptions {
 		mappedColumns[string(desc.Name)] = desc.DataTypeOID
-		if !slices.Contains(columns, string(desc.Name)) {
-			// if strict validation is enabled, return error
+		if validateStrict && !slices.Contains(columns, string(desc.Name)) {
+			return fmt.Errorf("column %s of table %s has no transformer configured", desc.Name, schemaTable)
 		}
 	}
 

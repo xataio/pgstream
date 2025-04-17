@@ -7,9 +7,10 @@ type Rules struct {
 }
 
 type TableRules struct {
-	Schema      string                      `yaml:"schema"`
-	Table       string                      `yaml:"table"`
-	ColumnRules map[string]TransformerRules `yaml:"column_transformers"`
+	Schema         string                      `yaml:"schema"`
+	Table          string                      `yaml:"table"`
+	ColumnRules    map[string]TransformerRules `yaml:"column_transformers"`
+	ValidationMode string                      `yaml:"validation_mode"`
 }
 
 type TransformerRules struct {
