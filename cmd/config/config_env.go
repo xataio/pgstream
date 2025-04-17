@@ -424,7 +424,7 @@ func parseTransformerConfig() (*transformer.Config, error) {
 		return nil, fmt.Errorf("in file %q: %w", filename, err)
 	}
 
-	return yamlConfig.Transformations.parseTransformationConfig(), nil
+	return yamlConfig.Transformations.parseTransformationConfig()
 }
 
 func parseFilterConfig() *filter.Config {
