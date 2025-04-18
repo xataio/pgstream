@@ -79,9 +79,10 @@ func TestPostgresTransformerValidator(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		wantErr        error
-		transformerMap map[string]ColumnTransformers
+		name            string
+		wantErr         error
+		transformerMap  map[string]ColumnTransformers
+		expectedColumns []string
 	}{
 		{
 			name: "ok - no error, few columns",
@@ -104,7 +105,32 @@ func TestPostgresTransformerValidator(t *testing.T) {
 				},
 			},
 
-			wantErr: nil,
+			expectedColumns: []string{"id", "name", "age", "birth_date", "postcode", "customer_id", "total_purchases", "created_at", "is_active", "total_discounts"},
+			wantErr:         nil,
+		},
+		{
+			name: "error - missing column for strict validation",
+			transformerMap: map[string]ColumnTransformers{
+				testSchemaTable: {
+					"id": &mocks.Transformer{
+						CompatibleTypesFn: func() []transformers.SupportedDataType {
+							return []transformers.SupportedDataType{
+								transformers.Integer64DataType,
+							}
+						},
+					},
+					"name": &mocks.Transformer{
+						CompatibleTypesFn: func() []transformers.SupportedDataType {
+							return []transformers.SupportedDataType{
+								transformers.StringDataType,
+							}
+						},
+					},
+				},
+			},
+
+			expectedColumns: []string{"name"},
+			wantErr:         fmt.Errorf("column id of table %s has no transformer configured", testSchemaTable),
 		},
 		{
 			name: "ok - no error, all columns",
@@ -182,7 +208,8 @@ func TestPostgresTransformerValidator(t *testing.T) {
 					},
 				},
 			},
-			wantErr: nil,
+			expectedColumns: []string{"id", "name", "age", "birth_date", "postcode", "customer_id", "total_purchases", "created_at", "is_active", "total_discounts"},
+			wantErr:         nil,
 		},
 		{
 			name: "error - invalid column type",
@@ -197,7 +224,8 @@ func TestPostgresTransformerValidator(t *testing.T) {
 					},
 				},
 			},
-			wantErr: errors.New("transformer specified for column 'id' in table \"public\".\"test\" does not support pg data type with oid: "),
+			expectedColumns: []string{"id", "name", "age", "birth_date", "postcode", "customer_id", "total_purchases", "created_at", "is_active", "total_discounts"},
+			wantErr:         errors.New("transformer specified for column 'id' in table \"public\".\"test\" does not support pg data type with oid: "),
 		},
 		{
 			name: "error - column not found in table",
@@ -212,14 +240,15 @@ func TestPostgresTransformerValidator(t *testing.T) {
 					},
 				},
 			},
-			wantErr: fmt.Errorf("column %s not found in table %s", "unknown_column", testSchemaTable),
+			expectedColumns: []string{"id", "name", "age", "birth_date", "postcode", "customer_id", "total_purchases", "created_at", "is_active", "total_discounts"},
+			wantErr:         fmt.Errorf("column %s not found in table %s", "unknown_column", testSchemaTable),
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := testPGValidator.Validate(context.Background(), testSchemaTable, tc.transformerMap[testSchemaTable], nil, false)
+			err := testPGValidator.Validate(context.Background(), testSchemaTable, tc.transformerMap[testSchemaTable], tc.expectedColumns, true)
 			if !errors.Is(err, tc.wantErr) {
 				require.Contains(t, err.Error(), tc.wantErr.Error())
 			}
