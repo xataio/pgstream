@@ -1,9 +1,11 @@
 transformations:
-  - schema: public
-    table: test
-    column_transformers:
-      name:
-        name: greenmask_firstname
-        dynamic_parameters:
-          gender:
-            column: sex
+  validation_mode: relaxed
+  table_transformers:
+    - schema: public
+      table: test
+      column_transformers:
+        name:
+          name: greenmask_firstname
+          dynamic_parameters:
+            gender:
+              column: sex

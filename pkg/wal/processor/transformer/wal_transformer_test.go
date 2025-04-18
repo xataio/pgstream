@@ -314,7 +314,7 @@ func Test_transformerMapFromRules(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			transformerMap, err := transformerMapFromRules(tc.rules)
+			transformerMap, err := transformerMapFromRules(tc.rules, nil)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantTransformerMap, transformerMap)
 		})

@@ -283,9 +283,11 @@ func testKafkaCfg() kafkalib.ConnConfig {
 func testTransformationRules() []transformer.TableRules {
 	return []transformer.TableRules{
 		{
-			Schema: "public",
-			Table:  "pg2pg_integration_transformer_test",
+			Schema:         "public",
+			Table:          "pg2pg_integration_transformer_test",
+			ValidationMode: "strict",
 			ColumnRules: map[string]transformer.TransformerRules{
+				"id": {},
 				"name": {
 					Name: "neosync_firstname",
 					Parameters: map[string]any{
