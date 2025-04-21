@@ -63,7 +63,7 @@ func (v *PostgresTransformerValidator) Validate(ctx context.Context, transformer
 				return fmt.Errorf("column %s not found in table %s", colName, schemaTable)
 			}
 			if !pgTypeCompatibleWithTransformerType(tr.CompatibleTypes(), datatype) {
-				return fmt.Errorf("transformer specified for column %s does not support pg data type", colName)
+				return fmt.Errorf("transformer specified for column '%s' in table %s does not support pg data type with oid: %d", colName, schemaTable, datatype)
 			}
 		}
 	}

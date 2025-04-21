@@ -198,7 +198,7 @@ func TestPostgresTransformerValidator(t *testing.T) {
 					},
 				},
 			},
-			wantErr: errors.New("transformer specified for column id does not support pg data type"),
+			wantErr: errors.New("transformer specified for column 'id' in table \"public\".\"test\" does not support pg data type with oid: "),
 		},
 		{
 			name: "error - column not found in table",
