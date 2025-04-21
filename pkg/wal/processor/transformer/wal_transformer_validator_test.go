@@ -222,7 +222,7 @@ func TestPostgresTransformerValidator(t *testing.T) {
 
 			err := testPGValidator.Validate(context.Background(), tc.transformerMap)
 			if !errors.Is(err, tc.wantErr) {
-				require.Error(t, err, tc.wantErr.Error())
+				require.Contains(t, err.Error(), tc.wantErr.Error())
 			}
 		})
 	}
