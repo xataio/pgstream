@@ -46,6 +46,7 @@ func Prepare() *cobra.Command {
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(tearDownCmd)
 	rootCmd.AddCommand(runCmd)
+	rootCmd.AddCommand(snapshotCmd)
 
 	return rootCmd
 }
