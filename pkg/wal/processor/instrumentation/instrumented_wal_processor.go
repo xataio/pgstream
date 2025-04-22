@@ -70,6 +70,10 @@ func (i *Processor) Name() string {
 	return i.inner.Name()
 }
 
+func (i *Processor) Close() error {
+	return i.inner.Close()
+}
+
 func (i *Processor) initMetrics() error {
 	if i.meter == nil {
 		return nil
