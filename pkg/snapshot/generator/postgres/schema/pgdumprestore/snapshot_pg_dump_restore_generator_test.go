@@ -23,6 +23,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	testDump := []byte("test dump")
 	testSchema := "test_schema"
 	testTable := "test_table"
+	excludedTable := "excluded_test_table"
 	errTest := errors.New("oh noes")
 
 	tests := []struct {
@@ -47,14 +48,31 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					require.Equal(t, "CREATE SCHEMA IF NOT EXISTS "+testSchema, query)
 					return pglib.CommandTag{}, nil
 				},
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname = 'test_schema' AND tablename NOT IN ($1)", query)
+					require.Equal(t, []any{testTable}, args)
+					return &mocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(dest ...any) error {
+							require.Len(t, dest, 1)
+							tableName, ok := dest[0].(*string)
+							require.True(t, ok)
+							*tableName = excludedTable
+							return nil
+						},
+						ErrFn: func() error { return nil },
+					}, nil
+				},
 			},
 			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
 				require.Equal(t, pglib.PGDumpOptions{
 					ConnectionString: "source-url",
-					Format:           "c",
+					Format:           "p",
+					Clean:            false,
 					SchemaOnly:       true,
 					Schemas:          []string{pglib.QuoteIdentifier(testSchema)},
-					Tables:           []string{pglib.QuoteQualifiedIdentifier(testSchema, testTable)},
+					ExcludeTables:    []string{pglib.QuoteIdentifier(excludedTable)},
 				}, po)
 				return testDump, nil
 			},
@@ -62,6 +80,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				require.Equal(t, pglib.PGRestoreOptions{
 					ConnectionString: "target-url",
 					SchemaOnly:       true,
+					Format:           "p",
 				}, po)
 				require.Equal(t, testDump, dump)
 				return "", nil
@@ -84,7 +103,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
 				require.Equal(t, pglib.PGDumpOptions{
 					ConnectionString: "source-url",
-					Format:           "c",
+					Format:           "p",
 					SchemaOnly:       true,
 					Schemas:          []string{pglib.QuoteIdentifier(testSchema)},
 				}, po)
@@ -94,6 +113,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				require.Equal(t, pglib.PGRestoreOptions{
 					ConnectionString: "target-url",
 					SchemaOnly:       true,
+					Format:           "p",
 				}, po)
 				require.Equal(t, testDump, dump)
 				return "", nil
@@ -122,6 +142,90 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "error - querying excluded tables",
+			snapshot: &snapshot.Snapshot{
+				SchemaName: testSchema,
+				TableNames: []string{testTable},
+			},
+			conn: &mocks.Querier{
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					return nil, errTest
+				},
+			},
+			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+				return nil, errors.New("pgdumpFn: should not be called")
+			},
+			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+				return "", errors.New("pgrestoreFn: should not be called")
+			},
+
+			wantErr: errTest,
+		},
+		{
+			name: "error - scanning excluded tables",
+			snapshot: &snapshot.Snapshot{
+				SchemaName: testSchema,
+				TableNames: []string{testTable},
+			},
+			conn: &mocks.Querier{
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname = 'test_schema' AND tablename NOT IN ($1)", query)
+					return &mocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(dest ...any) error {
+							return errTest
+						},
+						ErrFn: func() error { return nil },
+					}, nil
+				},
+			},
+			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+				return nil, errors.New("pgdumpFn: should not be called")
+			},
+			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+				return "", errors.New("pgrestoreFn: should not be called")
+			},
+
+			wantErr: errTest,
+		},
+		{
+			name: "error - excluded tables rows",
+			snapshot: &snapshot.Snapshot{
+				SchemaName: testSchema,
+				TableNames: []string{testTable},
+			},
+			conn: &mocks.Querier{
+				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
+					require.Equal(t, "CREATE SCHEMA IF NOT EXISTS "+testSchema, query)
+					return pglib.CommandTag{}, nil
+				},
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname = 'test_schema' AND tablename NOT IN ($1)", query)
+					return &mocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(dest ...any) error {
+							require.Len(t, dest, 1)
+							tableName, ok := dest[0].(*string)
+							require.True(t, ok)
+							*tableName = excludedTable
+							return nil
+						},
+						ErrFn: func() error { return errTest },
+					}, nil
+				},
+			},
+			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+				return nil, errors.New("pgdumpFn: should not be called")
+			},
+			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+				return "", errors.New("pgrestoreFn: should not be called")
+			},
+
+			wantErr: errTest,
+		},
+		{
 			name: "error - performing pgdump",
 			snapshot: &snapshot.Snapshot{
 				SchemaName: testSchema,
@@ -130,6 +234,21 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			conn: &mocks.Querier{
 				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
 					return pglib.CommandTag{}, errors.New("ExecFn: should not be called")
+				},
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname = 'test_schema' AND tablename NOT IN ($1)", query)
+					return &mocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(dest ...any) error {
+							require.Len(t, dest, 1)
+							tableName, ok := dest[0].(*string)
+							require.True(t, ok)
+							*tableName = excludedTable
+							return nil
+						},
+						ErrFn: func() error { return nil },
+					}, nil
 				},
 			},
 			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
@@ -151,6 +270,21 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
 					return pglib.CommandTag{}, errors.New("ExecFn: should not be called")
 				},
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ($1)", query)
+					return &mocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(dest ...any) error {
+							require.Len(t, dest, 1)
+							tableName, ok := dest[0].(*string)
+							require.True(t, ok)
+							*tableName = excludedTable
+							return nil
+						},
+						ErrFn: func() error { return nil },
+					}, nil
+				},
 			},
 			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
 				return testDump, nil
@@ -170,6 +304,21 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			conn: &mocks.Querier{
 				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
 					return pglib.CommandTag{}, errors.New("ExecFn: should not be called")
+				},
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ($1)", query)
+					return &mocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(dest ...any) error {
+							require.Len(t, dest, 1)
+							tableName, ok := dest[0].(*string)
+							require.True(t, ok)
+							*tableName = excludedTable
+							return nil
+						},
+						ErrFn: func() error { return nil },
+					}, nil
 				},
 			},
 			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
@@ -191,6 +340,21 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
 					return pglib.CommandTag{}, errors.New("ExecFn: should not be called")
 				},
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ($1)", query)
+					return &mocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(dest ...any) error {
+							require.Len(t, dest, 1)
+							tableName, ok := dest[0].(*string)
+							require.True(t, ok)
+							*tableName = excludedTable
+							return nil
+						},
+						ErrFn: func() error { return nil },
+					}, nil
+				},
 			},
 			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
 				return testDump, nil
@@ -208,7 +372,26 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				TableNames: []string{testTable},
 			},
 			connBuilder: func(ctx context.Context, s string) (pglib.Querier, error) {
-				return nil, errTest
+				if s == "target-url" {
+					return nil, errTest
+				}
+				return &mocks.Querier{
+					QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+						require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname = 'test_schema' AND tablename NOT IN ($1)", query)
+						return &mocks.Rows{
+							CloseFn: func() {},
+							NextFn:  func(i uint) bool { return i == 1 },
+							ScanFn: func(dest ...any) error {
+								require.Len(t, dest, 1)
+								tableName, ok := dest[0].(*string)
+								require.True(t, ok)
+								*tableName = excludedTable
+								return nil
+							},
+							ErrFn: func() error { return nil },
+						}, nil
+					},
+				}, nil
 			},
 			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
 				return testDump, nil
@@ -228,6 +411,21 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			conn: &mocks.Querier{
 				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
 					return pglib.CommandTag{}, errTest
+				},
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname = 'test_schema' AND tablename NOT IN ($1)", query)
+					return &mocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(dest ...any) error {
+							require.Len(t, dest, 1)
+							tableName, ok := dest[0].(*string)
+							require.True(t, ok)
+							*tableName = excludedTable
+							return nil
+						},
+						ErrFn: func() error { return nil },
+					}, nil
 				},
 			},
 			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
@@ -249,6 +447,21 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
 					require.Equal(t, "CREATE SCHEMA IF NOT EXISTS "+testSchema, query)
 					return pglib.CommandTag{}, nil
+				},
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname = 'test_schema' AND tablename NOT IN ($1)", query)
+					return &mocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(dest ...any) error {
+							require.Len(t, dest, 1)
+							tableName, ok := dest[0].(*string)
+							require.True(t, ok)
+							*tableName = excludedTable
+							return nil
+						},
+						ErrFn: func() error { return nil },
+					}, nil
 				},
 			},
 			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
@@ -287,7 +500,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			}
 
 			err := sg.CreateSnapshot(context.Background(), tc.snapshot)
-			require.Equal(t, err, tc.wantErr)
+			if !errors.Is(err, tc.wantErr) {
+				require.Equal(t, err, tc.wantErr)
+			}
 			sg.Close()
 		})
 	}
