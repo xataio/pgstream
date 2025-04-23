@@ -29,6 +29,8 @@ import (
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
+type closerFn func() error
+
 func buildProcessor(ctx context.Context, logger loglib.Logger, config *ProcessorConfig, checkpoint checkpointer.Checkpoint, instrumentation *otel.Instrumentation) (processor.Processor, error) {
 	var processor processor.Processor
 	switch {
@@ -148,7 +150,8 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 	return processor, nil
 }
 
-func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Logger, processor processor.Processor, instrumentation *otel.Instrumentation) (processor.Processor, error) {
+func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Logger, processor processor.Processor, instrumentation *otel.Instrumentation) (processor.Processor, closerFn, error) {
+	closerAgg := &closerAggregator{}
 	var err error
 	if config.Processor.Transformer != nil {
 		logger.Info("adding transformation layer to processor...")
@@ -164,15 +167,15 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 		if pgURL != "" {
 			pgParser, err := transformer.NewPostgresTransformerParser(ctx, pgURL)
 			if err != nil {
-				return nil, fmt.Errorf("creating postgres transformer validator: %w", err)
+				return nil, nil, fmt.Errorf("creating transformer validator: %w", err)
 			}
-			defer pgParser.Close()
+			closerAgg.addCloserFn(pgParser.Close)
 			opts = append(opts, transformer.WithParser(pgParser.ParseAndValidate))
 		}
 		processor, err = transformer.New(ctx, config.Processor.Transformer, processor, opts...)
 		if err != nil {
 			logger.Error(err, "creating transformer layer")
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -186,7 +189,7 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 		}
 		processor, err = injector.New(config.Processor.Injector, processor, opts...)
 		if err != nil {
-			return nil, fmt.Errorf("error creating processor injection layer: %w", err)
+			return nil, nil, fmt.Errorf("error creating processor injection layer: %w", err)
 		}
 	}
 
@@ -200,7 +203,7 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 			// disabled by adding it to the exclude tables.
 			filter.WithDefaultIncludeTables([]string{schemalog.SchemaName + "." + schemalog.TableName}))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -208,9 +211,31 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 		var err error
 		processor, err = processinstrumentation.NewProcessor(processor, instrumentation)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
-	return processor, nil
+	return processor, closerAgg.close, nil
+}
+
+type closerAggregator struct {
+	closers []closerFn
+}
+
+func (ca *closerAggregator) addCloserFn(fn closerFn) {
+	ca.closers = append(ca.closers, fn)
+}
+
+func (ca *closerAggregator) close() error {
+	var errs error
+	for _, closer := range ca.closers {
+		if err := closer(); err != nil {
+			if errs != nil {
+				errors.Join(errs, err)
+				continue
+			}
+			errs = err
+		}
+	}
+	return errs
 }

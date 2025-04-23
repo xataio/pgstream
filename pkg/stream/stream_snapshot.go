@@ -33,10 +33,12 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 	}
 	defer processor.Close()
 
-	processor, err = addProcessorModifiers(ctx, config, logger, processor, instrumentation)
+	var closer closerFn
+	processor, closer, err = addProcessorModifiers(ctx, config, logger, processor, instrumentation)
 	if err != nil {
 		return err
 	}
+	defer closer()
 
 	// Listener
 
