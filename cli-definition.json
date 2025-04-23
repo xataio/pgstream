@@ -12,8 +12,17 @@
     },
     {
       "name": "run",
-      "short": "Run starts all the configured pgstream modules",
+      "short": "Run starts replication along with all the configured pgstream modules",
       "use": "run",
+      "example": "",
+      "flags": [],
+      "subcommands": [],
+      "args": []
+    },
+    {
+      "name": "snapshot",
+      "short": "Snapshot performs a snapshot of the configured source into the configured target",
+      "use": "snapshot",
       "example": "",
       "flags": [],
       "subcommands": [],
