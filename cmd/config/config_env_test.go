@@ -23,14 +23,13 @@ func Test_EnvConfigToStreamConfig(t *testing.T) {
 func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_POSTGRES_LISTENER_URL", "postgresql://user:password@localhost:5432/mydatabase")
 	os.Setenv("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME", "pgstream_mydatabase_slot")
-	os.Setenv("PGSTREAM_POSTGRES_LISTENER_INITIAL_SNAPSHOT_ENABLED", "true")
-	os.Setenv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_STORE_URL", "postgresql://user:password@localhost:5432/mytargetdatabase")
-	os.Setenv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_STORE_REPEATABLE", "true")
-	os.Setenv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLES", "test test_schema.test another_schema.*")
-	os.Setenv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_WORKERS", "4")
-	os.Setenv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_SCHEMA_WORKERS", "4")
-	os.Setenv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLE_WORKERS", "4")
-	os.Setenv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_BATCH_PAGE_SIZE", "1000")
+	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL", "postgresql://user:password@localhost:5432/mytargetdatabase")
+	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE", "true")
+	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_TABLES", "test test_schema.test another_schema.*")
+	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS", "4")
+	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS", "4")
+	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS", "4")
+	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE", "1000")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB", "true")
 
 	os.Setenv("PGSTREAM_KAFKA_SERVERS", "localhost:9092")
@@ -82,6 +81,8 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 
 	os.Setenv("PGSTREAM_INJECTOR_STORE_POSTGRES_URL", "postgresql://user:password@localhost:5432/mydatabase")
 	os.Setenv("PGSTREAM_TRANSFORMER_RULES_FILE", "test/test_transformer_rules.yaml")
+	os.Setenv("PGSTREAM_FILTER_INCLUDE_TABLES", "test test_schema.test another_schema.*")
+	os.Setenv("PGSTREAM_FILTER_EXCLUDE_TABLES", "excluded_test excluded_schema.test another_excluded_schema.*")
 
 	streamConfig, err := envConfigToStreamConfig()
 	assert.NoError(t, err)
