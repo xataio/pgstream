@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/transformers"
@@ -15,6 +16,8 @@ import (
 type PostgresTransformerValidator struct {
 	conn pglib.Querier
 }
+
+const fieldDescriptionsQuery = "SELECT * FROM %s LIMIT 0"
 
 func NewPostgresTransformerValidator(ctx context.Context, pgURL string) (*PostgresTransformerValidator, error) {
 	pool, err := pglib.NewConnPool(ctx, pgURL)
@@ -28,14 +31,10 @@ func NewPostgresTransformerValidator(ctx context.Context, pgURL string) (*Postgr
 
 func (v *PostgresTransformerValidator) Validate(ctx context.Context, transformerMap map[string]ColumnTransformers) error {
 	for schemaTable, columnTransformers := range transformerMap {
-		query := fmt.Sprintf("SELECT * FROM %s LIMIT 0", schemaTable)
-		rows, err := v.conn.Query(ctx, query)
+		fieldDescriptions, err := v.getFieldDescriptions(ctx, schemaTable)
 		if err != nil {
-			return fmt.Errorf("querying table rows: %w", err)
+			return err
 		}
-		defer rows.Close()
-		fieldDescriptions := rows.FieldDescriptions()
-
 		// TODO: maybe error out if len(fieldDescriptions) != len(columnTransformers)
 		// if we start requiring a transformer for every column (noop transformers)
 
@@ -67,6 +66,16 @@ func (v *PostgresTransformerValidator) Validate(ctx context.Context, transformer
 
 func (v *PostgresTransformerValidator) Close() error {
 	return v.conn.Close(context.Background())
+}
+
+func (v *PostgresTransformerValidator) getFieldDescriptions(ctx context.Context, schemaTable string) ([]pgconn.FieldDescription, error) {
+	query := fmt.Sprintf(fieldDescriptionsQuery, schemaTable)
+	rows, err := v.conn.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("querying table rows: %w", err)
+	}
+	defer rows.Close()
+	return rows.FieldDescriptions(), rows.Err()
 }
 
 func pgTypeCompatibleWithTransformerType(compatibleTypes []transformers.SupportedDataType, pgType uint32) bool {
