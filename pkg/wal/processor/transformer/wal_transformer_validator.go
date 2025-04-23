@@ -13,29 +13,23 @@ import (
 )
 
 type PostgresTransformerValidator struct {
-	connBuilder connBuilder
+	conn pglib.Querier
 }
 
-type connBuilder func(context.Context) (pglib.Querier, error)
-
-func NewPostgresTransformerValidator(pgURL string) *PostgresTransformerValidator {
-	return &PostgresTransformerValidator{
-		connBuilder: func(ctx context.Context) (pglib.Querier, error) {
-			return pglib.NewConn(ctx, pgURL)
-		},
+func NewPostgresTransformerValidator(ctx context.Context, pgURL string) (*PostgresTransformerValidator, error) {
+	pool, err := pglib.NewConnPool(ctx, pgURL)
+	if err != nil {
+		return nil, err
 	}
+	return &PostgresTransformerValidator{
+		conn: pool,
+	}, nil
 }
 
 func (v *PostgresTransformerValidator) Validate(ctx context.Context, transformerMap map[string]ColumnTransformers) error {
-	conn, err := v.connBuilder(ctx)
-	if err != nil {
-		return fmt.Errorf("creating postgres connection: %w", err)
-	}
-	defer conn.Close(context.Background())
-
 	for schemaTable, columnTransformers := range transformerMap {
 		query := fmt.Sprintf("SELECT * FROM %s LIMIT 0", schemaTable)
-		rows, err := conn.Query(ctx, query)
+		rows, err := v.conn.Query(ctx, query)
 		if err != nil {
 			return fmt.Errorf("querying table rows: %w", err)
 		}
@@ -69,6 +63,10 @@ func (v *PostgresTransformerValidator) Validate(ctx context.Context, transformer
 	}
 
 	return nil
+}
+
+func (v *PostgresTransformerValidator) Close() error {
+	return v.conn.Close(context.Background())
 }
 
 func pgTypeCompatibleWithTransformerType(compatibleTypes []transformers.SupportedDataType, pgType uint32) bool {

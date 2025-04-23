@@ -74,9 +74,7 @@ func TestPostgresTransformerValidator(t *testing.T) {
 	}
 
 	testPGValidator := PostgresTransformerValidator{
-		connBuilder: func(context.Context) (pglib.Querier, error) {
-			return testQuerier, nil
-		},
+		conn: testQuerier,
 	}
 
 	tests := []struct {
