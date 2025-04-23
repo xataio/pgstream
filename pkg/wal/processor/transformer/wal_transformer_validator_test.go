@@ -69,6 +69,7 @@ func TestPostgresTransformerValidator(t *testing.T) {
 					}
 				},
 				CloseFn: func() {},
+				ErrFn:   func() error { return nil },
 			}, nil
 		},
 	}
