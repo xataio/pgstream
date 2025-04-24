@@ -137,16 +137,14 @@ The PostgreSQL WAL listener can be configured to perform an initial snapshot of 
 However, if there were tables with pre-existing data that we wanted to replicate to the target PostgreSQL database, we could configure it by setting the following environment variables:
 
 ```sh
-PGSTREAM_POSTGRES_LISTENER_INITIAL_SNAPSHOT_ENABLED=true
-
 # URL of the PostgreSQL database we want to snapshot
-PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
+PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 
 # List of tables we want to snapshot. If the tables are not schema qualified, the public schema will be assumed.
 # Wildcards are supported.
 #
 # The following example will snapshot all tables in the `test_schema` and the table `test` from the public schema.
-PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLES="test_schema.* test"
+PGSTREAM_POSTGRES_SNAPSHOT_TABLES="test_schema.* test"
 ```
 
 Further configuration can be provided to optimize the performance of the snapshot process. For more information, check the [snapshot tutorial](postgres_snapshot).
@@ -214,10 +212,9 @@ PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT=5s
 # Listener config
 PGSTREAM_POSTGRES_LISTENER_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME=pgstream_tutorial_slot
-PGSTREAM_POSTGRES_LISTENER_INITIAL_SNAPSHOT_ENABLED=true
-PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
+PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 # Initial snapshot of all tables in the public schema
-PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLES="*"
+PGSTREAM_POSTGRES_SNAPSHOT_TABLES="*"
 
 # Processor config
 PGSTREAM_INJECTOR_STORE_POSTGRES_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"

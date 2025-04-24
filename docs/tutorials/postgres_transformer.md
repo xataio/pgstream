@@ -136,10 +136,9 @@ PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME=pgstream_tutorial_slot
 # Listener config
 PGSTREAM_POSTGRES_LISTENER_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME=pgstream_tutorial_slot
-PGSTREAM_POSTGRES_LISTENER_INITIAL_SNAPSHOT_ENABLED=true
-PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
+PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 # Initial snapshot of all tables in the public schema
-PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLES="*"
+PGSTREAM_POSTGRES_SNAPSHOT_TABLES="*"
 ```
 
 ### Processor
@@ -202,10 +201,9 @@ PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@local
 # Listener config
 PGSTREAM_POSTGRES_LISTENER_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME=pgstream_tutorial_slot
-PGSTREAM_POSTGRES_LISTENER_INITIAL_SNAPSHOT_ENABLED=true
-PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
+PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 # Initial snapshot of all tables in the public schema
-PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLES="*"
+PGSTREAM_POSTGRES_SNAPSHOT_TABLES="*"
 
 # Processor config
 PGSTREAM_TRANSFORMER_RULES_FILE="tutorial_transformer_rules.yaml"

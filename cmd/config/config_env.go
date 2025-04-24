@@ -33,14 +33,6 @@ import (
 
 func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_URL")
-	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_INITIAL_SNAPSHOT_ENABLED")
-	viper.BindEnv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_BATCH_PAGE_SIZE")
-	viper.BindEnv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_SCHEMA_WORKERS")
-	viper.BindEnv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLE_WORKERS")
-	viper.BindEnv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLES")
-	viper.BindEnv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_WORKERS")
-	viper.BindEnv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_STORE_URL")
-	viper.BindEnv("PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_STORE_REPEATABLE")
 	viper.BindEnv("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME")
 
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL")
@@ -104,6 +96,8 @@ func init() {
 
 	viper.BindEnv("PGSTREAM_INJECTOR_STORE_POSTGRES_URL")
 	viper.BindEnv("PGSTREAM_TRANSFORMER_RULES_FILE")
+	viper.BindEnv("PGSTREAM_FILTER_INCLUDE_TABLES")
+	viper.BindEnv("PGSTREAM_FILTER_EXCLUDE_TABLES")
 
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_ENABLED")
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CA_CERT_FILE")
@@ -145,9 +139,9 @@ func parsePostgresListenerConfig() *stream.PostgresListenerConfig {
 		},
 	}
 
-	initialSnapshotEnabled := viper.GetBool("PGSTREAM_POSTGRES_LISTENER_INITIAL_SNAPSHOT_ENABLED")
-	if initialSnapshotEnabled {
-		cfg.Snapshot = parseSnapshotConfig(pgURL, "PGSTREAM_POSTGRES_INITIAL")
+	snapshotTables := viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES")
+	if len(snapshotTables) > 0 {
+		cfg.Snapshot = parseSnapshotConfig(pgURL)
 	}
 
 	return cfg
@@ -158,27 +152,27 @@ func parseSnapshotListenerConfig() *snapshotbuilder.SnapshotListenerConfig {
 	if pgsnapshotURL == "" {
 		return nil
 	}
-	return parseSnapshotConfig(pgsnapshotURL, "PGSTREAM_POSTGRES")
+	return parseSnapshotConfig(pgsnapshotURL)
 }
 
-func parseSnapshotConfig(pgURL, prefix string) *snapshotbuilder.SnapshotListenerConfig {
+func parseSnapshotConfig(pgURL string) *snapshotbuilder.SnapshotListenerConfig {
 	cfg := &snapshotbuilder.SnapshotListenerConfig{
 		Generator: pgsnapshotgenerator.Config{
 			URL:           pgURL,
-			BatchPageSize: viper.GetUint(fmt.Sprintf("%s_SNAPSHOT_BATCH_PAGE_SIZE", prefix)),
-			SchemaWorkers: viper.GetUint(fmt.Sprintf("%s_SNAPSHOT_SCHEMA_WORKERS", prefix)),
-			TableWorkers:  viper.GetUint(fmt.Sprintf("%s_SNAPSHOT_TABLE_WORKERS", prefix)),
+			BatchPageSize: viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE"),
+			SchemaWorkers: viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS"),
+			TableWorkers:  viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS"),
 		},
 		Adapter: adapter.SnapshotConfig{
-			Tables:          viper.GetStringSlice(fmt.Sprintf("%s_SNAPSHOT_TABLES", prefix)),
-			SnapshotWorkers: viper.GetUint(fmt.Sprintf("%s_SNAPSHOT_WORKERS", prefix)),
+			Tables:          viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES"),
+			SnapshotWorkers: viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS"),
 		},
-		Schema: parseSchemaSnapshotConfig(prefix, pgURL),
+		Schema: parseSchemaSnapshotConfig(pgURL),
 	}
 
-	if storeURL := viper.GetString(fmt.Sprintf("%s_SNAPSHOT_STORE_URL", prefix)); storeURL != "" {
+	if storeURL := viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL"); storeURL != "" {
 		cfg.Recorder = &snapshotbuilder.SnapshotRecorderConfig{
-			RepeatableSnapshots: viper.GetBool(fmt.Sprintf("%s_SNAPSHOT_STORE_REPEATABLE", prefix)),
+			RepeatableSnapshots: viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE"),
 			SnapshotStoreURL:    storeURL,
 		}
 	}
@@ -186,8 +180,8 @@ func parseSnapshotConfig(pgURL, prefix string) *snapshotbuilder.SnapshotListener
 	return cfg
 }
 
-func parseSchemaSnapshotConfig(prefix, pgurl string) snapshotbuilder.SchemaSnapshotConfig {
-	useSchemaLog := viper.GetBool(fmt.Sprintf("%s_SNAPSHOT_USE_SCHEMALOG", prefix))
+func parseSchemaSnapshotConfig(pgurl string) snapshotbuilder.SchemaSnapshotConfig {
+	useSchemaLog := viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG")
 	pgTargetURL := viper.GetString("PGSTREAM_POSTGRES_WRITER_TARGET_URL")
 	if pgTargetURL != "" && !useSchemaLog {
 		return snapshotbuilder.SchemaSnapshotConfig{

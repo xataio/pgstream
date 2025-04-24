@@ -125,14 +125,13 @@ PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME=pgstream_tutorial_slot
 If you want to perform an initial snapshot of existing tables, add:
 
 ```sh
-PGSTREAM_POSTGRES_LISTENER_INITIAL_SNAPSHOT_ENABLED=true
 # URL of the PostgreSQL database we want to snapshot
-PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
+PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 # List of tables we want to snapshot. If the tables are not schema qualified, the public schema will be assumed.
 # Wildcards are supported.
 #
 # The following example will snapshot all tables in the `test_schema` and the table `test` from the public schema.
-PGSTREAM_POSTGRES_INITIAL_SNAPSHOT_TABLES="test_schema.* test"
+PGSTREAM_POSTGRES_SNAPSHOT_TABLES="test_schema.* test"
 ```
 
 Further configuration can be provided to optimize the performance of the snapshot process. For more information, check the [snapshot tutorial](postgres_snapshot).
@@ -309,7 +308,7 @@ Here are some common issues you might encounter while following this tutorial an
 
 - **Cause:** The initial snapshot process encountered an issue.
 - **Solution:**
-  - Ensure the `PGSTREAM_POSTGRES_LISTENER_INITIAL_SNAPSHOT_ENABLED` variable is set to `true` if a snapshot is required.
+  - Ensure the `PGSTREAM_POSTGRES_SNAPSHOT_TABLES` variable is set if a snapshot is required.
   - Check the `pgstream` logs for detailed error messages:
     ```sh
     pgstream run -c pg2pg_tutorial.env --log-level trace
