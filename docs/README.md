@@ -309,13 +309,14 @@ For details on how to use and configure the snapshot mode, check the [snapshot t
 
 ```yaml
 transformations:
-  - schema: public
-    table: users
-    column_transformers:
-      email:
-        name: masking
-        parameters:
-          type: email
+  table_transformers:
+    - schema: public
+      table: users
+      column_transformers:
+        email:
+          name: masking
+          parameters:
+            type: email
 ```
 
 **Input-Output Examples:**
@@ -330,15 +331,16 @@ With `custom` type, the masking function is defined by the user, by providing be
 
 ```yaml
 transformations:
-  - schema: public
-    table: users
-    column_transformers:
-      email:
-        name: masking
-        parameters:
-          type: custom
-          mask_begin: "4"
-          mask_end: "12"
+  table_transformers:
+    - schema: public
+      table: users
+      column_transformers:
+        email:
+          name: masking
+          parameters:
+            type: custom
+            mask_begin: "4"
+            mask_end: "12"
 ```
 
 **Input-Output Examples:**
@@ -353,14 +355,15 @@ If the begin index is not provided, it defaults to 0. If the end is not provided
 
 ```yaml
 transformations:
-  - schema: public
-    table: users
-    column_transformers:
-      email:
-        name: masking
-        parameters:
-          type: custom
-          mask_end: "5"
+  table_transformers:
+    - schema: public
+      table: users
+      column_transformers:
+        email:
+          name: masking
+          parameters:
+            type: custom
+            mask_end: "5"
 ```
 
 | Input Value             | Output Value            |
@@ -373,15 +376,16 @@ Alternatively, since input length may vary, user can provide relative beginning 
 
 ```yaml
 transformations:
-  - schema: public
-    table: users
-    column_transformers:
-      email:
-        name: masking
-        parameters:
-          type: custom
-          mask_begin: "15%"
-          mask_end: "85%"
+  table_transformers:
+    - schema: public
+      table: users
+      column_transformers:
+        email:
+          name: masking
+          parameters:
+            type: custom
+            mask_begin: "15%"
+            mask_end: "85%"
 ```
 
 | Input Value             | Output Value            |
@@ -395,14 +399,15 @@ Mask and unmask parameters cannot be provided at the same time.
 
 ```yaml
 transformations:
-  - schema: public
-    table: users
-    column_transformers:
-      email:
-        name: masking
-        parameters:
-          type: custom
-          unmask_end: "3"
+  table_transformers:
+    - schema: public
+      table: users
+      column_transformers:
+        email:
+          name: masking
+          parameters:
+            type: custom
+            unmask_end: "3"
 ```
 
 | Input Value             | Output Value            |
@@ -432,13 +437,14 @@ transformations:
 
 ```yaml
 transformations:
-  - schema: public
-    table: users
-    column_transformers:
-      is_active:
-        name: greenmask_boolean
-        parameters:
-          generator: deterministic
+  table_transformers:
+    - schema: public
+      table: users
+      column_transformers:
+        is_active:
+          name: greenmask_boolean
+          parameters:
+            generator: deterministic
 ```
 
 **Input-Output Examples:**
@@ -469,14 +475,15 @@ transformations:
 
 ```yaml
 transformations:
-  - schema: public
-    table: orders
-    column_transformers:
-      status:
-        name: greenmask_choice
-        parameters:
-          generator: random
-          choices: ["pending", "shipped", "delivered", "cancelled"]
+  table_transformers:
+    - schema: public
+      table: orders
+      column_transformers:
+        status:
+          name: greenmask_choice
+          parameters:
+            generator: random
+            choices: ["pending", "shipped", "delivered", "cancelled"]
 ```
 
 **Input-Output Examples:**
@@ -508,15 +515,16 @@ transformations:
 
 ```yaml
 transformations:
-  - schema: public
-    table: events
-    column_transformers:
-      event_date:
-        name: greenmask_date
-        parameters:
-          generator: random
-          min_value: "2020-01-01"
-          max_value: "2025-12-31"
+  table_transformers:
+    - schema: public
+      table: events
+      column_transformers:
+        event_date:
+          name: greenmask_date
+          parameters:
+            generator: random
+            min_value: "2020-01-01"
+            max_value: "2025-12-31"
 ```
 
 **Input-Output Examples:**
@@ -546,14 +554,15 @@ transformations:
 
 ```yaml
 transformations:
-  - schema: public
-    table: employees
-    column_transformers:
-      first_name:
-        name: greenmask_firstname
-        parameters:
-          generator: deterministic
-          gender: Female
+  table_transformers:
+    - schema: public
+      table: employees
+      column_transformers:
+        first_name:
+          name: greenmask_firstname
+          parameters:
+            generator: deterministic
+            gender: Female
 ```
 
 **Input-Output Examples:**
@@ -604,15 +613,16 @@ transformations:
 
 ```yaml
 transformations:
-  - schema: public
-    table: products
-    column_transformers:
-      stock_quantity:
-        name: greenmask_integer
-        parameters:
-          generator: random
-          min_value: 1
-          max_value: 1000
+  table_transformers:
+    - schema: public
+      table: products
+      column_transformers:
+        stock_quantity:
+          name: greenmask_integer
+          parameters:
+            generator: random
+            min_value: 1
+            max_value: 1000
 ```
 
 </details>
@@ -637,16 +647,17 @@ transformations:
 
 ```yaml
 transformations:
-  - schema: public
-    table: users
-    column_transformers:
-      username:
-        name: greenmask_string
-        parameters:
-          generator: random
-          min_length: 5
-          max_length: 15
-          symbols: "abcdefghijklmnopqrstuvwxyz1234567890"
+  table_transformers:
+    - schema: public
+      table: users
+      column_transformers:
+        username:
+          name: greenmask_string
+          parameters:
+            generator: random
+            min_length: 5
+            max_length: 15
+            symbols: "abcdefghijklmnopqrstuvwxyz1234567890"
 ```
 
 </details>
@@ -727,14 +738,15 @@ transformations:
 
 ```yaml
 transformations:
-  - schema: public
-    table: customers
-    column_transformers:
-      email:
-        name: neosync_email
-        parameters:
-          preserve_length: true
-          preserve_domain: true
+  table_transformers:
+    - schema: public
+      table: customers
+      column_transformers:
+        email:
+          name: neosync_email
+          parameters:
+            preserve_length: true
+            preserve_domain: true
 ```
 
 **Input-Output Examples:**
@@ -769,13 +781,14 @@ transformations:
 
 ```yaml
 transformations:
-  - schema: public
-    table: users
-    column_transformers:
-      first_name:
-        name: neosync_firstname
-        parameters:
-          preserve_length: true
+  table_transformers:
+    - schema: public
+      table: users
+      column_transformers:
+        first_name:
+          name: neosync_firstname
+          parameters:
+            preserve_length: true
 ```
 
 </details>
@@ -799,14 +812,15 @@ transformations:
 
 ```yaml
 transformations:
-  - schema: public
-    table: logs
-    column_transformers:
-      log_message:
-        name: neosync_string
-        parameters:
-          min_length: 10
-          max_length: 50
+  table_transformers:
+    - schema: public
+      table: logs
+      column_transformers:
+        log_message:
+          name: neosync_string
+          parameters:
+            min_length: 10
+            max_length: 50
 ```
 
 </details>
@@ -817,54 +831,60 @@ The rules for the transformers are defined in a dedicated yaml file, with the fo
 
 ```yaml
 transformations:
-  - schema: <schema_name>
-    table: <table_name>
-    column_transformers:
-      <column_name>:
-        name: <transformer_name>
-        parameters:
-          <transformer_parameter>: <transformer_parameter_value>
+  validation_mode: <validation_mode>
+  table_transformers:
+    - schema: <schema_name>
+      table: <table_name>
+      column_transformers:
+        <column_name>:
+          name: <transformer_name>
+          parameters:
+            <transformer_parameter>: <transformer_parameter_value>
 ```
 
 Below is a complete example of a transformation rules YAML file:
 
 ```yaml
 transformations:
-  - schema: public
-    table: users
-    column_transformers:
-      email:
-        name: neosync_email
-        parameters:
-          preserve_length: true
-          preserve_domain: true
-      first_name:
-        name: greenmask_firstname
-        parameters:
-          gender: Male
-      username:
-        name: greenmask_string
-        parameters:
-          generator: random
-          min_length: 5
-          max_length: 15
-          symbols: "abcdefghijklmnopqrstuvwxyz1234567890"
-  - schema: public
-    table: orders
-    column_transformers:
-      status:
-        name: greenmask_choice
-        parameters:
-          generator: random
-          choices: ["pending", "shipped", "delivered", "cancelled"]
-      order_date:
-        name: greenmask_date
-        parameters:
-          generator: random
-          min_value: "2020-01-01"
-          max_value: "2025-12-31"
+  validation_mode: table_level
+  table_transformers:
+    - schema: public
+      table: users
+      validation_mode: strict
+      column_transformers:
+        email:
+          name: neosync_email
+          parameters:
+            preserve_length: true
+            preserve_domain: true
+        first_name:
+          name: greenmask_firstname
+          parameters:
+            gender: Male
+        username:
+          name: greenmask_string
+          parameters:
+            generator: random
+            min_length: 5
+            max_length: 15
+            symbols: "abcdefghijklmnopqrstuvwxyz1234567890"
+    - schema: public
+      table: orders
+      validation_mode: relaxed
+      column_transformers:
+        status:
+          name: greenmask_choice
+          parameters:
+            generator: random
+            choices: ["pending", "shipped", "delivered", "cancelled"]
+        order_date:
+          name: greenmask_date
+          parameters:
+            generator: random
+            min_value: "2020-01-01"
+            max_value: "2025-12-31"
 ```
-
+Validation mode can be set to `strict` or `relaxed` for all tables at once. Or it can be determined for each table individually, by setting the higher level `validation_mode` parameter to `table_level`. When it is set to strict, pgstream will throw an error if any of the columns in the table do not have a transformer defined. When set to relaxed, pgstream will skip any columns that do not have a transformer defined.
 For details on how to use and configure the transformer, check the [transformer tutorial](tutorials/postgres_transformer.md).
 
 ## Glossary
