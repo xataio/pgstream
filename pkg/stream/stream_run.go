@@ -233,12 +233,12 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 			pgURL = config.Listener.Snapshot.Generator.URL
 		}
 		if pgURL != "" {
-			pgValidator, err := transformer.NewPostgresTransformerValidator(ctx, pgURL)
+			pgParser, err := transformer.NewPostgresTransformerParser(ctx, pgURL)
 			if err != nil {
 				return fmt.Errorf("error creating postgres transformer validator: %w", err)
 			}
-			defer pgValidator.Close()
-			opts = append(opts, transformer.WithValidator(pgValidator.Validate))
+			defer pgParser.Close()
+			opts = append(opts, transformer.WithParser(pgParser.ParseAndValidate))
 		}
 		transformer, err := transformer.New(ctx, config.Processor.Transformer, processor, opts...)
 		if err != nil {
