@@ -162,6 +162,7 @@ The transformer rules follow the pattern defined in the [transfomer section](../
 
 ```yaml
 transformations:
+  validation_mode: relaxed # Specifies the validation mode for the transformer.
   table_transformers:
     - schema: public
       table: test
