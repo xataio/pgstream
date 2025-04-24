@@ -73,6 +73,24 @@ func TestPostgresTransformerValidator(t *testing.T) {
 			wantErr:             nil,
 		},
 		{
+			name: "ok - no error for missing column, relaxed mode",
+			transformerRules: []TableRules{
+				{
+					Schema:         "public",
+					Table:          "test",
+					ValidationMode: "relaxed",
+					ColumnRules: map[string]TransformerRules{
+						"name": {
+							Name: "string",
+						},
+					},
+				},
+			},
+
+			wantTransformersFor: []string{"name"},
+			wantErr:             nil,
+		},
+		{
 			name: "error - missing column for strict validation",
 			transformerRules: []TableRules{
 				{
