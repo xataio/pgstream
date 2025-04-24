@@ -20,10 +20,10 @@ type Transformer struct {
 	logger         loglib.Logger
 	processor      processor.Processor
 	transformerMap map[string]ColumnTransformers
-	validator      ValidatorFn
+	parser         ParseFn
 }
 
-type ValidatorFn func(ctx context.Context, schemaTable string, transformers ColumnTransformers, columns []string, validateStrict bool) error
+type ParseFn func(rules []TableRules) (map[string]ColumnTransformers, error)
 
 type ColumnTransformers map[string]transformers.Transformer
 
@@ -33,6 +33,8 @@ type Config struct {
 
 type Option func(t *Transformer)
 
+const validationModeStrict = "strict"
+
 var errValidatorRequiredForStrictMode = errors.New("strict validation mode requires a validator function")
 
 // New will return a transformer processor wrapper that will transform incoming
@@ -41,17 +43,18 @@ func New(ctx context.Context, cfg *Config, processor processor.Processor, opts .
 	t := &Transformer{
 		logger:    loglib.NewNoopLogger(),
 		processor: processor,
+		parser:    transformerMapFromRules,
 	}
 
 	for _, opt := range opts {
 		opt(t)
 	}
 
-	transformerMap, err := transformerMapFromRules(cfg.TransformerRules, t.validator)
+	var err error
+	t.transformerMap, err = t.parser(cfg.TransformerRules)
 	if err != nil {
 		return nil, err
 	}
-	t.transformerMap = transformerMap
 
 	return t, nil
 }
@@ -64,9 +67,9 @@ func WithLogger(l loglib.Logger) Option {
 	}
 }
 
-func WithValidator(validator ValidatorFn) Option {
+func WithParser(parser ParseFn) Option {
 	return func(in *Transformer) {
-		in.validator = validator
+		in.parser = parser
 	}
 }
 
@@ -141,15 +144,16 @@ func schemaTableKey(schema, table string) string {
 	return pglib.QuoteQualifiedIdentifier(schema, table)
 }
 
-func transformerMapFromRules(rules []TableRules, validator ValidatorFn) (map[string]ColumnTransformers, error) {
+func transformerMapFromRules(rules []TableRules) (map[string]ColumnTransformers, error) {
 	var err error
 	transformerMap := map[string]ColumnTransformers{}
 	for _, table := range rules {
+		if table.ValidationMode == validationModeStrict {
+			return nil, errValidatorRequiredForStrictMode
+		}
 		schemaTableTransformers := make(map[string]transformers.Transformer)
 		transformerMap[schemaTableKey(table.Schema, table.Table)] = schemaTableTransformers
-		columnNames := make([]string, 0, len(table.ColumnRules))
 		for colName, transformerRules := range table.ColumnRules {
-			columnNames = append(columnNames, colName)
 			cfg := transformerRulesToConfig(transformerRules)
 			if cfg.Name == "" || cfg.Name == "noop" {
 				// noop transformer, skip
@@ -158,15 +162,6 @@ func transformerMapFromRules(rules []TableRules, validator ValidatorFn) (map[str
 			if schemaTableTransformers[colName], err = builder.New(cfg); err != nil {
 				return nil, err
 			}
-		}
-
-		validateStrict := table.ValidationMode == "strict"
-		if validator != nil {
-			if err = validator(context.Background(), schemaTableKey(table.Schema, table.Table), schemaTableTransformers, columnNames, validateStrict); err != nil {
-				return nil, err
-			}
-		} else if validateStrict {
-			return nil, errValidatorRequiredForStrictMode
 		}
 	}
 	return transformerMap, nil

@@ -27,8 +27,8 @@ func TestTransformer_New(t *testing.T) {
 		name   string
 		config *Config
 
-		wantTransformer *Transformer
-		wantErr         error
+		wantTransformerMap map[string]ColumnTransformers
+		wantErr            error
 	}{
 		{
 			name: "ok",
@@ -55,16 +55,12 @@ func TestTransformer_New(t *testing.T) {
 				},
 			},
 
-			wantTransformer: &Transformer{
-				logger:    log.NewNoopLogger(),
-				processor: mockProcessor,
-				transformerMap: map[string]ColumnTransformers{
-					"\"public\".\"test1\"": {
-						"column_1": testTransformer,
-					},
-					"\"test\".\"test2\"": {
-						"column_2": testTransformer,
-					},
+			wantTransformerMap: map[string]ColumnTransformers{
+				"\"public\".\"test1\"": {
+					"column_1": testTransformer,
+				},
+				"\"test\".\"test2\"": {
+					"column_2": testTransformer,
 				},
 			},
 			wantErr: nil,
@@ -77,7 +73,9 @@ func TestTransformer_New(t *testing.T) {
 
 			transformer, err := New(context.Background(), tc.config, mockProcessor)
 			require.ErrorIs(t, err, tc.wantErr)
-			require.Equal(t, tc.wantTransformer, transformer)
+			require.Equal(t, tc.wantTransformerMap, transformer.transformerMap)
+			require.Equal(t, mockProcessor, transformer.processor)
+			require.Equal(t, log.NewNoopLogger(), transformer.logger)
 		})
 	}
 }
@@ -314,7 +312,7 @@ func Test_transformerMapFromRules(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			transformerMap, err := transformerMapFromRules(tc.rules, nil)
+			transformerMap, err := transformerMapFromRules(tc.rules)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantTransformerMap, transformerMap)
 		})
