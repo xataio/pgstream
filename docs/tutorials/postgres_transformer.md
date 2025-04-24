@@ -162,20 +162,21 @@ The transformer rules follow the pattern defined in the [transfomer section](../
 
 ```yaml
 transformations:
-  - schema: public
-    table: test
-    column_transformers:
-      email:
-        name: neosync_email
-        parameters:
-          preserve_length: true # Ensures the transformed email has the same length as the original.
-          preserve_domain: true # Keeps the domain of the original email intact.
-          email_type: fullname # Specifies the type of email transformation.
-      name:
-        name: greenmask_firstname
-        parameters:
-          generator: deterministic # Ensures the same input always produces the same output.
-          gender: Female # Generates female names for the transformation.
+  table_transformers:
+    - schema: public
+      table: test
+      column_transformers:
+        email:
+          name: neosync_email
+          parameters:
+            preserve_length: true # Ensures the transformed email has the same length as the original.
+            preserve_domain: true # Keeps the domain of the original email intact.
+            email_type: fullname # Specifies the type of email transformation.
+        name:
+          name: greenmask_firstname
+          parameters:
+            generator: deterministic # Ensures the same input always produces the same output.
+            gender: Female # Generates female names for the transformation.
 ```
 
 The full configuration for this tutorial can be put into a `pg2pg_transformer_tutorial.env` file to be used in the next step.

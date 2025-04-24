@@ -107,11 +107,13 @@ modifiers:
     exclude_tables: # list of tables for which events should be skipped. Tables should be schema qualified. If no schema is provided, the public schema will be assumed. Wildcards "*" are supported.
       - "another_test"
   transformations:
-  - schema: public
-    table: test
-    column_transformers:
-      name:
-        name: greenmask_firstname
-        dynamic_parameters:
-          gender:
-            column: sex
+    validation_mode: relaxed
+    table_transformers:
+      - schema: public
+        table: test
+        column_transformers:
+          name:
+            name: greenmask_firstname
+            dynamic_parameters:
+              gender:
+                column: sex
