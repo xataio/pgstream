@@ -22,9 +22,15 @@ const (
 	pgstreamSchema = "pgstream"
 )
 
+var errMissingPostgresURL = errors.New("postgres URL is required")
+
 // Init initialises the pgstream state in the postgres database provided, along
 // with creating the relevant replication slot.
 func Init(ctx context.Context, pgURL, replicationSlotName string) error {
+	if pgURL == "" {
+		return errMissingPostgresURL
+	}
+
 	conn, err := newPGConn(ctx, pgURL)
 	if err != nil {
 		return err
@@ -63,6 +69,10 @@ func Init(ctx context.Context, pgURL, replicationSlotName string) error {
 // TearDown removes the pgstream state from the postgres database provided,
 // as well as removing the replication slot.
 func TearDown(ctx context.Context, pgURL, replicationSlotName string) error {
+	if pgURL == "" {
+		return errMissingPostgresURL
+	}
+
 	conn, err := newPGConn(ctx, pgURL)
 	if err != nil {
 		return err

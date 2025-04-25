@@ -42,39 +42,6 @@ func LoadFile(file string) error {
 	return nil
 }
 
-func PostgresURL() (url string) {
-	switch {
-	case viper.GetString("source.postgres.url") != "":
-		// yaml config
-		return viper.GetString("source.postgres.url")
-	case viper.GetString("PGSTREAM_POSTGRES_LISTENER_URL") != "":
-		// env config
-		return viper.GetString("PGSTREAM_POSTGRES_LISTENER_URL")
-	case viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL") != "":
-		// env config
-		return viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL")
-	default:
-		// CLI argument (with default value)
-		return viper.GetString("pgurl")
-	}
-}
-
-func ReplicationSlotName() string {
-	switch {
-	case viper.GetString("replication-slot") != "":
-		// CLI argument
-		return viper.GetString("replication-slot")
-	case viper.GetString("source.postgres.replication.replication_slot") != "":
-		// yaml config
-		return viper.GetString("source.postgres.replication.replication_slot")
-	case viper.GetString("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME") != "":
-		// env config
-		return viper.GetString("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME")
-	default:
-		return ""
-	}
-}
-
 func ParseStreamConfig() (*stream.Config, error) {
 	cfgFile := viper.GetViper().ConfigFileUsed()
 	switch ext := filepath.Ext(cfgFile); ext {
