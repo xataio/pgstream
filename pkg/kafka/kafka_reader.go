@@ -20,12 +20,6 @@ type Reader struct {
 	reader *kafka.Reader
 }
 
-type ReaderConfig struct {
-	Conn                     ConnConfig
-	ConsumerGroupID          string
-	ConsumerGroupStartOffset string
-}
-
 const (
 	earliestOffset = "earliest"
 	latestOffset   = "latest"
@@ -40,7 +34,7 @@ func NewReader(config ReaderConfig, logger loglib.Logger) (*Reader, error) {
 	})
 
 	var startOffset int64
-	switch config.ConsumerGroupStartOffset {
+	switch config.consumerGroupStartOffset() {
 	case "", earliestOffset:
 		// default to first offset
 		startOffset = kafka.FirstOffset
@@ -59,7 +53,7 @@ func NewReader(config ReaderConfig, logger loglib.Logger) (*Reader, error) {
 		reader: kafka.NewReader(kafka.ReaderConfig{
 			Brokers:        config.Conn.Servers,
 			Topic:          config.Conn.Topic.Name,
-			GroupID:        config.ConsumerGroupID,
+			GroupID:        config.consumerGroupID(),
 			MaxBytes:       maxReaderBytes, // TODO: this needs to be in sync with the broker max size
 			CommitInterval: 0,              // disabled, we call commit ourselves
 			Dialer:         dialer,

@@ -202,12 +202,12 @@ func parseSchemaSnapshotConfig(pgurl string) snapshotbuilder.SchemaSnapshotConfi
 
 func parseKafkaListenerConfig() *stream.KafkaListenerConfig {
 	kafkaTopic := viper.GetString("PGSTREAM_KAFKA_TOPIC_NAME")
-	consumerGroupID := viper.GetString("PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID")
-	if len(kafkaServers) == 0 || kafkaTopic == "" || consumerGroupID == "" {
 	kafkaServers := viper.GetStringSlice("PGSTREAM_KAFKA_READER_SERVERS")
+	if len(kafkaServers) == 0 || kafkaTopic == "" {
 		return nil
 	}
 
+	consumerGroupID := viper.GetString("PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID")
 	return &stream.KafkaListenerConfig{
 		Reader:       parseKafkaReaderConfig(kafkaServers, kafkaTopic, consumerGroupID),
 		Checkpointer: parseKafkaCheckpointConfig(),
@@ -254,9 +254,8 @@ func parseProcessorConfig() (stream.ProcessorConfig, error) {
 
 func parseKafkaProcessorConfig() *stream.KafkaProcessorConfig {
 	kafkaTopic := viper.GetString("PGSTREAM_KAFKA_TOPIC_NAME")
-	topicPartitions := viper.GetInt("PGSTREAM_KAFKA_TOPIC_PARTITIONS")
-	if len(kafkaServers) == 0 || kafkaTopic == "" || topicPartitions == 0 {
 	kafkaServers := viper.GetStringSlice("PGSTREAM_KAFKA_WRITER_SERVERS")
+	if len(kafkaServers) == 0 || kafkaTopic == "" {
 		return nil
 	}
 
