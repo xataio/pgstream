@@ -11,30 +11,13 @@ import (
 	kafkainstrumentation "github.com/xataio/pgstream/pkg/kafka/instrumentation"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	pgcheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/postgres"
 	"github.com/xataio/pgstream/pkg/wal/listener"
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
 	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
-	snapshotlistener "github.com/xataio/pgstream/pkg/wal/listener/snapshot"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
-	"github.com/xataio/pgstream/pkg/wal/processor"
-	"github.com/xataio/pgstream/pkg/wal/processor/filter"
-	"github.com/xataio/pgstream/pkg/wal/processor/injector"
-	processinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/instrumentation"
-	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
-	pgwriter "github.com/xataio/pgstream/pkg/wal/processor/postgres"
-	"github.com/xataio/pgstream/pkg/wal/processor/search"
-	searchinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/search/instrumentation"
-	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
-	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
-	webhooknotifier "github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
-	subscriptionserver "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
-	webhookstore "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store"
-	subscriptionstorecache "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store/cache"
-	pgwebhook "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/store/postgres"
 	"github.com/xataio/pgstream/pkg/wal/replication"
 	replicationinstrumentation "github.com/xataio/pgstream/pkg/wal/replication/instrumentation"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
@@ -111,186 +94,25 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 
 	// Processor
 
-	var processor processor.Processor
-	switch {
-	case config.Processor.Kafka != nil:
-		opts := []kafkaprocessor.Option{
-			kafkaprocessor.WithCheckpoint(checkpoint),
-			kafkaprocessor.WithLogger(logger),
-		}
-		if instrumentation.IsEnabled() {
-			opts = append(opts, kafkaprocessor.WithInstrumentation(instrumentation))
-		}
-		kafkaWriter, err := kafkaprocessor.NewBatchWriter(ctx, config.Processor.Kafka.Writer, opts...)
-		if err != nil {
-			return err
-		}
-		defer kafkaWriter.Close()
-		processor = kafkaWriter
-	case config.Processor.Search != nil:
-		var searchStore search.Store
-		var err error
-		searchStore, err = store.NewStore(config.Processor.Search.Store, store.WithLogger(logger))
-		if err != nil {
-			return err
-		}
-		searchStore = search.NewStoreRetrier(searchStore, config.Processor.Search.Retrier, search.WithStoreLogger(logger))
-		if instrumentation.IsEnabled() {
-			searchStore, err = searchinstrumentation.NewStore(searchStore, instrumentation)
-			if err != nil {
-				return err
-			}
-		}
-
-		searchIndexer, err := search.NewBatchIndexer(ctx,
-			config.Processor.Search.Indexer,
-			searchStore,
-			pgreplication.NewLSNParser(),
-			search.WithCheckpoint(checkpoint),
-			search.WithLogger(logger),
-		)
-		if err != nil {
-			return err
-		}
-		defer searchIndexer.Close()
-		processor = searchIndexer
-
-	case config.Processor.Webhook != nil:
-		var subscriptionStore webhookstore.Store
-		var err error
-		subscriptionStore, err = pgwebhook.NewSubscriptionStore(ctx,
-			config.Processor.Webhook.SubscriptionStore.URL,
-			pgwebhook.WithLogger(logger),
-		)
-		if err != nil {
-			return err
-		}
-
-		if config.Processor.Webhook.SubscriptionStore.CacheEnabled {
-			logger.Info("setting up subscription store cache...")
-			subscriptionStore, err = subscriptionstorecache.New(ctx, subscriptionStore,
-				&subscriptionstorecache.Config{
-					SyncInterval: config.Processor.Webhook.SubscriptionStore.CacheRefreshInterval,
-				},
-				subscriptionstorecache.WithLogger(logger))
-			if err != nil {
-				return err
-			}
-		}
-
-		notifier := webhooknotifier.New(
-			&config.Processor.Webhook.Notifier,
-			subscriptionStore,
-			webhooknotifier.WithLogger(logger),
-			webhooknotifier.WithCheckpoint(checkpoint))
-		defer notifier.Close()
-		processor = notifier
-
-		subscriptionServer := subscriptionserver.New(
-			&config.Processor.Webhook.SubscriptionServer,
-			subscriptionStore,
-			subscriptionserver.WithLogger(logger))
-
-		eg.Go(func() error {
-			defer logger.Info("stopping subscription server...")
-			logger.Info("running subscription server...")
-			go subscriptionServer.Start()
-			<-ctx.Done()
-			return subscriptionServer.Shutdown(ctx)
-		})
-		eg.Go(func() error {
-			defer logger.Info("stopping webhook notifier...")
-			logger.Info("running webhook notifier...")
-			return notifier.Notify(ctx)
-		})
-
-	case config.Processor.Postgres != nil:
-		pgBatchWriter, err := pgwriter.NewBatchWriter(ctx,
-			&config.Processor.Postgres.BatchWriter,
-			pgwriter.WithLogger(logger),
-			pgwriter.WithCheckpoint(checkpoint))
-		if err != nil {
-			return err
-		}
-		defer pgBatchWriter.Close()
-		logger.Info("starting postgres batch writer...")
-
-		processor = pgBatchWriter
-
-	default:
-		return errors.New("no processor found")
+	processor, err := buildProcessor(ctx, logger, &config.Processor, checkpoint, instrumentation)
+	if err != nil {
+		return err
 	}
+	defer processor.Close()
 
-	if config.Processor.Transformer != nil {
-		logger.Info("adding transformation layer to processor...")
-		opts := []transformer.Option{transformer.WithLogger(logger)}
-		// if a source pg url is provided, use it to validate the transformer
-		pgURL := ""
-		switch {
-		case config.Listener.Postgres != nil:
-			pgURL = config.Listener.Postgres.Replication.PostgresURL
-		case config.Listener.Snapshot != nil:
-			pgURL = config.Listener.Snapshot.Generator.URL
-		}
-		if pgURL != "" {
-			pgParser, err := transformer.NewPostgresTransformerParser(ctx, pgURL)
-			if err != nil {
-				return fmt.Errorf("error creating postgres transformer validator: %w", err)
-			}
-			defer pgParser.Close()
-			opts = append(opts, transformer.WithParser(pgParser.ParseAndValidate))
-		}
-		transformer, err := transformer.New(ctx, config.Processor.Transformer, processor, opts...)
-		if err != nil {
-			logger.Error(err, "creating transformer layer")
-			return err
-		}
-
-		processor = transformer
+	var closer closerFn
+	processor, closer, err = addProcessorModifiers(ctx, config, logger, processor, instrumentation)
+	if err != nil {
+		return err
 	}
-
-	if config.Processor.Injector != nil {
-		logger.Info("adding injection to processor...")
-		opts := []injector.Option{
-			injector.WithLogger(logger),
-		}
-		if instrumentation.IsEnabled() {
-			opts = append(opts, injector.WithInstrumentation(instrumentation))
-		}
-		injector, err := injector.New(config.Processor.Injector, processor, opts...)
-		if err != nil {
-			return fmt.Errorf("error creating processor injection layer: %w", err)
-		}
-		defer injector.Close()
-		processor = injector
-	}
-
-	if config.Processor.Filter != nil {
-		logger.Info("adding filtering to processor...")
-		var err error
-		processor, err = filter.New(processor, config.Processor.Filter,
-			filter.WithLogger(logger),
-			// by default we include the pgstream schema log table, since we won't
-			// be able to replicate DDL changes otherwise. This behaviour can be
-			// disabled by adding it to the exclude tables.
-			filter.WithDefaultIncludeTables([]string{schemalog.SchemaName + "." + schemalog.TableName}))
-		if err != nil {
-			return err
-		}
-	}
-
-	if processor != nil && instrumentation.IsEnabled() {
-		var err error
-		processor, err = processinstrumentation.NewProcessor(processor, instrumentation)
-		if err != nil {
-			return err
-		}
-	}
+	defer closer()
 
 	// Listener
 
+	var listener listener.Listener
 	switch {
 	case config.Listener.Postgres != nil:
+		logger.Info("postgres listener configured")
 		opts := []pglistener.Option{
 			pglistener.WithLogger(logger),
 		}
@@ -308,52 +130,29 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 			opts = append(opts, pglistener.WithInitialSnapshot(snapshotGenerator))
 		}
 
-		var listener listener.Listener = pglistener.New(
+		listener = pglistener.New(
 			replicationHandler,
 			processor.ProcessWALEvent,
 			opts...)
-		defer listener.Close()
-
-		eg.Go(func() error {
-			defer logger.Info("stopping postgres listener...")
-			logger.Info("running postgres listener...")
-			return listener.Listen(ctx)
-		})
 	case config.Listener.Kafka != nil:
-		listener, err := kafkalistener.NewWALReader(
+		logger.Info("kafka listener configured")
+		listener, err = kafkalistener.NewWALReader(
 			kafkaReader,
 			processor.ProcessWALEvent,
 			kafkalistener.WithLogger(logger))
 		if err != nil {
 			return err
 		}
-		defer listener.Close()
-
-		eg.Go(func() error {
-			defer logger.Info("stopping kafka reader...")
-			logger.Info("running kafka reader...")
-			return listener.Listen(ctx)
-		})
-
-	case config.Listener.Snapshot != nil:
-		var err error
-		snapshotGenerator, err := snapshotbuilder.NewSnapshotGenerator(
-			ctx,
-			config.Listener.Snapshot,
-			processor.ProcessWALEvent,
-			logger)
-		if err != nil {
-			return err
-		}
-		listener := snapshotlistener.New(snapshotGenerator)
-		defer listener.Close()
-
-		eg.Go(func() error {
-			defer logger.Info("stopping postgres snapshot listener...")
-			logger.Info("running postgres snapshot listener...")
-			return listener.Listen(ctx)
-		})
+	default:
+		return errors.New("no supported listener found")
 	}
+	defer listener.Close()
+
+	eg.Go(func() error {
+		defer logger.Info("stopping listener...")
+		logger.Info("starting listener...")
+		return listener.Listen(ctx)
+	})
 
 	if err := eg.Wait(); err != nil {
 		if !errors.Is(err, context.Canceled) {

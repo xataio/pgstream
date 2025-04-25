@@ -12,13 +12,13 @@ import (
 	"github.com/xataio/pgstream/pkg/stream"
 )
 
-var runCmd = &cobra.Command{
-	Use:   "run",
-	Short: "Run starts all the configured pgstream modules",
-	RunE:  withSignalWatcher(run),
+var snapshotCmd = &cobra.Command{
+	Use:   "snapshot",
+	Short: "Snapshot performs a snapshot of the configured source into the configured target",
+	RunE:  withSignalWatcher(snapshot),
 }
 
-func run(ctx context.Context) error {
+func snapshot(ctx context.Context) error {
 	logger := zerolog.NewLogger(&zerolog.Config{
 		LogLevel: viper.GetString("PGSTREAM_LOG_LEVEL"),
 	})
@@ -28,5 +28,5 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return stream.Run(ctx, zerolog.NewStdLogger(logger), streamConfig, nil)
+	return stream.Snapshot(ctx, zerolog.NewStdLogger(logger), streamConfig, nil)
 }

@@ -41,7 +41,7 @@ func Test_SnapshotToPostgres(t *testing.T) {
 		Processor: testPostgresProcessorCfg(snapshotPGURL),
 	}
 	initStream(t, ctx, snapshotPGURL)
-	runStream(t, ctx, cfg)
+	runSnapshot(t, ctx, cfg)
 
 	targetConn, err := pglib.NewConn(ctx, targetPGURL)
 	require.NoError(t, err)

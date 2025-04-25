@@ -87,7 +87,7 @@ func (t *Transformer) Name() string {
 }
 
 func (t *Transformer) Close() error {
-	return nil
+	return t.processor.Close()
 }
 
 func (t *Transformer) applyTransformations(event *wal.Event) error {

@@ -89,6 +89,14 @@ func runStream(t *testing.T, ctx context.Context, cfg *stream.Config) {
 	}()
 }
 
+func runSnapshot(t *testing.T, ctx context.Context, cfg *stream.Config) {
+	// start the configured stream listener/processor
+	go func() {
+		err := stream.Snapshot(ctx, testLogger(), cfg, nil)
+		require.NoError(t, err)
+	}()
+}
+
 func initStream(t *testing.T, ctx context.Context, url string) {
 	err := stream.Init(ctx, url, "")
 	require.NoError(t, err)

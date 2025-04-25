@@ -126,6 +126,10 @@ func (f *Filter) Name() string {
 	return f.processor.Name()
 }
 
+func (f *Filter) Close() error {
+	return f.processor.Close()
+}
+
 // skip event for table if it's not in the include table list or if it's in the exclude one
 func (f *Filter) skipEvent(event *wal.Event) bool {
 	if event == nil || event.Data == nil {
