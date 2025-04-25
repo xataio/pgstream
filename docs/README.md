@@ -6,17 +6,11 @@
    - [WAL Listener](#wal-listener)
    - [WAL Processor](#wal-processor)
 2. [Configuration](#configuration)
-   - [Listeners](#listeners)
-     - [Postgres Listener](#postgres-listener)
-     - [Postgres Snapshoter](#postgres-snapshoter)
-     - [Kafka Listener](#kafka-listener)
-   - [Processors](#processors)
-     - [Kafka Batch Writer](#kafka-batch-writer)
-     - [Search Batch Indexer](#search-batch-indexer)
-     - [Webhook Notifier](#webhook-notifier)
-     - [Postgres Batch Writer](#postgres-batch-writer)
-     - [Injector](#injector)
-     - [Transformer](#transformer)
+   - [Yaml](#yaml)
+   - [Environment Variables](#environment-variables)
+     - [Listeners](#listeners)
+     - [Processors](#processors)
+       - [Modifiers](#modifiers-1)
 3. [Tracking Schema Changes](#tracking-schema-changes)
 4. [Snapshots](#snapshots)
 5. [Transformers](#transformers)
@@ -83,9 +77,142 @@ There current implementations of the processor that act as modifier decorators a
 
 ## Configuration
 
+⚠️ Be aware that a single source and a single target must be provided or the configuration validation will fail.
+
+### Yaml
+
+The pgstream configuration can be provided as a yaml configuration file, which encapsulates the transformation configuration. The following sample shows the format for all supported fields.
+
+```yaml
+source:
+  postgres:
+    url: "postgresql://user:password@localhost:5432/mydatabase"
+    mode: snapshot_and_replication # options are replication, snapshot or snapshot_and_replication
+    snapshot: # when mode is snapshot or snapshot_and_replication
+      mode: full # options are data_and, schema or data
+      tables: ["test", "test_schema.Test", "another_schema.*"] # tables to snapshot, can be a list of table names or a pattern
+      recorder:
+        repeatable_snapshots: true # whether to repeat snapshots that have already been taken. Defaults to false
+        postgres_url: "postgresql://user:password@localhost:5432/mytargetdatabase" # URL of the database where the snapshot status is recorded
+      snapshot_workers: 4 # number of schemas to be snapshotted in parallel. Defaults to 1
+      data: # when mode is full or data
+        schema_workers: 4 # number of schema tables to be snapshotted in parallel. Defaults to 4
+        table_workers: 4 # number of workers to snapshot a table in parallel. Defaults to 4
+        batch_page_size: 1000 # number of pages to read per batch. Defaults to 1000
+      schema: # when mode is full or schema
+        mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
+        pgdump_pgrestore:
+          clean_target_db: true # whether to clean the target database before restoring
+    replication: # when mode is replication or snapshot_and_replication
+      replication_slot: "pgstream_mydatabase_slot"
+  kafka:
+    servers: ["localhost:9092"]
+    topic:
+      name: "mytopic"
+    consumer_group:
+      id: "mygroup" # id for the kafka consumer group. Defaults to pgstream-consumer-group
+      start_offset: "earliest" # options are earliest or latest. Defaults to earliest.
+    tls:
+      ca_cert: "/path/to/ca.crt" # path to CA certificate
+      client_cert: "/path/to/client.crt" # path to client certificate
+      client_key: "/path/to/client.key" # path to client key
+    backoff:
+      exponential:
+        max_retries: 5 # maximum number of retries
+        initial_interval: 1000 # initial interval in milliseconds
+        max_interval: 60000 # maximum interval in milliseconds
+      constant:
+        max_retries: 5 # maximum number of retries
+        interval: 1000 # interval in milliseconds
+
+target:
+  postgres:
+    url: "postgresql://user:password@localhost:5432/mytargetdatabase"
+    batch:
+      timeout: 1000 # batch timeout in milliseconds. Defaults to 1s
+      size: 100 # number of messages in a batch. Defaults to 100
+      max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB
+      max_queue_bytes: 204800 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
+    disable_triggers: false # whether to disable triggers on the target database. Defaults to false
+    on_conflict_action: "nothing" # options are update, nothing or error. Defaults to error
+  kafka:
+    servers: ["localhost:9092"]
+    topic:
+      name: "mytopic" # name of the Kafka topic
+      partitions: 1 # number of partitions for the topic. Defaults to 1
+      replication_factor: 1 # replication factor for the topic. Defaults to 1
+      auto_create: true # whether to automatically create the topic if it doesn't exist. Defaults to false
+    tls:
+      ca_cert: "/path/to/ca.crt" # path to CA certificate
+      client_cert: "/path/to/client.crt" # path to client certificate
+      client_key: "/path/to/client.key" # path to client key
+    batch:
+      timeout: 1000 # batch timeout in milliseconds. Defaults to 1s
+      size: 100 # number of messages in a batch. Defaults to 100
+      max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB
+      max_queue_bytes: 204800 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
+  search:
+    engine: "elasticsearch" # options are elasticsearch or opensearch
+    url: "http://localhost:9200" # URL of the search engine
+    batch:
+      timeout: 1000 # batch timeout in milliseconds. Defaults to 1s
+      size: 100 # number of messages in a batch. Defaults to 100
+      max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB
+      max_queue_bytes: 204800 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
+    backoff:
+      exponential:
+        max_retries: 5 # maximum number of retries
+        initial_interval: 1000 # initial interval in milliseconds
+        max_interval: 60000 # maximum interval in milliseconds
+      constant:
+        max_retries: 5 # maximum number of retries
+        interval: 1000 # interval in milliseconds
+  webhooks:
+    subscriptions:
+      store:
+        url: "postgresql://user:password@localhost:5432/mydatabase" # URL of the database where the webhook subscriptions are stored
+        cache:
+          enabled: true # whether to enable caching for the subscription store. Defaults to false
+          refresh_interval: 60 # interval in seconds to refresh the cache
+      server:
+        address: "localhost:9090" # address of the subscription server
+        read_timeout: 60 # read timeout in seconds. Defaults to 5s
+        write_timeout: 60 # write timeout in seconds. Defaults to 10s
+    notifier:
+      worker_count: 4 # number of notifications to be processed in parallel. Defaults to 10
+      client_timeout: 1000 # timeout for the webhook client in milliseconds. Defaults to 10s
+
+modifiers:
+  injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events. Defaults to false
+	schemalog_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the schemalog database, if different from the source database
+  filter: # one of include_tables or exclude_tables
+    include_tables: # list of tables for which events should be allowed. Tables should be schema qualified. If no schema is provided, the public schema will be assumed. Wildcards "*" are supported.
+      - "test"
+      - "test_schema.test"
+      - "another_schema.*"
+    exclude_tables: # list of tables for which events should be skipped. Tables should be schema qualified. If no schema is provided, the public schema will be assumed. Wildcards "*" are supported.
+      - "excluded_test"
+      - "excluded_schema.test"
+      - "another_excluded_schema.*"
+  transformations:
+    validation_mode: relaxed
+    table_transformers:
+      - schema: public
+        table: test
+        column_transformers:
+          name:
+            name: greenmask_firstname
+            dynamic_parameters:
+              gender:
+                column: sex
+```
+
+### Environment Variables
+
 Here's a list of all the environment variables that can be used to configure the individual modules, along with their descriptions and default values.
 
-### Listeners
+#### Listeners
 
 <details>
   <summary>Postgres Listener</summary>
@@ -106,7 +233,7 @@ Here's a list of all the environment variables that can be used to configure the
 </details>
 
 <details>
-  <summary>Postgres Snapshoter</summary>
+  ##### <summary>Postgres Snapshoter</summary>
 
 | Environment Variable                       | Default | Required | Description                                                                                                                                                                                                                                                                                                  |
 | ------------------------------------------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -144,7 +271,7 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 
 </details>
 
-### Processors
+#### Processors
 
 <details>
   <summary>Kafka Batch Writer</summary>
@@ -222,7 +349,7 @@ One of exponential/constant backoff policies can be provided for the search stor
 
 </details>
 
-#### Modifiers
+##### Modifiers
 
 <details>
   <summary>Injector</summary>
@@ -884,6 +1011,7 @@ transformations:
             min_value: "2020-01-01"
             max_value: "2025-12-31"
 ```
+
 Validation mode can be set to `strict` or `relaxed` for all tables at once. Or it can be determined for each table individually, by setting the higher level `validation_mode` parameter to `table_level`. When it is set to strict, pgstream will throw an error if any of the columns in the table do not have a transformer defined. When set to relaxed, pgstream will skip any columns that do not have a transformer defined.
 For details on how to use and configure the transformer, check the [transformer tutorial](tutorials/postgres_transformer.md).
 
