@@ -226,7 +226,7 @@ source:
     mode: replication # options are replication, snapshot or snapshot_and_replication
     replication:
       replication_slot: pgstream_tutorial_slot
-	snapshot: # when mode is snapshot or snapshot_and_replication
+    snapshot: # when mode is snapshot or snapshot_and_replication
       mode: full # options are data_and, schema or data
       tables: ["*"] # tables to snapshot, can be a list of table names or a pattern
       recorder:

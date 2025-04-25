@@ -185,7 +185,7 @@ target:
 modifiers:
   injector:
     enabled: true # whether to inject pgstream metadata into the WAL events. Defaults to false
-	schemalog_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the schemalog database, if different from the source database
+    schemalog_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the schemalog database, if different from the source database
   filter: # one of include_tables or exclude_tables
     include_tables: # list of tables for which events should be allowed. Tables should be schema qualified. If no schema is provided, the public schema will be assumed. Wildcards "*" are supported.
       - "test"
