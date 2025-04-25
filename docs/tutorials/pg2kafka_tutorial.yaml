@@ -1,0 +1,17 @@
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: replication
+    replication:
+      replication_slot: "pgstream_tutorial_slot"
+target:
+  kafka:
+    servers: ["localhost:9092"]
+    topic:
+      name: "pgstream" # name of the Kafka topic
+      partitions: 1 # number of partitions for the topic
+      replication_factor: 1 # replication factor for the topic
+      auto_create: true # whether to automatically create the topic if it doesn't exist
+modifiers:
+  injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events

@@ -1,0 +1,16 @@
+source:
+  kafka:
+    servers: ["localhost:9092"]
+    topic:
+      name: "mytopic"
+    consumer_group:
+      id: "mygroup"
+      start_offset: "earliest" # options are earliest or latest
+target:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:7654?sslmode=disable"
+    batch:
+      timeout: 5000 # batch timeout in milliseconds
+      size: 25 # number of messages in a batch
+    disable_triggers: false # whether to disable triggers on the target database
+    on_conflict_action: "nothing" # options are update, nothing or error

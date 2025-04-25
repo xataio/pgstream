@@ -59,7 +59,7 @@ For this tutorial, we'll create a replication slot with the name `pgstream_tutor
 - Using CLI parameters:
 
 ```sh
-pgstream init --pgurl "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
+pgstream init --postgres-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
 ```
 
 - Using environment variables:
@@ -108,7 +108,7 @@ Has OIDs: no
 If at any point the initialisation performed by pgstream needs to be reverted, all state will be removed by running the `tear-down` CLI command.
 
 ```sh
-pgstream tear-down --pgurl "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
+pgstream tear-down --postgres-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
 ```
 
 ## Prepare `pgstream` configuration
@@ -154,7 +154,7 @@ For further granularity, we can also configure the action that should be taken w
 
 ```sh
 # Insert on conflict action. Options are update, nothing or error (error is the default behaviour)
-PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION=update
+PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION=nothing
 ```
 
 The PostgreSQL writer uses batching under the hood to reduce the number of IO calls to the target database and improve performance. The batch size and send timeout can both be configured to be able to better fit the different traffic patterns. The writer will send a batch when the timeout or the batch size is reached, whichever happens first.
@@ -172,7 +172,7 @@ For the PostgreSQL writer to keep track of DDL changes, it needs to keep track o
 PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 ```
 
-Save the configuration in a file named `pg2pg_tutorial.env`:
+Save the configuration in a file named `pg2pg_tutorial.env`. An equivalent `pg2pg_tutorial.yaml` configuration can be found below the environment one, and can be used interchangeably.
 
 ```sh
 # Listener config
@@ -184,6 +184,26 @@ PGSTREAM_POSTGRES_WRITER_TARGET_URL="postgres://postgres:postgres@localhost:7654
 PGSTREAM_POSTGRES_WRITER_BATCH_SIZE=25
 PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT=5s
 PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
+PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS=true
+PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION=nothing
+```
+
+```yaml
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: replication # options are replication, snapshot or snapshot_and_replication
+    replication:
+      replication_slot: pgstream_tutorial_slot
+
+target:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:7654?sslmode=disable"
+    batch:
+      timeout: 5000 # batch timeout in milliseconds
+      size: 25 # number of messages in a batch
+    disable_triggers: false # whether to disable triggers on the target database
+    on_conflict_action: "nothing" # options are update, nothing or error
 ```
 
 ## Run `pgstream`
@@ -191,7 +211,14 @@ PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@local
 Run pgstream with the prepared configuration. In this case we set the log level as trace to provide more context for debugging and have more visibility into what pgstream is doing under the hood.
 
 ```sh
+# with the environment configuration
 pgstream run -c pg2pg_tutorial.env --log-level trace
+
+# with the yaml configuration
+pgstream run -c pg2pg_tutorial.yaml --log-level trace
+
+# with the CLI flags and relying on defaults
+pgstream run --source postgres --source-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --target postgres --target-url "postgres://postgres:postgres@localhost:7654?sslmode=disable" --log-level trace
 ```
 
 ## Verify Replication

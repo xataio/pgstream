@@ -1,0 +1,16 @@
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: replication
+    replication:
+      replication_slot: "pgstream_tutorial_slot"
+target:
+  search:
+    engine: "opensearch" # options are elasticsearch or opensearch
+    url: "http://localhost:9200" # URL of the search engine
+    batch:
+      timeout: 5000 # batch timeout in milliseconds
+      size: 25 # number of messages in a batch
+modifiers:
+  injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events

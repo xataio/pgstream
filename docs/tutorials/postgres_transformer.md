@@ -51,10 +51,10 @@ The initialisation step allows to provide both the URL of the PostgreSQL databas
 
 For this tutorial, we'll create a replication slot with the name `pgstream_tutorial_slot`.
 
-- Using CLI parameters:
+- Using CLI flags:
 
 ```sh
-pgstream init --pgurl "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
+pgstream init --postgres-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
 ```
 
 - Using environment variables:
@@ -113,7 +113,7 @@ Has OIDs: no
 If at any point the initialisation performed by pgstream needs to be reverted, all state will be removed by running the `tear-down` CLI command.
 
 ```sh
-pgstream tear-down --pgurl "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
+pgstream tear-down --postgres-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
 ```
 
 ## Prepare `pgstream` configuration
@@ -180,7 +180,7 @@ transformations:
             gender: Female # Generates female names for the transformation.
 ```
 
-The full configuration for this tutorial can be put into a `pg2pg_transformer_tutorial.env` file to be used in the next step.
+The full configuration for this tutorial can be put into a `pg2pg_transformer_tutorial.env` file to be used in the next step. An equivalent `pg2pg_transformer_tutorial.yaml` configuration can be found below the environment one, and can be used interchangeably.
 
 - Without initial snapshot
 
@@ -195,6 +195,43 @@ PGSTREAM_POSTGRES_WRITER_TARGET_URL="postgres://postgres:postgres@localhost:7654
 PGSTREAM_POSTGRES_WRITER_BATCH_SIZE=25
 PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT=5s
 PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
+```
+
+```yaml
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: replication # options are replication, snapshot or snapshot_and_replication
+    replication:
+      replication_slot: pgstream_tutorial_slot
+
+target:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:7654?sslmode=disable"
+    batch:
+      timeout: 5000 # batch timeout in milliseconds
+      size: 25 # number of messages in a batch
+    disable_triggers: false # whether to disable triggers on the target database
+    on_conflict_action: "nothing" # options are update, nothing or error
+
+modifiers:
+  transformations:
+    validation_mode: relaxed
+    table_transformers:
+      - schema: public
+        table: test
+        column_transformers:
+          email:
+            name: neosync_email
+            parameters:
+              preserve_length: true
+              preserve_domain: true
+              email_type: fullname
+          name:
+            name: greenmask_firstname
+            parameters:
+              generator: deterministic
+              gender: Female
 ```
 
 - With initial snapshot
@@ -215,6 +252,53 @@ PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT=5s
 PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 ```
 
+```yaml
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: snapshot_and_replication # options are replication, snapshot or snapshot_and_replication
+    replication:
+      replication_slot: pgstream_tutorial_slot
+	snapshot: # when mode is snapshot or snapshot_and_replication
+      mode: full # options are data_and, schema or data
+      tables: ["*"] # tables to snapshot, can be a list of table names or a pattern
+      recorder:
+        repeatable_snapshots: true # whether to repeat snapshots that have already been taken
+        postgres_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the database where the snapshot status is recorded
+      schema: # when mode is full or schema
+        mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
+        pgdump_pgrestore:
+          clean_target_db: false # whether to clean the target database before restoring
+
+target:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:7654?sslmode=disable"
+    batch:
+      timeout: 5000 # batch timeout in milliseconds
+      size: 25 # number of messages in a batch
+    disable_triggers: false # whether to disable triggers on the target database
+    on_conflict_action: "nothing" # options are update, nothing or error
+
+modifiers:
+  transformations:
+    validation_mode: relaxed
+    table_transformers:
+      - schema: public
+        table: test
+        column_transformers:
+          email:
+            name: neosync_email
+            parameters:
+              preserve_length: true
+              preserve_domain: true
+              email_type: fullname
+          name:
+            name: greenmask_firstname
+            parameters:
+              generator: deterministic
+              gender: Female
+```
+
 ## Run `pgstream`
 
 With the configuration ready, we can now run pgstream. In this case we set the log level as trace to provide more context for debugging and have more visibility into what pgstream is doing under the hood.
@@ -222,7 +306,14 @@ With the configuration ready, we can now run pgstream. In this case we set the l
 **Important:** Ensure that the source and target databases are running before proceeding.
 
 ```sh
+# with the environment configuration
 pgstream run -c pg2pg_transformer_tutorial.env --log-level trace
+
+# with the yaml configuration
+pgstream run -c pg2pg_transformer_tutorial.yaml --log-level trace
+
+# with the CLI flags and relying on defaults
+PGSTREAM_TRANSFORMER_RULES_FILE="tutorial_transformer_rules.yaml" pgstream run --source postgres --source-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --target postgres --target-url "postgres://postgres:postgres@localhost:7654?sslmode=disable" --log-level trace
 ```
 
 Now we can connect to the source database, create a table and start inserting data.
