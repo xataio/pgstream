@@ -126,7 +126,7 @@ Here's a list of all the environment variables that can be used to configure the
 
 | Environment Variable                               | Default  | Required         | Description                                                                                            |
 | -------------------------------------------------- | -------- | ---------------- | ------------------------------------------------------------------------------------------------------ |
-| PGSTREAM_KAFKA_SERVERS                             | N/A      | Yes              | URLs for the Kafka servers to connect to.                                                              |
+| PGSTREAM_KAFKA_READER_SERVERS                      | N/A      | Yes              | URLs for the Kafka servers to connect to.                                                              |
 | PGSTREAM_KAFKA_TOPIC_NAME                          | N/A      | Yes              | Name of the Kafka topic to read from.                                                                  |
 | PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID            | N/A      | Yes              | Name of the Kafka consumer group for the WAL Kafka reader.                                             |
 | PGSTREAM_KAFKA_READER_CONSUMER_GROUP_START_OFFSET  | Earliest | No               | Kafka offset from which the consumer will start if there's no offset available for the consumer group. |
@@ -151,7 +151,7 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 
 | Environment Variable                    | Default | Required         | Description                                                                                         |
 | --------------------------------------- | ------- | ---------------- | --------------------------------------------------------------------------------------------------- |
-| PGSTREAM_KAFKA_SERVERS                  | N/A     | Yes              | URLs for the Kafka servers to connect to.                                                           |
+| PGSTREAM_KAFKA_WRITER_SERVERS           | N/A     | Yes              | URLs for the Kafka servers to connect to.                                                           |
 | PGSTREAM_KAFKA_TOPIC_NAME               | N/A     | Yes              | Name of the Kafka topic to write to.                                                                |
 | PGSTREAM_KAFKA_TOPIC_PARTITIONS         | 1       | No               | Number of partitions created for the Kafka topic if auto create is enabled.                         |
 | PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR | 1       | No               | Replication factor used when creating the Kafka topic if auto create is enabled.                    |

@@ -32,7 +32,7 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE", "1000")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB", "true")
 
-	os.Setenv("PGSTREAM_KAFKA_SERVERS", "localhost:9092")
+	os.Setenv("PGSTREAM_KAFKA_READER_SERVERS", "localhost:9092")
 	os.Setenv("PGSTREAM_KAFKA_TOPIC_NAME", "mytopic")
 	os.Setenv("PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID", "mygroup")
 	os.Setenv("PGSTREAM_KAFKA_READER_CONSUMER_GROUP_START_OFFSET", "earliest")
@@ -53,6 +53,7 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS", "false")
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION", "nothing")
 
+	os.Setenv("PGSTREAM_KAFKA_WRITER_SERVERS", "localhost:9092")
 	os.Setenv("PGSTREAM_KAFKA_TOPIC_PARTITIONS", "1")
 	os.Setenv("PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR", "1")
 	os.Setenv("PGSTREAM_KAFKA_TOPIC_AUTO_CREATE", "true")
