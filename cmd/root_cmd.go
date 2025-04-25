@@ -32,15 +32,38 @@ func Prepare() *cobra.Command {
 	viper.SetEnvPrefix("PGSTREAM")
 	viper.AutomaticEnv()
 
-	rootCmd.PersistentFlags().String("pgurl", "postgres://postgres:postgres@localhost?sslmode=disable", "Postgres URL")
-	rootCmd.PersistentFlags().String("replication-slot", "", "Name of the postgres replication slot to be created")
+	// Flag definition
+
+	// root cmd
 	rootCmd.PersistentFlags().StringP("config", "c", "", ".env or .yaml config file to use with pgstream if any")
 	rootCmd.PersistentFlags().String("log-level", "debug", "log level for the application. One of trace, debug, info, warn, error, fatal, panic")
 
-	viper.BindPFlag("pgurl", rootCmd.PersistentFlags().Lookup("pgurl"))
-	viper.BindPFlag("replication-slot", rootCmd.PersistentFlags().Lookup("replication-slot"))
-	viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config"))
-	viper.BindPFlag("PGSTREAM_LOG_LEVEL", rootCmd.PersistentFlags().Lookup("log-level"))
+	// init cmd
+	initCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream setup will be run")
+	initCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be created by pgstream on the source url")
+
+	// tear down cmd
+	tearDownCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream tear down will be run")
+	tearDownCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be deleted by pgstream from the source url")
+
+	// snapshot cmd
+	snapshotCmd.Flags().String("postgres-url", "", "Source postgres database to perform the snapshot from")
+	snapshotCmd.Flags().String("target", "", "Target type. One of postgres, opensearch, elasticsearch, kafka")
+	snapshotCmd.Flags().String("target-url", "", "Target URL")
+	snapshotCmd.Flags().StringSlice("tables", nil, "List of tables to snapshot, in the format <schema>.<table>. If not specified, the schema `public` will be assumed. Wildcards are supported")
+	snapshotCmd.Flags().Bool("reset", false, "Wether to reset the target before snapshotting (only for postgres target)")
+
+	// run cmd
+	runCmd.Flags().String("source", "", "Source type. One of postgres, kafka")
+	runCmd.Flags().String("source-url", "", "Source URL")
+	runCmd.Flags().String("target", "", "Target type. One of postgres, opensearch, elasticsearch, kafka")
+	runCmd.Flags().String("target-url", "", "Target URL")
+	runCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot for pgstream to connect to")
+	runCmd.Flags().StringSlice("snapshot-tables", nil, "List of tables to snapshot if initial snapshot is required, in the format <schema>.<table>. If not specified, the schema `public` will be assumed. Wildcards are supported")
+	runCmd.Flags().Bool("reset", false, "Wether to reset the target before snapshotting (only for postgres target)")
+
+	// Flag binding for root cmd
+	rootFlagBinding(rootCmd)
 
 	// register subcommands
 	rootCmd.AddCommand(initCmd)
@@ -75,4 +98,9 @@ func withSignalWatcher(fn func(ctx context.Context) error) func(cmd *cobra.Comma
 		defer cancel()
 		return fn(ctx)
 	}
+}
+
+func rootFlagBinding(cmd *cobra.Command) {
+	viper.BindPFlag("config", cmd.PersistentFlags().Lookup("config"))
+	viper.BindPFlag("PGSTREAM_LOG_LEVEL", cmd.PersistentFlags().Lookup("log-level"))
 }
