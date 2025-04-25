@@ -13,9 +13,14 @@ import (
 )
 
 var snapshotCmd = &cobra.Command{
-	Use:   "snapshot",
-	Short: "Snapshot performs a snapshot of the configured source into the configured target",
-	RunE:  withSignalWatcher(snapshot),
+	Use:     "snapshot",
+	Short:   "Snapshot performs a snapshot of the configured source Postgres database into the configured target",
+	PreRunE: snapshotFlagBinding,
+	RunE:    withSignalWatcher(snapshot),
+	Example: `
+	pgstream snapshot --postgres-url <postgres-url> --target postgres --target-url <target-url> --tables <schema.table> --reset
+	pgstream snapshot --config config.yaml --log-level info
+	pgstream snapshot --config config.env`,
 }
 
 func snapshot(ctx context.Context) error {
@@ -29,4 +34,20 @@ func snapshot(ctx context.Context) error {
 		return err
 	}
 	return stream.Snapshot(ctx, zerolog.NewStdLogger(logger), streamConfig, nil)
+}
+
+func snapshotFlagBinding(cmd *cobra.Command, args []string) error {
+	// to be able to overwrite configuration with flags when yaml config file is
+	// provided
+	viper.BindPFlag("source.postgres.url", cmd.Flags().Lookup("postgres-url"))
+	viper.BindPFlag("source.postgres.snapshot.tables", cmd.Flags().Lookup("tables"))
+	viper.BindPFlag("source.postgres.snapshot.schema.pgdump_pgrestore.clean_target_db", cmd.Flags().Lookup("reset"))
+
+	// to be able to overwrite configuration with flags when env config file is
+	// provided or when no configuration is provided
+	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL", cmd.Flags().Lookup("postgres-url"))
+	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_TABLES", cmd.Flags().Lookup("tables"))
+	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB", cmd.Flags().Lookup("reset"))
+
+	return targetFlagBinding(cmd)
 }
