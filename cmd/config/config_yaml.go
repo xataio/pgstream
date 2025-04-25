@@ -292,15 +292,31 @@ func (c *YAMLConfig) toStreamConfig() (*stream.Config, error) {
 }
 
 func (c *YAMLConfig) parseListenerConfig() (stream.ListenerConfig, error) {
-	pgListener, err := c.parsePostgresListenerConfig()
-	if err != nil {
-		return stream.ListenerConfig{}, fmt.Errorf("parsing postgres listener config: %w", err)
+	streamCfg := stream.ListenerConfig{
+		Kafka: c.Source.Kafka.parseKafkaListenerConfig(),
 	}
 
-	return stream.ListenerConfig{
-		Postgres: pgListener,
-		Kafka:    c.Source.Kafka.parseKafkaListenerConfig(),
-	}, nil
+	if c.Source.Postgres == nil {
+		return streamCfg, nil
+	}
+
+	var err error
+	switch c.Source.Postgres.Mode {
+	case replicationMode, snapshotAndReplicationMode:
+		streamCfg.Postgres, err = c.parsePostgresListenerConfig()
+		if err != nil {
+			return stream.ListenerConfig{}, fmt.Errorf("parsing postgres listener config: %w", err)
+		}
+	case snapshotMode:
+		streamCfg.Snapshot, err = c.parseSnapshotConfig()
+		if err != nil {
+			return stream.ListenerConfig{}, fmt.Errorf("parsing postgres snapshot listener config: %w", err)
+		}
+	default:
+		return stream.ListenerConfig{}, errUnsupportedPostgresSourceMode
+	}
+
+	return streamCfg, nil
 }
 
 func (c *YAMLConfig) parseProcessorConfig() (stream.ProcessorConfig, error) {
@@ -341,21 +357,15 @@ func (c *YAMLConfig) parsePostgresListenerConfig() (*stream.PostgresListenerConf
 		},
 	}
 
-	switch c.Source.Postgres.Mode {
-	case replicationMode, snapshotMode, snapshotAndReplicationMode:
-	default:
-		return nil, errUnsupportedPostgresSourceMode
-	}
-
 	if c.Source.Postgres.Mode == replicationMode || c.Source.Postgres.Mode == snapshotAndReplicationMode {
-		replicationSlotName := ReplicationSlotName()
+		replicationSlotName := ""
 		if c.Source.Postgres.Replication != nil {
 			replicationSlotName = c.Source.Postgres.Replication.ReplicationSlot
 		}
 		streamCfg.Replication.ReplicationSlotName = replicationSlotName
 	}
 
-	if c.Source.Postgres.Mode == snapshotMode || c.Source.Postgres.Mode == snapshotAndReplicationMode {
+	if c.Source.Postgres.Mode == snapshotAndReplicationMode {
 		var err error
 		streamCfg.Snapshot, err = c.parseSnapshotConfig()
 		if err != nil {
