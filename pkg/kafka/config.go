@@ -21,9 +21,21 @@ type TopicConfig struct {
 	AutoCreate bool
 }
 
+type ReaderConfig struct {
+	Conn ConnConfig
+	// ConsumerGroupID is the ID of the consumer group to use. If not set,
+	// defaults to "pgstream-consumer-group".
+	ConsumerGroupID string
+	// ConsumerGroupStartOffset is the offset to start consuming from. If not
+	// set, defaults to "earliest".
+	ConsumerGroupStartOffset string
+}
+
 const (
-	defaultNumPartitions     = 1
-	defaultReplicationFactor = 1
+	defaultNumPartitions       = 1
+	defaultReplicationFactor   = 1
+	defaultConsumerGroupOffset = earliestOffset
+	defaultConsumerGroupID     = "pgstream-consumer-group"
 )
 
 func (c *TopicConfig) numPartitions() int {
@@ -38,4 +50,18 @@ func (c *TopicConfig) replicationFactor() int {
 		return c.ReplicationFactor
 	}
 	return defaultReplicationFactor
+}
+
+func (c *ReaderConfig) consumerGroupID() string {
+	if c.ConsumerGroupID != "" {
+		return c.ConsumerGroupID
+	}
+	return defaultConsumerGroupID
+}
+
+func (c *ReaderConfig) consumerGroupStartOffset() string {
+	if c.ConsumerGroupStartOffset != "" {
+		return c.ConsumerGroupStartOffset
+	}
+	return defaultConsumerGroupOffset
 }

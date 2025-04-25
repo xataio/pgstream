@@ -156,7 +156,7 @@ We will be using a Kafka processor which will be writing the WAL events into a K
 
 ```sh
 # List of Kafka servers
-PGSTREAM_KAFKA_SERVERS="localhost:9092"
+PGSTREAM_KAFKA_WRITER_SERVERS="localhost:9092"
 PGSTREAM_KAFKA_TOPIC_NAME=pgstream
 PGSTREAM_KAFKA_TOPIC_PARTITIONS=1
 # Replication factor for the kafka topic. Defaults to 1.
@@ -205,7 +205,7 @@ PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME=pgstream_tutorial_slot
 
 # Processor config
 PGSTREAM_INJECTOR_STORE_POSTGRES_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
-PGSTREAM_KAFKA_SERVERS="localhost:9092"
+PGSTREAM_KAFKA_WRITER_SERVERS="localhost:9092"
 PGSTREAM_KAFKA_TOPIC_NAME=pgstream
 PGSTREAM_KAFKA_TOPIC_PARTITIONS=1
 PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR=1
@@ -224,7 +224,7 @@ PGSTREAM_POSTGRES_SNAPSHOT_TABLES="*"
 
 # Processor config
 PGSTREAM_INJECTOR_STORE_POSTGRES_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
-PGSTREAM_KAFKA_SERVERS="localhost:9092"
+PGSTREAM_KAFKA_WRITER_SERVERS="localhost:9092"
 PGSTREAM_KAFKA_TOPIC_NAME=pgstream
 PGSTREAM_KAFKA_TOPIC_PARTITIONS=1
 PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR=1
@@ -238,7 +238,7 @@ PGSTREAM_KAFKA_TOPIC_AUTO_CREATE=true
 In this case the listener will be a Kafka reader that will listen for the WAL events from the Kafka topic. The only configuration required are the kafka servers, the topic name and the consumer group id. We will use a consumer group for each of the target outputs, in this case `pgstream-postgres-consumer-group`.
 
 ```sh
-PGSTREAM_KAFKA_SERVERS="localhost:9092"
+PGSTREAM_KAFKA_READER_SERVERS="localhost:9092"
 PGSTREAM_KAFKA_TOPIC_NAME=pgstream
 PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID=pgstream-postgres-consumer-group
 ```
@@ -273,7 +273,7 @@ The full configuration for the kafka2pg step can be put into a `kafka2pg_tutoria
 
 ```sh
 # Listener config
-PGSTREAM_KAFKA_SERVERS="localhost:9092"
+PGSTREAM_KAFKA_READER_SERVERS="localhost:9092"
 PGSTREAM_KAFKA_TOPIC_NAME=pgstream
 PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID=pgstream-postgres-consumer-group
 
@@ -291,7 +291,7 @@ PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@local
 The configuration for the Kafka listener is the same as for the one in the previous step, the only difference will be the name of the consumer group id, to ensure it consumes the topic independently from the postgres one.
 
 ```sh
-PGSTREAM_KAFKA_SERVERS="localhost:9092"
+PGSTREAM_KAFKA_READER_SERVERS="localhost:9092"
 PGSTREAM_KAFKA_TOPIC_NAME=pgstream
 PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID=pgstream-opensearch-consumer-group
 ```
@@ -304,7 +304,7 @@ The full configuration for the kafka2opensearch step can be put into a `kafka2os
 
 ```sh
 # Listener config
-PGSTREAM_KAFKA_SERVERS="localhost:9092"
+PGSTREAM_KAFKA_READER_SERVERS="localhost:9092"
 PGSTREAM_KAFKA_TOPIC_NAME=pgstream
 PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID=pgstream-opensearch-consumer-group
 

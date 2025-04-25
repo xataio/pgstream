@@ -55,7 +55,8 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION")
 
-	viper.BindEnv("PGSTREAM_KAFKA_SERVERS")
+	viper.BindEnv("PGSTREAM_KAFKA_READER_SERVERS")
+	viper.BindEnv("PGSTREAM_KAFKA_WRITER_SERVERS")
 	viper.BindEnv("PGSTREAM_KAFKA_TOPIC_NAME")
 	viper.BindEnv("PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID")
 	viper.BindEnv("PGSTREAM_KAFKA_READER_CONSUMER_GROUP_START_OFFSET")
@@ -200,13 +201,13 @@ func parseSchemaSnapshotConfig(pgurl string) snapshotbuilder.SchemaSnapshotConfi
 }
 
 func parseKafkaListenerConfig() *stream.KafkaListenerConfig {
-	kafkaServers := viper.GetStringSlice("PGSTREAM_KAFKA_SERVERS")
 	kafkaTopic := viper.GetString("PGSTREAM_KAFKA_TOPIC_NAME")
-	consumerGroupID := viper.GetString("PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID")
-	if len(kafkaServers) == 0 || kafkaTopic == "" || consumerGroupID == "" {
+	kafkaServers := viper.GetStringSlice("PGSTREAM_KAFKA_READER_SERVERS")
+	if len(kafkaServers) == 0 || kafkaTopic == "" {
 		return nil
 	}
 
+	consumerGroupID := viper.GetString("PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID")
 	return &stream.KafkaListenerConfig{
 		Reader:       parseKafkaReaderConfig(kafkaServers, kafkaTopic, consumerGroupID),
 		Checkpointer: parseKafkaCheckpointConfig(),
@@ -252,10 +253,9 @@ func parseProcessorConfig() (stream.ProcessorConfig, error) {
 }
 
 func parseKafkaProcessorConfig() *stream.KafkaProcessorConfig {
-	kafkaServers := viper.GetStringSlice("PGSTREAM_KAFKA_SERVERS")
 	kafkaTopic := viper.GetString("PGSTREAM_KAFKA_TOPIC_NAME")
-	topicPartitions := viper.GetInt("PGSTREAM_KAFKA_TOPIC_PARTITIONS")
-	if len(kafkaServers) == 0 || kafkaTopic == "" || topicPartitions == 0 {
+	kafkaServers := viper.GetStringSlice("PGSTREAM_KAFKA_WRITER_SERVERS")
+	if len(kafkaServers) == 0 || kafkaTopic == "" {
 		return nil
 	}
 
