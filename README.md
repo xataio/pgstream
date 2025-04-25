@@ -46,15 +46,13 @@
 
 `pgstream` can be used via the readily available CLI or as a library.
 
-### CLI
+### CLI Installation
 
-#### Installation
-
-##### Binaries
+#### Binaries
 
 Binaries are available for Linux, macOS & Windows, check our [Releases](https://github.com/xataio/pgstream/releases).
 
-##### From source
+#### From source
 
 To install `pgstream` from the source, run the following command:
 
@@ -62,7 +60,7 @@ To install `pgstream` from the source, run the following command:
 go install github.com/xataio/pgstream@latest
 ```
 
-##### From package manager - Homebrew
+#### From package manager - Homebrew
 
 To install `pgstream` with homebrew, run the following command:
 
@@ -72,7 +70,7 @@ brew tap xataio/pgstream
 brew install pgstream
 ```
 
-#### Environment setup
+### Environment setup
 
 If you have an environment available, with at least Postgres and whichever module resources you're planning on running, then you can skip this step. Otherwise, a docker setup is available in this repository that starts Postgres, Kafka and OpenSearch (as well as OpenSearch dashboards for easy visualisation).
 
@@ -99,58 +97,101 @@ List of supported docker profiles:
 - pg2webhook
 - kafka
 
-#### Prepare the database
+### Configuration
 
-This will create the `pgstream` schema in the configured Postgres database, along with the tables/functions/triggers required to keep track of the schema changes. See [Tracking schema changes](docs/README.md#tracking-schema-changes) section for more details. It will also create a replication slot for the configured database which will be used by the pgstream service.
+Pgstream source and target need to be configured appropriately before the commands can be run. This can be done:
 
-```
-pgstream init --pgurl "postgres://postgres:postgres@localhost?sslmode=disable"
-```
+- Using the relevant CLI flags for each command
+- Using a yaml configuration file
+- Using environment variables (.env file supported)
 
-If you want to provide the name of the replication slot to be created instead of using the default value (`pgstream_<dbname>_slot`), you can use the `--replication-slot` flag or set the environment variable `PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME`.
+Check the [documentation](docs/README.md#configuration) for more information about the configuration options, or check the help on the CLI for details on the available flags. Additionally, at the root of this repository you can find sample files for both .env and .yaml.
 
-```
-pgstream init --pgurl "postgres://postgres:postgres@localhost?sslmode=disable" --replication-slot test
+### Prepare the database
+
+This will create the `pgstream` schema in the configured Postgres database, along with the tables/functions/triggers required to keep track of the schema changes. See [Tracking schema changes](docs/README.md#tracking-schema-changes) section for more details. It will also create a replication slot for the configured database which will be used by the pgstream service. If no replication slot name is provided, it will use a default one with the format `pgstream_<database>_slot`.
+
+```sh
+# with CLI flags
+pgstream init --postgres-url "postgres://postgres:postgres@localhost?sslmode=disable" --replication-slot test
+# with yaml configuration file
+pgstream init -c pg2pg.yaml
+# with environment configuration file
+pgstream init -c pg2pg.env
 ```
 
 If there are any issues or if you want to clean up the pgstream setup, you can run the following.
 
-```
-pgstream tear-down --pgurl "postgres://postgres:postgres@localhost?sslmode=disable"
+```sh
+pgstream tear-down --postgres-url "postgres://postgres:postgres@localhost?sslmode=disable" --replication-slot test
+# with yaml configuration file
+pgstream tear-down -c pg2pg.yaml
+# with environment configuration file
+pgstream tear-down -c pg2pg.env
 ```
 
 This command will clean up all pgstream state.
 
-#### Run pgstream
+#### Run replication
 
-Run will require the configuration to be provided, either via environment variables, config file or a combination of both. There are some sample configuration files provided in the repo that can be used as guidelines.
+Run will start streaming data from the configured source into the configured target.
 
-Example running pgstream with Postgres -> OpenSearch:
+Example running pgstream replication from Postgres -> OpenSearch:
 
-```
+```sh
+# using the environment configuration file
 pgstream run -c pg2os.env --log-level trace
+# using the yaml configuration file
+pgstream run -c pg2os.yaml --log-level info
+# using the CLI flags
+pgstream run --source postgres --source-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --target opensearch --target-url "http://admin:admin@localhost:9200"
 ```
 
 Example running pgstream with Postgres -> Kafka, and in a separate terminal, Kafka->OpenSearch:
 
-```
+```sh
+# using the environment configuration file
 pgstream run -c pg2kafka.env --log-level trace
+# using the yaml configuration file
+pgstream run -c pg2kafka.yaml --log-level info
+# using the CLI flags
+pgstream run --source postgres --source-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --target kafka --target-url "localhost:9092"
+```
+
+```sh
+# using the environment configuration file
 pgstream run -c kafka2os.env --log-level trace
+# using the yaml configuration file
+pgstream run -c kafka2os.yaml --log-level info
+# using the CLI flags
+pgstream run --source kafka --source-url "localhost:9092" --target opensearch --target-url "http://admin:admin@localhost:9200"
 ```
 
 Example running pgstream with PostgreSQL -> PostgreSQL with initial snapshot enabled:
 
-```
+```sh
+# using the environment configuration file
 pgstream run -c pg2pg.env --log-level trace
+# using the yaml configuration file
+pgstream run -c pg2pg.yaml --log-level info
+# using the CLI flags
+pgstream run --source postgres --source-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --target postgres --target-url "postgres://postgres:postgres@localhost:7654?sslmode=disable" --snapshot-tables test
 ```
 
-Example running pgstream with PostgreSQL snapshot only mode -> PostgreSQL:
+#### Snapshot
 
-```
-pgstream run -c snapshot2pg.env --log-level trace
+Example running pgstream to perform a snapshot from PostgreSQL -> PostgreSQL:
+
+```sh
+# using the environment configuration file
+pgstream snapshot -c snapshot2pg.env --log-level trace
+# using the yaml configuration file
+pgstream snapshot -c snapshot2pg.yaml --log-level info
+# using the CLI flags
+pgstream snapshot --postgres-url="postgres://postgres:postgres@localhost:5432?sslmode=disable" --target=postgres --target-url="postgres://postgres:postgres@localhost:7654?sslmode=disable" --tables="test" --reset
 ```
 
-The run command will parse the configuration provided, and initialise the configured modules. It requires at least one listener and one processor.
+Pgstream will parse the configuration provided, and initialise the configured modules. It requires at least one listener and one processor.
 
 ## Tutorials
 
