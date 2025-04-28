@@ -42,39 +42,6 @@ func LoadFile(file string) error {
 	return nil
 }
 
-func PostgresURL() (url string) {
-	switch {
-	case viper.GetString("source.postgres.url") != "":
-		// yaml config
-		return viper.GetString("source.postgres.url")
-	case viper.GetString("PGSTREAM_POSTGRES_LISTENER_URL") != "":
-		// env config
-		return viper.GetString("PGSTREAM_POSTGRES_LISTENER_URL")
-	case viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL") != "":
-		// env config
-		return viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL")
-	default:
-		// CLI argument (with default value)
-		return viper.GetString("pgurl")
-	}
-}
-
-func ReplicationSlotName() string {
-	switch {
-	case viper.GetString("replication-slot") != "":
-		// CLI argument
-		return viper.GetString("replication-slot")
-	case viper.GetString("source.postgres.replication.replication_slot") != "":
-		// yaml config
-		return viper.GetString("source.postgres.replication.replication_slot")
-	case viper.GetString("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME") != "":
-		// env config
-		return viper.GetString("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME")
-	default:
-		return ""
-	}
-}
-
 func ParseStreamConfig() (*stream.Config, error) {
 	cfgFile := viper.GetViper().ConfigFileUsed()
 	switch ext := filepath.Ext(cfgFile); ext {
@@ -84,9 +51,16 @@ func ParseStreamConfig() (*stream.Config, error) {
 			return nil, err
 		}
 		yamlCfg := YAMLConfig{}
-		err = yaml.Unmarshal(buf, &yamlCfg)
+		if err := viper.Unmarshal(&yamlCfg); err != nil {
+			return nil, fmt.Errorf("unmarshaling config file %q: %w", cfgFile, err)
+		}
+		// yaml.Unmarshal is used to override the viper.Umarshal to be able to
+		// parse the transformers configuration with support for case sensitive
+		// keys.
+		// https://github.com/spf13/viper/issues/260
+		err = yaml.Unmarshal(buf, &yamlCfg.Modifiers)
 		if err != nil {
-			return nil, fmt.Errorf("in file %q: %w", cfgFile, err)
+			return nil, fmt.Errorf("unmarshaling modifiers config from %q: %w", cfgFile, err)
 		}
 		return yamlCfg.toStreamConfig()
 	default:

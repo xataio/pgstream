@@ -137,3 +137,20 @@ func (c *ProcessorConfig) IsValid() error {
 		return fmt.Errorf("only one processor can be configured at a time, found %d", processorCount)
 	}
 }
+
+func (c *Config) SourcePostgresURL() string {
+	if c.Listener.Postgres != nil {
+		return c.Listener.Postgres.Replication.PostgresURL
+	}
+	if c.Listener.Snapshot != nil {
+		return c.Listener.Snapshot.Generator.URL
+	}
+	return ""
+}
+
+func (c *Config) PostgresReplicationSlot() string {
+	if c.Listener.Postgres != nil {
+		return c.Listener.Postgres.Replication.ReplicationSlotName
+	}
+	return ""
+}

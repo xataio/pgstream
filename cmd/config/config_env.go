@@ -136,7 +136,7 @@ func parsePostgresListenerConfig() *stream.PostgresListenerConfig {
 	cfg := &stream.PostgresListenerConfig{
 		Replication: pgreplication.Config{
 			PostgresURL:         pgURL,
-			ReplicationSlotName: ReplicationSlotName(),
+			ReplicationSlotName: viper.GetString("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME"),
 		},
 	}
 
