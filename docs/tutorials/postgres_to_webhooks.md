@@ -55,7 +55,7 @@ For this tutorial, we'll create a replication slot with the name `pgstream_tutor
 - Using CLI parameters:
 
 ```sh
-pgstream init --pgurl "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
+pgstream init --postgres-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
 ```
 
 - Using environment variables:
@@ -114,7 +114,7 @@ Has OIDs: no
 If at any point the initialisation performed by pgstream needs to be reverted, all state will be removed by running the `tear-down` CLI command.
 
 ```sh
-pgstream tear-down --pgurl "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
+pgstream tear-down --postgres-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
 ```
 
 ## Prepare `pgstream` configuration
@@ -166,7 +166,7 @@ PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_ENABLED=true
 PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_REFRESH_INTERVAL="60s"
 ```
 
-Save the configuration in a file named `pg2webhook_tutorial.env`.
+Save the configuration in a file named `pg2webhook_tutorial.env`. An equivalent `pg2webhook_tutorial.yaml` configuration can be found below the environment one, and can be used interchangeably.
 
 - Without initial snapshot
 
@@ -179,6 +179,28 @@ PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME=pgstream_tutorial_slot
 PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_ENABLED=true
 PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_REFRESH_INTERVAL="60s"
+```
+
+```yaml
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: replication # options are replication, snapshot or snapshot_and_replication
+    replication:
+      replication_slot: pgstream_tutorial_slot
+
+target:
+  webhooks:
+    subscriptions:
+      store:
+        url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the database where the webhook subscriptions are stored
+        cache:
+          enabled: true # whether to enable caching for the subscription store
+          refresh_interval: 60 # interval in seconds to refresh the cache
+
+modifiers:
+  injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events
 ```
 
 - With initial snapshot
@@ -197,12 +219,47 @@ PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_ENABLED=true
 PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_REFRESH_INTERVAL="60s"
 ```
 
+```yaml
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: replication # options are replication, snapshot or snapshot_and_replication
+    replication:
+      replication_slot: pgstream_tutorial_slot
+    snapshot: # when mode is snapshot or snapshot_and_replication
+      mode: full # options are data_and, schema or data
+      tables: ["*"] # tables to snapshot, can be a list of table names or a pattern
+      recorder:
+        repeatable_snapshots: true # whether to repeat snapshots that have already been taken
+        postgres_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the database where the snapshot status is recorded
+      schema: # when mode is full or schema
+        mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
+        pgdump_pgrestore:
+          clean_target_db: false # whether to clean the target database before restoring
+target:
+  webhooks:
+    subscriptions:
+      store:
+        url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the database where the webhook subscriptions are stored
+        cache:
+          enabled: true # whether to enable caching for the subscription store
+          refresh_interval: 60 # interval in seconds to refresh the cache
+
+modifiers:
+  injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events
+```
+
 ## Run `pgstream`
 
 With the configuration ready, we can now run pgstream. In this case we set the log level as trace to provide more context for debugging and have more visibility into what pgstream is doing under the hood.
 
 ```sh
+# with the environment configuration
 pgstream run -c pg2webhook_tutorial.env --log-level trace
+
+# with the yaml configuration
+pgstream run -c pg2webhook_tutorial.yaml --log-level trace
 ```
 
 Once pgstream is running, we need to make sure the webhook server we want to use is started and ready to accept requests. For the purposes of this tutorial, we will use a dummy webhook server provided in this repository, under the `/tools/webhook` directory, which will listen on `localhost:9910`. This dummy webhook server just prints the events received to output in JSON format for validation.

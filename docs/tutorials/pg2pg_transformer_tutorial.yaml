@@ -1,0 +1,34 @@
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: replication # options are replication, snapshot or snapshot_and_replication
+    replication:
+      replication_slot: pgstream_tutorial_slot
+
+target:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:7654?sslmode=disable"
+    batch:
+      timeout: 5000 # batch timeout in milliseconds
+      size: 25 # number of messages in a batch
+    disable_triggers: false # whether to disable triggers on the target database
+    on_conflict_action: "nothing" # options are update, nothing or error
+
+modifiers:
+  transformations:
+    validation_mode: relaxed
+    table_transformers:
+      - schema: public
+        table: test
+        column_transformers:
+          email:
+            name: neosync_email
+            parameters:
+              preserve_length: true
+              preserve_domain: true
+              email_type: fullname
+          name:
+            name: greenmask_firstname
+            parameters:
+              generator: deterministic
+              gender: Female

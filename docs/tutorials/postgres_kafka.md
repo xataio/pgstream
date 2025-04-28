@@ -51,7 +51,7 @@ For this tutorial, we'll create a replication slot with the name `pgstream_tutor
 - Using CLI parameters:
 
 ```sh
-pgstream init --pgurl "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
+pgstream init --postgres-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
 ```
 
 - Using environment variables:
@@ -110,7 +110,7 @@ Has OIDs: no
 If at any point the initialisation performed by pgstream needs to be reverted, all state will be removed by running the `tear-down` CLI command.
 
 ```sh
-pgstream tear-down --pgurl "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
+pgstream tear-down --postgres-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
 ```
 
 ## Prepare `pgstream` configuration
@@ -194,7 +194,7 @@ We point the injector to the database where the `pgstream.schema_log` table is s
 PGSTREAM_INJECTOR_STORE_POSTGRES_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 ```
 
-The full configuration for the pg2kafka step can be put into a `pg2kafka_tutorial.env` file to be used later on.
+The full configuration for the pg2kafka step can be put into a `pg2kafka_tutorial.env` file to be used later on. An equivalent `pg2kafka_tutorial.yaml` configuration can be found below the environment one, and can be used interchangeably.
 
 - Without initial snapshot
 
@@ -210,6 +210,26 @@ PGSTREAM_KAFKA_TOPIC_NAME=pgstream
 PGSTREAM_KAFKA_TOPIC_PARTITIONS=1
 PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR=1
 PGSTREAM_KAFKA_TOPIC_AUTO_CREATE=true
+```
+
+```yaml
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: replication
+    replication:
+      replication_slot: "pgstream_tutorial_slot"
+target:
+  kafka:
+    servers: ["localhost:9092"]
+    topic:
+      name: "pgstream" # name of the Kafka topic
+      partitions: 1 # number of partitions for the topic
+      replication_factor: 1 # replication factor for the topic
+      auto_create: true # whether to automatically create the topic if it doesn't exist
+modifiers:
+  injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events
 ```
 
 - With initial snapshot
@@ -229,6 +249,36 @@ PGSTREAM_KAFKA_TOPIC_NAME=pgstream
 PGSTREAM_KAFKA_TOPIC_PARTITIONS=1
 PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR=1
 PGSTREAM_KAFKA_TOPIC_AUTO_CREATE=true
+```
+
+```yaml
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: replication
+    replication:
+      replication_slot: "pgstream_tutorial_slot"
+    snapshot: # when mode is snapshot or snapshot_and_replication
+      mode: full # options are data_and, schema or data
+      tables: ["*"] # tables to snapshot, can be a list of table names or a pattern
+      recorder:
+        repeatable_snapshots: true # whether to repeat snapshots that have already been taken
+        postgres_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the database where the snapshot status is recorded
+      schema: # when mode is full or schema
+        mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
+        pgdump_pgrestore:
+          clean_target_db: false # whether to clean the target database before restoring
+target:
+  kafka:
+    servers: ["localhost:9092"]
+    topic:
+      name: "pgstream" # name of the Kafka topic
+      partitions: 1 # number of partitions for the topic
+      replication_factor: 1 # replication factor for the topic
+      auto_create: true # whether to automatically create the topic if it doesn't exist
+modifiers:
+  injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events
 ```
 
 ### Kafka -> PostgreSQL
@@ -269,7 +319,7 @@ PGSTREAM_KAFKA_COMMIT_BACKOFF_MAX_RETRIES=0
 
 This configuration is the same as the one from the tutorial for PostgreSQL to PostgreSQL replication. More details [here](postgres_to_postgres.md#processor).
 
-The full configuration for the kafka2pg step can be put into a `kafka2pg_tutorial.env` file to be used later on.
+The full configuration for the kafka2pg step can be put into a `kafka2pg_tutorial.env` file to be used later on. An equivalent `kafka2pg_tutorial.yaml` configuration can be found below the environment one, and can be used interchangeably.
 
 ```sh
 # Listener config
@@ -282,6 +332,25 @@ PGSTREAM_POSTGRES_WRITER_TARGET_URL="postgres://postgres:postgres@localhost:7654
 PGSTREAM_POSTGRES_WRITER_BATCH_SIZE=25
 PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT=5s
 PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
+```
+
+```yaml
+source:
+  kafka:
+    servers: ["localhost:9092"]
+    topic:
+      name: "mytopic"
+    consumer_group:
+      id: "mygroup"
+      start_offset: "earliest" # options are earliest or latest
+target:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:7654?sslmode=disable"
+    batch:
+      timeout: 5000 # batch timeout in milliseconds
+      size: 25 # number of messages in a batch
+    disable_triggers: false # whether to disable triggers on the target database
+    on_conflict_action: "nothing" # options are update, nothing or error
 ```
 
 ### Kafka -> OpenSearch
@@ -300,7 +369,7 @@ PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID=pgstream-opensearch-consumer-group
 
 This configuration is the same as the one from the tutorial for PostgreSQL to OpenSearch replication. More details [here](postgres_to_opensearch.md#processor).
 
-The full configuration for the kafka2opensearch step can be put into a `kafka2os_tutorial.env` file to be used later on.
+The full configuration for the kafka2opensearch step can be put into a `kafka2os_tutorial.env` file to be used later on. An equivalent `kafka2os_tutorial.yaml` configuration can be found below the environment one, and can be used interchangeably.
 
 ```sh
 # Listener config
@@ -314,6 +383,23 @@ PGSTREAM_SEARCH_INDEXER_BATCH_SIZE=25
 PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT=5s
 ```
 
+```yaml
+source:
+  kafka:
+    servers: ["localhost:9092"]
+    topic:
+      name: "pgstream"
+    consumer_group:
+      id: "pgstream-opensearch-consumer-group"
+target:
+  search:
+    engine: "opensearch" # options are elasticsearch or opensearch
+    url: "http://localhost:9200" # URL of the search engine
+    batch:
+      timeout: 5000 # batch timeout in milliseconds
+      size: 25 # number of messages in a batch
+```
+
 ## Run `pgstream`
 
 With all configuration files ready, we can now run pgstream. In this case we set the log level as trace to provide more context for debugging and have more visibility into what pgstream is doing under the hood.
@@ -321,15 +407,36 @@ With all configuration files ready, we can now run pgstream. In this case we set
 As mentioned above, we'll need to run 3 different pgstream services on separate terminals, one with each configuration file.
 
 ```sh
+# with the environment configuration
 pgstream run -c pg2kafka_tutorial.env --log-level trace
+
+# with the yaml configuration
+pgstream run -c pg2kafka_tutorial.yaml --log-level trace
+
+# with the CLI flags and relying on defaults
+pgstream run --source postgres --source-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --target kafka --target-url "localhost:9092" --log-level trace
 ```
 
 ```sh
+# with the environment configuration
 pgstream run -c kafka2pg_tutorial.env --log-level trace
+
+# with the yaml configuration
+pgstream run -c kafka2pg_tutorial.yaml --log-level trace
+
+# with the CLI flags and relying on defaults
+pgstream run --source kafka --source-url "localhost:9092" --target postgres --target-url "postgres://postgres:postgres@localhost:7654?sslmode=disable" --log-level trace
 ```
 
 ```sh
+# with the environment configuration
 pgstream run -c kafka2os_tutorial.env --log-level trace
+
+# with the yaml configuration
+pgstream run -c kafka2os_tutorial.yaml --log-level trace
+
+# with the CLI flags and relying on defaults
+pgstream run --source kafka --source-url "localhost:9092" --target opensearch --target-url "http://localhost:9200" --log-level trace
 ```
 
 First we connect and create a table in the source PostgreSQL database.

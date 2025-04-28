@@ -3,7 +3,7 @@
   "commands": [
     {
       "name": "init",
-      "short": "Initialises pgstream, creating the replication slot and the relevant tables/functions/triggers under the configured internal pgstream schema.",
+      "short": "Initialises pgstream, creating the replication slot and the relevant tables/functions/triggers under the configured internal pgstream schema",
       "use": "init",
       "example": "\n\tpgstream init --postgres-url <source-postgres-url> --replication-slot <replication-slot-name>\n\tpgstream init -c config.yaml\n\tpgstream init -c config.env",
       "flags": [
@@ -103,7 +103,7 @@
     },
     {
       "name": "tear-down",
-      "short": "It tears down any pgstream setup, removing the replication slot and all the relevant tables/functions/triggers, along with the internal pgstream schema.",
+      "short": "It tears down any pgstream setup, removing the replication slot and all the relevant tables/functions/triggers, along with the internal pgstream schema",
       "use": "tear-down",
       "example": "\n\tpgstream tear-down --postgres-url <source-postgres-url> --replication-slot <replication-slot-name>\n\tpgstream tear-down -c config.yaml\n\tpgstream tear-down -c config.env",
       "flags": [

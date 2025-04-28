@@ -54,7 +54,7 @@ For this tutorial, we'll create a replication slot with the name `pgstream_tutor
 - Using CLI parameters:
 
 ```sh
-pgstream init --pgurl "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
+pgstream init --postgres-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
 ```
 
 - Using environment variables:
@@ -113,7 +113,7 @@ Has OIDs: no
 If at any point the initialisation performed by pgstream needs to be reverted, all state will be removed by running the `tear-down` CLI command.
 
 ```sh
-pgstream tear-down --pgurl "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
+pgstream tear-down --postgres-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
 ```
 
 ## Prepare `pgstream` configuration
@@ -190,7 +190,7 @@ The injector only needs the URL of the database where the `pgstream.schema_log` 
 PGSTREAM_INJECTOR_STORE_POSTGRES_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 ```
 
-The full configuration for this tutorial can be put into a `pg2os_tutorial.env` file to be used in the next step.
+The full configuration for this tutorial can be put into a `pg2os_tutorial.env` file to be used in the next step. An equivalent `pg2os_tutorial.yaml` configuration can be found below the environment one, and can be used interchangeably.
 
 - Without initial snapshot
 
@@ -204,6 +204,25 @@ PGSTREAM_INJECTOR_STORE_POSTGRES_URL="postgres://postgres:postgres@localhost:543
 PGSTREAM_OPENSEARCH_STORE_URL="http://admin:admin@localhost:9200"
 PGSTREAM_SEARCH_INDEXER_BATCH_SIZE=25
 PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT=5s
+```
+
+```yaml
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: replication
+    replication:
+      replication_slot: "pgstream_tutorial_slot"
+target:
+  search:
+    engine: "opensearch" # options are elasticsearch or opensearch
+    url: "http://localhost:9200" # URL of the search engine
+    batch:
+      timeout: 5000 # batch timeout in milliseconds
+      size: 25 # number of messages in a batch
+modifiers:
+  injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events
 ```
 
 - With initial snapshot
@@ -223,12 +242,46 @@ PGSTREAM_SEARCH_INDEXER_BATCH_SIZE=25
 PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT=5s
 ```
 
+```yaml
+source:
+  postgres:
+    url: "postgresql://user:password@localhost:5432/mydatabase"
+    mode: snapshot_and_replication # options are replication, snapshot or snapshot_and_replication
+    snapshot: # when mode is snapshot or snapshot_and_replication
+      mode: full # options are data_and, schema or data
+      tables: ["*"] # tables to snapshot, can be a list of table names or a pattern
+      recorder:
+        repeatable_snapshots: true # whether to repeat snapshots that have already been taken
+        postgres_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the database where the snapshot status is recorded
+      schema: # when mode is full or schema
+        mode: schemalog # options are pgdump_pgrestore or schemalog
+    replication:
+      replication_slot: "pgstream_tutorial_slot"
+target:
+  search:
+    engine: "opensearch" # options are elasticsearch or opensearch
+    url: "http://localhost:9200" # URL of the search engine
+    batch:
+      timeout: 5000 # batch timeout in milliseconds
+      size: 25 # number of messages in a batch
+modifiers:
+  injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events
+```
+
 ## Run `pgstream`
 
 With the configuration ready, we can now run pgstream. In this case we set the log level as trace to provide more context for debugging and have more visibility into what pgstream is doing under the hood.
 
 ```sh
+# with the environment configuration
 pgstream run -c pg2os_tutorial.env --log-level trace
+
+# with the yaml configuration
+pgstream run -c pg2os_tutorial.yaml --log-level trace
+
+# with the CLI flags and relying on defaults
+pgstream run --source postgres --source-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --target opensearch --target-url "http://localhost:9200" --log-level trace
 ```
 
 ## Verify Replication

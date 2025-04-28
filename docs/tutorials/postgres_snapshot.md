@@ -101,7 +101,7 @@ For further granularity, we can also configure the action that should be taken w
 
 ```sh
 # Insert on conflict action. Options are update, nothing or error (error is the default behaviour)
-PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION=update
+PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION=nothing
 ```
 
 The PostgreSQL writer uses batching under the hood to reduce the number of IO calls to the target database and improve performance. The batch size and send timeout can both be configured to be able to better fit the different traffic patterns. The writer will send a batch when the timeout or the batch size is reached, whichever happens first.
@@ -116,7 +116,7 @@ PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT=5s
 
 Since in this case there's no need to keep track of DDL changes, we don't need to set the schema log store variable (`PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL`).
 
-The full configuration for this tutorial can be put into a `snapshot2pg_tutorial.env` file to be used in the next step.
+The full configuration for this tutorial can be put into a `snapshot2pg_tutorial.env` file to be used in the next step. An equivalent `snapshot2pg_tutorial.yaml` configuration can be found below the environment one, and can be used interchangeably.
 
 ```sh
 # Listener config
@@ -132,6 +132,39 @@ PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL="postgres://postgres:postgres@localhost:543
 PGSTREAM_POSTGRES_WRITER_TARGET_URL="postgres://postgres:postgres@localhost:7654?sslmode=disable"
 PGSTREAM_POSTGRES_WRITER_BATCH_SIZE=25
 PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT=5s
+PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS=true
+PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION=nothing
+```
+
+```yaml
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: snapshot # options are replication, snapshot or snapshot_and_replication
+    snapshot: # when mode is snapshot or snapshot_and_replication
+      mode: full # options are data_and, schema or data
+      tables: ["*"] # tables to snapshot, can be a list of table names or a pattern
+      recorder:
+        repeatable_snapshots: true # whether to repeat snapshots that have already been taken
+        postgres_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the database where the snapshot status is recorded
+      snapshot_workers: 4 # number of schemas to be snapshotted in parallel
+      data: # when mode is full or data
+        schema_workers: 4 # number of schema tables to be snapshotted in parallel
+        table_workers: 4 # number of workers to snapshot a table in parallel
+        batch_page_size: 1000 # number of pages to read per batch
+      schema: # when mode is full or schema
+        mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
+        pgdump_pgrestore:
+          clean_target_db: false # whether to clean the target database before restoring
+
+target:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:7654?sslmode=disable"
+    batch:
+      timeout: 5000 # batch timeout in milliseconds
+      size: 25 # number of messages in a batch
+    disable_triggers: true # whether to disable triggers on the target database
+    on_conflict_action: "nothing" # options are update, nothing or error
 ```
 
 ## Preparing snapshot data
@@ -147,12 +180,19 @@ CREATE TABLE test(id SERIAL PRIMARY KEY, name TEXT);
 INSERT INTO test(name) VALUES('alice'),('bob'),('charlie');
 ```
 
-## Run `pgstream`
+## Perform snapshot
 
 With the configuration ready, we can now run pgstream. In this case we set the log level as trace to provide more context for debugging and have more visibility into what pgstream is doing under the hood. Once the snapshot finishes, the process will stop.
 
 ```sh
-pgstream run -c snapshot2pg_tutorial.env --log-level trace
+# with the environment configuration
+pgstream snapshot -c snapshot2pg_tutorial.env --log-level trace
+
+# with the yaml configuration
+pgstream snapshot -c snapshot2pg_tutorial.yaml --log-level trace
+
+# with the CLI flags and relying on defaults
+pgstream snapshot --postgres-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --target postgres --target-url "postgres://postgres:postgres@localhost:7654?sslmode=disable" --tables "*" --log-level trace
 ```
 
 ## Verify snapshot

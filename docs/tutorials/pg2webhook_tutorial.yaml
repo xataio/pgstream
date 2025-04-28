@@ -1,0 +1,19 @@
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: replication # options are replication, snapshot or snapshot_and_replication
+    replication:
+      replication_slot: pgstream_tutorial_slot
+
+target:
+  webhooks:
+    subscriptions:
+      store:
+        url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the database where the webhook subscriptions are stored
+        cache:
+          enabled: true # whether to enable caching for the subscription store
+          refresh_interval: 60 # interval in seconds to refresh the cache
+
+modifiers:
+  injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events

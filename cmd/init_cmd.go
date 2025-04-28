@@ -16,7 +16,7 @@ import (
 
 var initCmd = &cobra.Command{
 	Use:    "init",
-	Short:  "Initialises pgstream, creating the replication slot and the relevant tables/functions/triggers under the configured internal pgstream schema.",
+	Short:  "Initialises pgstream, creating the replication slot and the relevant tables/functions/triggers under the configured internal pgstream schema",
 	PreRun: initTeardownFlagBinding,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sp, _ := pterm.DefaultSpinner.WithText("initialising pgstream...").Start()
@@ -42,7 +42,7 @@ var initCmd = &cobra.Command{
 
 var tearDownCmd = &cobra.Command{
 	Use:    "tear-down",
-	Short:  "It tears down any pgstream setup, removing the replication slot and all the relevant tables/functions/triggers, along with the internal pgstream schema.",
+	Short:  "It tears down any pgstream setup, removing the replication slot and all the relevant tables/functions/triggers, along with the internal pgstream schema",
 	PreRun: initTeardownFlagBinding,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sp, _ := pterm.DefaultSpinner.WithText("tearing down pgstream...").Start()
