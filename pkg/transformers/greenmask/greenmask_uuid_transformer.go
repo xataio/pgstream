@@ -31,11 +31,7 @@ func (ut *UUIDTransformer) Transform(value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {
 	case string:
-		parsed, err := uuid.Parse(val)
-		if err != nil {
-			return nil, err
-		}
-		toTransform = parsed[:]
+		toTransform = []byte(val)
 	case uuid.UUID:
 		toTransform = val[:]
 	case []byte:

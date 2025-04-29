@@ -86,20 +86,20 @@ func Test_UUIDTransformer_Transform(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - can be any string",
+			params: transformers.Parameters{
+				"generator": deterministic,
+			},
+			input:   "this is not a uuid",
+			wantErr: nil,
+		},
+		{
 			name: "error - invalid input type",
 			params: transformers.Parameters{
 				"generator": random,
 			},
 			input:   123,
 			wantErr: transformers.ErrUnsupportedValueType,
-		},
-		{
-			name: "error - cannot parse string",
-			params: transformers.Parameters{
-				"generator": random,
-			},
-			input:   "123e45671e89b112d31a4561426655440000",
-			wantErr: errors.New("invalid UUID format"),
 		},
 	}
 	for _, tc := range tests {
