@@ -178,7 +178,30 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 
 			wantQueries: []*query{
 				{
-					sql:   fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s ( \"id\" uuid NOT NULL,\n \"name\" text,\n \"age\" int NOT NULL DEFAULT 0,\n UNIQUE (\"name\"),\n PRIMARY KEY (\"id\")\n)", quotedTableName(testSchema, table1)),
+					sql:   fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n\"id\" uuid NOT NULL,\n\"name\" text,\n\"age\" int NOT NULL DEFAULT 0,\nUNIQUE (\"name\"),\nPRIMARY KEY (\"id\")\n)", quotedTableName(testSchema, table1)),
+					isDDL: true,
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - table added no primary key or unique constraint",
+			diff: &schemalog.Diff{
+				TablesAdded: []schemalog.Table{
+					{
+						Name: table1,
+						Columns: []schemalog.Column{
+							{Name: "id", DataType: "uuid", Nullable: false, Unique: false},
+							{Name: "name", DataType: "text", Nullable: true, Unique: false},
+							{Name: "age", DataType: "int", Nullable: false, DefaultValue: &defaultAge},
+						},
+					},
+				},
+			},
+
+			wantQueries: []*query{
+				{
+					sql:   fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n\"id\" uuid NOT NULL,\n\"name\" text,\n\"age\" int NOT NULL DEFAULT 0)", quotedTableName(testSchema, table1)),
 					isDDL: true,
 				},
 			},
