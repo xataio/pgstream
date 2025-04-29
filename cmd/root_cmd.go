@@ -40,8 +40,8 @@ func Prepare() *cobra.Command {
 	rootCmd.PersistentFlags().String("log-level", "debug", "log level for the application. One of trace, debug, info, warn, error, fatal, panic")
 
 	// init cmd
-	initCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream setup will be run")
-	initCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be created by pgstream on the source url")
+	initCmd.PersistentFlags().String("postgres-url", "", "Source postgres URL where pgstream setup will be run")
+	initCmd.PersistentFlags().String("replication-slot", "", "Name of the postgres replication slot to be created by pgstream on the source url")
 
 	// tear down cmd
 	tearDownCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream tear down will be run")
@@ -71,7 +71,7 @@ func Prepare() *cobra.Command {
 	rootCmd.AddCommand(tearDownCmd)
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(snapshotCmd)
-
+	initCmd.AddCommand(initStatusCmd)
 	return rootCmd
 }
 
