@@ -69,13 +69,13 @@ var tearDownCmd = &cobra.Command{
 func initTeardownFlagBinding(cmd *cobra.Command, _ []string) {
 	// to be able to overwrite configuration with flags when yaml config file is
 	// provided
-	viper.BindPFlag("source.postgres.url", cmd.PersistentFlags().Lookup("postgres-url"))
-	viper.BindPFlag("source.postgres.replication.replication_slot", cmd.PersistentFlags().Lookup("replication-slot"))
+	viper.BindPFlag("source.postgres.url", cmd.Flags().Lookup("postgres-url"))
+	viper.BindPFlag("source.postgres.replication.replication_slot", cmd.Flags().Lookup("replication-slot"))
 	viper.Set("source.postgres.mode", "replication")
 
 	// to be able to overwrite configuration with flags when env config file is
 	// provided or when no configuration is provided
-	viper.BindPFlag("PGSTREAM_POSTGRES_LISTENER_URL", cmd.PersistentFlags().Lookup("postgres-url"))
-	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL", cmd.PersistentFlags().Lookup("postgres-url"))
-	viper.BindPFlag("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME", cmd.PersistentFlags().Lookup("replication-slot"))
+	viper.BindPFlag("PGSTREAM_POSTGRES_LISTENER_URL", cmd.Flags().Lookup("postgres-url"))
+	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL", cmd.Flags().Lookup("postgres-url"))
+	viper.BindPFlag("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME", cmd.Flags().Lookup("replication-slot"))
 }
