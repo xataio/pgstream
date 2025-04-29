@@ -142,6 +142,19 @@ func TestYAMLConfig_toStreamConfig_ErrorCases(t *testing.T) {
 
 			wantErr: errInvalidInjectorConfig,
 		},
+		{
+			name: "err - invalid transformers config",
+			config: YAMLConfig{
+				Modifiers: ModifiersConfig{
+					Transformations: &TransformationsConfig{
+						ValidationMode:   "strict",
+						TransformerRules: nil,
+					},
+				},
+			},
+
+			wantErr: errTableTransformersNotProvided,
+		},
 	}
 
 	for _, tt := range tests {

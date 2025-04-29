@@ -197,9 +197,9 @@ type WebhookNotifierConfig struct {
 }
 
 type ModifiersConfig struct {
-	Injector        *InjectorConfig       `mapstructure:"injector" yaml:"injector"`
-	Transformations TransformationsConfig `mapstructure:"transformations" yaml:"transformations"`
-	Filter          *FilterConfig         `mapstructure:"filter" yaml:"filter"`
+	Injector        *InjectorConfig        `mapstructure:"injector" yaml:"injector"`
+	Transformations *TransformationsConfig `mapstructure:"transformations" yaml:"transformations"`
+	Filter          *FilterConfig          `mapstructure:"filter" yaml:"filter"`
 }
 
 type InjectorConfig struct {
@@ -268,6 +268,7 @@ var (
 	errUnsupportedPostgresSourceMode           = errors.New("unsupported postgres source mode, must be one of 'replication', 'snapshot' or 'snapshot_and_replication'")
 	errUnsupportedTransformationValidationMode = errors.New("unsupported transformation validation mode, must be one of 'strict', 'table_level' or 'relaxed'")
 	errUnsupportedTableValidationMode          = errors.New("unsupported table level validation mode, must be either 'strict' or 'relaxed'")
+	errTableTransformersNotProvided            = errors.New("table_transformers must be provided when transformation config is set")
 	errInvalidTableValidationConfig            = errors.New("table level validation mode should be used when transformation validation mode is set to 'table_level'")
 	errUnsupportedSearchEngine                 = errors.New("unsupported search engine, must be one of 'opensearch' or 'elasticsearch'")
 	errInvalidPgdumpPgrestoreConfig            = errors.New("pgdump_pgrestore snapshot mode requires target postgres config")
@@ -574,7 +575,8 @@ func (c *YAMLConfig) parseWebhookProcessorConfig() *stream.WebhookProcessorConfi
 }
 
 func (c *YAMLConfig) parseTransformationConfig() (*transformer.Config, error) {
-	if c.Modifiers.Transformations.TransformerRules == nil {
+	if c.Modifiers.Transformations == nil {
+		// no transformers configured
 		return nil, nil
 	}
 
@@ -593,7 +595,8 @@ func (c YAMLConfig) parseFilterConfig() *filter.Config {
 
 func (c TransformationsConfig) parseTransformationConfig() (*transformer.Config, error) {
 	if len(c.TransformerRules) == 0 {
-		return nil, nil
+		// transformation configuration provided, but no rules defined
+		return nil, errTableTransformersNotProvided
 	}
 
 	var globalValidationMode string
