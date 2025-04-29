@@ -22,6 +22,12 @@ gen-migrations:
 	@go install github.com/go-bindata/go-bindata/...
 	@go-bindata -o migrations/postgres/migrations.go -pkg pgmigrations -ignore migrations.go -prefix "migrations/postgres/" migrations/postgres/
 
+.PHONY: generate
 generate:
 	# Generate the cli-definition.json file
 	go run tools/build-cli-definition.go
+
+GIT_COMMIT := $(shell git describe --tags HEAD)
+.PHONY: build
+build:
+	@go build -ldflags "-X github.com/xataio/pgstream/cmd.Version=$(GIT_COMMIT)" .
