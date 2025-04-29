@@ -18,7 +18,17 @@
           "default": ""
         }
       ],
-      "subcommands": [],
+      "subcommands": [
+        {
+          "name": "status",
+          "short": "Checks the initialisation status of pgstream in the provided postgres database",
+          "use": "status",
+          "example": "",
+          "flags": [],
+          "subcommands": [],
+          "args": []
+        }
+      ],
       "args": []
     },
     {

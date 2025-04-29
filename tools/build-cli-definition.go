@@ -44,7 +44,7 @@ func main() {
 	result := Result{
 		Name:     rootCmd.Name(),
 		Commands: extractCommands(rootCmd.Commands()),
-		Flags:    extractFlags(rootCmd.PersistentFlags()),
+		Flags:    extractFlags([]*pflag.FlagSet{rootCmd.PersistentFlags()}),
 	}
 
 	if err := writeJSONToFile("cli-definition.json", result); err != nil {
@@ -73,25 +73,31 @@ func processCommand(cmd *cobra.Command) Command {
 		Use:         cmd.Use,
 		Example:     cmd.Example,
 		Args:        validateArgs(cmd),
-		Flags:       extractFlags(cmd.Flags()),
+		Flags:       extractFlags([]*pflag.FlagSet{cmd.Flags(), cmd.PersistentFlags()}),
 		Subcommands: extractCommands(cmd.Commands()),
 	}
 }
 
-func extractFlags(flagSet *pflag.FlagSet) []Flag {
-	if flagSet == nil {
+func extractFlags(flagSet []*pflag.FlagSet) []Flag {
+	if len(flagSet) == 0 {
 		return []Flag{}
 	}
 
-	flags := make([]Flag, 0, flagSet.NFlag())
-	flagSet.VisitAll(func(flag *pflag.Flag) {
-		flags = append(flags, Flag{
-			Name:        flag.Name,
-			Shorthand:   flag.Shorthand,
-			Description: flag.Usage,
-			Default:     flag.DefValue,
+	flags := []Flag{}
+	for _, f := range flagSet {
+		if f == nil {
+			continue
+		}
+		f.VisitAll(func(flag *pflag.Flag) {
+			flags = append(flags, Flag{
+				Name:        flag.Name,
+				Shorthand:   flag.Shorthand,
+				Description: flag.Usage,
+				Default:     flag.DefValue,
+			})
 		})
-	})
+	}
+
 	return flags
 }
 
