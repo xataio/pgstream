@@ -96,6 +96,12 @@ func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, erro
 		opt(h)
 	}
 
+	// make sure the replication slot we are going to use exists
+	if err := h.verifyReplicationSlotExists(ctx); err != nil {
+		h.logger.Error(err, "verifying replication slot")
+		return nil, err
+	}
+
 	return h, nil
 }
 
@@ -259,6 +265,24 @@ func (h *Handler) getLastSyncedLSN(ctx context.Context, conn pglib.Querier) (rep
 	}
 
 	return h.lsnParser.FromString(confirmedFlushLSN)
+}
+
+func (h *Handler) verifyReplicationSlotExists(ctx context.Context) error {
+	slotExists := false
+	conn, err := h.pgConnBuilder()
+	if err != nil {
+		return fmt.Errorf("creating pg connection: %w", err)
+	}
+	defer conn.Close(context.Background())
+
+	err = conn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name=$1)`, h.pgReplicationSlotName).Scan(&slotExists)
+	if err != nil {
+		return fmt.Errorf("retrieving replication slot: %w", err)
+	}
+	if !slotExists {
+		return fmt.Errorf("replication slot %s does not exist", h.pgReplicationSlotName)
+	}
+	return nil
 }
 
 func mapPostgresError(err error) error {
