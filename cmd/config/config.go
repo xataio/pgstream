@@ -52,7 +52,7 @@ func ParseStreamConfig() (*stream.Config, error) {
 		}
 		yamlCfg := YAMLConfig{}
 		if err := viper.Unmarshal(&yamlCfg); err != nil {
-			return nil, fmt.Errorf("unmarshaling config file %q: %w", cfgFile, err)
+			return nil, fmt.Errorf("invalid format in config file %q: %w", cfgFile, err)
 		}
 		// yaml.Unmarshal is used to override the viper.Umarshal to be able to
 		// parse the transformers configuration with support for case sensitive
@@ -60,7 +60,7 @@ func ParseStreamConfig() (*stream.Config, error) {
 		// https://github.com/spf13/viper/issues/260
 		err = yaml.Unmarshal(buf, &yamlCfg.Modifiers)
 		if err != nil {
-			return nil, fmt.Errorf("unmarshaling modifiers config from %q: %w", cfgFile, err)
+			return nil, fmt.Errorf("invalid format for modifiers config in file %q: %w", cfgFile, err)
 		}
 		return yamlCfg.toStreamConfig()
 	default:
