@@ -958,14 +958,15 @@ The rules for the transformers are defined in a dedicated yaml file, with the fo
 
 ```yaml
 transformations:
-  validation_mode: <validation_mode>
-  table_transformers:
-    - schema: <schema_name>
-      table: <table_name>
-      column_transformers:
-        <column_name>:
-          name: <transformer_name>
-          parameters:
+  validation_mode: <validation_mode> # Validation mode for the transformation rules. Can be one of strict, relaxed or table_level. Defaults to relaxed if not provided
+  table_transformers: # List of table transformations
+    - schema: <schema_name> # Name of the table schema
+      table: <table_name> # Name of the table
+      validation_mode: <validation_mode> # To be used when the global validation_mode is set to `table_level`. Can be one of strict or relaxed
+      column_transformers: # List of column transformations
+        <column_name>: # Name of the column to which the transformation will be applied
+          name: <transformer_name> # Name of the transformer to be applied to the column. If no transformer needs to be applied on strict validation mode, it can be left empty or use `noop`
+          parameters: # Transformer parameters as defined in the supported transformers documentation
             <transformer_parameter>: <transformer_parameter_value>
 ```
 

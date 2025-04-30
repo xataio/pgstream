@@ -421,7 +421,7 @@ func parseTransformerConfig() (*transformer.Config, error) {
 	}{}
 	err = yaml.Unmarshal(buf, &yamlConfig)
 	if err != nil {
-		return nil, fmt.Errorf("in file %q: %w", filename, err)
+		return nil, fmt.Errorf("invalid format for transformations config in file %q: %w", filename, err)
 	}
 
 	return yamlConfig.Transformations.parseTransformationConfig()

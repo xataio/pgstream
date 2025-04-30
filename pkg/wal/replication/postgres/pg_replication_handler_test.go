@@ -497,3 +497,93 @@ func TestHandler_GetCurrentLSN(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_verifyReplicationSlotExists(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		connBuilder func() (pglib.Querier, error)
+		slotExists  bool
+		wantErr     error
+	}{
+		{
+			name: "ok - slot exists",
+			connBuilder: func() (pglib.Querier, error) {
+				return &pgmocks.Querier{
+					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+						require.Len(t, args, 1)
+						require.Equal(t, args[0], testSlot)
+						switch query {
+						case "SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name=$1)":
+							return &mockRow{exists: true}
+						default:
+							return &mockRow{scanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %s", query) }}
+						}
+					},
+					CloseFn: func(ctx context.Context) error { return nil },
+				}, nil
+			},
+			slotExists: true,
+			wantErr:    nil,
+		},
+		{
+			name: "error - slot does not exist",
+			connBuilder: func() (pglib.Querier, error) {
+				return &pgmocks.Querier{
+					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+						require.Len(t, args, 1)
+						require.Equal(t, args[0], testSlot)
+						switch query {
+						case "SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name=$1)":
+							return &mockRow{exists: false}
+						default:
+							return &mockRow{scanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %s", query) }}
+						}
+					},
+					CloseFn: func(ctx context.Context) error { return nil },
+				}, nil
+			},
+			slotExists: false,
+			wantErr:    fmt.Errorf("replication slot %s does not exist", testSlot),
+		},
+		{
+			name: "error - building connection",
+			connBuilder: func() (pglib.Querier, error) {
+				return nil, errTest
+			},
+			slotExists: false,
+			wantErr:    errTest,
+		},
+		{
+			name: "error - query execution",
+			connBuilder: func() (pglib.Querier, error) {
+				return &pgmocks.Querier{
+					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+						return &mockRow{scanFn: func(args ...any) error { return errTest }}
+					},
+					CloseFn: func(ctx context.Context) error { return nil },
+				}, nil
+			},
+			slotExists: false,
+			wantErr:    fmt.Errorf("retrieving replication slot: %w", errTest),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := Handler{
+				logger:                log.NewNoopLogger(),
+				pgConnBuilder:         tc.connBuilder,
+				pgReplicationSlotName: testSlot,
+			}
+
+			err := h.verifyReplicationSlotExists(context.Background())
+			if !errors.Is(err, tc.wantErr) {
+				require.Equal(t, tc.wantErr, err)
+			}
+		})
+	}
+}
