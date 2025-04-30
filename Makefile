@@ -27,7 +27,7 @@ generate:
 	# Generate the cli-definition.json file
 	go run tools/build-cli-definition.go
 
-GIT_COMMIT := $(shell git describe --tags HEAD)
+GIT_COMMIT := $(shell git rev-parse --short HEAD)
 .PHONY: build
 build:
-	@go build -ldflags "-X github.com/xataio/pgstream/cmd.Version=$(GIT_COMMIT)" .
+	@go build -ldflags "-X github.com/xataio/pgstream/cmd.Env=development -X github.com/xataio/pgstream/cmd.Version=$(GIT_COMMIT)" .

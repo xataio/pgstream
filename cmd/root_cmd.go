@@ -17,13 +17,14 @@ import (
 // Version is the pgstream version
 var (
 	Version = "development"
+	Env     string
 )
 
 func Prepare() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:          "pgstream",
 		SilenceUsage: true,
-		Version:      Version,
+		Version:      version(),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return config.Load()
 		},
@@ -103,4 +104,11 @@ func withSignalWatcher(fn func(ctx context.Context) error) func(cmd *cobra.Comma
 func rootFlagBinding(cmd *cobra.Command) {
 	viper.BindPFlag("config", cmd.PersistentFlags().Lookup("config"))
 	viper.BindPFlag("PGSTREAM_LOG_LEVEL", cmd.PersistentFlags().Lookup("log-level"))
+}
+
+func version() string {
+	if Env != "" {
+		return Env + " (" + Version + ")"
+	}
+	return Version
 }
