@@ -34,6 +34,8 @@ func New(cfg *transformers.Config) (transformers.Transformer, error) {
 		return greenmask.NewUTCTimestampTransformer(cfg.Parameters)
 	case transformers.String:
 		return transformers.NewStringTransformer(cfg.Parameters)
+	case transformers.LiteralString:
+		return transformers.NewLiteralStringTransformer(cfg.Parameters)
 	case transformers.NeosyncString:
 		return neosync.NewStringTransformer(cfg.Parameters)
 	case transformers.NeosyncFirstName:
