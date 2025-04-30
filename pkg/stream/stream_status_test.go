@@ -328,7 +328,7 @@ func TestStatusChecker_validateSchemaStatus(t *testing.T) {
 			wantStatus: &SchemaStatus{
 				SchemaExists:         true,
 				SchemaLogTableExists: false,
-				Errors:               "schema_log table does not exist in the pgstream schema",
+				Errors:               []string{noPgstreamSchemaLogTableErrMsg},
 			},
 			wantErr: nil,
 		},
@@ -356,7 +356,7 @@ func TestStatusChecker_validateSchemaStatus(t *testing.T) {
 			wantStatus: &SchemaStatus{
 				SchemaExists:         false,
 				SchemaLogTableExists: false,
-				Errors:               errNoPgstreamSchema.Error(),
+				Errors:               []string{noPgstreamSchemaErrMsg},
 			},
 			wantErr: nil,
 		},
@@ -451,7 +451,6 @@ func TestStatusChecker_validateMigrationStatus(t *testing.T) {
 			wantStatus: &MigrationStatus{
 				Version: okMigrationVersion,
 				Dirty:   false,
-				Errors:  "",
 			},
 			wantErr: nil,
 		},
@@ -462,7 +461,7 @@ func TestStatusChecker_validateMigrationStatus(t *testing.T) {
 			},
 			pgurl: "postgres://user:password@localhost:5432/db",
 			wantStatus: &MigrationStatus{
-				Errors: errNoPgstreamSchema.Error(),
+				Errors: []string{noMigrationsTableErrMsg},
 			},
 			wantErr: nil,
 		},
@@ -479,7 +478,7 @@ func TestStatusChecker_validateMigrationStatus(t *testing.T) {
 			wantStatus: &MigrationStatus{
 				Version: okMigrationVersion,
 				Dirty:   true,
-				Errors:  fmt.Sprintf("migration version %d is dirty", okMigrationVersion),
+				Errors:  []string{fmt.Sprintf("migration version %d is dirty", okMigrationVersion)},
 			},
 			wantErr: nil,
 		},
@@ -496,7 +495,7 @@ func TestStatusChecker_validateMigrationStatus(t *testing.T) {
 			wantStatus: &MigrationStatus{
 				Version: 3,
 				Dirty:   false,
-				Errors:  fmt.Sprintf("migration version 3 does not match the number of migration files %d", okMigrationVersion),
+				Errors:  []string{fmt.Sprintf("migration version (3) does not match the number of migration files (%d)", okMigrationVersion)},
 			},
 			wantErr: nil,
 		},
@@ -513,7 +512,7 @@ func TestStatusChecker_validateMigrationStatus(t *testing.T) {
 			wantStatus: &MigrationStatus{
 				Version: 3,
 				Dirty:   true,
-				Errors:  fmt.Sprintf("migration version 3 does not match the number of migration files %d\nmigration version 3 is dirty", okMigrationVersion),
+				Errors:  []string{fmt.Sprintf("migration version (3) does not match the number of migration files (%d)", okMigrationVersion), "migration version 3 is dirty"},
 			},
 			wantErr: nil,
 		},
@@ -638,7 +637,7 @@ func TestStatusChecker_validateReplicationSlotStatus(t *testing.T) {
 			replicationSlotName: testReplicationSlot,
 			pgurl:               "postgres://user:password@localhost:5432/db",
 			wantStatus: &ReplicationSlotStatus{
-				Errors: fmt.Sprintf("replication slot %s does not exist in the configured database", testReplicationSlot),
+				Errors: []string{fmt.Sprintf("replication slot %s does not exist in the configured database", testReplicationSlot)},
 			},
 			wantErr: nil,
 		},
@@ -681,7 +680,7 @@ func TestStatusChecker_validateReplicationSlotStatus(t *testing.T) {
 				Name:     testReplicationSlot,
 				Plugin:   wal2jsonPlugin,
 				Database: "wrong_db",
-				Errors:   fmt.Sprintf("replication slot %s is not created on the configured database %s", testReplicationSlot, testDB),
+				Errors:   []string{fmt.Sprintf("replication slot %s does not exist in the configured database", testReplicationSlot)},
 			},
 			wantErr: nil,
 		},
@@ -724,7 +723,7 @@ func TestStatusChecker_validateReplicationSlotStatus(t *testing.T) {
 				Name:     testReplicationSlot,
 				Plugin:   "wrong_plugin",
 				Database: testDB,
-				Errors:   fmt.Sprintf("replication slot %s is not using the wal2json plugin", testReplicationSlot),
+				Errors:   []string{fmt.Sprintf("replication slot %s is not using the wal2json plugin", testReplicationSlot)},
 			},
 			wantErr: nil,
 		},
@@ -760,6 +759,201 @@ func TestStatusChecker_validateReplicationSlotStatus(t *testing.T) {
 			status, err := sc.validateReplicationSlotStatus(context.Background(), tc.pgurl, tc.replicationSlotName)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, status, tc.wantStatus)
+		})
+	}
+}
+
+func TestInitStatus_GetErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		initStatus *InitStatus
+		wantErrors []string
+	}{
+		{
+			name: "all components valid",
+			initStatus: &InitStatus{
+				PgstreamSchema: &SchemaStatus{
+					SchemaExists:         true,
+					SchemaLogTableExists: true,
+				},
+				Migration: &MigrationStatus{
+					Version: 5,
+					Dirty:   false,
+				},
+				ReplicationSlot: &ReplicationSlotStatus{
+					Name:     "pgstream_db_slot",
+					Plugin:   "wal2json",
+					Database: "db",
+				},
+			},
+			wantErrors: []string{},
+		},
+		{
+			name: "schema errors",
+			initStatus: &InitStatus{
+				PgstreamSchema: &SchemaStatus{
+					SchemaExists:         false,
+					SchemaLogTableExists: false,
+					Errors:               []string{"pgstream schema does not exist in the configured postgres database"},
+				},
+			},
+			wantErrors: []string{"pgstream schema does not exist in the configured postgres database"},
+		},
+		{
+			name: "migration errors",
+			initStatus: &InitStatus{
+				Migration: &MigrationStatus{
+					Version: 3,
+					Dirty:   true,
+					Errors:  []string{"migration version 3 is dirty"},
+				},
+			},
+			wantErrors: []string{"migration version 3 is dirty"},
+		},
+		{
+			name: "replication slot errors",
+			initStatus: &InitStatus{
+				ReplicationSlot: &ReplicationSlotStatus{
+					Name:     "pgstream_db_slot",
+					Plugin:   "wrong_plugin",
+					Database: "db",
+					Errors:   []string{"replication slot pgstream_db_slot is not using the wal2json plugin"},
+				},
+			},
+			wantErrors: []string{"replication slot pgstream_db_slot is not using the wal2json plugin"},
+		},
+		{
+			name: "multiple errors",
+			initStatus: &InitStatus{
+				PgstreamSchema: &SchemaStatus{
+					SchemaExists:         false,
+					SchemaLogTableExists: false,
+					Errors:               []string{"pgstream schema does not exist in the configured postgres database"},
+				},
+				Migration: &MigrationStatus{
+					Version: 3,
+					Dirty:   true,
+					Errors:  []string{"migration version 3 is dirty"},
+				},
+				ReplicationSlot: &ReplicationSlotStatus{
+					Name:     "pgstream_db_slot",
+					Plugin:   "wrong_plugin",
+					Database: "db",
+					Errors:   []string{"replication slot pgstream_db_slot is not using the wal2json plugin"},
+				},
+			},
+			wantErrors: []string{
+				"pgstream schema does not exist in the configured postgres database",
+				"migration version 3 is dirty",
+				"replication slot pgstream_db_slot is not using the wal2json plugin",
+			},
+		},
+		{
+			name:       "nil InitStatus",
+			initStatus: nil,
+			wantErrors: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			errors := tc.initStatus.GetErrors()
+			require.Equal(t, tc.wantErrors, errors)
+		})
+	}
+}
+
+func TestInitStatus_PrettyPrint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		initStatus *InitStatus
+		wantOutput string
+	}{
+		{
+			name: "all components valid",
+			initStatus: &InitStatus{
+				PgstreamSchema: &SchemaStatus{
+					SchemaExists:         true,
+					SchemaLogTableExists: true,
+				},
+				Migration: &MigrationStatus{
+					Version: 5,
+					Dirty:   false,
+				},
+				ReplicationSlot: &ReplicationSlotStatus{
+					Name:     "pgstream_db_slot",
+					Plugin:   "wal2json",
+					Database: "db",
+				},
+			},
+			wantOutput: `pgstream schema exists: true
+pgstream schema_log table exists: true
+migration current version: 5
+migration status: success
+replication slot name: pgstream_db_slot
+replication slot plugin: wal2json
+replication slot database: db`,
+		},
+		{
+			name: "schema errors",
+			initStatus: &InitStatus{
+				PgstreamSchema: &SchemaStatus{
+					SchemaExists:         false,
+					SchemaLogTableExists: false,
+					Errors:               []string{"pgstream schema does not exist in the configured postgres database"},
+				},
+			},
+			wantOutput: `pgstream schema exists: false
+pgstream schema_log table exists: false
+pgstream schema errors: [pgstream schema does not exist in the configured postgres database]`,
+		},
+		{
+			name: "migration errors",
+			initStatus: &InitStatus{
+				Migration: &MigrationStatus{
+					Version: 3,
+					Dirty:   true,
+					Errors:  []string{"migration version 3 is dirty"},
+				},
+			},
+			wantOutput: `migration current version: 3
+migration status: failed
+migration errors: [migration version 3 is dirty]`,
+		},
+		{
+			name: "replication slot errors",
+			initStatus: &InitStatus{
+				ReplicationSlot: &ReplicationSlotStatus{
+					Name:     "pgstream_db_slot",
+					Plugin:   "wrong_plugin",
+					Database: "db",
+					Errors:   []string{"replication slot pgstream_db_slot is not using the wal2json plugin"},
+				},
+			},
+			wantOutput: `replication slot name: pgstream_db_slot
+replication slot plugin: wrong_plugin
+replication slot database: db
+replication slot errors: [replication slot pgstream_db_slot is not using the wal2json plugin]`,
+		},
+		{
+			name:       "nil InitStatus",
+			initStatus: nil,
+			wantOutput: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			output := tc.initStatus.PrettyPrint()
+			require.Equal(t, tc.wantOutput, output)
 		})
 	}
 }

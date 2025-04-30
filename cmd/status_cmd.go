@@ -3,8 +3,10 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/pterm/pterm"
@@ -40,11 +42,32 @@ var initStatusCmd = &cobra.Command{
 			sp.Warning("pgstream initialisation status check identified issues: \n", strings.Join(statusErrs, "\n"))
 		}
 
-		statusJSON, _ := json.Marshal(status)
-		sp.Info("pgstream initialisation status: ", string(statusJSON))
+		err = printStatus(cmd, status)
+		if err != nil {
+			sp.Fail("failed to format pgstream initialisation status")
+			return err
+		}
 
 		return nil
 	},
+}
+
+func printStatus(cmd *cobra.Command, status *stream.InitStatus) error {
+	statusStr := status.PrettyPrint()
+	if cmd.Flags().Lookup("json").Value.String() == "true" {
+		var prettyJSON bytes.Buffer
+		statusJSON, err := json.Marshal(status)
+		if err != nil {
+			return err
+		}
+		if err := json.Indent(&prettyJSON, statusJSON, "", "\t"); err != nil {
+			return err
+		}
+		statusStr = prettyJSON.String()
+	}
+
+	fmt.Println(statusStr) //nolint:forbidigo
+	return nil
 }
 
 func statusFlagBinding(cmd *cobra.Command, _ []string) {

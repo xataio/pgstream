@@ -23,20 +23,20 @@ type InitStatus struct {
 type MigrationStatus struct {
 	Version uint
 	Dirty   bool
-	Errors  string
+	Errors  []string
 }
 
 type ReplicationSlotStatus struct {
 	Name     string
 	Plugin   string
 	Database string
-	Errors   string
+	Errors   []string
 }
 
 type SchemaStatus struct {
 	SchemaExists         bool
 	SchemaLogTableExists bool
-	Errors               string
+	Errors               []string
 }
 
 type migrator interface {
@@ -52,7 +52,11 @@ type StatusChecker struct {
 
 const wal2jsonPlugin = "wal2json"
 
-var errNoPgstreamSchema = errors.New("pgstream schema does not exist in the configured postgres database")
+const (
+	noPgstreamSchemaErrMsg         = "pgstream schema does not exist in the configured postgres database"
+	noPgstreamSchemaLogTableErrMsg = "pgstream schema_log table does not exist in the configured postgres database"
+	noMigrationsTableErrMsg        = "pgstream schema_migrations table does not exist in the configured postgres database"
+)
 
 func NewStatusChecker() *StatusChecker {
 	return &StatusChecker{
@@ -78,13 +82,9 @@ func (s *StatusChecker) InitStatus(ctx context.Context, pgURL, replicationSlotNa
 		return nil, fmt.Errorf("validating pgstream schema: %w", err)
 	}
 
-	// the migrations table exists under the pgstream schema, if it doesn't exist
-	// there's no need to check.
-	if initStatus.PgstreamSchema != nil && initStatus.PgstreamSchema.SchemaExists {
-		initStatus.Migration, err = s.validateMigrationStatus(pgURL)
-		if err != nil {
-			return nil, fmt.Errorf("validating pgstream migrations: %w", err)
-		}
+	initStatus.Migration, err = s.validateMigrationStatus(pgURL)
+	if err != nil {
+		return nil, fmt.Errorf("validating pgstream migrations: %w", err)
 	}
 
 	initStatus.ReplicationSlot, err = s.validateReplicationSlotStatus(ctx, pgURL, replicationSlotName)
@@ -104,7 +104,7 @@ func (s *StatusChecker) validateMigrationStatus(pgURL string) (*MigrationStatus,
 		switch {
 		case strings.Contains(err.Error(), "failed to open database: no schema"):
 			return &MigrationStatus{
-				Errors: errNoPgstreamSchema.Error(),
+				Errors: append([]string{}, noMigrationsTableErrMsg),
 			}, nil
 		default:
 			return nil, fmt.Errorf("error creating postgres migrator: %w", err)
@@ -117,35 +117,26 @@ func (s *StatusChecker) validateMigrationStatus(pgURL string) (*MigrationStatus,
 		return nil, fmt.Errorf("error getting migration version: %w", err)
 	}
 
-	migrationErrs := func() error {
-		var errs error
+	migrationErrs := func() []string {
+		var errs []string
 		migrationAssets := pgmigrations.AssetNames()
 		if len(migrationAssets)/2 != int(version) {
 			if errs == nil {
-				errs = fmt.Errorf("migration version %d does not match the number of migration files %d", version, len(migrationAssets)/2)
+				errs = append(errs, fmt.Sprintf("migration version (%d) does not match the number of migration files (%d)", version, len(migrationAssets)/2))
 			}
 		}
 
 		if dirty {
-			if errs == nil {
-				errs = fmt.Errorf("migration version %d is dirty", version)
-			} else {
-				errs = errors.Join(errs, fmt.Errorf("migration version %d is dirty", version))
-			}
+			errs = append(errs, fmt.Sprintf("migration version %d is dirty", version))
 		}
 
 		return errs
 	}()
 
-	errMsg := ""
-	if migrationErrs != nil {
-		errMsg = migrationErrs.Error()
-	}
-
 	return &MigrationStatus{
 		Version: version,
 		Dirty:   dirty,
-		Errors:  errMsg,
+		Errors:  migrationErrs,
 	}, nil
 }
 
@@ -170,7 +161,7 @@ func (s *StatusChecker) validateSchemaStatus(ctx context.Context, pgURL string) 
 		return &SchemaStatus{
 			SchemaExists:         false,
 			SchemaLogTableExists: false,
-			Errors:               errNoPgstreamSchema.Error(),
+			Errors:               append([]string{}, noPgstreamSchemaErrMsg),
 		}, nil
 	}
 
@@ -186,7 +177,7 @@ func (s *StatusChecker) validateSchemaStatus(ctx context.Context, pgURL string) 
 	}
 
 	if !schemaLogTableExists {
-		status.Errors = "schema_log table does not exist in the pgstream schema"
+		status.Errors = append(status.Errors, noPgstreamSchemaLogTableErrMsg)
 	}
 
 	return status, nil
@@ -226,49 +217,86 @@ func (s *StatusChecker) validateReplicationSlotStatus(ctx context.Context, pgURL
 		return nil, fmt.Errorf("retrieving replication slot information: %w", err)
 	}
 
-	replicationErrs := func() error {
-		if name != replicationSlotName {
-			return fmt.Errorf("replication slot %s does not exist in the configured database", replicationSlotName)
-		}
-
+	replicationErrs := func() []string {
 		if database != cfg.Database {
-			return fmt.Errorf("replication slot %s is not created on the configured database %s", replicationSlotName, cfg.Database)
+			return append([]string{}, fmt.Sprintf("replication slot %s does not exist in the configured database", replicationSlotName))
 		}
 
 		if plugin != wal2jsonPlugin {
-			return fmt.Errorf("replication slot %s is not using the wal2json plugin", replicationSlotName)
+			return append([]string{}, fmt.Sprintf("replication slot %s is not using the wal2json plugin", replicationSlotName))
 		}
 
 		return nil
 	}()
 
-	var errMsg string
-	if replicationErrs != nil {
-		errMsg = replicationErrs.Error()
-	}
-
 	return &ReplicationSlotStatus{
 		Name:     name,
 		Plugin:   plugin,
 		Database: database,
-		Errors:   errMsg,
+		Errors:   replicationErrs,
 	}, nil
 }
 
 // GetErrors aggregates all errors from the initialisation status.
 func (is *InitStatus) GetErrors() []string {
+	if is == nil {
+		return nil
+	}
+
 	errors := []string{}
-	if is.PgstreamSchema != nil && is.PgstreamSchema.Errors != "" {
-		errors = append(errors, is.PgstreamSchema.Errors)
+	if is.PgstreamSchema != nil && len(is.PgstreamSchema.Errors) > 0 {
+		errors = append(errors, is.PgstreamSchema.Errors...)
 	}
 
-	if is.Migration != nil && is.Migration.Errors != "" {
-		errors = append(errors, is.Migration.Errors)
+	if is.Migration != nil && len(is.Migration.Errors) > 0 {
+		errors = append(errors, is.Migration.Errors...)
 	}
 
-	if is.ReplicationSlot != nil && is.ReplicationSlot.Errors != "" {
-		errors = append(errors, is.ReplicationSlot.Errors)
+	if is.ReplicationSlot != nil && len(is.ReplicationSlot.Errors) > 0 {
+		errors = append(errors, is.ReplicationSlot.Errors...)
 	}
 
 	return errors
+}
+
+func (is *InitStatus) PrettyPrint() string {
+	if is == nil {
+		return ""
+	}
+
+	var prettyPrint strings.Builder
+	if is.PgstreamSchema != nil {
+		prettyPrint.WriteString(fmt.Sprintf("pgstream schema exists: %t\n", is.PgstreamSchema.SchemaExists))
+		prettyPrint.WriteString(fmt.Sprintf("pgstream schema_log table exists: %t\n", is.PgstreamSchema.SchemaLogTableExists))
+		if len(is.PgstreamSchema.Errors) > 0 {
+			prettyPrint.WriteString(fmt.Sprintf("pgstream schema errors: %s\n", is.PgstreamSchema.Errors))
+		}
+	}
+
+	if is.Migration != nil {
+		prettyPrint.WriteString(fmt.Sprintf("migration current version: %d\n", is.Migration.Version))
+		prettyPrint.WriteString(fmt.Sprintf("migration status: %s\n", migrationStatus(is.Migration.Dirty)))
+		if len(is.Migration.Errors) > 0 {
+			prettyPrint.WriteString(fmt.Sprintf("migration errors: %s\n", is.Migration.Errors))
+		}
+	}
+
+	if is.ReplicationSlot != nil {
+		prettyPrint.WriteString(fmt.Sprintf("replication slot name: %s\n", is.ReplicationSlot.Name))
+		prettyPrint.WriteString(fmt.Sprintf("replication slot plugin: %s\n", is.ReplicationSlot.Plugin))
+		prettyPrint.WriteString(fmt.Sprintf("replication slot database: %s\n", is.ReplicationSlot.Database))
+		if len(is.ReplicationSlot.Errors) > 0 {
+			prettyPrint.WriteString(fmt.Sprintf("replication slot errors: %s\n", is.ReplicationSlot.Errors))
+		}
+	}
+
+	// trim the last newline character
+	return prettyPrint.String()[:len(prettyPrint.String())-1]
+}
+
+func migrationStatus(dirty bool) string {
+	if !dirty {
+		return "success"
+	}
+	return "failed"
 }
