@@ -23,8 +23,14 @@
           "name": "status",
           "short": "Checks the initialisation status of pgstream in the provided postgres database",
           "use": "status",
-          "example": "",
-          "flags": [],
+          "example": "\n\tpgstream init status -c pg2pg.env\n\tpgstream init status --postgres-url <postgres-url> --replication-slot <replication-slot-name>\n\tpgstream init status -c pg2pg.yaml --json\n\t",
+          "flags": [
+            {
+              "name": "json",
+              "description": "Output the status in JSON format",
+              "default": "false"
+            }
+          ],
           "subcommands": [],
           "args": []
         }

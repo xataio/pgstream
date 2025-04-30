@@ -892,13 +892,13 @@ func TestInitStatus_PrettyPrint(t *testing.T) {
 					Database: "db",
 				},
 			},
-			wantOutput: `pgstream schema exists: true
-pgstream schema_log table exists: true
-migration current version: 5
-migration status: success
-replication slot name: pgstream_db_slot
-replication slot plugin: wal2json
-replication slot database: db`,
+			wantOutput: `Pgstream schema exists: true
+Pgstream schema_log table exists: true
+Migration current version: 5
+Migration status: success
+Replication slot name: pgstream_db_slot
+Replication slot plugin: wal2json
+Replication slot database: db`,
 		},
 		{
 			name: "schema errors",
@@ -909,9 +909,9 @@ replication slot database: db`,
 					Errors:               []string{"pgstream schema does not exist in the configured postgres database"},
 				},
 			},
-			wantOutput: `pgstream schema exists: false
-pgstream schema_log table exists: false
-pgstream schema errors: [pgstream schema does not exist in the configured postgres database]`,
+			wantOutput: `Pgstream schema exists: false
+Pgstream schema_log table exists: false
+Pgstream schema errors: [pgstream schema does not exist in the configured postgres database]`,
 		},
 		{
 			name: "migration errors",
@@ -922,9 +922,9 @@ pgstream schema errors: [pgstream schema does not exist in the configured postgr
 					Errors:  []string{"migration version 3 is dirty"},
 				},
 			},
-			wantOutput: `migration current version: 3
-migration status: failed
-migration errors: [migration version 3 is dirty]`,
+			wantOutput: `Migration current version: 3
+Migration status: failed
+Migration errors: [migration version 3 is dirty]`,
 		},
 		{
 			name: "replication slot errors",
@@ -936,10 +936,10 @@ migration errors: [migration version 3 is dirty]`,
 					Errors:   []string{"replication slot pgstream_db_slot is not using the wal2json plugin"},
 				},
 			},
-			wantOutput: `replication slot name: pgstream_db_slot
-replication slot plugin: wrong_plugin
-replication slot database: db
-replication slot errors: [replication slot pgstream_db_slot is not using the wal2json plugin]`,
+			wantOutput: `Replication slot name: pgstream_db_slot
+Replication slot plugin: wrong_plugin
+Replication slot database: db
+Replication slot errors: [replication slot pgstream_db_slot is not using the wal2json plugin]`,
 		},
 		{
 			name:       "nil InitStatus",

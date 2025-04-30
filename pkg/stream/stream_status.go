@@ -266,27 +266,27 @@ func (is *InitStatus) PrettyPrint() string {
 
 	var prettyPrint strings.Builder
 	if is.PgstreamSchema != nil {
-		prettyPrint.WriteString(fmt.Sprintf("pgstream schema exists: %t\n", is.PgstreamSchema.SchemaExists))
-		prettyPrint.WriteString(fmt.Sprintf("pgstream schema_log table exists: %t\n", is.PgstreamSchema.SchemaLogTableExists))
+		prettyPrint.WriteString(fmt.Sprintf("Pgstream schema exists: %t\n", is.PgstreamSchema.SchemaExists))
+		prettyPrint.WriteString(fmt.Sprintf("Pgstream schema_log table exists: %t\n", is.PgstreamSchema.SchemaLogTableExists))
 		if len(is.PgstreamSchema.Errors) > 0 {
-			prettyPrint.WriteString(fmt.Sprintf("pgstream schema errors: %s\n", is.PgstreamSchema.Errors))
+			prettyPrint.WriteString(fmt.Sprintf("Pgstream schema errors: %s\n", is.PgstreamSchema.Errors))
 		}
 	}
 
 	if is.Migration != nil {
-		prettyPrint.WriteString(fmt.Sprintf("migration current version: %d\n", is.Migration.Version))
-		prettyPrint.WriteString(fmt.Sprintf("migration status: %s\n", migrationStatus(is.Migration.Dirty)))
+		prettyPrint.WriteString(fmt.Sprintf("Migration current version: %d\n", is.Migration.Version))
+		prettyPrint.WriteString(fmt.Sprintf("Migration status: %s\n", migrationStatus(is.Migration.Dirty)))
 		if len(is.Migration.Errors) > 0 {
-			prettyPrint.WriteString(fmt.Sprintf("migration errors: %s\n", is.Migration.Errors))
+			prettyPrint.WriteString(fmt.Sprintf("Migration errors: %s\n", is.Migration.Errors))
 		}
 	}
 
 	if is.ReplicationSlot != nil {
-		prettyPrint.WriteString(fmt.Sprintf("replication slot name: %s\n", is.ReplicationSlot.Name))
-		prettyPrint.WriteString(fmt.Sprintf("replication slot plugin: %s\n", is.ReplicationSlot.Plugin))
-		prettyPrint.WriteString(fmt.Sprintf("replication slot database: %s\n", is.ReplicationSlot.Database))
+		prettyPrint.WriteString(fmt.Sprintf("Replication slot name: %s\n", is.ReplicationSlot.Name))
+		prettyPrint.WriteString(fmt.Sprintf("Replication slot plugin: %s\n", is.ReplicationSlot.Plugin))
+		prettyPrint.WriteString(fmt.Sprintf("Replication slot database: %s\n", is.ReplicationSlot.Database))
 		if len(is.ReplicationSlot.Errors) > 0 {
-			prettyPrint.WriteString(fmt.Sprintf("replication slot errors: %s\n", is.ReplicationSlot.Errors))
+			prettyPrint.WriteString(fmt.Sprintf("Replication slot errors: %s\n", is.ReplicationSlot.Errors))
 		}
 	}
 

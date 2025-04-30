@@ -50,6 +50,11 @@ var initStatusCmd = &cobra.Command{
 
 		return nil
 	},
+	Example: `
+	pgstream init status -c pg2pg.env
+	pgstream init status --postgres-url <postgres-url> --replication-slot <replication-slot-name>
+	pgstream init status -c pg2pg.yaml --json
+	`,
 }
 
 func printStatus(cmd *cobra.Command, status *stream.InitStatus) error {
