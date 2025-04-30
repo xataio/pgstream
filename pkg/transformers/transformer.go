@@ -31,6 +31,7 @@ type TransformerType string
 
 const (
 	String                 TransformerType = "string"
+	LiteralString          TransformerType = "literal_string"
 	PhoneNumber            TransformerType = "phone_number"
 	NeosyncString          TransformerType = "neosync_string"
 	GreenmaskString        TransformerType = "greenmask_string"
@@ -68,6 +69,7 @@ const (
 	UInt8ArrayOf16DataType SupportedDataType = "uint8_array_of_16"
 	DateDataType           SupportedDataType = "date"
 	DatetimeDataType       SupportedDataType = "datetime"
+	JSONDataType           SupportedDataType = "json"
 )
 
 const (
