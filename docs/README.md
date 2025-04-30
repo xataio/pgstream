@@ -962,7 +962,7 @@ transformations:
   table_transformers: # List of table transformations
     - schema: <schema_name> # Name of the table schema
       table: <table_name> # Name of the table
-      validation_mode: <validation_mode> # To be used when the global validation_mode is set to `table_level`. Can be one of strict or relaxed. Defaults to relaxed if not provided
+      validation_mode: <validation_mode> # To be used when the global validation_mode is set to `table_level`. Can be one of strict or relaxed
       column_transformers: # List of column transformations
         <column_name>: # Name of the column to which the transformation will be applied
           name: <transformer_name> # Name of the transformer to be applied to the column. If no transformer needs to be applied on strict validation mode, it can be left empty or use `noop`
