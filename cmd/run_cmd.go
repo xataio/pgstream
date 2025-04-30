@@ -121,6 +121,15 @@ func targetFlagBinding(cmd *cobra.Command) error {
 	case postgres:
 		viper.BindPFlag("target.postgres.url", cmd.Flags().Lookup("target-url"))
 		viper.BindPFlag("PGSTREAM_POSTGRES_WRITER_TARGET_URL", cmd.Flags().Lookup("target-url"))
+		// disable triggers by default when running on snapshot mode
+		if cmd.Name() == "snapshot" {
+			if viper.GetString("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS") == "" {
+				viper.Set("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS", true)
+			}
+			if viper.GetString("target.postgres.disable_triggers") == "" {
+				viper.Set("target.postgres.disable_triggers", true)
+			}
+		}
 	case "elasticsearch", "opensearch":
 		viper.Set("target.search.engine", target)
 		viper.BindPFlag("target.search.url", cmd.Flags().Lookup("target-url"))
