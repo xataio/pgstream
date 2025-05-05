@@ -18,23 +18,7 @@
           "default": ""
         }
       ],
-      "subcommands": [
-        {
-          "name": "status",
-          "short": "Checks the initialisation status of pgstream in the provided postgres database",
-          "use": "status",
-          "example": "\n\tpgstream init status -c pg2pg.env\n\tpgstream init status --postgres-url <postgres-url> --replication-slot <replication-slot-name>\n\tpgstream init status -c pg2pg.yaml --json\n\t",
-          "flags": [
-            {
-              "name": "json",
-              "description": "Output the status in JSON format",
-              "default": "false"
-            }
-          ],
-          "subcommands": [],
-          "args": []
-        }
-      ],
+      "subcommands": [],
       "args": []
     },
     {
@@ -111,6 +95,31 @@
         {
           "name": "target-url",
           "description": "Target URL",
+          "default": ""
+        }
+      ],
+      "subcommands": [],
+      "args": []
+    },
+    {
+      "name": "status",
+      "short": "Checks the status of pgstream initialisation and provided configuration",
+      "use": "status",
+      "example": "\n\tpgstream status -c pg2pg.env\n\tpgstream status --postgres-url <postgres-url> --replication-slot <replication-slot-name>\n\tpgstream status -c pg2pg.yaml --json\n\t",
+      "flags": [
+        {
+          "name": "json",
+          "description": "Output the status in JSON format",
+          "default": "false"
+        },
+        {
+          "name": "postgres-url",
+          "description": "Source postgres URL where pgstream has been initialised",
+          "default": ""
+        },
+        {
+          "name": "replication-slot",
+          "description": "Name of the postgres replication slot created by pgstream on the source url",
           "default": ""
         }
       ],
