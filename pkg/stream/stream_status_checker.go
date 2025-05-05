@@ -16,6 +16,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// StatusChecker is responsible for validating the status of the pgstream setup
+// in a PostgreSQL database. It performs checks on the source database
+// connection, initialization status (schema, migrations, replication slot), and
+// transformation rules. It provides detailed status information, including
+// errors, to help diagnose issues with the pgstream configuration and setup.
 type StatusChecker struct {
 	connBuilder          pglib.QuerierBuilder
 	configParser         func(pgURL string) (*pgx.ConnConfig, error)
@@ -55,6 +60,11 @@ func NewStatusChecker() *StatusChecker {
 	}
 }
 
+// Status retrieves the overall status of the pgstream setup, including the
+// source database connection status, initialization status (schema, migrations,
+// replication slot), and transformation rules validation status. It returns a
+// detailed status report that includes any errors encountered during the
+// checks, helping to diagnose issues with the pgstream configuration and setup.
 func (s *StatusChecker) Status(ctx context.Context, config *Config) (*Status, error) {
 	sourceStatus, err := s.sourceStatus(ctx, config)
 	if err != nil {
@@ -79,6 +89,7 @@ func (s *StatusChecker) Status(ctx context.Context, config *Config) (*Status, er
 	}, nil
 }
 
+// configStatus validates if the configuration provided is valid.
 func (s *StatusChecker) configStatus(config *Config) *ConfigStatus {
 	if err := config.IsValid(); err != nil {
 		return &ConfigStatus{
@@ -92,6 +103,7 @@ func (s *StatusChecker) configStatus(config *Config) *ConfigStatus {
 	}
 }
 
+// sourceStatus validates if the source postgres database is reachable.
 func (s *StatusChecker) sourceStatus(ctx context.Context, config *Config) (*SourceStatus, error) {
 	sourcePostgresURL := config.SourcePostgresURL()
 	if sourcePostgresURL == "" {
@@ -153,6 +165,9 @@ func (s *StatusChecker) initStatus(ctx context.Context, pgURL, replicationSlotNa
 	return initStatus, nil
 }
 
+// transformationRulesStatus validates that the transformation rules provided in
+// the configuration are valid, in line with the validation performed during the
+// pgstream run/snapshot commands.
 func (s *StatusChecker) transformationRulesStatus(ctx context.Context, config *Config) (*TransformationRulesStatus, error) {
 	if config.Processor.Transformer == nil {
 		return nil, nil
