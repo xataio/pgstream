@@ -7,12 +7,36 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"syscall"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmigrations "github.com/xataio/pgstream/migrations/postgres"
+	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 
 	"github.com/jackc/pgx/v5"
 )
+
+type Status struct {
+	Init                *InitStatus
+	Config              *ConfigStatus
+	TransformationRules *TransformationRulesStatus
+	Source              *SourceStatus
+}
+
+type ConfigStatus struct {
+	Valid  bool
+	Errors []string
+}
+
+type TransformationRulesStatus struct {
+	Valid  bool
+	Errors []string
+}
+
+type SourceStatus struct {
+	Reachable bool
+	Errors    []string
+}
 
 type InitStatus struct {
 	PgstreamSchema  *SchemaStatus
@@ -45,10 +69,13 @@ type migrator interface {
 }
 
 type StatusChecker struct {
-	connBuilder     pglib.QuerierBuilder
-	configParser    func(pgURL string) (*pgx.ConnConfig, error)
-	migratorBuilder func(string) (migrator, error)
+	connBuilder          pglib.QuerierBuilder
+	configParser         func(pgURL string) (*pgx.ConnConfig, error)
+	migratorBuilder      func(string) (migrator, error)
+	ruleValidatorBuilder func(context.Context, string) (ruleValidator, error)
 }
+
+type ruleValidator func(rules []transformer.TableRules) (map[string]transformer.ColumnTransformers, error)
 
 const wal2jsonPlugin = "wal2json"
 
@@ -56,6 +83,8 @@ const (
 	noPgstreamSchemaErrMsg         = "pgstream schema does not exist in the configured postgres database"
 	noPgstreamSchemaLogTableErrMsg = "pgstream schema_log table does not exist in the configured postgres database"
 	noMigrationsTableErrMsg        = "pgstream schema_migrations table does not exist in the configured postgres database"
+	sourceNotProvided              = "source not provided"
+	sourcePostgresNotReachable     = "source postgres not reachable"
 )
 
 func NewStatusChecker() *StatusChecker {
@@ -63,13 +92,89 @@ func NewStatusChecker() *StatusChecker {
 		connBuilder:     pglib.ConnBuilder,
 		configParser:    pgx.ParseConfig,
 		migratorBuilder: func(pgURL string) (migrator, error) { return newPGMigrator(pgURL) },
+		ruleValidatorBuilder: func(ctx context.Context, pgURL string) (ruleValidator, error) {
+			validator, err := transformer.NewPostgresTransformerParser(ctx, pgURL)
+			if err != nil {
+				return nil, err
+			}
+			return validator.ParseAndValidate, nil
+		},
 	}
 }
 
-// InitStatus checks the initialisation status of pgstream in the provided
+func (s *StatusChecker) Status(ctx context.Context, config *Config) (*Status, error) {
+	sourceStatus, err := s.sourceStatus(ctx, config)
+	if err != nil {
+		return nil, fmt.Errorf("checking source status: %w", err)
+	}
+
+	initStatus, err := s.initStatus(ctx, config.SourcePostgresURL(), config.PostgresReplicationSlot())
+	if err != nil {
+		return nil, fmt.Errorf("checking init status: %w", err)
+	}
+
+	transformationRulesStatus, err := s.transformationRulesStatus(ctx, config)
+	if err != nil {
+		return nil, fmt.Errorf("checking transformation rules status: %w", err)
+	}
+
+	return &Status{
+		Init:                initStatus,
+		Config:              s.configStatus(config),
+		Source:              sourceStatus,
+		TransformationRules: transformationRulesStatus,
+	}, nil
+}
+
+func (s *StatusChecker) configStatus(config *Config) *ConfigStatus {
+	if err := config.IsValid(); err != nil {
+		return &ConfigStatus{
+			Valid:  false,
+			Errors: []string{err.Error()},
+		}
+	}
+
+	return &ConfigStatus{
+		Valid: true,
+	}
+}
+
+func (s *StatusChecker) sourceStatus(ctx context.Context, config *Config) (*SourceStatus, error) {
+	sourcePostgresURL := config.SourcePostgresURL()
+	if sourcePostgresURL == "" {
+		return &SourceStatus{
+			Reachable: false,
+			Errors:    []string{sourceNotProvided},
+		}, nil
+	}
+
+	conn, err := s.connBuilder(ctx, sourcePostgresURL)
+	if err != nil {
+		if errors.Is(err, syscall.ECONNREFUSED) {
+			return &SourceStatus{
+				Reachable: false,
+				Errors:    []string{fmt.Sprintf("%s: %v", sourcePostgresNotReachable, err)},
+			}, nil
+		}
+		return nil, err
+	}
+	defer conn.Close(context.Background())
+
+	sourceStatus := &SourceStatus{
+		Reachable: true,
+	}
+	if err := conn.Ping(ctx); err != nil {
+		sourceStatus.Reachable = false
+		sourceStatus.Errors = append(sourceStatus.Errors, err.Error())
+	}
+
+	return sourceStatus, nil
+}
+
+// initStatus checks the initialisation status of pgstream in the provided
 // postgres database. If the replicationSlotName is empty, it will check against
 // the default (pgstream_<database>_slot).
-func (s *StatusChecker) InitStatus(ctx context.Context, pgURL, replicationSlotName string) (*InitStatus, error) {
+func (s *StatusChecker) initStatus(ctx context.Context, pgURL, replicationSlotName string) (*InitStatus, error) {
 	if pgURL == "" {
 		return nil, errMissingPostgresURL
 	}
@@ -95,6 +200,39 @@ func (s *StatusChecker) InitStatus(ctx context.Context, pgURL, replicationSlotNa
 	return initStatus, nil
 }
 
+func (s *StatusChecker) transformationRulesStatus(ctx context.Context, config *Config) (*TransformationRulesStatus, error) {
+	if config.Processor.Transformer == nil {
+		return nil, nil
+	}
+
+	pgURL := config.SourcePostgresURL()
+	if pgURL == "" {
+		return &TransformationRulesStatus{
+			Valid:  false,
+			Errors: []string{fmt.Sprintf("cannot validate transformer rules: %s", sourceNotProvided)},
+		}, nil
+	}
+
+	status := &TransformationRulesStatus{
+		Valid: true,
+	}
+	validator, err := s.ruleValidatorBuilder(ctx, pgURL)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := validator(config.Processor.Transformer.TransformerRules); err != nil {
+		status.Valid = false
+		switch {
+		case errors.Is(err, syscall.ECONNREFUSED):
+			status.Errors = append(status.Errors, fmt.Sprintf("cannot validate transformer rules: %s", sourcePostgresNotReachable))
+		default:
+			status.Errors = append(status.Errors, err.Error())
+		}
+	}
+
+	return status, nil
+}
+
 // validateMigrationStatus checks the migration status of the pgstream schema,
 // ensuring the number of migrations applied corresponds to the expected ones,
 // and they are not dirty (unsuccessfully applied).
@@ -104,7 +242,11 @@ func (s *StatusChecker) validateMigrationStatus(pgURL string) (*MigrationStatus,
 		switch {
 		case strings.Contains(err.Error(), "failed to open database: no schema"):
 			return &MigrationStatus{
-				Errors: append([]string{}, noMigrationsTableErrMsg),
+				Errors: []string{noMigrationsTableErrMsg},
+			}, nil
+		case errors.Is(err, syscall.ECONNREFUSED):
+			return &MigrationStatus{
+				Errors: []string{fmt.Sprintf("cannot validate migration status: %s", sourcePostgresNotReachable)},
 			}, nil
 		default:
 			return nil, fmt.Errorf("error creating postgres migrator: %w", err)
@@ -121,9 +263,7 @@ func (s *StatusChecker) validateMigrationStatus(pgURL string) (*MigrationStatus,
 		var errs []string
 		migrationAssets := pgmigrations.AssetNames()
 		if len(migrationAssets)/2 != int(version) {
-			if errs == nil {
-				errs = append(errs, fmt.Sprintf("migration version (%d) does not match the number of migration files (%d)", version, len(migrationAssets)/2))
-			}
+			errs = append(errs, fmt.Sprintf("migration version (%d) does not match the number of migration files (%d)", version, len(migrationAssets)/2))
 		}
 
 		if dirty {
@@ -145,6 +285,11 @@ func (s *StatusChecker) validateMigrationStatus(pgURL string) (*MigrationStatus,
 func (s *StatusChecker) validateSchemaStatus(ctx context.Context, pgURL string) (*SchemaStatus, error) {
 	conn, err := s.connBuilder(ctx, pgURL)
 	if err != nil {
+		if errors.Is(err, syscall.ECONNREFUSED) {
+			return &SchemaStatus{
+				Errors: []string{fmt.Sprintf("cannot validate schema status: %s", sourcePostgresNotReachable)},
+			}, nil
+		}
 		return nil, err
 	}
 	defer conn.Close(ctx)
@@ -206,6 +351,11 @@ func (s *StatusChecker) validateReplicationSlotStatus(ctx context.Context, pgURL
 
 	conn, err := s.connBuilder(ctx, pgURL)
 	if err != nil {
+		if errors.Is(err, syscall.ECONNREFUSED) {
+			return &ReplicationSlotStatus{
+				Errors: []string{fmt.Sprintf("cannot validate replication slot status: %s", sourcePostgresNotReachable)},
+			}, nil
+		}
 		return nil, err
 	}
 	defer conn.Close(ctx)
@@ -237,6 +387,58 @@ func (s *StatusChecker) validateReplicationSlotStatus(ctx context.Context, pgURL
 	}, nil
 }
 
+type StatusErrors map[string][]string
+
+func (se StatusErrors) Keys() []string {
+	keys := make([]string, 0, len(se))
+	for k := range se {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func (s *Status) GetErrors() StatusErrors {
+	if s == nil {
+		return nil
+	}
+
+	errors := map[string][]string{}
+	if initErrs := s.Init.GetErrors(); len(initErrs) > 0 {
+		errors["init"] = initErrs
+	}
+
+	if s.Source != nil && len(s.Source.Errors) > 0 {
+		errors["source"] = s.Source.Errors
+	}
+
+	if s.Config != nil && len(s.Config.Errors) > 0 {
+		errors["config"] = s.Config.Errors
+	}
+
+	if s.TransformationRules != nil && len(s.TransformationRules.Errors) > 0 {
+		errors["transformation_rules"] = s.TransformationRules.Errors
+	}
+
+	return errors
+}
+
+func (s *Status) PrettyPrint() string {
+	if s == nil {
+		return ""
+	}
+
+	var prettyPrint strings.Builder
+	prettyPrint.WriteString(s.Init.PrettyPrint())
+	prettyPrint.WriteByte('\n')
+	prettyPrint.WriteString(s.Config.PrettyPrint())
+	prettyPrint.WriteByte('\n')
+	prettyPrint.WriteString(s.TransformationRules.PrettyPrint())
+	prettyPrint.WriteByte('\n')
+	prettyPrint.WriteString(s.Source.PrettyPrint())
+
+	return prettyPrint.String()
+}
+
 // GetErrors aggregates all errors from the initialisation status.
 func (is *InitStatus) GetErrors() []string {
 	if is == nil {
@@ -265,29 +467,78 @@ func (is *InitStatus) PrettyPrint() string {
 	}
 
 	var prettyPrint strings.Builder
+	prettyPrint.WriteString("Initialisation status:\n")
 	if is.PgstreamSchema != nil {
-		prettyPrint.WriteString(fmt.Sprintf("Pgstream schema exists: %t\n", is.PgstreamSchema.SchemaExists))
-		prettyPrint.WriteString(fmt.Sprintf("Pgstream schema_log table exists: %t\n", is.PgstreamSchema.SchemaLogTableExists))
+		prettyPrint.WriteString(fmt.Sprintf(" - Pgstream schema exists: %t\n", is.PgstreamSchema.SchemaExists))
+		prettyPrint.WriteString(fmt.Sprintf(" - Pgstream schema_log table exists: %t\n", is.PgstreamSchema.SchemaLogTableExists))
 		if len(is.PgstreamSchema.Errors) > 0 {
-			prettyPrint.WriteString(fmt.Sprintf("Pgstream schema errors: %s\n", is.PgstreamSchema.Errors))
+			prettyPrint.WriteString(fmt.Sprintf(" - Pgstream schema errors: %s\n", is.PgstreamSchema.Errors))
 		}
 	}
 
 	if is.Migration != nil {
-		prettyPrint.WriteString(fmt.Sprintf("Migration current version: %d\n", is.Migration.Version))
-		prettyPrint.WriteString(fmt.Sprintf("Migration status: %s\n", migrationStatus(is.Migration.Dirty)))
+		prettyPrint.WriteString(fmt.Sprintf(" - Migration current version: %d\n", is.Migration.Version))
+		prettyPrint.WriteString(fmt.Sprintf(" - Migration status: %s\n", migrationStatus(is.Migration.Dirty)))
 		if len(is.Migration.Errors) > 0 {
-			prettyPrint.WriteString(fmt.Sprintf("Migration errors: %s\n", is.Migration.Errors))
+			prettyPrint.WriteString(fmt.Sprintf(" - Migration errors: %s\n", is.Migration.Errors))
 		}
 	}
 
 	if is.ReplicationSlot != nil {
-		prettyPrint.WriteString(fmt.Sprintf("Replication slot name: %s\n", is.ReplicationSlot.Name))
-		prettyPrint.WriteString(fmt.Sprintf("Replication slot plugin: %s\n", is.ReplicationSlot.Plugin))
-		prettyPrint.WriteString(fmt.Sprintf("Replication slot database: %s\n", is.ReplicationSlot.Database))
+		prettyPrint.WriteString(fmt.Sprintf(" - Replication slot name: %s\n", is.ReplicationSlot.Name))
+		prettyPrint.WriteString(fmt.Sprintf(" - Replication slot plugin: %s\n", is.ReplicationSlot.Plugin))
+		prettyPrint.WriteString(fmt.Sprintf(" - Replication slot database: %s\n", is.ReplicationSlot.Database))
 		if len(is.ReplicationSlot.Errors) > 0 {
-			prettyPrint.WriteString(fmt.Sprintf("Replication slot errors: %s\n", is.ReplicationSlot.Errors))
+			prettyPrint.WriteString(fmt.Sprintf(" - Replication slot errors: %s\n", is.ReplicationSlot.Errors))
 		}
+	}
+
+	// trim the last newline character
+	return prettyPrint.String()[:len(prettyPrint.String())-1]
+}
+
+func (ss *SourceStatus) PrettyPrint() string {
+	if ss == nil {
+		return ""
+	}
+
+	var prettyPrint strings.Builder
+	prettyPrint.WriteString("Source status:\n")
+	prettyPrint.WriteString(fmt.Sprintf(" - Reachable: %t\n", ss.Reachable))
+	if len(ss.Errors) > 0 {
+		prettyPrint.WriteString(fmt.Sprintf(" - Errors: %s\n", ss.Errors))
+	}
+
+	// trim the last newline character
+	return prettyPrint.String()[:len(prettyPrint.String())-1]
+}
+
+func (cs *ConfigStatus) PrettyPrint() string {
+	if cs == nil {
+		return ""
+	}
+
+	var prettyPrint strings.Builder
+	prettyPrint.WriteString("Config status:\n")
+	prettyPrint.WriteString(fmt.Sprintf(" - Valid: %t\n", cs.Valid))
+	if len(cs.Errors) > 0 {
+		prettyPrint.WriteString(fmt.Sprintf(" - Errors: %s\n", cs.Errors))
+	}
+
+	// trim the last newline character
+	return prettyPrint.String()[:len(prettyPrint.String())-1]
+}
+
+func (trs *TransformationRulesStatus) PrettyPrint() string {
+	if trs == nil {
+		return ""
+	}
+
+	var prettyPrint strings.Builder
+	prettyPrint.WriteString("Transformation rules status:\n")
+	prettyPrint.WriteString(fmt.Sprintf(" - Valid: %t\n", trs.Valid))
+	if len(trs.Errors) > 0 {
+		prettyPrint.WriteString(fmt.Sprintf(" - Errors: %s\n", trs.Errors))
 	}
 
 	// trim the last newline character
