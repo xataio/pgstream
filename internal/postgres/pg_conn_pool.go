@@ -60,6 +60,10 @@ func (c *Pool) ExecInTxWithOptions(ctx context.Context, fn func(Tx) error, opts 
 	return tx.Commit(ctx)
 }
 
+func (c *Pool) Ping(ctx context.Context) error {
+	return mapError(c.Pool.Ping(ctx))
+}
+
 func (c *Pool) Close(_ context.Context) error {
 	c.Pool.Close()
 	return nil
