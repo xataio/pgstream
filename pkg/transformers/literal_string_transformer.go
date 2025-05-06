@@ -40,8 +40,6 @@ func (lst *LiteralStringTransformer) Transform(value Value) (any, error) {
 
 func (lst *LiteralStringTransformer) CompatibleTypes() []SupportedDataType {
 	return []SupportedDataType{
-		StringDataType,
-		ByteArrayDataType,
-		JSONDataType,
+		AllDataTypes,
 	}
 }
