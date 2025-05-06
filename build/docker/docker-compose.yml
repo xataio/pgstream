@@ -1,4 +1,5 @@
 version: "3.8"
+name: pgstream
 services:
   db1:
     build: postgres
@@ -28,7 +29,7 @@ services:
     profiles: ["pg2pg"]
 
   kafka:
-    image: "bitnami/kafka:latest"
+    image: "bitnami/kafka:3.9.0"
     ports:
       - "9092:9092"
       - "9094:9094"
