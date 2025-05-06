@@ -131,10 +131,11 @@ type ConstantBackoffConfig struct {
 }
 
 type PostgresTargetConfig struct {
-	URL              string       `mapstructure:"url" yaml:"url"`
-	Batch            *BatchConfig `mapstructure:"batch" yaml:"batch"`
-	DisableTriggers  bool         `mapstructure:"disable_triggers" yaml:"disable_triggers"`
-	OnConflictAction string       `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
+	URL               string       `mapstructure:"url" yaml:"url"`
+	Batch             *BatchConfig `mapstructure:"batch" yaml:"batch"`
+	SchemaLogStoreURL string       `mapstructure:"schema_log_store_url" yaml:"schema_log_store_url"`
+	DisableTriggers   bool         `mapstructure:"disable_triggers" yaml:"disable_triggers"`
+	OnConflictAction  string       `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
 }
 
 type KafkaTargetConfig struct {
@@ -512,7 +513,7 @@ func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorCon
 			URL:         c.Target.Postgres.URL,
 			BatchConfig: c.Target.Postgres.Batch.parseBatchConfig(),
 			SchemaLogStore: pgschemalog.Config{
-				URL: c.Source.Postgres.URL,
+				URL: c.Target.Postgres.SchemaLogStoreURL,
 			},
 			DisableTriggers:  c.Target.Postgres.DisableTriggers,
 			OnConflictAction: c.Target.Postgres.OnConflictAction,
@@ -701,7 +702,7 @@ func (bo *BackoffConfig) parseBackoffConfig() backoff.Config {
 }
 
 func (bo *BackoffConfig) parseExponentialBackoffConfig() *backoff.ExponentialConfig {
-	if bo.Exponential == nil {
+	if bo == nil || bo.Exponential == nil {
 		return nil
 	}
 	return &backoff.ExponentialConfig{
@@ -712,7 +713,7 @@ func (bo *BackoffConfig) parseExponentialBackoffConfig() *backoff.ExponentialCon
 }
 
 func (bo *BackoffConfig) parseConstantBackoffConfig() *backoff.ConstantConfig {
-	if bo.Constant == nil {
+	if bo == nil || bo.Constant == nil {
 		return nil
 	}
 	return &backoff.ConstantConfig{

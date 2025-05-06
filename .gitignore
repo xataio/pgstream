@@ -6,3 +6,5 @@ coverage
 
 # misc
 .DS_Store
+
+.idea/

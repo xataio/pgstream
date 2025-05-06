@@ -1,4 +1,5 @@
 version: "3.8"
+name: pgstream
 services:
   db1:
     build: postgres

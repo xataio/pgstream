@@ -90,6 +90,11 @@ We can also validate the `pgstream.schema_log` table has been created:
 
 ```sql
 \d+ pgstream.schema_log
+```
+
+which should show the following
+
+```
 +-------------+-----------------------------+----------------------------------+----------+--------------+-------------+
 | Column      | Type                        | Modifiers                        | Storage  | Stats target | Description |
 |-------------+-----------------------------+----------------------------------+----------+--------------+-------------|
@@ -339,9 +344,9 @@ source:
   kafka:
     servers: ["localhost:9092"]
     topic:
-      name: "mytopic"
+      name: "pgstream"
     consumer_group:
-      id: "mygroup"
+      id: "pgstream-postgres-consumer-group"
       start_offset: "earliest" # options are earliest or latest
 target:
   postgres:
@@ -349,6 +354,7 @@ target:
     batch:
       timeout: 5000 # batch timeout in milliseconds
       size: 25 # number of messages in a batch
+    schema_log_store_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
     disable_triggers: false # whether to disable triggers on the target database
     on_conflict_action: "nothing" # options are update, nothing or error
 ```
@@ -391,13 +397,15 @@ source:
       name: "pgstream"
     consumer_group:
       id: "pgstream-opensearch-consumer-group"
+      start_offset: "earliest" # options are earliest or latest
 target:
   search:
     engine: "opensearch" # options are elasticsearch or opensearch
-    url: "http://localhost:9200" # URL of the search engine
+    url: "http://admin:admin@localhost:9200" # URL of the search engine
     batch:
       timeout: 5000 # batch timeout in milliseconds
       size: 25 # number of messages in a batch
+
 ```
 
 ## Run `pgstream`
