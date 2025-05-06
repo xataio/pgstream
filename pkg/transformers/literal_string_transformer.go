@@ -13,7 +13,7 @@ type LiteralStringTransformer struct {
 
 var (
 	literalStringTransformerParams = []string{"literal"}
-	errLiteralStringCannotBeEmpty  = errors.New("literal_string_transformer: literal parameter cannot be empty")
+	errLiteralStringNotFound       = errors.New("literal_string_transformer: literal parameter not found")
 )
 
 func NewLiteralStringTransformer(params Parameters) (*LiteralStringTransformer, error) {
@@ -21,12 +21,12 @@ func NewLiteralStringTransformer(params Parameters) (*LiteralStringTransformer, 
 		return nil, err
 	}
 
-	literal, _, err := FindParameter[string](params, "literal")
+	literal, found, err := FindParameter[string](params, "literal")
 	if err != nil {
 		return nil, fmt.Errorf("literal_string_transformer: literal must be a string: %w", err)
 	}
-	if literal == "" {
-		return nil, errLiteralStringCannotBeEmpty
+	if !found {
+		return nil, errLiteralStringNotFound
 	}
 
 	return &LiteralStringTransformer{
