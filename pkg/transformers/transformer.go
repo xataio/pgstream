@@ -70,6 +70,7 @@ const (
 	DateDataType           SupportedDataType = "date"
 	DatetimeDataType       SupportedDataType = "datetime"
 	JSONDataType           SupportedDataType = "json"
+	AllDataTypes           SupportedDataType = "all"
 )
 
 const (

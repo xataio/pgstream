@@ -102,6 +102,9 @@ func (v *PostgresTransformerParser) getFieldDescriptions(ctx context.Context, sc
 }
 
 func pgTypeCompatibleWithTransformerType(compatibleTypes []transformers.SupportedDataType, pgType uint32) bool {
+	if slices.Contains(compatibleTypes, transformers.AllDataTypes) {
+		return true
+	}
 	switch pgType {
 	case pgtype.TextOID, pgtype.VarcharOID, pgtype.BPCharOID:
 		return slices.Contains(compatibleTypes, transformers.StringDataType)
@@ -125,7 +128,7 @@ func pgTypeCompatibleWithTransformerType(compatibleTypes []transformers.Supporte
 		return slices.Contains(compatibleTypes, transformers.DateDataType)
 	case pgtype.TimestampOID, pgtype.TimestamptzOID:
 		return slices.Contains(compatibleTypes, transformers.DatetimeDataType)
-	case pgtype.JSONBOID:
+	case pgtype.JSONBOID, pgtype.JSONOID:
 		return slices.Contains(compatibleTypes, transformers.JSONDataType)
 	default:
 		return false
