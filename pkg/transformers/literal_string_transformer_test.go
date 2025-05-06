@@ -32,7 +32,7 @@ func TestLiteralStringTransformer(t *testing.T) {
 		{
 			name:    "error - empty literal",
 			params:  Parameters{},
-			wantErr: errLiteralStringCannotBeEmpty,
+			wantErr: errLiteralStringNotFound,
 		},
 	}
 	for _, tc := range tests {
