@@ -133,6 +133,7 @@ target:
       size: 100 # number of messages in a batch. Defaults to 100
       max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB
       max_queue_bytes: 204800 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
+	  schema_log_store_url: "postgresql://user:password@localhost:5432/mydatabase" # url to the postgres database where the schema log is stored to be used when performing schema change diffs
     disable_triggers: false # whether to disable triggers on the target database. Defaults to false
     on_conflict_action: "nothing" # options are update, nothing or error. Defaults to error
   kafka:
