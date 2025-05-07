@@ -337,11 +337,11 @@ func (s *StatusChecker) validateReplicationSlotStatus(ctx context.Context, pgURL
 
 	replicationErrs := func() []string {
 		if database != cfg.Database {
-			return append([]string{}, fmt.Sprintf("replication slot %s does not exist in the configured database", replicationSlotName))
+			return []string{fmt.Sprintf("replication slot %s does not exist in the configured database", replicationSlotName)}
 		}
 
 		if plugin != wal2jsonPlugin {
-			return append([]string{}, fmt.Sprintf("replication slot %s is not using the wal2json plugin", replicationSlotName))
+			return []string{fmt.Sprintf("replication slot %s is not using the wal2json plugin", replicationSlotName)}
 		}
 
 		return nil
