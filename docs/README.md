@@ -952,6 +952,39 @@ transformations:
 
 </details>
 
+#### Other Transformers
+ <details>
+  <summary>literal_string</summary>
+
+**Description:** Transforms all values into the given constant value.
+
+| Supported PostgreSQL types             |
+| -------------------------------------- |
+| All types with a string representation |
+
+| Parameter       | Type   | Default | Required |
+| --------------- | ------ | ------- | -------- |
+| literal         | string | N/A     | Yes      |
+
+Below example makes all values in the JSON column `log_message` to become `{'error': null}`.
+This transformer can be used for any Postgres type as long as the given string literal has the correct syntax for that type. e.g It can be "5-10-2021" for a date column, or "3.14159265" for a double precision one.
+
+**Example Configuration:**
+
+```yaml
+transformations:
+  table_transformers:
+    - schema: public
+      table: logs
+      column_transformers:
+        log_message:
+          name: literal_string
+          parameters:
+            literal: "{'error': null}"
+```
+
+</details>
+
 ### Transformation rules
 
 The rules for the transformers are defined in a dedicated yaml file, with the following format:
