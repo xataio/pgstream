@@ -151,7 +151,9 @@ pgstream tear-down -c pg2pg.yaml
 pgstream tear-down -c pg2pg.env
 ```
 
-#### Run replication
+### Run `pgstream`
+
+#### Replication mode
 
 Run will start streaming data from the configured source into the configured target.
 
@@ -197,7 +199,7 @@ pgstream run -c pg2pg.yaml --log-level info
 pgstream run --source postgres --source-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --target postgres --target-url "postgres://postgres:postgres@localhost:7654?sslmode=disable" --snapshot-tables test
 ```
 
-#### Snapshot
+#### Snapshot mode
 
 Example running pgstream to perform a snapshot from PostgreSQL -> PostgreSQL:
 
