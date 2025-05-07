@@ -161,7 +161,7 @@ func (is *InitStatus) PrettyPrint() string {
 	}
 
 	// trim the last newline character
-	return prettyPrint.String()[:len(prettyPrint.String())-1]
+	return strings.TrimSuffix(prettyPrint.String(), "\n")
 }
 
 func (ss *SourceStatus) PrettyPrint() string {
@@ -177,7 +177,7 @@ func (ss *SourceStatus) PrettyPrint() string {
 	}
 
 	// trim the last newline character
-	return prettyPrint.String()[:len(prettyPrint.String())-1]
+	return strings.TrimSuffix(prettyPrint.String(), "\n")
 }
 
 func (cs *ConfigStatus) PrettyPrint() string {
@@ -193,7 +193,7 @@ func (cs *ConfigStatus) PrettyPrint() string {
 	}
 
 	// trim the last newline character
-	return prettyPrint.String()[:len(prettyPrint.String())-1]
+	return strings.TrimSuffix(prettyPrint.String(), "\n")
 }
 
 func (trs *TransformationRulesStatus) PrettyPrint() string {
@@ -209,7 +209,7 @@ func (trs *TransformationRulesStatus) PrettyPrint() string {
 	}
 
 	// trim the last newline character
-	return prettyPrint.String()[:len(prettyPrint.String())-1]
+	return strings.TrimSuffix(prettyPrint.String(), "\n")
 }
 
 func migrationStatus(dirty bool) string {
