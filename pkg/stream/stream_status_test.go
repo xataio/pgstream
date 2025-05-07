@@ -41,10 +41,10 @@ func TestInitStatus_GetErrors(t *testing.T) {
 				PgstreamSchema: &SchemaStatus{
 					SchemaExists:         false,
 					SchemaLogTableExists: false,
-					Errors:               []string{"pgstream schema does not exist in the configured postgres database"},
+					Errors:               []string{noPgstreamSchemaErrMsg},
 				},
 			},
-			wantErrors: []string{"pgstream schema does not exist in the configured postgres database"},
+			wantErrors: []string{noPgstreamSchemaErrMsg},
 		},
 		{
 			name: "migration errors",
@@ -75,7 +75,7 @@ func TestInitStatus_GetErrors(t *testing.T) {
 				PgstreamSchema: &SchemaStatus{
 					SchemaExists:         false,
 					SchemaLogTableExists: false,
-					Errors:               []string{"pgstream schema does not exist in the configured postgres database"},
+					Errors:               []string{noPgstreamSchemaErrMsg},
 				},
 				Migration: &MigrationStatus{
 					Version: 3,
@@ -90,7 +90,7 @@ func TestInitStatus_GetErrors(t *testing.T) {
 				},
 			},
 			wantErrors: []string{
-				"pgstream schema does not exist in the configured postgres database",
+				noPgstreamSchemaErrMsg,
 				"migration version 3 is dirty",
 				"replication slot pgstream_db_slot is not using the wal2json plugin",
 			},
@@ -275,7 +275,7 @@ func TestInitStatus_PrettyPrint(t *testing.T) {
 				PgstreamSchema: &SchemaStatus{
 					SchemaExists:         false,
 					SchemaLogTableExists: false,
-					Errors:               []string{"pgstream schema does not exist in the configured postgres database"},
+					Errors:               []string{noPgstreamSchemaErrMsg},
 				},
 			},
 			wantOutput: `Initialisation status:
