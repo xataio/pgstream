@@ -984,6 +984,42 @@ transformations:
 ```
 
 </details>
+ <details>
+  <summary>phone_number</summary>
+
+**Description:** Generates anonymized phone numbers with customizable length.
+
+| Supported PostgreSQL types          |
+| ----------------------------------- |
+| `text`, `varchar`, `char`, `bpchar` |
+
+| Parameter       | Type   | Default | Required | Values                |
+| --------------- | ------ | ------- | -------- | --------------------- |
+| prefix          | string | ""      | No       | N/A                   |
+| min_length      | int    | 6       | No       | N/A                   |
+| max_length      | int    | 10      | No       | N/A                   |
+| generator       | string | random  | No       | random, deterministic |
+
+If the prefix is set, this transformer will always generate phone numbers starting with the prefix.
+
+**Example Configuration:**
+
+```yaml
+transformations:
+  table_transformers:
+    - schema: public
+      table: users
+      column_transformers:
+        phone:
+          name: phone_number
+          parameters:
+            prefix: "+90"
+            min_length: 9
+            max_length: 12
+            generator: deterministic
+```
+
+</details>
 
 ### Transformation rules
 
