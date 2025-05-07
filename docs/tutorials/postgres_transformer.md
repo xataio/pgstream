@@ -6,14 +6,15 @@
 4. [Prepare `pgstream` Configuration](#prepare-pgstream-configuration)
    - [Listener](#listener)
    - [Processor](#processor)
-5. [Run `pgstream`](#run-pgstream)
-6. [Verify Data Transformation](#verify-data-transformation)
-7. [Troubleshooting](#troubleshooting)
-8. [Summary](#summary)
+5. [Validate `pgstream` status](#validate-pgstream-status)
+6. [Run `pgstream`](#run-pgstream)
+7. [Verify Data Transformation](#verify-data-transformation)
+8. [Troubleshooting](#troubleshooting)
+9. [Summary](#summary)
 
 ## Introduction
 
-This tutorial will showcase the use of pgstream to replicate data from PostgreSQL using transformers. We'll use a target PostgreSQL database as output, but the same would apply to any of the supported outputs.
+This tutorial will showcase the use of pgstream to replicate data from PostgreSQL using transformers. We'll use a target PostgreSQL database as target, but the same would apply to any of the supported targets.
 
 ![transformer tutorial](../img/pgstream_tutorial_transformer.svg)
 
@@ -67,47 +68,6 @@ Successful initialisation should prompt the following message:
 
 ```
 SUCCESS  pgstream initialisation complete
-```
-
-We can check the replication slot has been properly created by connecting to the source PostgreSQL database and running the following query:
-
-```sh
-➜ psql postgresql://postgres:postgres@localhost:5432/postgres
-```
-
-```sql
-SELECT slot_name,plugin,slot_type,database,restart_lsn,confirmed_flush_lsn FROM pg_replication_slots;
-```
-
-Which should show a `pgstream_tutorial_slot`:
-
-```sql
-+------------------------+----------+-----------+----------+-------------+---------------------+
-| slot_name              | plugin   | slot_type | database | restart_lsn | confirmed_flush_lsn |
-|------------------------+----------+-----------+----------+-------------+---------------------|
-| pgstream_tutorial_slot | wal2json | logical   | postgres | 0/1590E80   | 0/1590EB8           |
-+------------------------+----------+-----------+----------+-------------+---------------------+
-```
-
-We can also validate the `pgstream.schema_log` table has been created:
-
-```sql
-\d+ pgstream.schema_log
-+-------------+-----------------------------+----------------------------------+----------+--------------+-------------+
-| Column      | Type                        | Modifiers                        | Storage  | Stats target | Description |
-|-------------+-----------------------------+----------------------------------+----------+--------------+-------------|
-| id          | pgstream.xid                |  not null default pgstream.xid() | extended | <null>       | <null>      |
-| version     | bigint                      |  not null                        | plain    | <null>       | <null>      |
-| schema_name | text                        |  not null                        | extended | <null>       | <null>      |
-| schema      | jsonb                       |  not null                        | extended | <null>       | <null>      |
-| created_at  | timestamp without time zone |  not null default now()          | plain    | <null>       | <null>      |
-| acked       | boolean                     |  not null default false          | plain    | <null>       | <null>      |
-+-------------+-----------------------------+----------------------------------+----------+--------------+-------------+
-Indexes:
-    "schema_log_pkey" PRIMARY KEY, btree (id)
-    "schema_log_version_uniq" UNIQUE, btree (schema_name, version)
-    "schema_log_name_acked" btree (schema_name, acked, id)
-Has OIDs: no
 ```
 
 If at any point the initialisation performed by pgstream needs to be reverted, all state will be removed by running the `tear-down` CLI command.
@@ -299,6 +259,35 @@ modifiers:
               gender: Female
 ```
 
+## Validate `pgstream` status
+
+We can validate that the initialisation and the configuration are valid by running the `status` command before starting `pgstream`.
+
+```sh
+# using yaml configuration file
+./pgstream status -c pg2pg_transformer_tutorial.yaml
+# using env configuration file
+./pgstream status -c pg2pg_transformer_tutorial.env
+```
+
+```sh
+SUCCESS  pgstream status check encountered no issues
+Initialisation status:
+ - Pgstream schema exists: true
+ - Pgstream schema_log table exists: true
+ - Migration current version: 7
+ - Migration status: success
+ - Replication slot name: pgstream_tutorial_slot
+ - Replication slot plugin: wal2json
+ - Replication slot database: postgres
+Config status:
+ - Valid: true
+Transformation rules status:
+ - Valid: true
+Source status:
+ - Reachable: true
+```
+
 ## Run `pgstream`
 
 With the configuration ready, we can now run pgstream. In this case we set the log level as trace to provide more context for debugging and have more visibility into what pgstream is doing under the hood.
@@ -405,6 +394,7 @@ To see all the transformers currently supported, check out the [transformers sec
 - **Error:** `Replication slot not found`
 
   - Check that the replication slot was created successfully during initialization.
+  - Run the `pgstream status` command to validate the initialisation was successful.
   - Run the following query on the source database to verify:
     ```sql
     SELECT slot_name FROM pg_replication_slots;
@@ -413,6 +403,7 @@ To see all the transformers currently supported, check out the [transformers sec
 - **Error:** `Transformation rules not applied`
   - Ensure the `PGSTREAM_TRANSFORMER_RULES_FILE` points to the correct YAML file.
   - Validate the syntax of the transformer rules using the [pgstream documentation](../README.md#transformation-rules).
+  - Run the `pgstream status` command to validate the transformation rules are correct.
 
 ## Summary
 

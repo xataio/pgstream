@@ -9,10 +9,11 @@
    - [PostgreSQL to Kafka](#postgresql---kafka)
    - [Kafka to PostgreSQL](#kafka---postgresql)
    - [Kafka to OpenSearch](#kafka---opensearch)
-5. [Run `pgstream`](#run-pgstream)
-6. [Verify Replication](#verify-replication)
-7. [Troubleshooting](#troubleshooting)
-8. [Summary](#summary)
+5. [Validate `pgstream` status](#validate-pgstream-status)
+6. [Run `pgstream`](#run-pgstream)
+7. [Verify Replication](#verify-replication)
+8. [Troubleshooting](#troubleshooting)
+9. [Summary](#summary)
 
 ## Introduction
 
@@ -64,52 +65,6 @@ Successful initialisation should prompt the following message:
 
 ```
 SUCCESS  pgstream initialisation complete
-```
-
-We can check the replication slot has been properly created by connecting to the source PostgreSQL database and running the following query:
-
-```sh
-➜ psql postgresql://postgres:postgres@localhost:5432/postgres
-```
-
-```sql
-SELECT slot_name,plugin,slot_type,database,restart_lsn,confirmed_flush_lsn FROM pg_replication_slots;
-```
-
-Which should show a `pgstream_tutorial_slot`:
-
-```sql
-+------------------------+----------+-----------+----------+-------------+---------------------+
-| slot_name              | plugin   | slot_type | database | restart_lsn | confirmed_flush_lsn |
-|------------------------+----------+-----------+----------+-------------+---------------------|
-| pgstream_tutorial_slot | wal2json | logical   | postgres | 0/1590E80   | 0/1590EB8           |
-+------------------------+----------+-----------+----------+-------------+---------------------+
-```
-
-We can also validate the `pgstream.schema_log` table has been created:
-
-```sql
-\d+ pgstream.schema_log
-```
-
-which should show the following
-
-```
-+-------------+-----------------------------+----------------------------------+----------+--------------+-------------+
-| Column      | Type                        | Modifiers                        | Storage  | Stats target | Description |
-|-------------+-----------------------------+----------------------------------+----------+--------------+-------------|
-| id          | pgstream.xid                |  not null default pgstream.xid() | extended | <null>       | <null>      |
-| version     | bigint                      |  not null                        | plain    | <null>       | <null>      |
-| schema_name | text                        |  not null                        | extended | <null>       | <null>      |
-| schema      | jsonb                       |  not null                        | extended | <null>       | <null>      |
-| created_at  | timestamp without time zone |  not null default now()          | plain    | <null>       | <null>      |
-| acked       | boolean                     |  not null default false          | plain    | <null>       | <null>      |
-+-------------+-----------------------------+----------------------------------+----------+--------------+-------------+
-Indexes:
-    "schema_log_pkey" PRIMARY KEY, btree (id)
-    "schema_log_version_uniq" UNIQUE, btree (schema_name, version)
-    "schema_log_name_acked" btree (schema_name, acked, id)
-Has OIDs: no
 ```
 
 If at any point the initialisation performed by pgstream needs to be reverted, all state will be removed by running the `tear-down` CLI command.
@@ -290,7 +245,7 @@ modifiers:
 
 #### Listener
 
-In this case the listener will be a Kafka reader that will listen for the WAL events from the Kafka topic. The only configuration required are the kafka servers, the topic name and the consumer group id. We will use a consumer group for each of the target outputs, in this case `pgstream-postgres-consumer-group`.
+In this case the listener will be a Kafka reader that will listen for the WAL events from the Kafka topic. The only configuration required are the kafka servers, the topic name and the consumer group id. We will use a consumer group for each of the targets, in this case `pgstream-postgres-consumer-group`.
 
 ```sh
 PGSTREAM_KAFKA_READER_SERVERS="localhost:9092"
@@ -405,7 +360,35 @@ target:
     batch:
       timeout: 5000 # batch timeout in milliseconds
       size: 25 # number of messages in a batch
+```
 
+## Validate `pgstream` status
+
+We can validate that the initialisation and the configuration are valid by running the `status` command before starting `pgstream`. This can be run for all configuration files.
+
+```sh
+# using yaml configuration file
+./pgstream status -c pg2kafka_tutorial.yaml
+# using env configuration file
+./pgstream status -c pg2kafka_tutorial.env
+```
+
+```sh
+SUCCESS  pgstream status check encountered no issues
+Initialisation status:
+ - Pgstream schema exists: true
+ - Pgstream schema_log table exists: true
+ - Migration current version: 7
+ - Migration status: success
+ - Replication slot name: pgstream_tutorial_slot
+ - Replication slot plugin: wal2json
+ - Replication slot database: postgres
+Config status:
+ - Valid: true
+Transformation rules status:
+ - Valid: true
+Source status:
+ - Reachable: true
 ```
 
 ## Run `pgstream`
@@ -624,7 +607,7 @@ curl -X GET -u admin:admin http://localhost:9200/public/_search | jq .
 }
 ```
 
-All other operations will be cascaded to both target outputs accordingly. For more details on each individual target, check out the [PostgreSQL to PostgreSQL replication](postgres_to_postgres.md) and the [PostgreSQL to OpenSearch replication](postgres_to_opensearch.md) tutorials.
+All other operations will be cascaded to both targets accordingly. For more details on each individual target, check out the [PostgreSQL to PostgreSQL replication](postgres_to_postgres.md) and the [PostgreSQL to OpenSearch replication](postgres_to_opensearch.md) tutorials.
 
 ## Troubleshooting
 
@@ -648,6 +631,7 @@ Here are some common issues you might encounter while following this tutorial an
 - **Cause:** The replication slot was not created during initialization.
 - **Solution:**
   - Reinitialize `pgstream` or manually create the replication slot.
+  - Run the `pgstream status` command to validate the initialisation was successful.
   - Verify the replication slot exists by running:
     ```sql
     SELECT slot_name FROM pg_replication_slots;

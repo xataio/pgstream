@@ -15,14 +15,14 @@
 
 # pgstream - Postgres replication with DDL changes
 
-`pgstream` is an open source CDC command-line tool and library that offers Postgres replication support with DDL changes to any provided output.
+`pgstream` is an open source CDC command-line tool and library that offers Postgres replication support with DDL changes to any provided target.
 
 ![pg2pg demo with transformers](https://github.com/user-attachments/assets/6f11b326-d8ed-44eb-b743-756910b9fedd)
 
 ## Features
 
 - Schema change tracking and replication of DDL changes
-- Multiple out of the box supported replication outputs
+- Support for multiple out of the box targets
   - Elasticsearch/OpenSearch
   - Webhooks
   - PostgreSQL
@@ -30,7 +30,7 @@
 - Column value transformations (anonymise your data on the go!)
 - Modular deployment configuration, only requires Postgres
 - Kafka support with schema based partitioning
-- Extendable support for custom output plugins
+- Extendable support for custom targets
 
 ## Table of Contents
 
@@ -120,7 +120,28 @@ pgstream init -c pg2pg.yaml
 pgstream init -c pg2pg.env
 ```
 
-If there are any issues or if you want to clean up the pgstream setup, you can run the following.
+The status of the initalisation and the configuration can be checked by using the `status` command.
+
+```sh
+pgstream status -c pg2pg.yaml
+SUCCESS  pgstream status check encountered no issues
+Initialisation status:
+ - Pgstream schema exists: true
+ - Pgstream schema_log table exists: true
+ - Migration current version: 7
+ - Migration status: success
+ - Replication slot name: pgstream_postgres_slot
+ - Replication slot plugin: wal2json
+ - Replication slot database: postgres
+Config status:
+ - Valid: true
+Transformation rules status:
+ - Valid: true
+Source status:
+ - Reachable: true
+```
+
+If there are any issues or if you want to revert the pgstream setup, you can use the `tear-down` command to clean up all pgstream state.
 
 ```sh
 pgstream tear-down --postgres-url "postgres://postgres:postgres@localhost?sslmode=disable" --replication-slot test
@@ -130,9 +151,9 @@ pgstream tear-down -c pg2pg.yaml
 pgstream tear-down -c pg2pg.env
 ```
 
-This command will clean up all pgstream state.
+### Run `pgstream`
 
-#### Run replication
+#### Replication mode
 
 Run will start streaming data from the configured source into the configured target.
 
@@ -178,7 +199,7 @@ pgstream run -c pg2pg.yaml --log-level info
 pgstream run --source postgres --source-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --target postgres --target-url "postgres://postgres:postgres@localhost:7654?sslmode=disable" --snapshot-tables test
 ```
 
-#### Snapshot
+#### Snapshot mode
 
 Example running pgstream to perform a snapshot from PostgreSQL -> PostgreSQL:
 
@@ -191,7 +212,7 @@ pgstream snapshot -c snapshot2pg.yaml --log-level info
 pgstream snapshot --postgres-url="postgres://postgres:postgres@localhost:5432?sslmode=disable" --target=postgres --target-url="postgres://postgres:postgres@localhost:7654?sslmode=disable" --tables="test" --reset
 ```
 
-Pgstream will parse the configuration provided, and initialise the configured modules. It requires at least one listener and one processor.
+Pgstream will parse the configuration provided, and initialise the relevant modules. It requires at least one source(listener) and one target(processor).
 
 ## Tutorials
 
@@ -229,7 +250,9 @@ We welcome contributions from the community! If you'd like to contribute to pgst
 2. Create a new branch for your feature or bug fix.
 3. Make your changes and write tests if applicable.
 4. Ensure your code passes linting and tests.
-   - There's a [pre-commit](https://pre-commit.com/) configuration available on the root directory (`.pre-commit-config.yaml`), which can be used to validate the CI checks locally.
+   - There's a [pre-commit](https://pre-commit.com/) configuration available on the root directory (`.pre-commit-config.yaml`), which can be used to validate some of the correctness CI checks locally.
+   - Use `make test` and `make integration-test` to validate unit and integration tests pass locally.
+   - Use `make generate` to ensure the generated files are up to date.
 5. Submit a pull request.
 
 For this project, we pledge to act and interact in ways that contribute to an open, welcoming, diverse, inclusive, and healthy community.

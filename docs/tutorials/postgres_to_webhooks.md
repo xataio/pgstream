@@ -8,11 +8,12 @@
 4. [Prepare `pgstream` Configuration](#prepare-pgstream-configuration)
    - [Listener](#listener)
    - [Processor](#processor)
-5. [Run `pgstream`](#run-pgstream)
-6. [Verify Webhook Events](#verify-webhook-events)
-7. [Populate event metadata](#populate-event-metadata)
-8. [Troubleshooting](#troubleshooting)
-9. [Summary](#summary)
+5. [Validate `pgstream` status](#validate-pgstream-status)
+6. [Run `pgstream`](#run-pgstream)
+7. [Verify Webhook Events](#verify-webhook-events)
+8. [Populate event metadata](#populate-event-metadata)
+9. [Troubleshooting](#troubleshooting)
+10. [Summary](#summary)
 
 ## Introduction
 
@@ -68,47 +69,6 @@ Successful initialisation should prompt the following message:
 
 ```
 SUCCESS  pgstream initialisation complete
-```
-
-We can check the replication slot has been properly created by connecting to the source PostgreSQL database and running the following query:
-
-```sh
-➜ psql postgresql://postgres:postgres@localhost:5432/postgres
-```
-
-```sql
-SELECT slot_name,plugin,slot_type,database,restart_lsn,confirmed_flush_lsn FROM pg_replication_slots;
-```
-
-Which should show a `pgstream_tutorial_slot`:
-
-```sql
-+------------------------+----------+-----------+----------+-------------+---------------------+
-| slot_name              | plugin   | slot_type | database | restart_lsn | confirmed_flush_lsn |
-|------------------------+----------+-----------+----------+-------------+---------------------|
-| pgstream_tutorial_slot | wal2json | logical   | postgres | 0/1590E80   | 0/1590EB8           |
-+------------------------+----------+-----------+----------+-------------+---------------------+
-```
-
-We can also validate the `pgstream.schema_log` table has been created:
-
-```sql
-\d+ pgstream.schema_log
-+-------------+-----------------------------+----------------------------------+----------+--------------+-------------+
-| Column      | Type                        | Modifiers                        | Storage  | Stats target | Description |
-|-------------+-----------------------------+----------------------------------+----------+--------------+-------------|
-| id          | pgstream.xid                |  not null default pgstream.xid() | extended | <null>       | <null>      |
-| version     | bigint                      |  not null                        | plain    | <null>       | <null>      |
-| schema_name | text                        |  not null                        | extended | <null>       | <null>      |
-| schema      | jsonb                       |  not null                        | extended | <null>       | <null>      |
-| created_at  | timestamp without time zone |  not null default now()          | plain    | <null>       | <null>      |
-| acked       | boolean                     |  not null default false          | plain    | <null>       | <null>      |
-+-------------+-----------------------------+----------------------------------+----------+--------------+-------------+
-Indexes:
-    "schema_log_pkey" PRIMARY KEY, btree (id)
-    "schema_log_version_uniq" UNIQUE, btree (schema_name, version)
-    "schema_log_name_acked" btree (schema_name, acked, id)
-Has OIDs: no
 ```
 
 If at any point the initialisation performed by pgstream needs to be reverted, all state will be removed by running the `tear-down` CLI command.
@@ -248,6 +208,35 @@ target:
 modifiers:
   injector:
     enabled: true # whether to inject pgstream metadata into the WAL events
+```
+
+## Validate `pgstream` status
+
+We can validate that the initialisation and the configuration are valid by running the `status` command before starting `pgstream`.
+
+```sh
+# using yaml configuration file
+./pgstream status -c pg2webhook_tutorial.yaml
+# using env configuration file
+./pgstream status -c pg2webhook_tutorial.env
+```
+
+```sh
+SUCCESS  pgstream status check encountered no issues
+Initialisation status:
+ - Pgstream schema exists: true
+ - Pgstream schema_log table exists: true
+ - Migration current version: 7
+ - Migration status: success
+ - Replication slot name: pgstream_tutorial_slot
+ - Replication slot plugin: wal2json
+ - Replication slot database: postgres
+Config status:
+ - Valid: true
+Transformation rules status:
+ - Valid: true
+Source status:
+ - Reachable: true
 ```
 
 ## Run `pgstream`
@@ -674,6 +663,7 @@ Here are some common issues you might encounter while following this tutorial an
 - **Cause:** The replication slot was not created during initialization.
 - **Solution:**
   - Reinitialize `pgstream` or manually create the replication slot.
+  - Run the `pgstream status` command to validate the initialisation was successful.
   - Verify the replication slot exists by running:
     ```sql
     SELECT slot_name FROM pg_replication_slots;
@@ -704,6 +694,7 @@ Here are some common issues you might encounter while following this tutorial an
 - **Solution:**
   - Double-check the `pg2webhook_tutorial.env` file for typos or missing variables.
   - Refer to the [pgstream configuration documentation](https://github.com/xataio/pgstream) for details on required variables.
+  - Run the `pgstream status` command to validate the configuration is correct.
 
 ### 6. **Error: `Event metadata not populated`**
 
