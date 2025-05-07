@@ -8,8 +8,8 @@
 2. [Configuration](#configuration)
    - [Yaml](#yaml)
    - [Environment Variables](#environment-variables)
-     - [Listeners](#listeners)
-     - [Processors](#processors)
+     - [Sources](#sources)
+     - [Targets](#targets)
        - [Modifiers](#modifiers-1)
 3. [Tracking Schema Changes](#tracking-schema-changes)
 4. [Snapshots](#snapshots)
@@ -20,7 +20,7 @@
 
 ## Architecture
 
-`pgstream` is constructed as a streaming pipeline, where data from one module streams into the next, eventually reaching the configured outputs. It keeps track of schema changes and replicates them along with the data changes to ensure a consistent view of the source data downstream. This modular approach makes adding and integrating output implementations simple and painless.
+`pgstream` is constructed as a streaming pipeline, where data from one module streams into the next, eventually reaching the configured targets. It keeps track of schema changes and replicates them along with the data changes to ensure a consistent view of the source data downstream. This modular approach makes adding and integrating target implementations simple and painless.
 
 ![pgstream architecture v2](img/pgstream_diagram_v2.svg)
 
@@ -212,7 +212,7 @@ modifiers:
 
 Here's a list of all the environment variables that can be used to configure the individual modules, along with their descriptions and default values.
 
-#### Listeners
+#### Sources
 
 <details>
   <summary>Postgres Listener</summary>
@@ -226,7 +226,7 @@ Here's a list of all the environment variables that can be used to configure the
 | PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS    | 4                            | No       | Number of concurrent workers that will be used per table by the snapshotting process.                                                                                                                                                                                                                        |
 | PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE  | 1000                         | No       | Size of the table page range which will be processed concurrently by the table workers from `PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS`.                                                                                                                                                                      |
 | PGSTREAM_POSTGRES_SNAPSHOT_WORKERS          | 1                            | No       | Number of schemas that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                            |
-| PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG    | False                        | No       | Forces the use of the `pgstream.schema_log` for the schema snapshot instead of using `pg_dump`/`pg_restore` for Postgres outputs.                                                                                                                                                                            |
+| PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG    | False                        | No       | Forces the use of the `pgstream.schema_log` for the schema snapshot instead of using `pg_dump`/`pg_restore` for Postgres targets.                                                                                                                                                                            |
 | PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL        | ""                           | No       | Postgres URL for the database where the snapshot requests and their status will be tracked. A table `snapshot_requests` will be created under a `pgstream` schema.                                                                                                                                           |
 | PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE | False (run), True (snapshot) | No       | Allow to repeat snapshots requests that have been already completed succesfully. If using the run command, initial snapshots won't be repeatable by default. If the snapshot command is used instead, the snapshot will be repeatable by default.                                                            |
 
@@ -243,8 +243,8 @@ Here's a list of all the environment variables that can be used to configure the
 | PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS   | 4       | No       | Number of concurrent workers that will be used per table by the snapshotting process.                                                                                                                                                                                                                        |
 | PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE | 1000    | No       | Size of the table page range which will be processed concurrently by the table workers from `PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS`.                                                                                                                                                                      |
 | PGSTREAM_POSTGRES_SNAPSHOT_WORKERS         | 1       | No       | Number of schemas that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                            |
-| PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG   | False   | No       | Forces the use of the `pgstream.schema_log` for the schema snapshot instead of using `pg_dump`/`pg_restore` for Postgres outputs.                                                                                                                                                                            |
-| PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB | False   | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres outputs, option to issue commands to DROP all the objects that will be restored.                                                                                                                                                           |
+| PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG   | False   | No       | Forces the use of the `pgstream.schema_log` for the schema snapshot instead of using `pg_dump`/`pg_restore` for Postgres targets.                                                                                                                                                                            |
+| PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB | False   | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to issue commands to DROP all the objects that will be restored.                                                                                                                                                           |
 
 </details>
 
@@ -271,7 +271,7 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 
 </details>
 
-#### Processors
+#### Targets
 
 <details>
   <summary>Kafka Batch Writer</summary>
@@ -391,13 +391,13 @@ The schema and data changes are part of the same linear stream - the downstream 
 
 ![snapshots diagram](img/pgstream_snapshot_diagram.svg)
 
-`pgstream` supports the generation of PostgreSQL schema and data snapshots. It can be done as an initial step before starting the replication listener, or as a standalone mode, where a snapshot of the database is performed without any replication.
+`pgstream` supports the generation of PostgreSQL schema and data snapshots. It can be done as an initial step before starting the replication, or as a standalone mode, where a snapshot of the database is performed without any replication.
 
 The snapshot behaviour is the same in both cases, with the only difference that if we're listening on the replication slot, we will store the current LSN before performing the snapshot, so that we can replay any operations that happened while the snapshot was ongoing.
 
 The snapshot implementation is different for schema and data.
 
-- Schema: depending on the configuration, it can use either the pgstream `schema_log` table to get the schema view and process it as events downstream, or rely on the `pg_dump`/`pg_restore` PostgreSQL utilities if the output is a PostgreSQL database.
+- Schema: depending on the configuration, it can use either the pgstream `schema_log` table to get the schema view and process it as events downstream, or rely on the `pg_dump`/`pg_restore` PostgreSQL utilities if the target is a PostgreSQL database.
 
 - Data: it relies on transaction snapshot ids to obtain a stable view of the database tables, and paralellises the read of all the rows by dividing them into ranges using the `ctid`.
 
@@ -953,6 +953,7 @@ transformations:
 </details>
 
 #### Other Transformers
+
  <details>
   <summary>literal_string</summary>
 
@@ -962,9 +963,9 @@ transformations:
 | -------------------------------------- |
 | All types with a string representation |
 
-| Parameter       | Type   | Default | Required |
-| --------------- | ------ | ------- | -------- |
-| literal         | string | N/A     | Yes      |
+| Parameter | Type   | Default | Required |
+| --------- | ------ | ------- | -------- |
+| literal   | string | N/A     | Yes      |
 
 Below example makes all values in the JSON column `log_message` to become `{'error': null}`.
 This transformer can be used for any Postgres type as long as the given string literal has the correct syntax for that type. e.g It can be "5-10-2021" for a date column, or "3.14159265" for a double precision one.
@@ -1094,7 +1095,7 @@ For details on how to use and configure the transformer, check the [transformer 
 
 ## Summary
 
-`pgstream` is a versatile tool for real-time data replication and transformation. Its modular architecture and support for multiple outputs make it ideal for a wide range of use cases, from analytics to compliance.
+`pgstream` is a versatile tool for real-time data replication and transformation. Its modular architecture and support for multiple targets make it ideal for a wide range of use cases, from analytics to compliance.
 
 For more information, check out:
 

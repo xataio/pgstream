@@ -15,14 +15,14 @@
 
 # pgstream - Postgres replication with DDL changes
 
-`pgstream` is an open source CDC command-line tool and library that offers Postgres replication support with DDL changes to any provided output.
+`pgstream` is an open source CDC command-line tool and library that offers Postgres replication support with DDL changes to any provided target.
 
 ![pg2pg demo with transformers](https://github.com/user-attachments/assets/6f11b326-d8ed-44eb-b743-756910b9fedd)
 
 ## Features
 
 - Schema change tracking and replication of DDL changes
-- Multiple out of the box supported replication outputs
+- Support for multiple out of the box targets
   - Elasticsearch/OpenSearch
   - Webhooks
   - PostgreSQL
@@ -30,7 +30,7 @@
 - Column value transformations (anonymise your data on the go!)
 - Modular deployment configuration, only requires Postgres
 - Kafka support with schema based partitioning
-- Extendable support for custom output plugins
+- Extendable support for custom targets
 
 ## Table of Contents
 
@@ -210,7 +210,7 @@ pgstream snapshot -c snapshot2pg.yaml --log-level info
 pgstream snapshot --postgres-url="postgres://postgres:postgres@localhost:5432?sslmode=disable" --target=postgres --target-url="postgres://postgres:postgres@localhost:7654?sslmode=disable" --tables="test" --reset
 ```
 
-Pgstream will parse the configuration provided, and initialise the configured modules. It requires at least one listener and one processor.
+Pgstream will parse the configuration provided, and initialise the relevant modules. It requires at least one source(listener) and one target(processor).
 
 ## Tutorials
 
@@ -248,7 +248,9 @@ We welcome contributions from the community! If you'd like to contribute to pgst
 2. Create a new branch for your feature or bug fix.
 3. Make your changes and write tests if applicable.
 4. Ensure your code passes linting and tests.
-   - There's a [pre-commit](https://pre-commit.com/) configuration available on the root directory (`.pre-commit-config.yaml`), which can be used to validate the CI checks locally.
+   - There's a [pre-commit](https://pre-commit.com/) configuration available on the root directory (`.pre-commit-config.yaml`), which can be used to validate some of the correctness CI checks locally.
+   - Use `make test` and `make integration-test` to validate unit and integration tests pass locally.
+   - Use `make generate` to ensure the generated files are up to date.
 5. Submit a pull request.
 
 For this project, we pledge to act and interact in ways that contribute to an open, welcoming, diverse, inclusive, and healthy community.
