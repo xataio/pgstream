@@ -63,6 +63,11 @@ func Prepare() *cobra.Command {
 	runCmd.Flags().StringSlice("snapshot-tables", nil, "List of tables to snapshot if initial snapshot is required, in the format <schema>.<table>. If not specified, the schema `public` will be assumed. Wildcards are supported")
 	runCmd.Flags().Bool("reset", false, "Wether to reset the target before snapshotting (only for postgres target)")
 
+	// status cmd
+	statusCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream has been initialised")
+	statusCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot created by pgstream on the source url")
+	statusCmd.Flags().Bool("json", false, "Output the status in JSON format")
+
 	// Flag binding for root cmd
 	rootFlagBinding(rootCmd)
 
@@ -71,7 +76,7 @@ func Prepare() *cobra.Command {
 	rootCmd.AddCommand(tearDownCmd)
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(snapshotCmd)
-
+	rootCmd.AddCommand(statusCmd)
 	return rootCmd
 }
 

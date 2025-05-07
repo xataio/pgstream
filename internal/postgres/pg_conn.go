@@ -60,6 +60,10 @@ func (c *Conn) ExecInTxWithOptions(ctx context.Context, fn func(Tx) error, opts 
 	return tx.Commit(ctx)
 }
 
+func (c *Conn) Ping(ctx context.Context) error {
+	return mapError(c.conn.Ping(ctx))
+}
+
 func (c *Conn) Close(ctx context.Context) error {
 	return mapError(c.conn.Close(ctx))
 }

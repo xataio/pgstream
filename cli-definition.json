@@ -102,6 +102,31 @@
       "args": []
     },
     {
+      "name": "status",
+      "short": "Checks the status of pgstream initialisation and provided configuration",
+      "use": "status",
+      "example": "\n\tpgstream status -c pg2pg.env\n\tpgstream status --postgres-url <postgres-url> --replication-slot <replication-slot-name>\n\tpgstream status -c pg2pg.yaml --json\n\t",
+      "flags": [
+        {
+          "name": "json",
+          "description": "Output the status in JSON format",
+          "default": "false"
+        },
+        {
+          "name": "postgres-url",
+          "description": "Source postgres URL where pgstream has been initialised",
+          "default": ""
+        },
+        {
+          "name": "replication-slot",
+          "description": "Name of the postgres replication slot created by pgstream on the source url",
+          "default": ""
+        }
+      ],
+      "subcommands": [],
+      "args": []
+    },
+    {
       "name": "tear-down",
       "short": "It tears down any pgstream setup, removing the replication slot and all the relevant tables/functions/triggers, along with the internal pgstream schema",
       "use": "tear-down",
