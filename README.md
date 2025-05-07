@@ -120,7 +120,28 @@ pgstream init -c pg2pg.yaml
 pgstream init -c pg2pg.env
 ```
 
-If there are any issues or if you want to clean up the pgstream setup, you can run the following.
+The status of the initalisation and the configuration can be checked by using the `status` command.
+
+```sh
+pgstream status -c pg2pg.yaml
+SUCCESS  pgstream status check encountered no issues
+Initialisation status:
+ - Pgstream schema exists: true
+ - Pgstream schema_log table exists: true
+ - Migration current version: 7
+ - Migration status: success
+ - Replication slot name: pgstream_postgres_slot
+ - Replication slot plugin: wal2json
+ - Replication slot database: postgres
+Config status:
+ - Valid: true
+Transformation rules status:
+ - Valid: true
+Source status:
+ - Reachable: true
+```
+
+If there are any issues or if you want to revert the pgstream setup, you can use the `tear-down` command to clean up all pgstream state.
 
 ```sh
 pgstream tear-down --postgres-url "postgres://postgres:postgres@localhost?sslmode=disable" --replication-slot test
@@ -129,8 +150,6 @@ pgstream tear-down -c pg2pg.yaml
 # with environment configuration file
 pgstream tear-down -c pg2pg.env
 ```
-
-This command will clean up all pgstream state.
 
 #### Run replication
 

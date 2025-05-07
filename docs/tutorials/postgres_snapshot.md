@@ -16,7 +16,7 @@
 
 ## Introduction
 
-This tutorial will showcase the use of pgstream to snapshot data from a PostgreSQL database. For this tutorial, we'll use a PostgreSQL output.
+This tutorial will showcase the use of pgstream to snapshot data from a PostgreSQL database. For this tutorial, we'll use a PostgreSQL target.
 
 ![snapshot2pg tutorial](../img/pgstream_tutorial_snapshot2pg.svg)
 
@@ -42,9 +42,9 @@ This will start two PostgreSQL databases on ports `5432` and `7654`.
 
 ## Database initialisation
 
-Normally we need to initialise pgstream on the source database. The initialisation step creates the `pgstream` schema in the configured Postgres database, along with the tables/functions/triggers required to keep track of the schema changes. It also creates the replication slot. However, this is only required if we're going to be using the replication slot or relying on the schema log. If we're using a PostgreSQL output for the snapshot, pgstream supports using `pg_dump`/`pg_restore` for the schema snapshot, which removes the need to keep any pgstream state in the source PostgreSQL database.
+Normally we need to initialise pgstream on the source database. The initialisation step creates the `pgstream` schema in the configured Postgres database, along with the tables/functions/triggers required to keep track of the schema changes. It also creates the replication slot. However, this is only required if we're going to be using the replication slot or relying on the schema log. If we're using a PostgreSQL target for the snapshot, pgstream supports using `pg_dump`/`pg_restore` for the schema snapshot, which removes the need to keep any pgstream state in the source PostgreSQL database.
 
-If the output is not PostgreSQL, we'd need to initialise pgstream like we do normally, since it relies on the `pgstream.schema_log` table to provide a view of the schema for now. For more details on how to initialise pgstream in those cases, check out the [database initialisation](postgres_to_postgres.md#database-initialisation) section on one of the replication tutorials.
+If the target is not PostgreSQL, we'd need to initialise pgstream like we do normally, since it relies on the `pgstream.schema_log` table to provide a view of the schema for now. For more details on how to initialise pgstream in those cases, check out the [database initialisation](postgres_to_postgres.md#database-initialisation) section on one of the replication tutorials.
 
 ## Prepare `pgstream` configuration
 
@@ -259,18 +259,7 @@ Here are some common issues you might encounter while following this tutorial an
     psql postgresql://postgres:postgres@localhost:5432/postgres
     ```
 
-### 2. **Error: `pgstream: replication slot not found`**
-
-- **Cause:** The replication slot was not created during initialization.
-- **Solution:**
-  - Ensure the `pgstream` initialization step was completed successfully.
-  - Check the replication slots in the source database:
-    ```sql
-    SELECT slot_name FROM pg_replication_slots;
-    ```
-  - If the slot is missing, reinitialize [pgstream](#database-initialisation) or manually create the slot.
-
-### 3. **Error: `Snapshot failed`**
+### 2. **Error: `Snapshot failed`**
 
 - **Cause:** There may be issues with the configuration or permissions.
 - **Solution:**
@@ -284,7 +273,7 @@ Here are some common issues you might encounter while following this tutorial an
     SELECT * FROM pgstream.snapshot_requests;
     ```
 
-### 4. **Error: `Target database does not contain the snapshot data`**
+### 3. **Error: `Target database does not contain the snapshot data`**
 
 - **Cause:** The snapshot process did not complete successfully or the target database URL is incorrect.
 - **Solution:**
@@ -302,14 +291,15 @@ Here are some common issues you might encounter while following this tutorial an
     SELECT * FROM test;
     ```
 
-### 5. **Error: `pgstream: invalid configuration`**
+### 4. **Error: `pgstream: invalid configuration`**
 
 - **Cause:** The configuration file contains invalid or missing values.
 - **Solution:**
   - Double-check the `snapshot2pg_tutorial.env` file for typos or missing variables.
   - Refer to the [pgstream configuration documentation](../README.md#configuration) for details on required variables.
+  - Run the `pgstream status` command to validate the configuration is correct.
 
-### 6. **Error: `Permission denied`**
+### 5. **Error: `Permission denied`**
 
 - **Cause:** The database user does not have sufficient privileges.
 - **Solution:**
