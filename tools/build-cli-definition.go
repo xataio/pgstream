@@ -84,17 +84,21 @@ func extractFlags(flagSet []*pflag.FlagSet) []Flag {
 	}
 
 	flags := []Flag{}
+	seen := make(map[string]bool) // Track flags by name
 	for _, f := range flagSet {
 		if f == nil {
 			continue
 		}
 		f.VisitAll(func(flag *pflag.Flag) {
-			flags = append(flags, Flag{
-				Name:        flag.Name,
-				Shorthand:   flag.Shorthand,
-				Description: flag.Usage,
-				Default:     flag.DefValue,
-			})
+			if !seen[flag.Name] { // Only add flag if not already seen
+				seen[flag.Name] = true
+				flags = append(flags, Flag{
+					Name:        flag.Name,
+					Shorthand:   flag.Shorthand,
+					Description: flag.Usage,
+					Default:     flag.DefValue,
+				})
+			}
 		})
 	}
 
