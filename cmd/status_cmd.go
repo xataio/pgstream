@@ -26,7 +26,7 @@ var statusCmd = &cobra.Command{
 
 		streamConfig, err := config.ParseStreamConfig()
 		if err != nil {
-			return err
+			return fmt.Errorf("parsing stream config: %w", err)
 		}
 
 		statusChecker := stream.NewStatusChecker()
