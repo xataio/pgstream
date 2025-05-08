@@ -6,18 +6,8 @@ import (
 	"context"
 
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
-
-type Instrumentation struct {
-	Meter  metric.Meter
-	Tracer trace.Tracer
-}
-
-func (i *Instrumentation) IsEnabled() bool {
-	return i != nil && (i.Meter != nil || i.Tracer != nil)
-}
 
 // StartSpan will start a span using the tracer on input. If the tracer is nil,
 // the context returned is the same as on input, and the span will be nil.
