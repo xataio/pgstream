@@ -84,6 +84,14 @@ There current implementations of the processor that act as modifier decorators a
 The pgstream configuration can be provided as a yaml configuration file, which encapsulates the transformation configuration. The following sample shows the format for all supported fields.
 
 ```yaml
+instrumentation:
+  metrics:
+    endpoint: "0.0.0.0:4317"
+    collection_interval: 60 # collection interval for metrics in seconds. Defaults to 60s
+  traces:
+    endpoint: "0.0.0.0:4317"
+    sample_ratio: 0.5 # ratio of traces that will be sampled. Must be between 0.0-1.0, where 0 is no traces sampled, and 1 is all traces sampled.
+
 source:
   postgres:
     url: "postgresql://user:password@localhost:5432/mydatabase"
@@ -379,6 +387,20 @@ One of exponential/constant backoff policies can be provided for the search stor
 | PGSTREAM_FILTER_EXCLUDE_TABLES | N/A     | No       | List of schema qualified tables for which the WAL events should be skipped. If no schema is provided, `public` schema will be assumed. Wildcards are supported.   |
 
 </details>
+
+#### Instrumentation
+
+PGSTREAM_METRICS_ENDPOINT="0.0.0.0:4317"
+PGSTREAM_METRICS_COLLECTION_INTERVAL=60s
+PGSTREAM_TRACES_ENDPOINT="0.0.0.0:4317"
+PGSTREAM_TRACES_SAMPLE_RATIO=0
+
+| Environment Variable                 | Default | Required | Description                                                                                                                     |
+| ------------------------------------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| PGSTREAM_METRICS_ENDPOINT            | N/A     | No       | Endpoint where the pgstream metrics will be exported to.                                                                        |
+| PGSTREAM_METRICS_COLLECTION_INTERVAL | 60s     | No       | Interval at which the pgstream metrics will be collected and exported.                                                          |
+| PGSTREAM_TRACES_ENDPOINT             | N/A     | No       | Endpoint where the pgstream traces will be exported to.                                                                         |
+| PGSTREAM_TRACES_SAMPLE_RATIO         | 0       | No       | Ratio for the trace sampling. Value must be between 0.0 and 1.0, where 0.0 is no traces sampled, and 1.0 is all traces sampled. |
 
 ## Tracking schema changes
 
