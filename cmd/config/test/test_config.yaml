@@ -120,3 +120,11 @@ modifiers:
             dynamic_parameters:
               gender:
                 column: sex
+
+instrumentation:
+  metrics:
+    endpoint: "http://localhost:4317"
+    collection_interval: 60 # collection interval for metrics in seconds. Defaults to 60s
+  traces:
+    endpoint: "http://localhost:4317"
+    sample_ratio: 0.5 # ratio of traces that will be sampled. Must be between 0.0-1.0, where 0 is no traces sampled, and 1 all traces sampled.
