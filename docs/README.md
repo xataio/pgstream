@@ -943,6 +943,36 @@ transformations:
 
 </details>
  <details>
+  <summary>neosync_lastname</summary>
+
+**Description:** Generates anonymized last names while optionally preserving length.
+
+| Supported PostgreSQL types          |
+| ----------------------------------- |
+| `text`, `varchar`, `char`, `bpchar` |
+
+| Parameter       | Type | Default | Required |
+| --------------- | ---- | ------- | -------- |
+| preserve_length | bool | false   | No       |
+| max_length      | int  | 100     | No       |
+| seed            | int  | Rand    | No       |
+
+**Example Configuration:**
+
+```yaml
+transformations:
+  table_transformers:
+    - schema: public
+      table: users
+      column_transformers:
+        last_name:
+          name: neosync_lastname
+          parameters:
+            preserve_length: true
+```
+
+</details>
+ <details>
   <summary>neosync_string</summary>
 
 **Description:** Generates anonymized strings with customizable length.
