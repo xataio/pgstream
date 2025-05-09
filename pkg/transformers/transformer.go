@@ -37,6 +37,7 @@ const (
 	GreenmaskString        TransformerType = "greenmask_string"
 	NeosyncFirstName       TransformerType = "neosync_firstname"
 	GreenmaskFirstName     TransformerType = "greenmask_firstname"
+	NeosyncLastName        TransformerType = "neosync_lastname"
 	NeosyncEmail           TransformerType = "neosync_email"
 	GreenmaskInteger       TransformerType = "greenmask_integer"
 	GreenmaskFloat         TransformerType = "greenmask_float"
