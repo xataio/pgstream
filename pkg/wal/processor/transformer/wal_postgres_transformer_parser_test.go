@@ -13,9 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
+	"github.com/xataio/pgstream/pkg/transformers/builder"
 )
 
-func TestPostgresTransformerValidator(t *testing.T) {
+func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 	t.Parallel()
 	testSchemaTable := "\"public\".\"test\""
 	testQuerier := &pgmocks.Querier{
@@ -41,7 +42,8 @@ func TestPostgresTransformerValidator(t *testing.T) {
 	}
 
 	testPGValidator := PostgresTransformerParser{
-		conn: testQuerier,
+		conn:    testQuerier,
+		builder: builder.NewTransformerBuilder(),
 	}
 
 	tests := []struct {
