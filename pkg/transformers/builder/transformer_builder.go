@@ -40,6 +40,8 @@ func New(cfg *transformers.Config) (transformers.Transformer, error) {
 		return neosync.NewStringTransformer(cfg.Parameters)
 	case transformers.NeosyncFirstName:
 		return neosync.NewFirstNameTransformer(cfg.Parameters)
+	case transformers.NeosyncLastName:
+		return neosync.NewLastNameTransformer(cfg.Parameters)
 	case transformers.NeosyncEmail:
 		return neosync.NewEmailTransformer(cfg.Parameters)
 	case transformers.PhoneNumber:
