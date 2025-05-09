@@ -58,3 +58,7 @@ func (ut *UUIDTransformer) CompatibleTypes() []transformers.SupportedDataType {
 		transformers.UInt8ArrayOf16DataType,
 	}
 }
+
+func (ut *UUIDTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskUUID
+}

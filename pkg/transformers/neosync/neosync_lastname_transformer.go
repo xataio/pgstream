@@ -50,3 +50,7 @@ func (t *LastNameTransformer) CompatibleTypes() []transformers.SupportedDataType
 		transformers.StringDataType,
 	}
 }
+
+func (t *LastNameTransformer) Type() transformers.TransformerType {
+	return transformers.NeosyncLastName
+}

@@ -96,3 +96,7 @@ func (t *DateTransformer) CompatibleTypes() []transformers.SupportedDataType {
 		transformers.StringDataType,
 	}
 }
+
+func (t *DateTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskDate
+}

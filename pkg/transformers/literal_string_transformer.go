@@ -44,3 +44,7 @@ func (lst *LiteralStringTransformer) CompatibleTypes() []SupportedDataType {
 		AllDataTypes,
 	}
 }
+
+func (lst *LiteralStringTransformer) Type() TransformerType {
+	return LiteralString
+}

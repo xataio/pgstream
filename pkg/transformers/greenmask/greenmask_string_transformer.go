@@ -73,3 +73,7 @@ func (st *StringTransformer) CompatibleTypes() []transformers.SupportedDataType 
 		transformers.ByteArrayDataType,
 	}
 }
+
+func (st *StringTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskString
+}

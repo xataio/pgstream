@@ -51,3 +51,7 @@ func (st *StringTransformer) CompatibleTypes() []SupportedDataType {
 		ByteArrayDataType,
 	}
 }
+
+func (st *StringTransformer) Type() TransformerType {
+	return String
+}

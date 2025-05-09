@@ -55,3 +55,7 @@ func (t *StringTransformer) CompatibleTypes() []transformers.SupportedDataType {
 		transformers.StringDataType,
 	}
 }
+
+func (t *StringTransformer) Type() transformers.TransformerType {
+	return transformers.NeosyncString
+}

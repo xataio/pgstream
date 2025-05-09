@@ -77,3 +77,7 @@ func (t *ChoiceTransformer) CompatibleTypes() []transformers.SupportedDataType {
 		transformers.StringDataType,
 	}
 }
+
+func (t *ChoiceTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskChoice
+}

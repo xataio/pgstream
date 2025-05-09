@@ -20,3 +20,7 @@ func (m *Transformer) Transform(_ context.Context, val transformers.Value) (any,
 func (m *Transformer) CompatibleTypes() []transformers.SupportedDataType {
 	return m.CompatibleTypesFn()
 }
+
+func (m *Transformer) Type() transformers.TransformerType {
+	return transformers.TransformerType("mock")
+}

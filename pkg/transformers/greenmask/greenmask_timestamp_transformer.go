@@ -96,3 +96,7 @@ func (t *UTCTimestampTransformer) CompatibleTypes() []transformers.SupportedData
 		transformers.StringDataType,
 	}
 }
+
+func (t *UTCTimestampTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskUTCTimestamp
+}

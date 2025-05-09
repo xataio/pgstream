@@ -56,3 +56,7 @@ func (bt *BooleanTransformer) CompatibleTypes() []transformers.SupportedDataType
 		transformers.ByteArrayDataType,
 	}
 }
+
+func (bt *BooleanTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskBoolean
+}

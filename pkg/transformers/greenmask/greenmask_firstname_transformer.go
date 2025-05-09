@@ -92,3 +92,7 @@ func (fnt *FirstNameTransformer) CompatibleTypes() []transformers.SupportedDataT
 		transformers.ByteArrayDataType,
 	}
 }
+
+func (fnt *FirstNameTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskFirstName
+}

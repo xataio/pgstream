@@ -133,6 +133,10 @@ func (t *IntegerTransformer) CompatibleTypes() []transformers.SupportedDataType 
 	}
 }
 
+func (t *IntegerTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskInteger
+}
+
 func minMaxValueForSize(size int) (int, int, error) {
 	switch size {
 	case 2:

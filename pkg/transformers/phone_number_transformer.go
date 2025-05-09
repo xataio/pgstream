@@ -122,3 +122,7 @@ func (t *PhoneNumberTransformer) CompatibleTypes() []SupportedDataType {
 		ByteArrayDataType,
 	}
 }
+
+func (t *PhoneNumberTransformer) Type() TransformerType {
+	return PhoneNumber
+}

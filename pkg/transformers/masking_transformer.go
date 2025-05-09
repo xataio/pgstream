@@ -114,6 +114,10 @@ func (t *MaskingTransformer) CompatibleTypes() []SupportedDataType {
 	}
 }
 
+func (t *MaskingTransformer) Type() TransformerType {
+	return Masking
+}
+
 func getCustomMaskingFn(params Parameters) (maskingFunction, error) {
 	maskBegin, maskBeginFound, err := FindParameter[string](params, "mask_begin")
 	if err != nil {

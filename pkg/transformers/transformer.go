@@ -11,6 +11,7 @@ import (
 type Transformer interface {
 	Transform(context.Context, Value) (any, error)
 	CompatibleTypes() []SupportedDataType
+	Type() TransformerType
 }
 
 type Value struct {
