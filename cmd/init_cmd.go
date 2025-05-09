@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/xataio/pgstream/cmd/config"
 	"github.com/xataio/pgstream/pkg/stream"
@@ -23,7 +24,7 @@ var initCmd = &cobra.Command{
 
 		streamConfig, err := config.ParseStreamConfig()
 		if err != nil {
-			return err
+			return fmt.Errorf("parsing stream config: %w", err)
 		}
 
 		if err := stream.Init(context.Background(), streamConfig.SourcePostgresURL(), streamConfig.PostgresReplicationSlot()); err != nil {
@@ -49,7 +50,7 @@ var tearDownCmd = &cobra.Command{
 
 		streamConfig, err := config.ParseStreamConfig()
 		if err != nil {
-			return err
+			return fmt.Errorf("parsing stream config: %w", err)
 		}
 
 		if err := stream.TearDown(context.Background(), streamConfig.SourcePostgresURL(), streamConfig.PostgresReplicationSlot()); err != nil {

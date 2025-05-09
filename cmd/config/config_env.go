@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
+	"github.com/xataio/pgstream/pkg/otel"
 	pgschemalog "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
@@ -32,6 +33,11 @@ import (
 )
 
 func init() {
+	viper.BindEnv("PGSTREAM_METRICS_ENDPOINT")
+	viper.BindEnv("PGSTREAM_METRICS_COLLECTION_INTERVAL")
+	viper.BindEnv("PGSTREAM_TRACES_ENDPOINT")
+	viper.BindEnv("PGSTREAM_TRACES_SAMPLE_RATIO")
+
 	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_URL")
 	viper.BindEnv("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME")
 
@@ -104,6 +110,33 @@ func init() {
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CA_CERT_FILE")
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CLIENT_CERT_FILE")
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE")
+}
+
+func envToOtelConfig() (*otel.Config, error) {
+	cfg := &otel.Config{}
+
+	metricsEndpoint := viper.GetString("PGSTREAM_METRICS_ENDPOINT")
+	if metricsEndpoint != "" {
+		cfg.Metrics = &otel.MetricsConfig{
+			Endpoint:           metricsEndpoint,
+			CollectionInterval: viper.GetDuration("PGSTREAM_METRICS_COLLECTION_INTERVAL"),
+		}
+	}
+
+	tracesEndpoint := viper.GetString("PGSTREAM_TRACES_ENDPOINT")
+	if tracesEndpoint != "" {
+		sampleRatio := viper.GetFloat64("PGSTREAM_TRACES_SAMPLE_RATIO")
+		if sampleRatio < 0 || sampleRatio > 1 {
+			return nil, errInvalidSampleRatio
+		}
+
+		cfg.Traces = &otel.TracesConfig{
+			Endpoint:    tracesEndpoint,
+			SampleRatio: sampleRatio,
+		}
+	}
+
+	return cfg, nil
 }
 
 func envConfigToStreamConfig() (*stream.Config, error) {

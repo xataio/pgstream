@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/viper"
+	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/stream"
 	"gopkg.in/yaml.v3"
 )
@@ -42,17 +43,35 @@ func LoadFile(file string) error {
 	return nil
 }
 
+func ParseInstrumentationConfig() (*otel.Config, error) {
+	cfgFile := viper.GetViper().ConfigFileUsed()
+	switch ext := filepath.Ext(cfgFile); ext {
+	case ".yml", ".yaml":
+		yamlCfg := struct {
+			Instrumentation InstrumentationConfig `mapstructure:"instrumentation" yaml:"instrumentation"`
+		}{}
+		if err := viper.Unmarshal(&yamlCfg); err != nil {
+			return nil, fmt.Errorf("invalid format for instrumentation in config file %q: %w", cfgFile, err)
+		}
+
+		return yamlCfg.Instrumentation.toOtelConfig()
+	default:
+		return envToOtelConfig()
+	}
+}
+
 func ParseStreamConfig() (*stream.Config, error) {
 	cfgFile := viper.GetViper().ConfigFileUsed()
 	switch ext := filepath.Ext(cfgFile); ext {
 	case ".yml", ".yaml":
-		buf, err := os.ReadFile(cfgFile)
-		if err != nil {
-			return nil, err
-		}
 		yamlCfg := YAMLConfig{}
 		if err := viper.Unmarshal(&yamlCfg); err != nil {
 			return nil, fmt.Errorf("invalid format in config file %q: %w", cfgFile, err)
+		}
+
+		buf, err := os.ReadFile(cfgFile)
+		if err != nil {
+			return nil, err
 		}
 		// yaml.Unmarshal is used to override the viper.Umarshal to be able to
 		// parse the transformers configuration with support for case sensitive

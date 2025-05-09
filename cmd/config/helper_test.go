@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/stream"
 )
 
@@ -107,4 +108,14 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 	assert.NotNil(t, streamConfig.Processor.Filter)
 	assert.ElementsMatch(t, []string{"test", "test_schema.test", "another_schema.*"}, streamConfig.Processor.Filter.IncludeTables)
 	assert.ElementsMatch(t, []string{"excluded_test", "excluded_schema.test", "another_excluded_schema.*"}, streamConfig.Processor.Filter.ExcludeTables)
+}
+
+// this function validates the otel configuration produced from the test
+// configuration in the test directory.
+func validateTestOtelConfig(t *testing.T, otelConfig *otel.Config) {
+	assert.Equal(t, "http://localhost:4317", otelConfig.Metrics.Endpoint)
+	assert.Equal(t, 60*time.Second, otelConfig.Metrics.CollectionInterval)
+
+	assert.Equal(t, "http://localhost:4317", otelConfig.Traces.Endpoint)
+	assert.Equal(t, 0.5, otelConfig.Traces.SampleRatio)
 }

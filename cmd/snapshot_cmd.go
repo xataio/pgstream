@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -31,9 +32,16 @@ func snapshot(ctx context.Context) error {
 
 	streamConfig, err := config.ParseStreamConfig()
 	if err != nil {
+		return fmt.Errorf("parsing stream config: %w", err)
+	}
+
+	provider, err := newInstrumentationProvider()
+	if err != nil {
 		return err
 	}
-	return stream.Snapshot(ctx, zerolog.NewStdLogger(logger), streamConfig, nil)
+	defer provider.Close()
+
+	return stream.Snapshot(ctx, zerolog.NewStdLogger(logger), streamConfig, provider.NewInstrumentation("snapshot"))
 }
 
 func snapshotFlagBinding(cmd *cobra.Command, args []string) error {

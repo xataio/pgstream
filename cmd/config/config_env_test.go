@@ -20,6 +20,16 @@ func Test_EnvConfigToStreamConfig(t *testing.T) {
 	validateTestStreamConfig(t, streamConfig)
 }
 
+func Test_EnvConfigToOtelConfig(t *testing.T) {
+	require.NoError(t, LoadFile("test/test_config.env"))
+
+	otelConfig, err := envToOtelConfig()
+	assert.NoError(t, err)
+	assert.NotNil(t, otelConfig)
+
+	validateTestOtelConfig(t, otelConfig)
+}
+
 func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_POSTGRES_LISTENER_URL", "postgresql://user:password@localhost:5432/mydatabase")
 	os.Setenv("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME", "pgstream_mydatabase_slot")
@@ -90,4 +100,17 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 	assert.NotNil(t, streamConfig)
 
 	validateTestStreamConfig(t, streamConfig)
+}
+
+func Test_EnvVarsToOtelConfig(t *testing.T) {
+	os.Setenv("PGSTREAM_METRICS_ENDPOINT", "http://localhost:4317")
+	os.Setenv("PGSTREAM_METRICS_COLLECTION_INTERVAL", "60s")
+	os.Setenv("PGSTREAM_TRACES_ENDPOINT", "http://localhost:4317")
+	os.Setenv("PGSTREAM_TRACES_SAMPLE_RATIO", "0.5")
+
+	otelConfig, err := envToOtelConfig()
+	assert.NoError(t, err)
+	assert.NotNil(t, otelConfig)
+
+	validateTestOtelConfig(t, otelConfig)
 }

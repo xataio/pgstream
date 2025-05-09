@@ -9,6 +9,7 @@ import (
 
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
+	"github.com/xataio/pgstream/pkg/otel"
 	pgschemalog "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
@@ -29,6 +30,21 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
+
+type InstrumentationConfig struct {
+	Metrics *MetricsConfig `mapstructure:"metrics" yaml:"metrics"`
+	Traces  *TracesConfig  `mapstructure:"traces" yaml:"traces"`
+}
+
+type MetricsConfig struct {
+	Endpoint           string `mapstructure:"endpoint" yaml:"endpoint"`
+	CollectionInterval int    `mapstructure:"collection_interval" yaml:"collection_interval"`
+}
+
+type TracesConfig struct {
+	Endpoint    string  `mapstructure:"endpoint" yaml:"endpoint"`
+	SampleRatio float64 `mapstructure:"sample_ratio" yaml:"sample_ratio"`
+}
 
 type YAMLConfig struct {
 	Source    SourceConfig    `mapstructure:"source" yaml:"source"`
@@ -275,7 +291,30 @@ var (
 	errInvalidPgdumpPgrestoreConfig            = errors.New("pgdump_pgrestore snapshot mode requires target postgres config")
 	errInvalidInjectorConfig                   = errors.New("injector config can't infer schemalog url from source postgres url, schemalog_url must be provided")
 	errInvalidSnapshotRecorderConfig           = errors.New("snapshot recorder config requires a postgres url")
+	errInvalidSampleRatio                      = errors.New("trace sample ratio must be a value between 0.0 and 1.0")
 )
+
+func (c *InstrumentationConfig) toOtelConfig() (*otel.Config, error) {
+	cfg := &otel.Config{}
+	if c.Metrics != nil {
+		cfg.Metrics = &otel.MetricsConfig{
+			Endpoint:           c.Metrics.Endpoint,
+			CollectionInterval: time.Duration(c.Metrics.CollectionInterval) * time.Second,
+		}
+	}
+
+	if c.Traces != nil {
+		if c.Traces.SampleRatio < 0.0 || c.Traces.SampleRatio > 1.0 {
+			return nil, errInvalidSampleRatio
+		}
+		cfg.Traces = &otel.TracesConfig{
+			Endpoint:    c.Traces.Endpoint,
+			SampleRatio: c.Traces.SampleRatio,
+		}
+	}
+
+	return cfg, nil
+}
 
 func (c *YAMLConfig) toStreamConfig() (*stream.Config, error) {
 	listener, err := c.parseListenerConfig()

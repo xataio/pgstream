@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/xataio/pgstream/cmd/config"
+	"github.com/xataio/pgstream/pkg/otel"
 )
 
 // Version is the pgstream version
@@ -26,7 +28,11 @@ func Prepare() *cobra.Command {
 		SilenceUsage: true,
 		Version:      version(),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			return config.Load()
+			if err := config.Load(); err != nil {
+				return fmt.Errorf("loading configuration: %w", err)
+			}
+
+			return nil
 		},
 	}
 
@@ -116,4 +122,17 @@ func version() string {
 		return Env + " (" + Version + ")"
 	}
 	return Version
+}
+
+func newInstrumentationProvider() (otel.InstrumentationProvider, error) {
+	cfg, err := config.ParseInstrumentationConfig()
+	if err != nil {
+		return nil, fmt.Errorf("parsing instrumentation config: %w", err)
+	}
+
+	p, err := otel.NewInstrumentationProvider(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("initialisating instrumentation provider: %w", err)
+	}
+	return p, nil
 }
