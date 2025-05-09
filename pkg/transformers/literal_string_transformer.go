@@ -3,6 +3,7 @@
 package transformers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 )
@@ -34,7 +35,7 @@ func NewLiteralStringTransformer(params Parameters) (*LiteralStringTransformer, 
 	}, nil
 }
 
-func (lst *LiteralStringTransformer) Transform(value Value) (any, error) {
+func (lst *LiteralStringTransformer) Transform(_ context.Context, value Value) (any, error) {
 	return lst.literal, nil
 }
 

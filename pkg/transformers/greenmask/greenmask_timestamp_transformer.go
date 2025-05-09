@@ -3,6 +3,7 @@
 package greenmask
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -73,7 +74,7 @@ func NewUTCTimestampTransformer(params transformers.Parameters) (*UTCTimestampTr
 	}, nil
 }
 
-func (t *UTCTimestampTransformer) Transform(value transformers.Value) (any, error) {
+func (t *UTCTimestampTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {
 	case time.Time:

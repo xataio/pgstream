@@ -3,6 +3,7 @@
 package transformers
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -76,7 +77,7 @@ func TestLiteralStringTransformer_Transform(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := lst.Transform(Value{TransformValue: tc.input})
+			got, err := lst.Transform(context.Background(), Value{TransformValue: tc.input})
 			require.ErrorIs(t, err, tc.wantErr)
 			if tc.wantErr != nil {
 				return

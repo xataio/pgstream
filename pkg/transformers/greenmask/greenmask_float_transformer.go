@@ -3,6 +3,7 @@
 package greenmask
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -55,7 +56,7 @@ func NewFloatTransformer(params transformers.Parameters) (*FloatTransformer, err
 	}, nil
 }
 
-func (ft *FloatTransformer) Transform(value transformers.Value) (any, error) {
+func (ft *FloatTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {
 	case float32:

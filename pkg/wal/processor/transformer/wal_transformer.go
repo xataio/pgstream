@@ -74,7 +74,7 @@ func WithParser(parser ParseFn) Option {
 }
 
 func (t *Transformer) ProcessWALEvent(ctx context.Context, event *wal.Event) error {
-	err := t.applyTransformations(event)
+	err := t.applyTransformations(ctx, event)
 	if err != nil {
 		return err
 	}
@@ -90,7 +90,7 @@ func (t *Transformer) Close() error {
 	return t.processor.Close()
 }
 
-func (t *Transformer) applyTransformations(event *wal.Event) error {
+func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event) error {
 	if event.Data == nil || len(t.transformerMap) == 0 {
 		return nil
 	}
@@ -112,7 +112,7 @@ func (t *Transformer) applyTransformations(event *wal.Event) error {
 			continue
 		}
 
-		newValue, err := columnTransformer.Transform(t.getTransformValue(&col, event.Data.Columns))
+		newValue, err := columnTransformer.Transform(ctx, t.getTransformValue(&col, event.Data.Columns))
 		if err != nil {
 			t.logger.Error(err, "transforming column", loglib.Fields{
 				"severity":    "DATALOSS",

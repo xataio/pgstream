@@ -3,6 +3,7 @@
 package greenmask
 
 import (
+	"context"
 	"fmt"
 
 	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
@@ -44,7 +45,7 @@ func NewFirstNameTransformer(params, dynamicParams transformers.Parameters) (*Fi
 	}, nil
 }
 
-func (fnt *FirstNameTransformer) Transform(value transformers.Value) (any, error) {
+func (fnt *FirstNameTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {
 	case string:

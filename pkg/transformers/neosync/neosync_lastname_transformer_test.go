@@ -3,6 +3,7 @@
 package neosync
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -67,7 +68,7 @@ func TestNewLastnameTransformer(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.NotNil(t, lst)
-			got, _ := lst.Transform(transformers.Value{TransformValue: tc.input})
+			got, _ := lst.Transform(context.Background(), transformers.Value{TransformValue: tc.input})
 			require.Equal(t, tc.wantName, got)
 		})
 	}

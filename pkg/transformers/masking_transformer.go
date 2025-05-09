@@ -3,6 +3,7 @@
 package transformers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -94,7 +95,7 @@ func NewMaskingTransformer(params Parameters) (*MaskingTransformer, error) {
 }
 
 // Transform applies the masking function to the input value and returns the masked value.
-func (t *MaskingTransformer) Transform(value Value) (any, error) {
+func (t *MaskingTransformer) Transform(_ context.Context, value Value) (any, error) {
 	switch val := value.TransformValue.(type) {
 	case string:
 		return t.maskingFunction(val), nil

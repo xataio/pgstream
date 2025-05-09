@@ -3,6 +3,7 @@
 package transformers
 
 import (
+	"context"
 	"fmt"
 
 	"golang.org/x/exp/rand"
@@ -23,7 +24,7 @@ func NewStringTransformer(params Parameters) (*StringTransformer, error) {
 	return &StringTransformer{}, nil
 }
 
-func (st *StringTransformer) Transform(v Value) (any, error) {
+func (st *StringTransformer) Transform(_ context.Context, v Value) (any, error) {
 	switch str := v.TransformValue.(type) {
 	case string:
 		return st.transform(str), nil
