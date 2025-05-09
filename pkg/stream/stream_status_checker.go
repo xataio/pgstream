@@ -11,6 +11,7 @@ import (
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmigrations "github.com/xataio/pgstream/migrations/postgres"
+	"github.com/xataio/pgstream/pkg/transformers/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 
 	"github.com/jackc/pgx/v5"
@@ -51,7 +52,7 @@ func NewStatusChecker() *StatusChecker {
 		configParser:    pgx.ParseConfig,
 		migratorBuilder: func(pgURL string) (migrator, error) { return newPGMigrator(pgURL) },
 		ruleValidatorBuilder: func(ctx context.Context, pgURL string) (ruleValidator, error) {
-			validator, err := transformer.NewPostgresTransformerParser(ctx, pgURL)
+			validator, err := transformer.NewPostgresTransformerParser(ctx, pgURL, builder.NewTransformerBuilder())
 			if err != nil {
 				return nil, err
 			}

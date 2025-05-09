@@ -3,6 +3,7 @@
 package greenmask
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -109,7 +110,7 @@ func Test_UUIDTransformer_Transform(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, transformer)
 
-			got, err := transformer.Transform(transformers.Value{TransformValue: tc.input})
+			got, err := transformer.Transform(context.Background(), transformers.Value{TransformValue: tc.input})
 			if !errors.Is(err, tc.wantErr) {
 				require.Error(t, err, tc.wantErr.Error())
 			}
@@ -120,7 +121,7 @@ func Test_UUIDTransformer_Transform(t *testing.T) {
 
 			// if deterministic, the same input should always produce the same output
 			if mustGetGeneratorType(t, tc.params) == deterministic {
-				gotAgain, err := transformer.Transform(transformers.Value{TransformValue: tc.input})
+				gotAgain, err := transformer.Transform(context.Background(), transformers.Value{TransformValue: tc.input})
 				require.NoError(t, err)
 				require.Equal(t, got, gotAgain)
 			}

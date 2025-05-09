@@ -3,6 +3,8 @@
 package neosync
 
 import (
+	"context"
+
 	"github.com/xataio/pgstream/pkg/transformers"
 )
 
@@ -25,7 +27,7 @@ func New[T any](t neosyncTransformer, opts any) *transformer[T] {
 	}
 }
 
-func (t *transformer[T]) Transform(value transformers.Value) (any, error) {
+func (t *transformer[T]) Transform(_ context.Context, value transformers.Value) (any, error) {
 	retPtr, err := t.neosyncTransformer.Transform(value.TransformValue, t.opts)
 	if err != nil {
 		return nil, err

@@ -3,6 +3,7 @@
 package greenmask
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -50,7 +51,7 @@ func NewChoiceTransformer(params transformers.Parameters) (*ChoiceTransformer, e
 	}, nil
 }
 
-func (t *ChoiceTransformer) Transform(value transformers.Value) (any, error) {
+func (t *ChoiceTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {
 	case []byte:
@@ -75,4 +76,8 @@ func (t *ChoiceTransformer) CompatibleTypes() []transformers.SupportedDataType {
 		transformers.ByteArrayDataType,
 		transformers.StringDataType,
 	}
+}
+
+func (t *ChoiceTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskChoice
 }

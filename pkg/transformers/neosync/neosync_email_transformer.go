@@ -103,3 +103,7 @@ func (t *EmailTransformer) CompatibleTypes() []transformers.SupportedDataType {
 		transformers.StringDataType,
 	}
 }
+
+func (t *EmailTransformer) Type() transformers.TransformerType {
+	return transformers.NeosyncEmail
+}

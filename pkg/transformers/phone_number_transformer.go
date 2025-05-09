@@ -3,6 +3,7 @@
 package transformers
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/xataio/pgstream/pkg/transformers/generators"
@@ -72,7 +73,7 @@ func NewPhoneNumberTransformer(params Parameters) (*PhoneNumberTransformer, erro
 	}, nil
 }
 
-func (t *PhoneNumberTransformer) Transform(value Value) (any, error) {
+func (t *PhoneNumberTransformer) Transform(_ context.Context, value Value) (any, error) {
 	switch v := value.TransformValue.(type) {
 	case string:
 		return t.transform([]byte(v))
@@ -120,4 +121,8 @@ func (t *PhoneNumberTransformer) CompatibleTypes() []SupportedDataType {
 		StringDataType,
 		ByteArrayDataType,
 	}
+}
+
+func (t *PhoneNumberTransformer) Type() TransformerType {
+	return PhoneNumber
 }

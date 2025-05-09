@@ -3,6 +3,7 @@
 package greenmask
 
 import (
+	"context"
 	"strconv"
 	"testing"
 
@@ -116,7 +117,7 @@ func TestUnixTimestampTransformer_Transform(t *testing.T) {
 			t.Parallel()
 			transformer, err := NewUnixTimestampTransformer(tt.params)
 			require.NoError(t, err)
-			got, err := transformer.Transform(transformers.Value{TransformValue: tt.input})
+			got, err := transformer.Transform(context.Background(), transformers.Value{TransformValue: tt.input})
 			require.NoError(t, err)
 			require.NotNil(t, got)
 
@@ -135,7 +136,7 @@ func TestUnixTimestampTransformer_Transform(t *testing.T) {
 
 			// if deterministic, check if we get the same result again
 			if mustGetGeneratorType(t, tt.params) == deterministic {
-				gotAgain, err := transformer.Transform(transformers.Value{TransformValue: tt.input})
+				gotAgain, err := transformer.Transform(context.Background(), transformers.Value{TransformValue: tt.input})
 				require.NoError(t, err)
 				require.Equal(t, got, gotAgain)
 			}

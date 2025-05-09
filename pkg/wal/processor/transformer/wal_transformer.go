@@ -9,7 +9,6 @@ import (
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/transformers"
-	"github.com/xataio/pgstream/pkg/transformers/builder"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 )
@@ -27,6 +26,10 @@ type ParseFn func(rules []TableRules) (map[string]ColumnTransformers, error)
 
 type ColumnTransformers map[string]transformers.Transformer
 
+type transformerBuilder interface {
+	New(*transformers.Config) (transformers.Transformer, error)
+}
+
 type Config struct {
 	TransformerRules []TableRules
 }
@@ -39,11 +42,11 @@ var errValidatorRequiredForStrictMode = errors.New("strict validation mode requi
 
 // New will return a transformer processor wrapper that will transform incoming
 // wal event column values as configured by the transformation rules.
-func New(ctx context.Context, cfg *Config, processor processor.Processor, opts ...Option) (*Transformer, error) {
+func New(ctx context.Context, cfg *Config, processor processor.Processor, builder transformerBuilder, opts ...Option) (*Transformer, error) {
 	t := &Transformer{
 		logger:    loglib.NewNoopLogger(),
 		processor: processor,
-		parser:    transformerMapFromRules,
+		parser:    newTransformerParser(builder).parse,
 	}
 
 	for _, opt := range opts {
@@ -74,7 +77,7 @@ func WithParser(parser ParseFn) Option {
 }
 
 func (t *Transformer) ProcessWALEvent(ctx context.Context, event *wal.Event) error {
-	err := t.applyTransformations(event)
+	err := t.applyTransformations(ctx, event)
 	if err != nil {
 		return err
 	}
@@ -90,7 +93,7 @@ func (t *Transformer) Close() error {
 	return t.processor.Close()
 }
 
-func (t *Transformer) applyTransformations(event *wal.Event) error {
+func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event) error {
 	if event.Data == nil || len(t.transformerMap) == 0 {
 		return nil
 	}
@@ -112,7 +115,7 @@ func (t *Transformer) applyTransformations(event *wal.Event) error {
 			continue
 		}
 
-		newValue, err := columnTransformer.Transform(t.getTransformValue(&col, event.Data.Columns))
+		newValue, err := columnTransformer.Transform(ctx, t.getTransformValue(&col, event.Data.Columns))
 		if err != nil {
 			t.logger.Error(err, "transforming column", loglib.Fields{
 				"severity":    "DATALOSS",
@@ -142,35 +145,4 @@ func (t *Transformer) getTransformValue(column *wal.Column, columns []wal.Column
 
 func schemaTableKey(schema, table string) string {
 	return pglib.QuoteQualifiedIdentifier(schema, table)
-}
-
-func transformerMapFromRules(rules []TableRules) (map[string]ColumnTransformers, error) {
-	var err error
-	transformerMap := map[string]ColumnTransformers{}
-	for _, table := range rules {
-		if table.ValidationMode == validationModeStrict {
-			return nil, errValidatorRequiredForStrictMode
-		}
-		schemaTableTransformers := make(map[string]transformers.Transformer)
-		transformerMap[schemaTableKey(table.Schema, table.Table)] = schemaTableTransformers
-		for colName, transformerRules := range table.ColumnRules {
-			cfg := transformerRulesToConfig(transformerRules)
-			if cfg.Name == "" || cfg.Name == "noop" {
-				// noop transformer, skip
-				continue
-			}
-			if schemaTableTransformers[colName], err = builder.New(cfg); err != nil {
-				return nil, err
-			}
-		}
-	}
-	return transformerMap, nil
-}
-
-func transformerRulesToConfig(rules TransformerRules) *transformers.Config {
-	return &transformers.Config{
-		Name:              transformers.TransformerType(rules.Name),
-		Parameters:        rules.Parameters,
-		DynamicParameters: rules.DynamicParameters,
-	}
 }

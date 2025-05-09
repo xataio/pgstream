@@ -3,6 +3,7 @@
 package greenmask
 
 import (
+	"context"
 	"fmt"
 
 	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
@@ -51,7 +52,7 @@ func NewStringTransformer(params transformers.Parameters) (*StringTransformer, e
 	}, nil
 }
 
-func (st *StringTransformer) Transform(value transformers.Value) (any, error) {
+func (st *StringTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {
 	case string:
@@ -71,4 +72,8 @@ func (st *StringTransformer) CompatibleTypes() []transformers.SupportedDataType 
 		transformers.StringDataType,
 		transformers.ByteArrayDataType,
 	}
+}
+
+func (st *StringTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskString
 }

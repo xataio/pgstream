@@ -3,6 +3,8 @@
 package greenmask
 
 import (
+	"context"
+
 	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
 	"github.com/google/uuid"
 	"github.com/xataio/pgstream/pkg/transformers"
@@ -27,7 +29,7 @@ func NewUUIDTransformer(params transformers.Parameters) (*UUIDTransformer, error
 	}, nil
 }
 
-func (ut *UUIDTransformer) Transform(value transformers.Value) (any, error) {
+func (ut *UUIDTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {
 	case string:
@@ -55,4 +57,8 @@ func (ut *UUIDTransformer) CompatibleTypes() []transformers.SupportedDataType {
 		transformers.ByteArrayDataType,
 		transformers.UInt8ArrayOf16DataType,
 	}
+}
+
+func (ut *UUIDTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskUUID
 }

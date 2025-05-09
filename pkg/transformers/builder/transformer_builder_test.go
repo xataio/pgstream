@@ -9,7 +9,7 @@ import (
 	"github.com/xataio/pgstream/pkg/transformers"
 )
 
-func TestNew(t *testing.T) {
+func TestTransformerBuilder_New(t *testing.T) {
 	tests := []struct {
 		name    string
 		config  *transformers.Config
@@ -44,7 +44,8 @@ func TestNew(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := New(tt.config)
+			tb := NewTransformerBuilder()
+			_, err := tb.New(tt.config)
 			require.ErrorIs(t, err, tt.wantErr)
 		})
 	}
