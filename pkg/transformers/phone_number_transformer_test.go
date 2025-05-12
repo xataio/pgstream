@@ -3,6 +3,7 @@
 package transformers
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -86,7 +87,7 @@ func TestPhoneNumberTransformer_Transform(t *testing.T) {
 			}
 			require.NoError(t, err)
 
-			got, err := transformer.Transform(Value{TransformValue: tc.value})
+			got, err := transformer.Transform(context.Background(), Value{TransformValue: tc.value})
 			require.NoError(t, err)
 
 			gotStr, ok := got.(string)

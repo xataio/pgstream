@@ -5,12 +5,40 @@ package builder
 import (
 	"fmt"
 
+	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/transformers"
 	"github.com/xataio/pgstream/pkg/transformers/greenmask"
+	"github.com/xataio/pgstream/pkg/transformers/instrumentation"
 	"github.com/xataio/pgstream/pkg/transformers/neosync"
 )
 
-func New(cfg *transformers.Config) (transformers.Transformer, error) {
+type TransformerBuilder struct {
+	instrumentation *otel.Instrumentation
+}
+
+type Option func(b *TransformerBuilder)
+
+func NewTransformerBuilder(opts ...Option) *TransformerBuilder {
+	b := &TransformerBuilder{}
+	for _, opt := range opts {
+		opt(b)
+	}
+	return b
+}
+
+func WithInstrumentation(i *otel.Instrumentation) Option {
+	return func(b *TransformerBuilder) {
+		b.instrumentation = i
+	}
+}
+
+func (b *TransformerBuilder) New(cfg *transformers.Config) (t transformers.Transformer, err error) {
+	defer func() {
+		if b.instrumentation != nil {
+			t, err = instrumentation.NewTransformer(t, b.instrumentation)
+		}
+	}()
+
 	switch cfg.Name {
 	case transformers.GreenmaskString:
 		return greenmask.NewStringTransformer(cfg.Parameters)

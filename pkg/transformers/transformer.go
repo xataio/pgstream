@@ -3,13 +3,15 @@
 package transformers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 )
 
 type Transformer interface {
-	Transform(Value) (any, error)
+	Transform(context.Context, Value) (any, error)
 	CompatibleTypes() []SupportedDataType
+	Type() TransformerType
 }
 
 type Value struct {

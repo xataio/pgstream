@@ -10,6 +10,7 @@ import (
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/schemalog"
+	"github.com/xataio/pgstream/pkg/transformers/builder"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 	"github.com/xataio/pgstream/pkg/wal/processor/filter"
@@ -155,6 +156,12 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 	var err error
 	if config.Processor.Transformer != nil {
 		logger.Info("adding transformation layer to processor...")
+		builderOpts := []builder.Option{}
+		if instrumentation.IsEnabled() {
+			builderOpts = append(builderOpts, builder.WithInstrumentation(instrumentation))
+		}
+		transformerBuilder := builder.NewTransformerBuilder(builderOpts...)
+
 		opts := []transformer.Option{transformer.WithLogger(logger)}
 		// if a source pg url is provided, use it to validate the transformer
 		pgURL := ""
@@ -165,14 +172,14 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 			pgURL = config.Listener.Snapshot.Generator.URL
 		}
 		if pgURL != "" {
-			pgParser, err := transformer.NewPostgresTransformerParser(ctx, pgURL)
+			pgParser, err := transformer.NewPostgresTransformerParser(ctx, pgURL, transformerBuilder)
 			if err != nil {
 				return nil, nil, fmt.Errorf("creating transformer validator: %w", err)
 			}
 			closerAgg.addCloserFn(pgParser.Close)
 			opts = append(opts, transformer.WithParser(pgParser.ParseAndValidate))
 		}
-		processor, err = transformer.New(ctx, config.Processor.Transformer, processor, opts...)
+		processor, err = transformer.New(ctx, config.Processor.Transformer, processor, transformerBuilder, opts...)
 		if err != nil {
 			logger.Error(err, "creating transformer layer")
 			return nil, nil, err

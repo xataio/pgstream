@@ -10,23 +10,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/transformers"
-	"github.com/xataio/pgstream/pkg/transformers/builder"
 	"golang.org/x/exp/slices"
 )
 
 type PostgresTransformerParser struct {
-	conn pglib.Querier
+	conn    pglib.Querier
+	builder transformerBuilder
 }
 
 const fieldDescriptionsQuery = "SELECT * FROM %s LIMIT 0"
 
-func NewPostgresTransformerParser(ctx context.Context, pgURL string) (*PostgresTransformerParser, error) {
+func NewPostgresTransformerParser(ctx context.Context, pgURL string, builder transformerBuilder) (*PostgresTransformerParser, error) {
 	pool, err := pglib.NewConnPool(ctx, pgURL)
 	if err != nil {
 		return nil, err
 	}
 	return &PostgresTransformerParser{
-		conn: pool,
+		conn:    pool,
+		builder: builder,
 	}, nil
 }
 
@@ -70,7 +71,7 @@ func (v *PostgresTransformerParser) ParseAndValidate(rules []TableRules) (map[st
 			}
 
 			// build the transformer
-			transformer, err := builder.New(cfg)
+			transformer, err := v.builder.New(cfg)
 			if err != nil {
 				return nil, err
 			}

@@ -15,7 +15,11 @@ var errMinMaxValueNotSpecified = errors.New("min_value and max_value must be spe
 
 var unixTimestampTransformerParams = []string{"min_value", "max_value", "generator"}
 
-func NewUnixTimestampTransformer(params transformers.Parameters) (*IntegerTransformer, error) {
+type UnixTimestampTransformer struct {
+	*IntegerTransformer
+}
+
+func NewUnixTimestampTransformer(params transformers.Parameters) (*UnixTimestampTransformer, error) {
 	if err := transformers.ValidateParameters(params, unixTimestampTransformerParams); err != nil {
 		return nil, err
 	}
@@ -58,7 +62,13 @@ func NewUnixTimestampTransformer(params transformers.Parameters) (*IntegerTransf
 		return nil, err
 	}
 
-	return &IntegerTransformer{
-		transformer: t,
+	return &UnixTimestampTransformer{
+		IntegerTransformer: &IntegerTransformer{
+			transformer: t,
+		},
 	}, nil
+}
+
+func (t *UnixTimestampTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskUnixTimestamp
 }
