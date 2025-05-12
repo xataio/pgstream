@@ -40,6 +40,7 @@ const (
 	NeosyncFirstName       TransformerType = "neosync_firstname"
 	GreenmaskFirstName     TransformerType = "greenmask_firstname"
 	NeosyncLastName        TransformerType = "neosync_lastname"
+	NeosyncFullName        TransformerType = "neosync_fullname"
 	NeosyncEmail           TransformerType = "neosync_email"
 	GreenmaskInteger       TransformerType = "greenmask_integer"
 	GreenmaskFloat         TransformerType = "greenmask_float"
