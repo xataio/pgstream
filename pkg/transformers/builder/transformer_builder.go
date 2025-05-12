@@ -70,6 +70,8 @@ func (b *TransformerBuilder) New(cfg *transformers.Config) (t transformers.Trans
 		return neosync.NewFirstNameTransformer(cfg.Parameters)
 	case transformers.NeosyncLastName:
 		return neosync.NewLastNameTransformer(cfg.Parameters)
+	case transformers.NeosyncFullName:
+		return neosync.NewFullNameTransformer(cfg.Parameters)
 	case transformers.NeosyncEmail:
 		return neosync.NewEmailTransformer(cfg.Parameters)
 	case transformers.PhoneNumber:
