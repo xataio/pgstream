@@ -3,6 +3,8 @@
 package greenmask
 
 import (
+	"context"
+
 	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
 	"github.com/xataio/pgstream/pkg/transformers"
 )
@@ -26,7 +28,7 @@ func NewBooleanTransformer(params transformers.Parameters) (*BooleanTransformer,
 	}, nil
 }
 
-func (bt *BooleanTransformer) Transform(value transformers.Value) (any, error) {
+func (bt *BooleanTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {
 	case bool:
@@ -53,4 +55,8 @@ func (bt *BooleanTransformer) CompatibleTypes() []transformers.SupportedDataType
 		transformers.BooleanDataType,
 		transformers.ByteArrayDataType,
 	}
+}
+
+func (bt *BooleanTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskBoolean
 }

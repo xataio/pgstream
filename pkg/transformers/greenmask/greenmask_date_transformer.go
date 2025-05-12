@@ -3,6 +3,7 @@
 package greenmask
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -67,7 +68,7 @@ func NewDateTransformer(params transformers.Parameters) (*DateTransformer, error
 	}, nil
 }
 
-func (t *DateTransformer) Transform(value transformers.Value) (any, error) {
+func (t *DateTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {
 	case time.Time:
@@ -94,4 +95,8 @@ func (t *DateTransformer) CompatibleTypes() []transformers.SupportedDataType {
 		transformers.ByteArrayDataType,
 		transformers.StringDataType,
 	}
+}
+
+func (t *DateTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskDate
 }

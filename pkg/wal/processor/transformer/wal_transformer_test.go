@@ -23,6 +23,12 @@ func TestTransformer_New(t *testing.T) {
 	testTransformer, err := transformers.NewStringTransformer(nil)
 	require.NoError(t, err)
 
+	mockBuilder := &transformermocks.TransformerBuilder{
+		NewFn: func(_ *transformers.Config) (transformers.Transformer, error) {
+			return testTransformer, nil
+		},
+	}
+
 	tests := []struct {
 		name   string
 		config *Config
@@ -71,7 +77,7 @@ func TestTransformer_New(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			transformer, err := New(context.Background(), tc.config, mockProcessor)
+			transformer, err := New(context.Background(), tc.config, mockProcessor, mockBuilder)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantTransformerMap, transformer.transformerMap)
 			require.Equal(t, mockProcessor, transformer.processor)
@@ -237,84 +243,6 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 
 			err := transformer.ProcessWALEvent(context.Background(), tc.event)
 			require.ErrorIs(t, err, tc.wantErr)
-		})
-	}
-}
-
-func Test_transformerMapFromRules(t *testing.T) {
-	t.Parallel()
-
-	testSchema := "test_schema"
-	testTable := "test_table"
-	testTransformer, err := transformers.NewStringTransformer(nil)
-	require.NoError(t, err)
-	testKey := "\"test_schema\".\"test_table\""
-
-	tests := []struct {
-		name  string
-		rules []TableRules
-
-		wantTransformerMap map[string]ColumnTransformers
-		wantErr            error
-	}{
-		{
-			name: "ok",
-			rules: []TableRules{
-				{
-					Schema: testSchema,
-					Table:  testTable,
-					ColumnRules: map[string]TransformerRules{
-						"column_1": {
-							Name: "string",
-						},
-						"column_2": {
-							Name: "string",
-						},
-					},
-				},
-			},
-
-			wantTransformerMap: map[string]ColumnTransformers{
-				testKey: {
-					"column_1": testTransformer,
-					"column_2": testTransformer,
-				},
-			},
-			wantErr: nil,
-		},
-		{
-			name:  "ok - no rules",
-			rules: []TableRules{},
-
-			wantTransformerMap: map[string]ColumnTransformers{},
-			wantErr:            nil,
-		},
-		{
-			name: "error - invalid transformer rules",
-			rules: []TableRules{
-				{
-					Schema: testSchema,
-					Table:  testTable,
-					ColumnRules: map[string]TransformerRules{
-						"column_1": {
-							Name: "invalid",
-						},
-					},
-				},
-			},
-
-			wantTransformerMap: nil,
-			wantErr:            transformers.ErrUnsupportedTransformer,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			transformerMap, err := transformerMapFromRules(tc.rules)
-			require.ErrorIs(t, err, tc.wantErr)
-			require.Equal(t, tc.wantTransformerMap, transformerMap)
 		})
 	}
 }

@@ -3,6 +3,7 @@
 package greenmask
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -96,7 +97,7 @@ func Test_BooleanTransformer_Transform(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, transformer)
 
-			got, err := transformer.Transform(transformers.Value{TransformValue: tc.input})
+			got, err := transformer.Transform(context.Background(), transformers.Value{TransformValue: tc.input})
 			require.ErrorIs(t, err, tc.wantErr)
 			if err != nil {
 				return
@@ -107,7 +108,7 @@ func Test_BooleanTransformer_Transform(t *testing.T) {
 
 			// if deterministic, the same input should always produce the same output
 			if mustGetGeneratorType(t, tc.params) == deterministic {
-				gotAgain, err := transformer.Transform(transformers.Value{TransformValue: tc.input})
+				gotAgain, err := transformer.Transform(context.Background(), transformers.Value{TransformValue: tc.input})
 				require.NoError(t, err)
 				require.Equal(t, got, gotAgain)
 			}

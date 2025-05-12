@@ -3,6 +3,7 @@
 package transformers
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -218,7 +219,7 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 			t.Parallel()
 			mt, err := NewMaskingTransformer(tt.params)
 			require.NoError(t, err)
-			got, err := mt.Transform(Value{TransformValue: tt.input})
+			got, err := mt.Transform(context.Background(), Value{TransformValue: tt.input})
 			require.ErrorIs(t, err, tt.wantErr)
 			if tt.wantErr != nil {
 				return

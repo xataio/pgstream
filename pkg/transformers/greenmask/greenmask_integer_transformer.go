@@ -3,6 +3,7 @@
 package greenmask
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -75,7 +76,7 @@ func NewIntegerTransformer(params transformers.Parameters) (*IntegerTransformer,
 // Supported input types are int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, and byte.
 // If the input value is a byte slice, it is passed through the transformer without modification.
 // If the input value is of an unsupported type, an error is returned.
-func (t *IntegerTransformer) Transform(value transformers.Value) (any, error) {
+func (t *IntegerTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {
 	case int:
@@ -130,6 +131,10 @@ func (t *IntegerTransformer) CompatibleTypes() []transformers.SupportedDataType 
 		transformers.Float64DataType,
 		transformers.ByteArrayDataType,
 	}
+}
+
+func (t *IntegerTransformer) Type() transformers.TransformerType {
+	return transformers.GreenmaskInteger
 }
 
 func minMaxValueForSize(size int) (int, int, error) {
