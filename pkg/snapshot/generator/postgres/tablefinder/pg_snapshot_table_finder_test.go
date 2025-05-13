@@ -196,8 +196,9 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 			t.Parallel()
 
 			tableFinder := SnapshotTableFinder{
-				conn:    tc.conn,
-				wrapped: tc.generator,
+				conn:        tc.conn,
+				wrapped:     tc.generator,
+				discoveryFn: discoverAllSchemaTables,
 			}
 			err := tableFinder.CreateSnapshot(context.Background(), tc.snapshot)
 			require.ErrorIs(t, err, tc.wantErr)
