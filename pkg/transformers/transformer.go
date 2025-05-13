@@ -51,6 +51,7 @@ const (
 	GreenmaskDate          TransformerType = "greenmask_date"
 	GreenmaskUTCTimestamp  TransformerType = "greenmask_utc_timestamp"
 	Masking                TransformerType = "masking"
+	Template               TransformerType = "template"
 )
 
 type SupportedDataType string
@@ -203,4 +204,19 @@ func ValidateParameters(provided map[string]any, expected []string) error {
 	}
 
 	return nil
+}
+
+func (v *Value) GetValue() any {
+	return v.TransformValue
+}
+
+func (v *Value) GetDynamicValue(name string) (any, error) {
+	if v.DynamicValues == nil {
+		return nil, fmt.Errorf("dynamic values are nil")
+	}
+	dynValue, found := v.DynamicValues[name]
+	if !found {
+		return nil, fmt.Errorf("dynamic value '%s' not found", name)
+	}
+	return dynValue, nil
 }

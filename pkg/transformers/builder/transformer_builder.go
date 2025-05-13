@@ -78,6 +78,8 @@ func (b *TransformerBuilder) New(cfg *transformers.Config) (t transformers.Trans
 		return transformers.NewPhoneNumberTransformer(cfg.Parameters)
 	case transformers.Masking:
 		return transformers.NewMaskingTransformer(cfg.Parameters)
+	case transformers.Template:
+		return transformers.NewTemplateTransformer(cfg.Parameters)
 	default:
 		return nil, fmt.Errorf("%w: unexpected transformer name '%s'", transformers.ErrUnsupportedTransformer, cfg.Name)
 	}
