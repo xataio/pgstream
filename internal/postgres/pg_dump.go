@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os/exec"
 )
@@ -70,7 +71,7 @@ func (opts *PGDumpOptions) ToArgs() []string {
 }
 
 // Func RunPGDump runs pg_dump command with the given options and returns the result.
-func RunPGDump(opts PGDumpOptions) ([]byte, error) {
+func RunPGDump(_ context.Context, opts PGDumpOptions) ([]byte, error) {
 	cmd := exec.Command(pgDumpCmd, opts.ToArgs()...) //nolint:gosec
 
 	// TODO: add streaming support when it needs to be used for large data dumps

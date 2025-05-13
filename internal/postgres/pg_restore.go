@@ -5,6 +5,7 @@ package postgres
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -54,7 +55,7 @@ func (opts PGRestoreOptions) toPSQLArgs() []string {
 
 // Func RunPGRestore runs pg_restore command with the given options and returns
 // the result.
-func RunPGRestore(opts PGRestoreOptions, dump []byte) (string, error) {
+func RunPGRestore(_ context.Context, opts PGRestoreOptions, dump []byte) (string, error) {
 	var cmd *exec.Cmd
 	switch opts.Format {
 	case "c":

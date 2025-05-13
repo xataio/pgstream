@@ -21,8 +21,8 @@ import (
 type SnapshotGenerator struct {
 	sourceURL      string
 	targetURL      string
-	pgDumpFn       pgdumpFn
-	pgRestoreFn    pgrestoreFn
+	pgDumpFn       pglib.PGDumpFn
+	pgRestoreFn    pglib.PGRestoreFn
 	schemalogStore schemalog.Store
 	connBuilder    pglib.QuerierBuilder
 	cleanTargetDB  bool
@@ -34,11 +34,6 @@ type Config struct {
 	TargetPGURL   string
 	CleanTargetDB bool
 }
-
-type (
-	pgdumpFn    func(pglib.PGDumpOptions) ([]byte, error)
-	pgrestoreFn func(pglib.PGRestoreOptions, []byte) (string, error)
-)
 
 type Option func(s *SnapshotGenerator)
 
@@ -93,7 +88,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return fmt.Errorf("preparing pg_dump options: %w", err)
 	}
 
-	dump, err := s.pgDumpFn(*pgdumpOpts)
+	dump, err := s.pgDumpFn(ctx, *pgdumpOpts)
 	if err != nil {
 		return err
 	}
@@ -107,7 +102,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		}
 	}
 
-	_, err = s.pgRestoreFn(s.pgrestoreOptions(), dump)
+	_, err = s.pgRestoreFn(ctx, s.pgrestoreOptions(), dump)
 	pgrestoreErr := &pglib.PGRestoreErrors{}
 	if err != nil {
 		switch {
