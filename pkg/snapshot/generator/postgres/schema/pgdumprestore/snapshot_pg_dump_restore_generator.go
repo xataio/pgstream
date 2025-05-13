@@ -88,7 +88,9 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 
 		sg.pgDumpFn = pglibinstrumentation.NewPGDumpFn(sg.pgDumpFn, i)
 		sg.pgRestoreFn = pglibinstrumentation.NewPGRestoreFn(sg.pgRestoreFn, i)
-		sg.schemalogStore = schemaloginstrumentation.NewStore(sg.schemalogStore, i)
+		if sg.schemalogStore != nil {
+			sg.schemalogStore = schemaloginstrumentation.NewStore(sg.schemalogStore, i)
+		}
 	}
 }
 
