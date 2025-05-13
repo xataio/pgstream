@@ -10,7 +10,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"golang.org/x/sync/errgroup"
 )
@@ -25,7 +27,8 @@ type SnapshotGenerator struct {
 	batchPageSize uint
 
 	// Function called for processing produced rows.
-	processRow snapshot.RowProcessor
+	processRow             snapshot.RowProcessor
+	tableSnapshotGenerator snapshotTableFn
 }
 
 type mapper interface {
@@ -36,6 +39,8 @@ type pageRange struct {
 	start uint
 	end   uint
 }
+
+type snapshotTableFn func(ctx context.Context, snapshotID string, schema, table string) error
 
 type Option func(sg *SnapshotGenerator)
 
@@ -55,6 +60,8 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, processRow snapshot.
 		schemaWorkers: cfg.schemaWorkers(),
 	}
 
+	sg.tableSnapshotGenerator = sg.snapshotTable
+
 	for _, opt := range opts {
 		opt(sg)
 	}
@@ -67,6 +74,20 @@ func WithLogger(logger loglib.Logger) Option {
 		sg.logger = loglib.NewLogger(logger).WithFields(loglib.Fields{
 			loglib.ModuleField: "postgres_data_snapshot_generator",
 		})
+	}
+}
+
+func WithInstrumentation(i *otel.Instrumentation) Option {
+	return func(sg *SnapshotGenerator) {
+		var err error
+		sg.conn, err = pglibinstrumentation.NewQuerier(sg.conn, i)
+		if err != nil {
+			// this should never happen
+			panic(err)
+		}
+
+		ig := newInstrumentedTableSnapshotGenerator(sg.tableSnapshotGenerator, i)
+		sg.tableSnapshotGenerator = ig.snapshotTable
 	}
 }
 
@@ -113,13 +134,14 @@ func (sg *SnapshotGenerator) createSnapshotWorker(ctx context.Context, wg *sync.
 		logFields := loglib.Fields{"schema": ss.SchemaName, "table": table, "snapshotID": snapshotID}
 		sg.logger.Info("snapshotting table", logFields)
 
-		if err := sg.snapshotTable(ctx, snapshotID, ss.SchemaName, table); err != nil {
+		if err := sg.tableSnapshotGenerator(ctx, snapshotID, ss.SchemaName, table); err != nil {
 			sg.logger.Error(err, "snapshotting table", logFields)
 			// errors will get notified unless the table doesn't exist
 			if !errors.Is(err, pglib.ErrNoRows) {
 				tableErrMap[table] = err
 			}
 		}
+		sg.logger.Info("table snapshot completed", logFields)
 	}
 }
 

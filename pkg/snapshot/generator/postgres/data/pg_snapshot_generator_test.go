@@ -878,6 +878,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				tableWorkers:  1,
 				batchPageSize: 10,
 			}
+			sg.tableSnapshotGenerator = sg.snapshotTable
 
 			if tc.schemaWorkers != 0 {
 				sg.schemaWorkers = tc.schemaWorkers

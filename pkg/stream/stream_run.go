@@ -122,7 +122,8 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 				ctx,
 				config.Listener.Postgres.Snapshot,
 				processor.ProcessWALEvent,
-				logger)
+				logger,
+				instrumentation)
 			if err != nil {
 				return err
 			}

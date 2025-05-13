@@ -46,7 +46,8 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 		ctx,
 		config.Listener.Snapshot,
 		processor.ProcessWALEvent,
-		logger)
+		logger,
+		instrumentation)
 	if err != nil {
 		return err
 	}

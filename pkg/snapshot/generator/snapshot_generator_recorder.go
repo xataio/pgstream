@@ -54,7 +54,7 @@ func (s *SnapshotRecorder) CreateSnapshot(ctx context.Context, ss *snapshot.Snap
 
 	err = s.wrapped.CreateSnapshot(ctx, ss)
 
-	return s.markSnapshotCompleted(req, err)
+	return s.markSnapshotCompleted(ctx, req, err)
 }
 
 func (s *SnapshotRecorder) Close() error {
@@ -71,10 +71,13 @@ func (s *SnapshotRecorder) markSnapshotInProgress(ctx context.Context, req *snap
 	return s.store.UpdateSnapshotRequest(ctx, req)
 }
 
-func (s *SnapshotRecorder) markSnapshotCompleted(req *snapshot.Request, err error) error {
+func (s *SnapshotRecorder) markSnapshotCompleted(ctx context.Context, req *snapshot.Request, err error) error {
 	// make sure we can update the request status in the store regardless of
 	// context cancelations
-	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
+	if ctx.Err() != nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
 
 	req.MarkCompleted(err)
