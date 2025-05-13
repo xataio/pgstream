@@ -973,6 +973,36 @@ transformations:
 
 </details>
  <details>
+  <summary>neosync_fullname</summary>
+
+**Description:** Generates anonymized full names while optionally preserving length.
+
+| Supported PostgreSQL types          |
+| ----------------------------------- |
+| `text`, `varchar`, `char`, `bpchar` |
+
+| Parameter       | Type | Default | Required |
+| --------------- | ---- | ------- | -------- |
+| preserve_length | bool | false   | No       |
+| max_length      | int  | 100     | No       |
+| seed            | int  | Rand    | No       |
+
+**Example Configuration:**
+
+```yaml
+transformations:
+  table_transformers:
+    - schema: public
+      table: users
+      column_transformers:
+        full_name:
+          name: neosync_fullname
+          parameters:
+            preserve_length: true
+```
+
+</details>
+ <details>
   <summary>neosync_string</summary>
 
 **Description:** Generates anonymized strings with customizable length.
