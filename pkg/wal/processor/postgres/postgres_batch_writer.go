@@ -10,6 +10,7 @@ import (
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -98,6 +99,12 @@ func WithLogger(l loglib.Logger) Option {
 func WithCheckpoint(c checkpointer.Checkpoint) Option {
 	return func(w *BatchWriter) {
 		w.checkpointer = c
+	}
+}
+
+func WithInstrumentation(i *otel.Instrumentation) Option {
+	return func(w *BatchWriter) {
+		w.adapter = newInstrumentedWalAdapter(w.adapter, i)
 	}
 }
 
