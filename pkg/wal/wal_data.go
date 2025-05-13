@@ -3,6 +3,7 @@
 package wal
 
 import (
+	"errors"
 	"slices"
 	"time"
 
@@ -53,8 +54,18 @@ type Column struct {
 
 const iso8601Format = "2006-01-02 15:04:05.999999+00"
 
+var validTimeFormats = []string{iso8601Format, time.RFC3339}
+
+var errUnrecognizedEventTimestampFormat = errors.New("unrecognized wal event timestamp format")
+
 func (d *Data) GetTimestamp() (time.Time, error) {
-	return time.Parse(iso8601Format, d.Timestamp)
+	for _, format := range validTimeFormats {
+		t, err := time.Parse(format, d.Timestamp)
+		if err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, errUnrecognizedEventTimestampFormat
 }
 
 func (d *Data) IsUpdate() bool {
