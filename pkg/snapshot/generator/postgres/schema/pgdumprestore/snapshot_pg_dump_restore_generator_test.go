@@ -31,8 +31,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		snapshot       *snapshot.Snapshot
 		conn           pglib.Querier
 		connBuilder    pglib.QuerierBuilder
-		pgdumpFn       pgdumpFn
-		pgrestoreFn    pgrestoreFn
+		pgdumpFn       pglib.PGDumpFn
+		pgrestoreFn    pglib.PGRestoreFn
 		schemalogStore schemalog.Store
 
 		wantErr error
@@ -65,7 +65,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					}, nil
 				},
 			},
-			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				require.Equal(t, pglib.PGDumpOptions{
 					ConnectionString: "source-url",
 					Format:           "p",
@@ -76,7 +76,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				}, po)
 				return testDump, nil
 			},
-			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				require.Equal(t, pglib.PGRestoreOptions{
 					ConnectionString: "target-url",
 					SchemaOnly:       true,
@@ -100,7 +100,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return pglib.CommandTag{}, nil
 				},
 			},
-			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				require.Equal(t, pglib.PGDumpOptions{
 					ConnectionString: "source-url",
 					Format:           "p",
@@ -109,7 +109,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				}, po)
 				return testDump, nil
 			},
-			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				require.Equal(t, pglib.PGRestoreOptions{
 					ConnectionString: "target-url",
 					SchemaOnly:       true,
@@ -132,10 +132,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return pglib.CommandTag{}, errors.New("ExecFn: should not be called")
 				},
 			},
-			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return nil, errors.New("pgdumpFn: should not be called")
 			},
-			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errors.New("pgrestoreFn: should not be called")
 			},
 
@@ -152,10 +152,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, errTest
 				},
 			},
-			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return nil, errors.New("pgdumpFn: should not be called")
 			},
-			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errors.New("pgrestoreFn: should not be called")
 			},
 
@@ -180,10 +180,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					}, nil
 				},
 			},
-			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return nil, errors.New("pgdumpFn: should not be called")
 			},
-			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errors.New("pgrestoreFn: should not be called")
 			},
 
@@ -216,10 +216,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					}, nil
 				},
 			},
-			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return nil, errors.New("pgdumpFn: should not be called")
 			},
-			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errors.New("pgrestoreFn: should not be called")
 			},
 
@@ -251,10 +251,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					}, nil
 				},
 			},
-			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return nil, errTest
 			},
-			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errors.New("pgrestoreFn: should not be called")
 			},
 
@@ -286,10 +286,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					}, nil
 				},
 			},
-			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return testDump, nil
 			},
-			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errTest
 			},
 
@@ -321,10 +321,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					}, nil
 				},
 			},
-			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return testDump, nil
 			},
-			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", pglib.NewPGRestoreErrors(errTest)
 			},
 
@@ -356,10 +356,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					}, nil
 				},
 			},
-			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return testDump, nil
 			},
-			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", pglib.NewPGRestoreErrors(&pglib.ErrRelationAlreadyExists{})
 			},
 
@@ -393,10 +393,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					},
 				}, nil
 			},
-			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return testDump, nil
 			},
-			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errors.New("pgrestoreFn: should not be called")
 			},
 
@@ -428,10 +428,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					}, nil
 				},
 			},
-			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return testDump, nil
 			},
-			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errors.New("pgrestoreFn: should not be called")
 			},
 
@@ -464,10 +464,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					}, nil
 				},
 			},
-			pgdumpFn: func(po pglib.PGDumpOptions) ([]byte, error) {
+			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return testDump, nil
 			},
-			pgrestoreFn: func(po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				require.Equal(t, testDump, dump)
 				return "", nil
 			},
