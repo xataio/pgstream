@@ -58,7 +58,7 @@ func Test_pgdump_pgrestore(t *testing.T) {
 			ExcludeTables:    []string{testSchema + "." + testTable2},
 		}
 
-		dump, err := RunPGDump(pgdumpOpts)
+		dump, err := RunPGDump(context.TODO(), pgdumpOpts)
 		require.NoError(t, err)
 
 		pgrestoreOpts := PGRestoreOptions{
@@ -68,7 +68,7 @@ func Test_pgdump_pgrestore(t *testing.T) {
 			Format:           format,
 		}
 
-		_, err = RunPGRestore(pgrestoreOpts, dump)
+		_, err = RunPGRestore(context.TODO(), pgrestoreOpts, dump)
 		require.NoError(t, err)
 
 		// schema only pgdump, no data should be available but the schema and
