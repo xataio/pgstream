@@ -102,54 +102,43 @@ func (n *Notifier) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (er
 		}
 	}()
 
-	enqueueMsg := func() error {
-		subscriptions := []*subscription.Subscription{}
-		if walEvent.Data != nil {
-			data := walEvent.Data
-			subscriptions, err = n.subscriptionStore.GetSubscriptions(ctx, data.Action, data.Schema, data.Table)
-			if err != nil {
-				return fmt.Errorf("retrieving subscriptions: %w", err)
-			}
-			n.logger.Debug("matching subscriptions", loglib.Fields{"subscriptions": subscriptions})
-		}
-
-		msg, err := newNotifyMsg(walEvent, subscriptions, n.serialiser)
+	subscriptions := []*subscription.Subscription{}
+	if walEvent.Data != nil {
+		data := walEvent.Data
+		subscriptions, err = n.subscriptionStore.GetSubscriptions(ctx, data.Action, data.Schema, data.Table)
 		if err != nil {
+			return fmt.Errorf("retrieving subscriptions: %w", err)
+		}
+		n.logger.Debug("matching subscriptions", loglib.Fields{"subscriptions": subscriptions})
+	}
+
+	msg, err := newNotifyMsg(walEvent, subscriptions, n.serialiser)
+	if err != nil {
+		return err
+	}
+
+	// make sure we don't reach the queue memory limit before adding the new
+	// message to the channel. This will block until messages have been read
+	// from the channel and their size is released
+	msgSize := int64(msg.size())
+	if !n.queueBytesSema.TryAcquire(msgSize) {
+		n.logger.Warn(nil, "webhook notifier: max queue bytes reached, processing blocked")
+		if err := n.queueBytesSema.Acquire(ctx, msgSize); err != nil {
 			return err
 		}
-
-		// make sure we don't reach the queue memory limit before adding the new
-		// message to the channel. This will block until messages have been read
-		// from the channel and their size is released
-		msgSize := int64(msg.size())
-		if !n.queueBytesSema.TryAcquire(msgSize) {
-			n.logger.Warn(nil, "webhook notifier: max queue bytes reached, processing blocked")
-			if err := n.queueBytesSema.Acquire(ctx, msgSize); err != nil {
-				return err
-			}
-		}
-
-		select {
-		case n.notifyChan <- msg:
-		case notifyDoneErr, ok := <-n.notifyDone:
-			if ok && notifyDoneErr != nil {
-				n.notifyErr = notifyDoneErr
-			}
-			n.logger.Error(n.notifyErr, "stop processing, notify has stopped")
-			return fmt.Errorf("%w: %w", errNotifyStopped, n.notifyErr)
-		}
-
-		return nil
 	}
 
-	err = enqueueMsg()
-	// close the notify channel only if the notify thread has stopped, since we
-	// shouldn't keep processing
-	if err != nil && errors.Is(err, errNotifyStopped) {
-		n.closeNotifyChan()
+	select {
+	case n.notifyChan <- msg:
+	case notifyDoneErr, ok := <-n.notifyDone:
+		if ok && notifyDoneErr != nil {
+			n.notifyErr = notifyDoneErr
+		}
+		n.logger.Error(n.notifyErr, "stop processing, notify has stopped")
+		return fmt.Errorf("%w: %w", errNotifyStopped, n.notifyErr)
 	}
 
-	return err
+	return nil
 }
 
 func (n *Notifier) Notify(ctx context.Context) error {
