@@ -10,7 +10,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"golang.org/x/sync/errgroup"
 )
@@ -72,6 +74,20 @@ func WithLogger(logger loglib.Logger) Option {
 		sg.logger = loglib.NewLogger(logger).WithFields(loglib.Fields{
 			loglib.ModuleField: "postgres_data_snapshot_generator",
 		})
+	}
+}
+
+func WithInstrumentation(i *otel.Instrumentation) Option {
+	return func(sg *SnapshotGenerator) {
+		var err error
+		sg.conn, err = pglibinstrumentation.NewQuerier(sg.conn, i)
+		if err != nil {
+			// this should never happen
+			panic(err)
+		}
+
+		ig := newInstrumentedTableSnapshotGenerator(sg.tableSnapshotGenerator, i)
+		sg.tableSnapshotGenerator = ig.snapshotTable
 	}
 }
 

@@ -10,8 +10,11 @@ import (
 	"strings"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/schemalog"
+	schemaloginstrumentation "github.com/xataio/pgstream/pkg/schemalog/instrumentation"
 	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/snapshot"
 )
@@ -55,12 +58,12 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		logger:        loglib.NewNoopLogger(),
 	}
 
-	for _, opt := range opts {
-		opt(sg)
-	}
-
 	if err := sg.initialiseSchemaLogStore(ctx); err != nil {
 		return nil, err
+	}
+
+	for _, opt := range opts {
+		opt(sg)
 	}
 
 	return sg, nil
@@ -71,6 +74,21 @@ func WithLogger(logger loglib.Logger) Option {
 		sg.logger = loglib.NewLogger(logger).WithFields(loglib.Fields{
 			loglib.ModuleField: "postgres_schema_snapshot_generator",
 		})
+	}
+}
+
+func WithInstrumentation(i *otel.Instrumentation) Option {
+	return func(sg *SnapshotGenerator) {
+		var err error
+		sg.connBuilder, err = pglibinstrumentation.NewQuerierBuilder(sg.connBuilder, i)
+		if err != nil {
+			// this should never happen
+			panic(err)
+		}
+
+		sg.pgDumpFn = pglibinstrumentation.NewPGDumpFn(sg.pgDumpFn, i)
+		sg.pgRestoreFn = pglibinstrumentation.NewPGRestoreFn(sg.pgRestoreFn, i)
+		sg.schemalogStore = schemaloginstrumentation.NewStore(sg.schemalogStore, i)
 	}
 }
 

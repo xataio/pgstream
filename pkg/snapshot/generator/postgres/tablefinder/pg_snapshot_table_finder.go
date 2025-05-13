@@ -8,6 +8,8 @@ import (
 	"slices"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
+	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"github.com/xataio/pgstream/pkg/snapshot/generator"
 )
@@ -47,6 +49,18 @@ func NewSnapshotTableFinder(ctx context.Context, pgurl string, generator generat
 	}
 
 	return stf, nil
+}
+
+func WithInstrumentation(i *otel.Instrumentation) Option {
+	return func(stf *SnapshotTableFinder) {
+		var err error
+		stf.conn, err = pglibinstrumentation.NewQuerier(stf.conn, i)
+		if err != nil {
+			panic(err)
+		}
+
+		stf.discoveryFn = newInstrumentedTableDiscoveryFn(stf.discoveryFn, i)
+	}
 }
 
 func (s *SnapshotTableFinder) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) error {
