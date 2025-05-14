@@ -134,10 +134,14 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 
 	case config.Postgres != nil:
 		logger.Info("postgres processor configured")
-		pgBatchWriter, err := pgwriter.NewBatchWriter(ctx,
-			&config.Postgres.BatchWriter,
+		opts := []pgwriter.Option{
 			pgwriter.WithLogger(logger),
-			pgwriter.WithCheckpoint(checkpoint))
+			pgwriter.WithCheckpoint(checkpoint),
+		}
+		if instrumentation.IsEnabled() {
+			opts = append(opts, pgwriter.WithInstrumentation(instrumentation))
+		}
+		pgBatchWriter, err := pgwriter.NewBatchWriter(ctx, &config.Postgres.BatchWriter, opts...)
 		if err != nil {
 			return nil, err
 		}
