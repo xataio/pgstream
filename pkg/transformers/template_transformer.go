@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"text/template"
+
+	greenmasktoolkit "github.com/eminano/greenmask/pkg/toolkit"
 )
 
 type TemplateTransformer struct {
@@ -31,7 +33,7 @@ func NewTemplateTransformer(params Parameters) (*TemplateTransformer, error) {
 		return nil, errTemplateMustBeProvided
 	}
 
-	tmpl, err := template.New("").Parse(templateStr)
+	tmpl, err := template.New("").Funcs(greenmasktoolkit.FuncMap()).Parse(templateStr)
 	if err != nil {
 		return nil, fmt.Errorf("template_transformer: error parsing template: %w", err)
 	}

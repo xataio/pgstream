@@ -221,3 +221,61 @@ func TestTemplateTransformer_Transform_WithDynamicValues(t *testing.T) {
 		})
 	}
 }
+
+func TestTemplateTransformer_Transform_WithGreenmaskToolkitFuncs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		value         any
+		dynamicValues map[string]any
+		params        Parameters
+		wantOutput    string
+		wantErr       error
+	}{
+		{
+			name:  "ok - dynamic values with masking func",
+			value: "email",
+			dynamicValues: map[string]any{
+				"value1": nil,
+				"value2": "john.doe@xata.io",
+			},
+			params: Parameters{
+				"template": "{{ $first := .GetDynamicValue \"value1\" }}{{ $second :=.GetDynamicValue \"value2\" }} {{- if eq $first nil -}} {{ masking .GetValue $second }} {{- else -}} {{ masking .GetValue $first }} {{- end -}}",
+			},
+			wantOutput: "joh****e@xata.io",
+			wantErr:    nil,
+		},
+		{
+			name:  "ok - random integer",
+			value: 3,
+			params: Parameters{
+				"template": "{{ $randval := randomInt 0 .GetValue}} {{- if and (isInt $randval) (gt $randval 0) (lt $randval .GetValue) -}} {{\"yes\"}} {{- else -}} {{\"no\"}} {{- end -}}",
+			},
+			wantOutput: "yes",
+			wantErr:    nil,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt, err := NewTemplateTransformer(tc.params)
+			require.NoError(t, err)
+			got, err := tt.Transform(context.Background(), Value{
+				TransformValue: tc.value,
+				DynamicValues:  tc.dynamicValues,
+			})
+
+			if tc.wantErr != nil {
+				require.Error(t, err)
+				if !errors.Is(err, tc.wantErr) {
+					require.Contains(t, err.Error(), tc.wantErr.Error())
+				}
+				return
+			}
+			require.NoError(t, err)
+
+			require.Equal(t, tc.wantOutput, got)
+		})
+	}
+}
