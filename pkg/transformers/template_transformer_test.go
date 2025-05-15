@@ -249,7 +249,7 @@ func TestTemplateTransformer_Transform_WithGreenmaskToolkitFuncs(t *testing.T) {
 			name:  "ok - random integer",
 			value: 3,
 			params: Parameters{
-				"template": "{{ $randval := randomInt 0 .GetValue}} {{- if and (isInt $randval) (gt $randval 0) (lt $randval .GetValue) -}} {{\"yes\"}} {{- else -}} {{\"no\"}} {{- end -}}",
+				"template": "{{ $randval := randomInt 0 .GetValue}} {{- if and (isInt $randval) (ge $randval 0) (lt $randval .GetValue) -}} {{\"yes\"}} {{- else -}} {{\"no\"}} {{- end -}}",
 			},
 			wantOutput: "yes",
 			wantErr:    nil,
