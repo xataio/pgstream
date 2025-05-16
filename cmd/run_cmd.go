@@ -18,7 +18,7 @@ var runCmd = &cobra.Command{
 	Use:     "run",
 	Short:   "Run starts a continuous data stream from the configured source to the configured target",
 	PreRunE: runFlagBinding,
-	RunE:    withSignalWatcher(run),
+	RunE:    withProfiling(withSignalWatcher(run)),
 	Example: `
 	pgstream run --source postgres --source-url <source-postgres-url> --target postgres --target-url <target-postgres-url>
 	pgstream run --source postgres --source-url <source-postgres-url> --target postgres --target-url <target-postgres-url> --snapshot-tables <schema.table> --reset

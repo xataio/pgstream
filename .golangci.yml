@@ -44,7 +44,8 @@ linters:
               reason: This package is deprecated, use `fmt.Errorf` with `%w` instead
     gosec:
       excludes:
-        - G115
+        - G115 # Potential integer overflow when converting between integer types
+        - G108 # Profiling endpoint automatically exposed on /debug/pprof
       severity: low
     makezero:
       always: false

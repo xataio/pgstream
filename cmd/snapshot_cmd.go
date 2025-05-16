@@ -17,7 +17,7 @@ var snapshotCmd = &cobra.Command{
 	Use:     "snapshot",
 	Short:   "Snapshot performs a snapshot of the configured source Postgres database into the configured target",
 	PreRunE: snapshotFlagBinding,
-	RunE:    withSignalWatcher(snapshot),
+	RunE:    withProfiling(withSignalWatcher(snapshot)),
 	Example: `
 	pgstream snapshot --postgres-url <postgres-url> --target postgres --target-url <target-url> --tables <schema.table> --reset
 	pgstream snapshot --config config.yaml --log-level info

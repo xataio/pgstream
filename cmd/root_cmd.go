@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/xataio/pgstream/cmd/config"
+	"github.com/xataio/pgstream/internal/profiling"
 	"github.com/xataio/pgstream/pkg/otel"
 )
 
@@ -59,6 +60,7 @@ func Prepare() *cobra.Command {
 	snapshotCmd.Flags().String("target-url", "", "Target URL")
 	snapshotCmd.Flags().StringSlice("tables", nil, "List of tables to snapshot, in the format <schema>.<table>. If not specified, the schema `public` will be assumed. Wildcards are supported")
 	snapshotCmd.Flags().Bool("reset", false, "Wether to reset the target before snapshotting (only for postgres target)")
+	snapshotCmd.Flags().Bool("profile", false, "Wether to produce CPU and memory profile files, as well as exposing a /debug/pprof/ endpoint on localhost:6060")
 
 	// run cmd
 	runCmd.Flags().String("source", "", "Source type. One of postgres, kafka")
@@ -68,6 +70,7 @@ func Prepare() *cobra.Command {
 	runCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot for pgstream to connect to")
 	runCmd.Flags().StringSlice("snapshot-tables", nil, "List of tables to snapshot if initial snapshot is required, in the format <schema>.<table>. If not specified, the schema `public` will be assumed. Wildcards are supported")
 	runCmd.Flags().Bool("reset", false, "Wether to reset the target before snapshotting (only for postgres target)")
+	runCmd.Flags().Bool("profile", false, "Wether to expose a /debug/pprof/ endpoint on localhost:6060")
 
 	// status cmd
 	statusCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream has been initialised")
@@ -109,6 +112,32 @@ func withSignalWatcher(fn func(ctx context.Context) error) func(cmd *cobra.Comma
 	return func(cmd *cobra.Command, args []string) error {
 		defer cancel()
 		return fn(ctx)
+	}
+}
+
+func withProfiling(fn func(cmd *cobra.Command, args []string) error) func(cmd *cobra.Command, args []string) (err error) {
+	return func(cmd *cobra.Command, args []string) error {
+		if cmd.Flags().Lookup("profile").Value.String() == "false" {
+			return fn(cmd, args)
+		}
+
+		profiling.StartProfilingServer("localhost:6060")
+		// run is a long running process, do not produce a cpu/mem files but
+		// rather expose the http endpoint only.
+		if cmd.Name() == "run" {
+			return fn(cmd, args)
+		}
+
+		stopCPUProfile, err := profiling.StartCPUProfile("cpu.prof")
+		if err != nil {
+			return err
+		}
+		defer func() {
+			stopCPUProfile()
+			profiling.CreateMemoryProfile("mem.prof")
+		}()
+
+		return fn(cmd, args)
 	}
 }
 
