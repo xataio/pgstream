@@ -28,13 +28,18 @@
       "example": "\n\tpgstream run --source postgres --source-url <source-postgres-url> --target postgres --target-url <target-postgres-url>\n\tpgstream run --source postgres --source-url <source-postgres-url> --target postgres --target-url <target-postgres-url> --snapshot-tables <schema.table> --reset\n\tpgstream run --source kafka --source-url <kafka-url> --target elasticsearch --target-url <elasticsearch-url>\n\tpgstream run --source postgres --source-url <postgres-url> --target kafka --target-url <kafka-url>\n\tpgstream run --config config.yaml --log-level info\n\tpgstream run --config config.env",
       "flags": [
         {
+          "name": "profile",
+          "description": "Whether to expose a /debug/pprof endpoint on localhost:6060",
+          "default": "false"
+        },
+        {
           "name": "replication-slot",
           "description": "Name of the postgres replication slot for pgstream to connect to",
           "default": ""
         },
         {
           "name": "reset",
-          "description": "Wether to reset the target before snapshotting (only for postgres target)",
+          "description": "Whether to reset the target before snapshotting (only for postgres target)",
           "default": "false"
         },
         {
@@ -78,8 +83,13 @@
           "default": ""
         },
         {
+          "name": "profile",
+          "description": "Whether to produce CPU and memory profile files, as well as exposing a /debug/pprof endpoint on localhost:6060",
+          "default": "false"
+        },
+        {
           "name": "reset",
-          "description": "Wether to reset the target before snapshotting (only for postgres target)",
+          "description": "Whether to reset the target before snapshotting (only for postgres target)",
           "default": "false"
         },
         {
