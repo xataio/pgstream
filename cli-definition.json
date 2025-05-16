@@ -29,7 +29,7 @@
       "flags": [
         {
           "name": "profile",
-          "description": "Wether to expose a /debug/pprof/ endpoint on localhost:6060",
+          "description": "Whether to expose a /debug/pprof/ endpoint on localhost:6060",
           "default": "false"
         },
         {
@@ -39,7 +39,7 @@
         },
         {
           "name": "reset",
-          "description": "Wether to reset the target before snapshotting (only for postgres target)",
+          "description": "Whether to reset the target before snapshotting (only for postgres target)",
           "default": "false"
         },
         {
@@ -84,12 +84,12 @@
         },
         {
           "name": "profile",
-          "description": "Wether to produce CPU and memory profile files, as well as exposing a /debug/pprof/ endpoint on localhost:6060",
+          "description": "Whether to produce CPU and memory profile files, as well as exposing a /debug/pprof/ endpoint on localhost:6060",
           "default": "false"
         },
         {
           "name": "reset",
-          "description": "Wether to reset the target before snapshotting (only for postgres target)",
+          "description": "Whether to reset the target before snapshotting (only for postgres target)",
           "default": "false"
         },
         {
