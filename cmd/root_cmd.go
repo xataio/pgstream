@@ -60,7 +60,7 @@ func Prepare() *cobra.Command {
 	snapshotCmd.Flags().String("target-url", "", "Target URL")
 	snapshotCmd.Flags().StringSlice("tables", nil, "List of tables to snapshot, in the format <schema>.<table>. If not specified, the schema `public` will be assumed. Wildcards are supported")
 	snapshotCmd.Flags().Bool("reset", false, "Whether to reset the target before snapshotting (only for postgres target)")
-	snapshotCmd.Flags().Bool("profile", false, "Whether to produce CPU and memory profile files, as well as exposing a /debug/pprof/ endpoint on localhost:6060")
+	snapshotCmd.Flags().Bool("profile", false, "Whether to produce CPU and memory profile files, as well as exposing a /debug/pprof endpoint on localhost:6060")
 
 	// run cmd
 	runCmd.Flags().String("source", "", "Source type. One of postgres, kafka")
@@ -70,7 +70,7 @@ func Prepare() *cobra.Command {
 	runCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot for pgstream to connect to")
 	runCmd.Flags().StringSlice("snapshot-tables", nil, "List of tables to snapshot if initial snapshot is required, in the format <schema>.<table>. If not specified, the schema `public` will be assumed. Wildcards are supported")
 	runCmd.Flags().Bool("reset", false, "Whether to reset the target before snapshotting (only for postgres target)")
-	runCmd.Flags().Bool("profile", false, "Whether to expose a /debug/pprof/ endpoint on localhost:6060")
+	runCmd.Flags().Bool("profile", false, "Whether to expose a /debug/pprof endpoint on localhost:6060")
 
 	// status cmd
 	statusCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream has been initialised")

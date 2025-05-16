@@ -29,7 +29,7 @@
       "flags": [
         {
           "name": "profile",
-          "description": "Whether to expose a /debug/pprof/ endpoint on localhost:6060",
+          "description": "Whether to expose a /debug/pprof endpoint on localhost:6060",
           "default": "false"
         },
         {
@@ -84,7 +84,7 @@
         },
         {
           "name": "profile",
-          "description": "Whether to produce CPU and memory profile files, as well as exposing a /debug/pprof/ endpoint on localhost:6060",
+          "description": "Whether to produce CPU and memory profile files, as well as exposing a /debug/pprof endpoint on localhost:6060",
           "default": "false"
         },
         {
