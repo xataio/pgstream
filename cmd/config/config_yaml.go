@@ -634,9 +634,13 @@ func (c YAMLConfig) parseFilterConfig() *filter.Config {
 }
 
 func (c TransformationsConfig) parseTransformationConfig() (*transformer.Config, error) {
-	if len(c.TransformerRules) == 0 {
+	if c.TransformerRules == nil {
 		// transformation configuration provided, but no rules defined
 		return nil, errTableTransformersNotProvided
+	}
+	if len(c.TransformerRules) == 0 {
+		// no transformers configured
+		return nil, nil
 	}
 
 	var globalValidationMode string
