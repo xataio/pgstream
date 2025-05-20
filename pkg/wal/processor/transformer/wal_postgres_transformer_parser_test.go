@@ -42,8 +42,9 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 	}
 
 	testPGValidator := PostgresTransformerParser{
-		conn:    testQuerier,
-		builder: builder.NewTransformerBuilder(),
+		conn:      testQuerier,
+		builder:   builder.NewTransformerBuilder(),
+		pgtypeMap: pgtype.NewMap(),
 	}
 
 	tests := []struct {
