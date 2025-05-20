@@ -14,8 +14,9 @@ import (
 )
 
 type PostgresTransformerParser struct {
-	conn    pglib.Querier
-	builder transformerBuilder
+	conn      pglib.Querier
+	builder   transformerBuilder
+	pgtypeMap *pgtype.Map
 }
 
 const fieldDescriptionsQuery = "SELECT * FROM %s LIMIT 0"
@@ -26,14 +27,14 @@ func NewPostgresTransformerParser(ctx context.Context, pgURL string, builder tra
 		return nil, err
 	}
 	return &PostgresTransformerParser{
-		conn:    pool,
-		builder: builder,
+		conn:      pool,
+		builder:   builder,
+		pgtypeMap: pgtype.NewMap(),
 	}, nil
 }
 
 func (v *PostgresTransformerParser) ParseAndValidate(rules []TableRules) (map[string]ColumnTransformers, error) {
 	transformerMap := map[string]ColumnTransformers{}
-	pgtypeMap := pgtype.NewMap()
 	for _, table := range rules {
 		tableKey := schemaTableKey(table.Schema, table.Table)
 		fieldDescriptions, err := v.getFieldDescriptions(context.Background(), tableKey)
@@ -79,7 +80,7 @@ func (v *PostgresTransformerParser) ParseAndValidate(rules []TableRules) (map[st
 
 			// validate that the transformer is compatible with the column type
 			if !pgTypeCompatibleWithTransformerType(transformer.CompatibleTypes(), datatype) {
-				typeForOid, ok := pgtypeMap.TypeForOID(datatype)
+				typeForOid, ok := v.pgtypeMap.TypeForOID(datatype)
 				if ok {
 					return nil, fmt.Errorf("transformer '%s' specified for column '%s' in table %s does not support pg data type: %s", transformer.Type(), colName, tableKey, typeForOid.Name)
 				}
