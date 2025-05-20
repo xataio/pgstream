@@ -33,6 +33,7 @@ func NewPostgresTransformerParser(ctx context.Context, pgURL string, builder tra
 
 func (v *PostgresTransformerParser) ParseAndValidate(rules []TableRules) (map[string]ColumnTransformers, error) {
 	transformerMap := map[string]ColumnTransformers{}
+	pgtypeMap := pgtype.NewMap()
 	for _, table := range rules {
 		tableKey := schemaTableKey(table.Schema, table.Table)
 		fieldDescriptions, err := v.getFieldDescriptions(context.Background(), tableKey)
@@ -78,7 +79,11 @@ func (v *PostgresTransformerParser) ParseAndValidate(rules []TableRules) (map[st
 
 			// validate that the transformer is compatible with the column type
 			if !pgTypeCompatibleWithTransformerType(transformer.CompatibleTypes(), datatype) {
-				return nil, fmt.Errorf("transformer specified for column '%s' in table %s does not support pg data type with oid: %d", colName, tableKey, datatype)
+				typeForOid, ok := pgtypeMap.TypeForOID(datatype)
+				if ok {
+					return nil, fmt.Errorf("transformer '%s' specified for column '%s' in table %s does not support pg data type: %s", transformer.Type(), colName, tableKey, typeForOid.Name)
+				}
+				return nil, fmt.Errorf("transformer '%s' specified for column '%s' in table %s does not support pg data type with oid: %d", transformer.Type(), colName, tableKey, datatype)
 			}
 
 			// add the transformer to the map
