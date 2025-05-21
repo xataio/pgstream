@@ -749,6 +749,8 @@ transformations:
 | generator | string | random  | No       | random,deterministic |
 | gender    | string | Any     | No       | Any,Female,Male      |
 
+`gender` can also be a dynamic parameter, referring to some other column. Please see the below example config.
+
 **Example Configuration:**
 
 ```yaml
@@ -761,7 +763,9 @@ transformations:
           name: greenmask_firstname
           parameters:
             generator: deterministic
-            gender: Female
+          dynamic_parameters:
+            gender:
+              column: sex
 ```
 
 **Input-Output Examples:**
@@ -1134,6 +1138,7 @@ transformations:
 | generator  | string | random  | No       | random, deterministic |
 
 If the prefix is set, this transformer will always generate phone numbers starting with the prefix.
+`prefix` can also be a dynamic parameter, referring to some other column. Please see the below example config.
 
 **Example Configuration:**
 
@@ -1146,10 +1151,12 @@ transformations:
         phone:
           name: phone_number
           parameters:
-            prefix: "+90"
             min_length: 9
             max_length: 12
             generator: deterministic
+          dynamic_parameters:
+            gender:
+              column: country_code
 ```
 
 </details>
