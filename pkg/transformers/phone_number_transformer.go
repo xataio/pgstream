@@ -10,15 +10,18 @@ import (
 )
 
 type PhoneNumberTransformer struct {
-	prefix    string
-	maxLength int
-	minLength int
-	generator generators.Generator
+	prefix        string
+	maxLength     int
+	minLength     int
+	generator     generators.Generator
+	dynamicParams map[string]*DynamicParameter
 }
 
 var phoneNumberTransformerParams = []string{"prefix", "max_length", "min_length", "generator"}
 
-func NewPhoneNumberTransformer(params Parameters) (*PhoneNumberTransformer, error) {
+const prefixParam = "prefix"
+
+func NewPhoneNumberTransformer(params, dynamicParams Parameters) (*PhoneNumberTransformer, error) {
 	if err := ValidateParameters(params, phoneNumberTransformerParams); err != nil {
 		return nil, err
 	}
@@ -26,6 +29,11 @@ func NewPhoneNumberTransformer(params Parameters) (*PhoneNumberTransformer, erro
 	prefix, err := FindParameterWithDefault(params, "prefix", "")
 	if err != nil {
 		return nil, fmt.Errorf("phone_number: prefix must be a string: %w", err)
+	}
+
+	dynamicParamMap, err := ParseDynamicParameters(dynamicParams)
+	if err != nil {
+		return nil, err
 	}
 
 	maxLength, err := FindParameterWithDefault(params, "max_length", 10)
@@ -66,25 +74,26 @@ func NewPhoneNumberTransformer(params Parameters) (*PhoneNumberTransformer, erro
 	}
 
 	return &PhoneNumberTransformer{
-		prefix:    prefix,
-		maxLength: maxLength,
-		minLength: minLength,
-		generator: generator,
+		prefix:        prefix,
+		maxLength:     maxLength,
+		minLength:     minLength,
+		generator:     generator,
+		dynamicParams: dynamicParamMap,
 	}, nil
 }
 
 func (t *PhoneNumberTransformer) Transform(_ context.Context, value Value) (any, error) {
 	switch v := value.TransformValue.(type) {
 	case string:
-		return t.transform([]byte(v))
+		return t.transform([]byte(v), value.DynamicValues)
 	case []byte:
-		return t.transform(v)
+		return t.transform(v, value.DynamicValues)
 	default:
 		return nil, ErrUnsupportedValueType
 	}
 }
 
-func (t *PhoneNumberTransformer) transform(value []byte) (string, error) {
+func (t *PhoneNumberTransformer) transform(value []byte, dynamicValues map[string]any) (string, error) {
 	const letterBytes = "0123456789"
 
 	data, err := t.generator.Generate(value)
@@ -99,14 +108,23 @@ func (t *PhoneNumberTransformer) transform(value []byte) (string, error) {
 		targetLen += int(firstByte) % (t.maxLength - t.minLength + 1)
 	}
 
+	prefix := t.prefix
+	if prefixDynamicParam := t.dynamicParams[prefixParam]; prefixDynamicParam != nil {
+		var err error
+		prefix, err = FindDynamicValue(prefixDynamicParam, dynamicValues, prefix)
+		if err != nil {
+			return "", fmt.Errorf("invalid value type for dynamic parameter %q", prefixParam)
+		}
+	}
+
 	b := make([]byte, targetLen)
 	// Add prefix
-	prefixLen := len(t.prefix)
+	prefixLen := len(prefix)
 	remainingLen := targetLen - prefixLen
 	if remainingLen > len(data) {
 		return "", fmt.Errorf("phone_number: generated data not enough for target length")
 	}
-	copy(b[:prefixLen], t.prefix)
+	copy(b[:prefixLen], prefix)
 
 	// Fill remaining space with random digits
 	for i := 0; i < remainingLen; i++ {

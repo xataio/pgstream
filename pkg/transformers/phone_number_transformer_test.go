@@ -13,12 +13,14 @@ func TestPhoneNumberTransformer_Transform(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		params     Parameters
-		value      any
-		wantPrefix string
-		wantLen    int
-		wantErr    error
+		name          string
+		params        Parameters
+		dynamicParams Parameters
+		dynamicValues map[string]any
+		value         any
+		wantPrefix    string
+		wantLen       int
+		wantErr       error
 	}{
 		{
 			name: "ok - string with prefix",
@@ -56,6 +58,25 @@ func TestPhoneNumberTransformer_Transform(t *testing.T) {
 			wantErr:    nil,
 		},
 		{
+			name: "ok - with dynamic country code",
+			params: Parameters{
+				"min_length": 12,
+				"max_length": 12,
+			},
+			dynamicParams: map[string]any{
+				"prefix": map[string]any{
+					"column": "country_code",
+				},
+			},
+			dynamicValues: map[string]any{
+				"country_code": "+90",
+			},
+			value:      "123456789",
+			wantPrefix: "+90",
+			wantLen:    12,
+			wantErr:    nil,
+		},
+		{
 			name: "error - prefix longer than min_length",
 			params: Parameters{
 				"prefix":     "12345678",
@@ -80,14 +101,14 @@ func TestPhoneNumberTransformer_Transform(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			transformer, err := NewPhoneNumberTransformer(tc.params)
+			transformer, err := NewPhoneNumberTransformer(tc.params, tc.dynamicParams)
 			if tc.wantErr != nil {
 				require.Error(t, err)
 				return
 			}
 			require.NoError(t, err)
 
-			got, err := transformer.Transform(context.Background(), Value{TransformValue: tc.value})
+			got, err := transformer.Transform(context.Background(), Value{TransformValue: tc.value, DynamicValues: tc.dynamicValues})
 			require.NoError(t, err)
 
 			gotStr, ok := got.(string)

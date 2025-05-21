@@ -75,7 +75,7 @@ func (b *TransformerBuilder) New(cfg *transformers.Config) (t transformers.Trans
 	case transformers.NeosyncEmail:
 		return neosync.NewEmailTransformer(cfg.Parameters)
 	case transformers.PhoneNumber:
-		return transformers.NewPhoneNumberTransformer(cfg.Parameters)
+		return transformers.NewPhoneNumberTransformer(cfg.Parameters, cfg.DynamicParameters)
 	case transformers.Masking:
 		return transformers.NewMaskingTransformer(cfg.Parameters)
 	case transformers.Template:
