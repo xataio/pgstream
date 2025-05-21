@@ -744,10 +744,10 @@ transformations:
 | ----------------------------------- |
 | `text`, `varchar`, `char`, `bpchar` |
 
-| Parameter | Type   | Default | Required | Values               |
-| --------- | ------ | ------- | -------- | -------------------- |
-| generator | string | random  | No       | random,deterministic |
-| gender    | string | Any     | No       | Any,Female,Male      |
+| Parameter | Type   | Default | Required | Values               | Dynamic |
+| --------- | ------ | ------- | -------- | -------------------- | ------- |
+| generator | string | random  | No       | random,deterministic | No      |
+| gender    | string | Any     | No       | Any,Female,Male      | Yes     |
 
 `gender` can also be a dynamic parameter, referring to some other column. Please see the below example config.
 
@@ -1130,12 +1130,12 @@ transformations:
 | ----------------------------------- |
 | `text`, `varchar`, `char`, `bpchar` |
 
-| Parameter  | Type   | Default | Required | Values                |
-| ---------- | ------ | ------- | -------- | --------------------- |
-| prefix     | string | ""      | No       | N/A                   |
-| min_length | int    | 6       | No       | N/A                   |
-| max_length | int    | 10      | No       | N/A                   |
-| generator  | string | random  | No       | random, deterministic |
+| Parameter  | Type   | Default | Required | Values                | Dynamic |
+| ---------- | ------ | ------- | -------- | --------------------- | ------- |
+| prefix     | string | ""      | No       | N/A                   | Yes     |
+| min_length | int    | 6       | No       | N/A                   | No      |
+| max_length | int    | 10      | No       | N/A                   | No      |
+| generator  | string | random  | No       | random, deterministic | No      |
 
 If the prefix is set, this transformer will always generate phone numbers starting with the prefix.
 `prefix` can also be a dynamic parameter, referring to some other column. Please see the below example config.
