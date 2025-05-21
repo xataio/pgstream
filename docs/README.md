@@ -586,9 +586,9 @@ transformations:
 
 This transformer can be used for any Postgres type as long as the given template produces a value with correct syntax for that column type. e.g It can be "5-10-2021" for a date column, or "3.14159265" for a double precision one.
 
-Template transformer supports a bunch of useful functions. Use `.GetValue` to refer to the value to be transformed. Use `.GetDynamicValue "<column_name>"` to refer to some other column. Other than the standard go template functions, there are many useful helper functions supported to be used with template transformer, thanks to `greenmask`'s huge set of [core functions](https://docs.greenmask.io/latest/built_in_transformers/advanced_transformers/custom_functions/core_functions/) including `masking` function by `go-masker` and various [random data generator functions](https://docs.greenmask.io/latest/built_in_transformers/advanced_transformers/custom_functions/faker_function/) powered by the open source library `faker`.
+Template transformer supports a bunch of useful functions. Use `.GetValue` to refer to the value to be transformed. Use `.GetDynamicValue "<column_name>"` to refer to some other column. Other than the standard go template functions, there are many useful helper functions supported to be used with template transformer, thanks to `greenmask`'s huge set of [core functions](https://docs.greenmask.io/latest/built_in_transformers/advanced_transformers/custom_functions/core_functions/) including `masking` function by `go-masker` and various [random data generator functions](https://docs.greenmask.io/latest/built_in_transformers/advanced_transformers/custom_functions/faker_function/) powered by the open source library `faker`. Also, template transformer has support for the open source library [sprig](https://masterminds.github.io/sprig/) which has many useful helper functions.
 
-With the below example config `pgstream` masks values in the column `email` of the table `users`, using `go-masker`'s email masking function, only when the value is a non-empty string. If not, it simply looks for another column named `secondary_email` and uses that instead.
+With the below example config `pgstream` masks values in the column `email` of the table `users`, using `go-masker`'s email masking function. But first, this template checks if there's a non-empty value to be used in the column `email`. If not, it simply looks for another column named `secondary_email` and uses that instead. Then we have another check to see if it's a `@xata` email or not. Finally masking the value, only if it's not a `@xata` email, passing it without a mask otherwise.
 
 **Example Configuration:**
 
@@ -602,10 +602,16 @@ transformations:
           name: template
           parameters:
             template: >
+              {{ $email := "" }}
               {{- if and (ne .GetValue nil) (isString .GetValue) (gt (len .GetValue) 0) -}}
-                {{ masking "email" .GetValue }}
+                {{ $email = .GetValue }}
               {{- else -}}
-                {{ $toMask := .GetDynamicValue "secondary_email" }} {{ masking "email" $toMask }}
+                {{ $email = .GetDynamicValue "secondary_email" }}
+              {{- end -}}
+              {{- if (not (contains "@xata" $email)) -}}
+                {{ masking "email" $email }}
+              {{- else -}}
+                {{ $email }}
               {{- end -}}
 ```
 
