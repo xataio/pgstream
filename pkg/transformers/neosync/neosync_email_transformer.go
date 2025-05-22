@@ -31,22 +31,63 @@ var (
 		neosynctransformers.InvalidEmailAction_Generate.String(),
 	}
 
-	emailTransformerParams = []string{
-		"preserve_length",
-		"preserve_domain",
-		"excluded_domains",
-		"max_length",
-		"seed",
-		"email_type",
-		"invalid_email_action",
+	EmailParams = []transformers.TransformerParameter{
+		{
+			Name:          "seed",
+			SupportedType: "int",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "preserve_length",
+			SupportedType: "boolean",
+			Default:       false,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "max_length",
+			SupportedType: "int",
+			Default:       100,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "preserve_domain",
+			SupportedType: "boolean",
+			Default:       false,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "excluded_domains",
+			SupportedType: "array",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "email_type",
+			SupportedType: "string",
+			Default:       "uuidv4",
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "invalid_email_action",
+			SupportedType: "string",
+			Default:       "reject",
+			Dynamic:       false,
+			Required:      false,
+		},
+	}
+	EmailCompatibleTypes = []transformers.SupportedDataType{
+		transformers.StringDataType,
 	}
 )
 
 func NewEmailTransformer(params transformers.Parameters) (*EmailTransformer, error) {
-	if err := transformers.ValidateParameters(params, emailTransformerParams); err != nil {
-		return nil, err
-	}
-
 	preserveLength, err := findParameter[bool](params, "preserve_length")
 	if err != nil {
 		return nil, fmt.Errorf("neosync_email: preserve_length must be a boolean: %w", err)
@@ -99,9 +140,7 @@ func NewEmailTransformer(params transformers.Parameters) (*EmailTransformer, err
 }
 
 func (t *EmailTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return []transformers.SupportedDataType{
-		transformers.StringDataType,
-	}
+	return EmailCompatibleTypes
 }
 
 func (t *EmailTransformer) Type() transformers.TransformerType {

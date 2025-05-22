@@ -21,19 +21,58 @@ type IntegerTransformer struct {
 	transformer *greenmasktransformers.RandomInt64Transformer
 }
 
-var errUnsupportedSizeError = errors.New("greenmask_integer: size must be 2 or 4")
-
-var integerTransformerParams = []string{"size", "min_value", "max_value", "generator"}
+var (
+	errUnsupportedSizeError = errors.New("greenmask_integer: size must be 2 or 4")
+	IntegerParams           = []transformers.TransformerParameter{
+		{
+			Name:          "generator",
+			SupportedType: "string",
+			Default:       "random",
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "size",
+			SupportedType: "int",
+			Default:       defaultSize,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "min_value",
+			SupportedType: "int",
+			Default:       math.MinInt32,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "max_value",
+			SupportedType: "int",
+			Default:       math.MaxInt32,
+			Dynamic:       false,
+			Required:      false,
+		},
+	}
+	IntegerCompatibleTypes = []transformers.SupportedDataType{
+		transformers.ByteArrayDataType,
+		transformers.Integer8DataType,
+		transformers.UInteger8DataType,
+		transformers.Integer16DataType,
+		transformers.UInteger16DataType,
+		transformers.Integer32DataType,
+		transformers.UInteger32DataType,
+		transformers.Integer64DataType,
+		transformers.UInteger64DataType,
+		transformers.Float32DataType,
+		transformers.Float64DataType,
+	}
+)
 
 // NewIntegerTransformer creates a new IntegerTransformer with the specified
 // generator and parameters. The size parameter must be 2 or 4, and the
 // min_value and max_value parameters must be valid integers within the range of
 // the specified size.
 func NewIntegerTransformer(params transformers.Parameters) (*IntegerTransformer, error) {
-	if err := transformers.ValidateParameters(params, integerTransformerParams); err != nil {
-		return nil, err
-	}
-
 	size, err := findParameter(params, "size", int(defaultSize))
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_integer: size must be an integer: %w", err)
@@ -118,19 +157,7 @@ func (t *IntegerTransformer) Transform(_ context.Context, value transformers.Val
 }
 
 func (t *IntegerTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return []transformers.SupportedDataType{
-		transformers.Integer8DataType,
-		transformers.UInteger8DataType,
-		transformers.Integer16DataType,
-		transformers.UInteger16DataType,
-		transformers.Integer32DataType,
-		transformers.UInteger32DataType,
-		transformers.Integer64DataType,
-		transformers.UInteger64DataType,
-		transformers.Float32DataType,
-		transformers.Float64DataType,
-		transformers.ByteArrayDataType,
-	}
+	return IntegerCompatibleTypes
 }
 
 func (t *IntegerTransformer) Type() transformers.TransformerType {

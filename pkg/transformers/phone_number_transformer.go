@@ -17,15 +17,47 @@ type PhoneNumberTransformer struct {
 	dynamicParams map[string]*DynamicParameter
 }
 
-var phoneNumberTransformerParams = []string{"prefix", "max_length", "min_length", "generator"}
+var (
+	PhoneNumberCompatibleTypes = []SupportedDataType{
+		StringDataType,
+		ByteArrayDataType,
+	}
+
+	PhoneNumberParams = []TransformerParameter{
+		{
+			Name:          "prefix",
+			SupportedType: "string",
+			Default:       "",
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "min_length",
+			SupportedType: "int",
+			Default:       6,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "max_length",
+			SupportedType: "int",
+			Default:       10,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "generator",
+			SupportedType: "string",
+			Default:       "random",
+			Dynamic:       false,
+			Required:      false,
+		},
+	}
+)
 
 const prefixParam = "prefix"
 
 func NewPhoneNumberTransformer(params, dynamicParams Parameters) (*PhoneNumberTransformer, error) {
-	if err := ValidateParameters(params, phoneNumberTransformerParams); err != nil {
-		return nil, err
-	}
-
 	prefix, err := FindParameterWithDefault(params, "prefix", "")
 	if err != nil {
 		return nil, fmt.Errorf("phone_number: prefix must be a string: %w", err)
@@ -135,10 +167,7 @@ func (t *PhoneNumberTransformer) transform(value []byte, dynamicValues map[strin
 }
 
 func (t *PhoneNumberTransformer) CompatibleTypes() []SupportedDataType {
-	return []SupportedDataType{
-		StringDataType,
-		ByteArrayDataType,
-	}
+	return PhoneNumberCompatibleTypes
 }
 
 func (t *PhoneNumberTransformer) Type() TransformerType {
