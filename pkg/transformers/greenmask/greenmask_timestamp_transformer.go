@@ -19,15 +19,44 @@ type UTCTimestampTransformer struct {
 var (
 	errMinMaxTimestampNotSpecified = errors.New("greenmask_timestamp: min_timestamp and max_timestamp must be specified")
 	errInvalidTimestamp            = errors.New("greenmask_timestamp: min_timestamp and max_timestamp must be valid RFC3339 timestamps")
+	UTCTimestampParams             = []transformers.TransformerParameter{
+		{
+			Name:          "generator",
+			SupportedType: "string",
+			Default:       "random",
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "truncate_part",
+			SupportedType: "string",
+			Default:       "",
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "min_timestamp",
+			SupportedType: "string",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      true,
+		},
+		{
+			Name:          "max_timestamp",
+			SupportedType: "string",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      true,
+		},
+	}
+	UTCTimestampCompatibleTypes = []transformers.SupportedDataType{
+		transformers.DatetimeDataType,
+		transformers.ByteArrayDataType,
+		transformers.StringDataType,
+	}
 )
 
-var UTCTimestampTransformerParams = []string{"truncate_part", "min_timestamp", "max_timestamp", "generator"}
-
 func NewUTCTimestampTransformer(params transformers.Parameters) (*UTCTimestampTransformer, error) {
-	if err := transformers.ValidateParameters(params, UTCTimestampTransformerParams); err != nil {
-		return nil, err
-	}
-
 	truncatePart, err := findParameter(params, "truncate_part", "")
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_utc_timestamp: truncate_part must be a string: %w", err)
@@ -90,11 +119,7 @@ func (t *UTCTimestampTransformer) Transform(_ context.Context, value transformer
 }
 
 func (t *UTCTimestampTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return []transformers.SupportedDataType{
-		transformers.DatetimeDataType,
-		transformers.ByteArrayDataType,
-		transformers.StringDataType,
-	}
+	return UTCTimestampCompatibleTypes
 }
 
 func (t *UTCTimestampTransformer) Type() transformers.TransformerType {

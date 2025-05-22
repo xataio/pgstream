@@ -13,13 +13,36 @@ type FirstNameTransformer struct {
 	*transformer[string]
 }
 
-var firstNameTransformerParams = []string{"preserve_length", "max_length", "seed"}
+var (
+	FirstNameParams = []transformers.TransformerParameter{
+		{
+			Name:          "seed",
+			SupportedType: "int",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "preserve_length",
+			SupportedType: "boolean",
+			Default:       false,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "max_length",
+			SupportedType: "int",
+			Default:       100,
+			Dynamic:       false,
+			Required:      false,
+		},
+	}
+	FirstNameCompatibleTypes = []transformers.SupportedDataType{
+		transformers.StringDataType,
+	}
+)
 
 func NewFirstNameTransformer(params transformers.Parameters) (*FirstNameTransformer, error) {
-	if err := transformers.ValidateParameters(params, firstNameTransformerParams); err != nil {
-		return nil, err
-	}
-
 	preserveLength, err := findParameter[bool](params, "preserve_length")
 	if err != nil {
 		return nil, fmt.Errorf("neosync_firstname: preserve_length must be a boolean: %w", err)
@@ -46,9 +69,7 @@ func NewFirstNameTransformer(params transformers.Parameters) (*FirstNameTransfor
 }
 
 func (t *FirstNameTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return []transformers.SupportedDataType{
-		transformers.StringDataType,
-	}
+	return FirstNameCompatibleTypes
 }
 
 func (t *FirstNameTransformer) Type() transformers.TransformerType {

@@ -11,19 +11,39 @@ import (
 	"github.com/xataio/pgstream/pkg/transformers"
 )
 
-var errMinMaxValueNotSpecified = errors.New("min_value and max_value must be specified")
-
-var unixTimestampTransformerParams = []string{"min_value", "max_value", "generator"}
+var (
+	errMinMaxValueNotSpecified = errors.New("min_value and max_value must be specified")
+	UnixTimestampParams        = []transformers.TransformerParameter{
+		{
+			Name:          "generator",
+			SupportedType: "string",
+			Default:       "random",
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "min_value",
+			SupportedType: "string",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      true,
+		},
+		{
+			Name:          "max_value",
+			SupportedType: "string",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      true,
+		},
+	}
+	UnixTimestampCompatibleTypes = IntegerCompatibleTypes
+)
 
 type UnixTimestampTransformer struct {
 	*IntegerTransformer
 }
 
 func NewUnixTimestampTransformer(params transformers.Parameters) (*UnixTimestampTransformer, error) {
-	if err := transformers.ValidateParameters(params, unixTimestampTransformerParams); err != nil {
-		return nil, err
-	}
-
 	minValueStr, foundMin, err := transformers.FindParameter[string](params, "min_value")
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_unix_timestamp: min_value must be a string: %w", err)

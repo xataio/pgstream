@@ -1,0 +1,614 @@
+{
+  "name": "transformers",
+  "transformers": [
+    {
+      "name": "greenmask_boolean",
+      "supported_types": [
+        "boolean",
+        "byte_array"
+      ],
+      "parameters": [
+        {
+          "name": "generator",
+          "supported_type": "string",
+          "default": "random",
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "greenmask_choice",
+      "supported_types": [
+        "string",
+        "byte_array"
+      ],
+      "parameters": [
+        {
+          "name": "choices",
+          "supported_type": "array",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        },
+        {
+          "name": "generator",
+          "supported_type": "string",
+          "default": "random",
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "greenmask_date",
+      "supported_types": [
+        "string",
+        "byte_array",
+        "date"
+      ],
+      "parameters": [
+        {
+          "name": "generator",
+          "supported_type": "string",
+          "default": "random",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "min_value",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        },
+        {
+          "name": "max_value",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "greenmask_firstname",
+      "supported_types": [
+        "string",
+        "byte_array"
+      ],
+      "parameters": [
+        {
+          "name": "generator",
+          "supported_type": "string",
+          "default": "random",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "gender",
+          "supported_type": "string",
+          "default": "Any",
+          "dynamic": true,
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "greenmask_float",
+      "supported_types": [
+        "float32",
+        "float64",
+        "byte_array"
+      ],
+      "parameters": [
+        {
+          "name": "generator",
+          "supported_type": "string",
+          "default": "random",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "min_value",
+          "supported_type": "float",
+          "default": -3.4028234663852886e+38,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "max_value",
+          "supported_type": "float",
+          "default": 3.4028234663852886e+38,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "precision",
+          "supported_type": "int",
+          "default": 2,
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "greenmask_integer",
+      "supported_types": [
+        "byte_array",
+        "integer8",
+        "uinteger8",
+        "integer16",
+        "uinteger16",
+        "integer32",
+        "uinteger32",
+        "integer64",
+        "uinteger64",
+        "float32",
+        "float64"
+      ],
+      "parameters": [
+        {
+          "name": "generator",
+          "supported_type": "string",
+          "default": "random",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "size",
+          "supported_type": "int",
+          "default": 4,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "min_value",
+          "supported_type": "int",
+          "default": -2147483648,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "max_value",
+          "supported_type": "int",
+          "default": 2147483647,
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "greenmask_string",
+      "supported_types": [
+        "string",
+        "byte_array"
+      ],
+      "parameters": [
+        {
+          "name": "symbols",
+          "supported_type": "string",
+          "default": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "min_length",
+          "supported_type": "int",
+          "default": 1,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "max_length",
+          "supported_type": "int",
+          "default": 100,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "generator",
+          "supported_type": "string",
+          "default": "random",
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "greenmask_unix_timestamp",
+      "supported_types": [
+        "byte_array",
+        "integer8",
+        "uinteger8",
+        "integer16",
+        "uinteger16",
+        "integer32",
+        "uinteger32",
+        "integer64",
+        "uinteger64",
+        "float32",
+        "float64"
+      ],
+      "parameters": [
+        {
+          "name": "generator",
+          "supported_type": "string",
+          "default": "random",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "min_value",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        },
+        {
+          "name": "max_value",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "greenmask_utc_timestamp",
+      "supported_types": [
+        "datetime",
+        "byte_array",
+        "string"
+      ],
+      "parameters": [
+        {
+          "name": "generator",
+          "supported_type": "string",
+          "default": "random",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "truncate_part",
+          "supported_type": "string",
+          "default": "",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "min_timestamp",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        },
+        {
+          "name": "max_timestamp",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "greenmask_uuid",
+      "supported_types": [
+        "string",
+        "byte_array",
+        "uuid",
+        "uint8_array_of_16"
+      ],
+      "parameters": [
+        {
+          "name": "generator",
+          "supported_type": "string",
+          "default": "random",
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "literal_string",
+      "supported_types": [
+        "all"
+      ],
+      "parameters": [
+        {
+          "name": "literal",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "masking",
+      "supported_types": [
+        "string",
+        "byte_array"
+      ],
+      "parameters": [
+        {
+          "name": "type",
+          "supported_type": "string",
+          "default": "default",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "mask_begin",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "mask_end",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "unmask_begin",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "unmask_end",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "neosync_email",
+      "supported_types": [
+        "string"
+      ],
+      "parameters": [
+        {
+          "name": "seed",
+          "supported_type": "int",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "preserve_length",
+          "supported_type": "boolean",
+          "default": false,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "max_length",
+          "supported_type": "int",
+          "default": 100,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "preserve_domain",
+          "supported_type": "boolean",
+          "default": false,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "excluded_domains",
+          "supported_type": "array",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "email_type",
+          "supported_type": "string",
+          "default": "uuidv4",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "invalid_email_action",
+          "supported_type": "string",
+          "default": "reject",
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "neosync_firstname",
+      "supported_types": [
+        "string"
+      ],
+      "parameters": [
+        {
+          "name": "seed",
+          "supported_type": "int",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "preserve_length",
+          "supported_type": "boolean",
+          "default": false,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "max_length",
+          "supported_type": "int",
+          "default": 100,
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "neosync_fullname",
+      "supported_types": [
+        "string"
+      ],
+      "parameters": [
+        {
+          "name": "seed",
+          "supported_type": "int",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "preserve_length",
+          "supported_type": "boolean",
+          "default": false,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "max_length",
+          "supported_type": "int",
+          "default": 100,
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "neosync_lastname",
+      "supported_types": [
+        "string"
+      ],
+      "parameters": [
+        {
+          "name": "seed",
+          "supported_type": "int",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "preserve_length",
+          "supported_type": "boolean",
+          "default": false,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "max_length",
+          "supported_type": "int",
+          "default": 100,
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "neosync_string",
+      "supported_types": [
+        "string"
+      ],
+      "parameters": [
+        {
+          "name": "seed",
+          "supported_type": "int",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "preserve_length",
+          "supported_type": "boolean",
+          "default": false,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "min_length",
+          "supported_type": "int",
+          "default": 1,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "max_length",
+          "supported_type": "int",
+          "default": 100,
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "phone_number",
+      "supported_types": [
+        "string",
+        "byte_array"
+      ],
+      "parameters": [
+        {
+          "name": "prefix",
+          "supported_type": "string",
+          "default": "",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "min_length",
+          "supported_type": "int",
+          "default": 6,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "max_length",
+          "supported_type": "int",
+          "default": 10,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "generator",
+          "supported_type": "string",
+          "default": "random",
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "string",
+      "supported_types": [
+        "string",
+        "byte_array"
+      ],
+      "parameters": []
+    },
+    {
+      "name": "template",
+      "supported_types": [
+        "string",
+        "byte_array"
+      ],
+      "parameters": [
+        {
+          "name": "template",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        }
+      ]
+    }
+  ]
+}

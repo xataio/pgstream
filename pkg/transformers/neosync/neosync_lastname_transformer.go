@@ -13,13 +13,36 @@ type LastNameTransformer struct {
 	*transformer[string]
 }
 
-var lastNameTransformerParams = []string{"preserve_length", "max_length", "seed"}
+var (
+	LastNameParams = []transformers.TransformerParameter{
+		{
+			Name:          "seed",
+			SupportedType: "int",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "preserve_length",
+			SupportedType: "boolean",
+			Default:       false,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "max_length",
+			SupportedType: "int",
+			Default:       100,
+			Dynamic:       false,
+			Required:      false,
+		},
+	}
+	LastNameCompatibleTypes = []transformers.SupportedDataType{
+		transformers.StringDataType,
+	}
+)
 
 func NewLastNameTransformer(params transformers.Parameters) (*LastNameTransformer, error) {
-	if err := transformers.ValidateParameters(params, lastNameTransformerParams); err != nil {
-		return nil, err
-	}
-
 	preserveLength, err := findParameter[bool](params, "preserve_length")
 	if err != nil {
 		return nil, fmt.Errorf("neosync_lastname: preserve_length must be a boolean: %w", err)
@@ -46,9 +69,7 @@ func NewLastNameTransformer(params transformers.Parameters) (*LastNameTransforme
 }
 
 func (t *LastNameTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return []transformers.SupportedDataType{
-		transformers.StringDataType,
-	}
+	return LastNameCompatibleTypes
 }
 
 func (t *LastNameTransformer) Type() transformers.TransformerType {

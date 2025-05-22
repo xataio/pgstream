@@ -13,15 +13,22 @@ type LiteralStringTransformer struct {
 }
 
 var (
-	literalStringTransformerParams = []string{"literal"}
-	errLiteralStringNotFound       = errors.New("literal_string_transformer: literal parameter not found")
+	errLiteralStringNotFound     = errors.New("literal_string_transformer: literal parameter not found")
+	LiteralStringCompatibleTypes = []SupportedDataType{
+		AllDataTypes,
+	}
+	LiteralStringParams = []TransformerParameter{
+		{
+			Name:          "literal",
+			SupportedType: "string",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      true,
+		},
+	}
 )
 
 func NewLiteralStringTransformer(params Parameters) (*LiteralStringTransformer, error) {
-	if err := ValidateParameters(params, literalStringTransformerParams); err != nil {
-		return nil, err
-	}
-
 	literal, found, err := FindParameter[string](params, "literal")
 	if err != nil {
 		return nil, fmt.Errorf("literal_string_transformer: literal must be a string: %w", err)
@@ -40,9 +47,7 @@ func (lst *LiteralStringTransformer) Transform(_ context.Context, value Value) (
 }
 
 func (lst *LiteralStringTransformer) CompatibleTypes() []SupportedDataType {
-	return []SupportedDataType{
-		AllDataTypes,
-	}
+	return LiteralStringCompatibleTypes
 }
 
 func (lst *LiteralStringTransformer) Type() TransformerType {
