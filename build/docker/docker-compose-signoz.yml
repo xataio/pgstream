@@ -156,6 +156,7 @@ services:
     volumes:
       - ./signoz/otel-collector-config.yaml:/etc/otel-collector-config.yaml
       - ./signoz/otel-collector-opamp-config.yaml:/etc/manager-config.yaml
+      - /var/run/docker.sock.raw:/var/run/docker.sock
     environment:
       - OTEL_RESOURCE_ATTRIBUTES=host.name=signoz-host,os.type=linux
       - LOW_CARDINAL_EXCEPTION_GROUPING=false
