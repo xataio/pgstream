@@ -73,6 +73,7 @@ var (
 			Default:       "uuidv4",
 			Dynamic:       false,
 			Required:      false,
+			Values:        []any{"uuidv4", "fullname", "any"},
 		},
 		{
 			Name:          "invalid_email_action",
@@ -80,6 +81,7 @@ var (
 			Default:       "reject",
 			Dynamic:       false,
 			Required:      false,
+			Values:        []any{"reject", "passthrough", "null", "generate"},
 		},
 	}
 	EmailCompatibleTypes = []transformers.SupportedDataType{

@@ -26,6 +26,7 @@ var (
 			Default:       "random",
 			Dynamic:       false,
 			Required:      false,
+			Values:        []any{"random", "deterministic"},
 		},
 		{
 			Name:          "truncate_part",
@@ -33,6 +34,7 @@ var (
 			Default:       "",
 			Dynamic:       false,
 			Required:      false,
+			Values:        []any{"year", "month", "day", "hour", "minute", "second", "millisecond", "microsecond", "nanosecond"},
 		},
 		{
 			Name:          "min_timestamp",

@@ -88,6 +88,7 @@ type TransformerParameter struct {
 	Default       any
 	Dynamic       bool
 	Required      bool
+	Values        []any
 }
 
 type Parameters map[string]any

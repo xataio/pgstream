@@ -30,6 +30,7 @@ type Parameter struct {
 	Default       any    `json:"default"`
 	Dynamic       bool   `json:"dynamic"`
 	Required      bool   `json:"required"`
+	Values        []any  `json:"values,omitempty"`
 }
 
 func main() {
@@ -85,6 +86,7 @@ func extractParameters(params []transformers.TransformerParameter) []Parameter {
 			Default:       param.Default,
 			Dynamic:       param.Dynamic,
 			Required:      param.Required,
+			Values:        param.Values,
 		})
 	}
 	return parameters
