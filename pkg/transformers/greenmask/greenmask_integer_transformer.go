@@ -30,6 +30,7 @@ var (
 			Default:       "random",
 			Dynamic:       false,
 			Required:      false,
+			Values:        []any{"random", "deterministic"},
 		},
 		{
 			Name:          "size",
@@ -37,6 +38,7 @@ var (
 			Default:       defaultSize,
 			Dynamic:       false,
 			Required:      false,
+			Values:        []any{2, 4},
 		},
 		{
 			Name:          "min_value",

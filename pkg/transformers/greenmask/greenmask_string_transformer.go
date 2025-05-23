@@ -50,6 +50,7 @@ var (
 			Default:       "random",
 			Dynamic:       false,
 			Required:      false,
+			Values:        []any{"random", "deterministic"},
 		},
 	}
 )

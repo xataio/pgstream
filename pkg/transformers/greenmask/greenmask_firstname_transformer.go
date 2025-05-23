@@ -25,6 +25,7 @@ var (
 			Default:       "random",
 			Dynamic:       false,
 			Required:      false,
+			Values:        []any{"random", "deterministic"},
 		},
 		{
 			Name:          genderParam,
@@ -32,6 +33,7 @@ var (
 			Default:       greenmasktransformers.AnyGenderName,
 			Dynamic:       true,
 			Required:      false,
+			Values:        []any{"Male", "Female", "Any"},
 		},
 	}
 	FirstNameCompatibleTypes = []transformers.SupportedDataType{

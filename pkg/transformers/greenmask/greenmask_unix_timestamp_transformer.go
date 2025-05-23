@@ -20,6 +20,7 @@ var (
 			Default:       "random",
 			Dynamic:       false,
 			Required:      false,
+			Values:        []any{"random", "deterministic"},
 		},
 		{
 			Name:          "min_value",

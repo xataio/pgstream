@@ -13,7 +13,11 @@
           "supported_type": "string",
           "default": "random",
           "dynamic": false,
-          "required": false
+          "required": false,
+          "values": [
+            "random",
+            "deterministic"
+          ]
         }
       ]
     },
@@ -36,7 +40,11 @@
           "supported_type": "string",
           "default": "random",
           "dynamic": false,
-          "required": false
+          "required": false,
+          "values": [
+            "random",
+            "deterministic"
+          ]
         }
       ]
     },
@@ -53,7 +61,11 @@
           "supported_type": "string",
           "default": "random",
           "dynamic": false,
-          "required": false
+          "required": false,
+          "values": [
+            "random",
+            "deterministic"
+          ]
         },
         {
           "name": "min_value",
@@ -83,14 +95,23 @@
           "supported_type": "string",
           "default": "random",
           "dynamic": false,
-          "required": false
+          "required": false,
+          "values": [
+            "random",
+            "deterministic"
+          ]
         },
         {
           "name": "gender",
           "supported_type": "string",
           "default": "Any",
           "dynamic": true,
-          "required": false
+          "required": false,
+          "values": [
+            "Male",
+            "Female",
+            "Any"
+          ]
         }
       ]
     },
@@ -107,7 +128,11 @@
           "supported_type": "string",
           "default": "random",
           "dynamic": false,
-          "required": false
+          "required": false,
+          "values": [
+            "random",
+            "deterministic"
+          ]
         },
         {
           "name": "min_value",
@@ -153,14 +178,22 @@
           "supported_type": "string",
           "default": "random",
           "dynamic": false,
-          "required": false
+          "required": false,
+          "values": [
+            "random",
+            "deterministic"
+          ]
         },
         {
           "name": "size",
           "supported_type": "int",
           "default": 4,
           "dynamic": false,
-          "required": false
+          "required": false,
+          "values": [
+            2,
+            4
+          ]
         },
         {
           "name": "min_value",
@@ -211,7 +244,11 @@
           "supported_type": "string",
           "default": "random",
           "dynamic": false,
-          "required": false
+          "required": false,
+          "values": [
+            "random",
+            "deterministic"
+          ]
         }
       ]
     },
@@ -236,7 +273,11 @@
           "supported_type": "string",
           "default": "random",
           "dynamic": false,
-          "required": false
+          "required": false,
+          "values": [
+            "random",
+            "deterministic"
+          ]
         },
         {
           "name": "min_value",
@@ -267,14 +308,29 @@
           "supported_type": "string",
           "default": "random",
           "dynamic": false,
-          "required": false
+          "required": false,
+          "values": [
+            "random",
+            "deterministic"
+          ]
         },
         {
           "name": "truncate_part",
           "supported_type": "string",
           "default": "",
           "dynamic": false,
-          "required": false
+          "required": false,
+          "values": [
+            "year",
+            "month",
+            "day",
+            "hour",
+            "minute",
+            "second",
+            "millisecond",
+            "microsecond",
+            "nanosecond"
+          ]
         },
         {
           "name": "min_timestamp",
@@ -306,7 +362,11 @@
           "supported_type": "string",
           "default": "random",
           "dynamic": false,
-          "required": false
+          "required": false,
+          "values": [
+            "random",
+            "deterministic"
+          ]
         }
       ]
     },
@@ -337,7 +397,20 @@
           "supported_type": "string",
           "default": "default",
           "dynamic": false,
-          "required": false
+          "required": false,
+          "values": [
+            "custom",
+            "password",
+            "name",
+            "address",
+            "email",
+            "mobile",
+            "tel",
+            "id",
+            "credit_card",
+            "url",
+            "default"
+          ]
         },
         {
           "name": "mask_begin",
@@ -415,14 +488,25 @@
           "supported_type": "string",
           "default": "uuidv4",
           "dynamic": false,
-          "required": false
+          "required": false,
+          "values": [
+            "uuidv4",
+            "fullname",
+            "any"
+          ]
         },
         {
           "name": "invalid_email_action",
           "supported_type": "string",
           "default": "reject",
           "dynamic": false,
-          "required": false
+          "required": false,
+          "values": [
+            "reject",
+            "passthrough",
+            "null",
+            "generate"
+          ]
         }
       ]
     },
@@ -582,7 +666,11 @@
           "supported_type": "string",
           "default": "random",
           "dynamic": false,
-          "required": false
+          "required": false,
+          "values": [
+            "random",
+            "deterministic"
+          ]
         }
       ]
     },

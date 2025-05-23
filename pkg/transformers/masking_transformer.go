@@ -42,6 +42,7 @@ var (
 			Default:       "default",
 			Dynamic:       false,
 			Required:      false,
+			Values:        []any{"custom", "password", "name", "address", "email", "mobile", "tel", "id", "credit_card", "url", "default"},
 		},
 		{
 			Name:          "mask_begin",
