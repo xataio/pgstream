@@ -18,6 +18,12 @@ type TransformerBuilder struct {
 
 type Option func(b *TransformerBuilder)
 
+type TransformerDefinition struct {
+	SupportedTypes []transformers.SupportedDataType
+	Parameters     []transformers.TransformerParameter
+	CreateFunc     func(*transformers.Config) (transformers.Transformer, error)
+}
+
 func NewTransformerBuilder(opts ...Option) *TransformerBuilder {
 	b := &TransformerBuilder{}
 	for _, opt := range opts {
@@ -32,6 +38,151 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 	}
 }
 
+var TransformersMap = map[transformers.TransformerType]TransformerDefinition{
+	transformers.Masking: {
+		SupportedTypes: transformers.MaskingCompatibleTypes,
+		Parameters:     transformers.MaskingParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return transformers.NewMaskingTransformer(cfg.Parameters)
+		},
+	},
+	transformers.Template: {
+		SupportedTypes: transformers.TemplateCompatibleTypes,
+		Parameters:     transformers.TemplateParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return transformers.NewTemplateTransformer(cfg.Parameters)
+		},
+	},
+	transformers.PhoneNumber: {
+		SupportedTypes: transformers.PhoneNumberCompatibleTypes,
+		Parameters:     transformers.PhoneNumberParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return transformers.NewPhoneNumberTransformer(cfg.Parameters, cfg.DynamicParameters)
+		},
+	},
+	transformers.LiteralString: {
+		SupportedTypes: transformers.LiteralStringCompatibleTypes,
+		Parameters:     transformers.LiteralStringParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return transformers.NewLiteralStringTransformer(cfg.Parameters)
+		},
+	},
+	transformers.String: {
+		SupportedTypes: transformers.StringCompatibleTypes,
+		Parameters:     transformers.StringParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return transformers.NewStringTransformer(cfg.Parameters)
+		},
+	},
+	// Greenmask transformers
+	transformers.GreenmaskString: {
+		SupportedTypes: greenmask.StringCompatibleTypes,
+		Parameters:     greenmask.StringParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return greenmask.NewStringTransformer(cfg.Parameters)
+		},
+	},
+	transformers.GreenmaskFirstName: {
+		SupportedTypes: greenmask.FirstNameCompatibleTypes,
+		Parameters:     greenmask.FirstNameParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return greenmask.NewFirstNameTransformer(cfg.Parameters, cfg.DynamicParameters)
+		},
+	},
+	transformers.GreenmaskInteger: {
+		SupportedTypes: greenmask.IntegerCompatibleTypes,
+		Parameters:     greenmask.IntegerParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return greenmask.NewIntegerTransformer(cfg.Parameters)
+		},
+	},
+	transformers.GreenmaskFloat: {
+		SupportedTypes: greenmask.FloatCompatibleTypes,
+		Parameters:     greenmask.FloatParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return greenmask.NewFloatTransformer(cfg.Parameters)
+		},
+	},
+	transformers.GreenmaskUUID: {
+		SupportedTypes: greenmask.UUIDCompatibleTypes,
+		Parameters:     greenmask.UUIDParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return greenmask.NewUUIDTransformer(cfg.Parameters)
+		},
+	},
+	transformers.GreenmaskBoolean: {
+		SupportedTypes: greenmask.BooleanCompatibleTypes,
+		Parameters:     greenmask.BooleanParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return greenmask.NewBooleanTransformer(cfg.Parameters)
+		},
+	},
+	transformers.GreenmaskChoice: {
+		SupportedTypes: greenmask.ChoiceCompatibleTypes,
+		Parameters:     greenmask.ChoiceParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return greenmask.NewChoiceTransformer(cfg.Parameters)
+		},
+	},
+	transformers.GreenmaskUnixTimestamp: {
+		SupportedTypes: greenmask.UnixTimestampCompatibleTypes,
+		Parameters:     greenmask.UnixTimestampParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return greenmask.NewUnixTimestampTransformer(cfg.Parameters)
+		},
+	},
+	transformers.GreenmaskDate: {
+		SupportedTypes: greenmask.DateCompatibleTypes,
+		Parameters:     greenmask.DateParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return greenmask.NewDateTransformer(cfg.Parameters)
+		},
+	},
+	transformers.GreenmaskUTCTimestamp: {
+		SupportedTypes: greenmask.UTCTimestampCompatibleTypes,
+		Parameters:     greenmask.UTCTimestampParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return greenmask.NewUTCTimestampTransformer(cfg.Parameters)
+		},
+	},
+	// Neosync transformers
+	transformers.NeosyncString: {
+		SupportedTypes: neosync.StringCompatibleTypes,
+		Parameters:     neosync.StringParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return neosync.NewStringTransformer(cfg.Parameters)
+		},
+	},
+	transformers.NeosyncFirstName: {
+		SupportedTypes: neosync.FirstNameCompatibleTypes,
+		Parameters:     neosync.FirstNameParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return neosync.NewFirstNameTransformer(cfg.Parameters)
+		},
+	},
+	transformers.NeosyncLastName: {
+		SupportedTypes: neosync.LastNameCompatibleTypes,
+		Parameters:     neosync.LastNameParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return neosync.NewLastNameTransformer(cfg.Parameters)
+		},
+	},
+	transformers.NeosyncFullName: {
+		SupportedTypes: neosync.FullNameCompatibleTypes,
+		Parameters:     neosync.FullNameParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return neosync.NewFullNameTransformer(cfg.Parameters)
+		},
+	},
+	transformers.NeosyncEmail: {
+		SupportedTypes: neosync.EmailCompatibleTypes,
+		Parameters:     neosync.EmailParams,
+		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return neosync.NewEmailTransformer(cfg.Parameters)
+		},
+	},
+}
+
 func (b *TransformerBuilder) New(cfg *transformers.Config) (t transformers.Transformer, err error) {
 	defer func() {
 		if b.instrumentation != nil {
@@ -39,48 +190,18 @@ func (b *TransformerBuilder) New(cfg *transformers.Config) (t transformers.Trans
 		}
 	}()
 
-	switch cfg.Name {
-	case transformers.GreenmaskString:
-		return greenmask.NewStringTransformer(cfg.Parameters)
-	case transformers.GreenmaskFirstName:
-		return greenmask.NewFirstNameTransformer(cfg.Parameters, cfg.DynamicParameters)
-	case transformers.GreenmaskInteger:
-		return greenmask.NewIntegerTransformer(cfg.Parameters)
-	case transformers.GreenmaskFloat:
-		return greenmask.NewFloatTransformer(cfg.Parameters)
-	case transformers.GreenmaskUUID:
-		return greenmask.NewUUIDTransformer(cfg.Parameters)
-	case transformers.GreenmaskBoolean:
-		return greenmask.NewBooleanTransformer(cfg.Parameters)
-	case transformers.GreenmaskChoice:
-		return greenmask.NewChoiceTransformer(cfg.Parameters)
-	case transformers.GreenmaskUnixTimestamp:
-		return greenmask.NewUnixTimestampTransformer(cfg.Parameters)
-	case transformers.GreenmaskDate:
-		return greenmask.NewDateTransformer(cfg.Parameters)
-	case transformers.GreenmaskUTCTimestamp:
-		return greenmask.NewUTCTimestampTransformer(cfg.Parameters)
-	case transformers.String:
-		return transformers.NewStringTransformer(cfg.Parameters)
-	case transformers.LiteralString:
-		return transformers.NewLiteralStringTransformer(cfg.Parameters)
-	case transformers.NeosyncString:
-		return neosync.NewStringTransformer(cfg.Parameters)
-	case transformers.NeosyncFirstName:
-		return neosync.NewFirstNameTransformer(cfg.Parameters)
-	case transformers.NeosyncLastName:
-		return neosync.NewLastNameTransformer(cfg.Parameters)
-	case transformers.NeosyncFullName:
-		return neosync.NewFullNameTransformer(cfg.Parameters)
-	case transformers.NeosyncEmail:
-		return neosync.NewEmailTransformer(cfg.Parameters)
-	case transformers.PhoneNumber:
-		return transformers.NewPhoneNumberTransformer(cfg.Parameters, cfg.DynamicParameters)
-	case transformers.Masking:
-		return transformers.NewMaskingTransformer(cfg.Parameters)
-	case transformers.Template:
-		return transformers.NewTemplateTransformer(cfg.Parameters)
-	default:
+	transformerDef, ok := TransformersMap[cfg.Name]
+	if !ok {
 		return nil, fmt.Errorf("%w: unexpected transformer name '%s'", transformers.ErrUnsupportedTransformer, cfg.Name)
 	}
+
+	paramNames := make([]string, len(transformerDef.Parameters))
+	for i, param := range transformerDef.Parameters {
+		paramNames[i] = param.Name
+	}
+
+	if err := transformers.ValidateParameters(cfg.Parameters, paramNames); err != nil {
+		return nil, err
+	}
+	return transformerDef.CreateFunc(cfg)
 }

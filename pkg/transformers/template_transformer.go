@@ -18,14 +18,23 @@ type TemplateTransformer struct {
 }
 
 var (
-	templateTransformerParams = []string{"template"}
 	errTemplateMustBeProvided = errors.New("template_transformer: template parameter must be provided")
+	TemplateCompatibleTypes   = []SupportedDataType{
+		StringDataType,
+		ByteArrayDataType,
+	}
+	TemplateParams = []TransformerParameter{
+		{
+			Name:          "template",
+			SupportedType: "string",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      true,
+		},
+	}
 )
 
 func NewTemplateTransformer(params Parameters) (*TemplateTransformer, error) {
-	if err := ValidateParameters(params, templateTransformerParams); err != nil {
-		return nil, err
-	}
 	templateStr, found, err := FindParameter[string](params, "template")
 	if err != nil {
 		return nil, fmt.Errorf("template_transformer: template must be a string: %w", err)
@@ -50,9 +59,7 @@ func (t *TemplateTransformer) Transform(_ context.Context, value Value) (any, er
 }
 
 func (t *TemplateTransformer) CompatibleTypes() []SupportedDataType {
-	return []SupportedDataType{
-		AllDataTypes,
-	}
+	return TemplateCompatibleTypes
 }
 
 func (t *TemplateTransformer) Type() TransformerType {

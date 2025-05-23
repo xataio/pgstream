@@ -82,6 +82,15 @@ const (
 	columnDynamicParam = "column"
 )
 
+type TransformerParameter struct {
+	Name          string
+	SupportedType string
+	Default       any
+	Dynamic       bool
+	Required      bool
+	Values        []any
+}
+
 type Parameters map[string]any
 
 var (

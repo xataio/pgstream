@@ -26,14 +26,6 @@ func TestNewTemplateTransformer(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "error - invalid parameter",
-			params: Parameters{
-				"template": "{{- if eq .GetValue \"hello\" -}} first {{- else -}} second {{- end -}}",
-				"invalid":  "invalid",
-			},
-			wantErr: ErrUnknownParameter,
-		},
-		{
 			name:    "error - template not provided",
 			params:  Parameters{},
 			wantErr: errTemplateMustBeProvided,

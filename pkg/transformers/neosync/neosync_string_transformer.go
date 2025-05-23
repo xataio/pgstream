@@ -13,13 +13,43 @@ type StringTransformer struct {
 	*transformer[string]
 }
 
-var stringTransformerParams = []string{"preserve_length", "min_length", "max_length", "seed"}
+var (
+	StringParams = []transformers.TransformerParameter{
+		{
+			Name:          "seed",
+			SupportedType: "int",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "preserve_length",
+			SupportedType: "boolean",
+			Default:       false,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "min_length",
+			SupportedType: "int",
+			Default:       1,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "max_length",
+			SupportedType: "int",
+			Default:       100,
+			Dynamic:       false,
+			Required:      false,
+		},
+	}
+	StringCompatibleTypes = []transformers.SupportedDataType{
+		transformers.StringDataType,
+	}
+)
 
 func NewStringTransformer(params transformers.Parameters) (*StringTransformer, error) {
-	if err := transformers.ValidateParameters(params, stringTransformerParams); err != nil {
-		return nil, err
-	}
-
 	preserveLength, err := findParameter[bool](params, "preserve_length")
 	if err != nil {
 		return nil, fmt.Errorf("neosync_string: preserve_length must be a boolean: %w", err)
@@ -51,9 +81,7 @@ func NewStringTransformer(params transformers.Parameters) (*StringTransformer, e
 }
 
 func (t *StringTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return []transformers.SupportedDataType{
-		transformers.StringDataType,
-	}
+	return StringCompatibleTypes
 }
 
 func (t *StringTransformer) Type() transformers.TransformerType {
