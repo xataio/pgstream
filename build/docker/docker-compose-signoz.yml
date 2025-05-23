@@ -1,7 +1,7 @@
 version: "3"
 x-common: &common
   networks:
-    - signoz-net
+    - pgstream-net
   restart: unless-stopped
   logging:
     options:
@@ -192,9 +192,7 @@ services:
       - --up=
     restart: on-failure
     profiles: ["instrumentation"]
-networks:
-  signoz-net:
-    name: signoz-net
+
 volumes:
   clickhouse:
     name: signoz-clickhouse

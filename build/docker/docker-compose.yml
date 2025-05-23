@@ -14,6 +14,8 @@ services:
       - ./postgres/postgresql.conf:/etc/postgresql.conf
     command: -c config_file=/etc/postgresql.conf
     profiles: ["pg2os", "pg2webhook", "pg2pg"]
+    networks:
+      - pgstream-net
 
   db2:
     build: postgres
@@ -27,6 +29,8 @@ services:
       - ./postgres/postgresql.conf:/etc/postgresql.conf
     command: -c config_file=/etc/postgresql.conf
     profiles: ["pg2pg"]
+    networks:
+      - pgstream-net
 
   kafka:
     image: "bitnami/kafka:latest"
@@ -42,6 +46,8 @@ services:
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092,EXTERNAL://localhost:9094
     profiles: ["kafka"]
+    networks:
+      - pgstream-net
 
   opensearch:
     image: "opensearchproject/opensearch:2.7.0"
@@ -60,12 +66,21 @@ services:
         soft: -1
         hard: -1
     profiles: ["pg2os"]
+    networks:
+      - pgstream-net
+
   opensearch-dashboards:
     image: "opensearchproject/opensearch-dashboards:2.7.0"
     ports: ["5601:5601"]
     environment: ["OPENSEARCH_HOSTS=http://opensearch:9200"] # 9201 to access externally, 9200 internally
     profiles: ["pg2os"]
+    networks:
+      - pgstream-net
 
 volumes:
   data:
     driver: local
+
+networks:
+  pgstream-net:
+    name: pgstream-net
