@@ -136,6 +136,12 @@ func (i *Querier) Close(ctx context.Context) (err error) {
 	return i.inner.Close(ctx)
 }
 
+func (i *Querier) CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (rowCount int64, err error) {
+	ctx, span := otel.StartSpan(ctx, i.tracer, "querier.CopyFrom")
+	defer otel.CloseSpan(span, err)
+	return i.inner.CopyFrom(ctx, tableName, columnNames, srcRows)
+}
+
 func (i *Querier) initMetrics() error {
 	if i.meter == nil {
 		return nil
