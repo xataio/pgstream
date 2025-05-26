@@ -14,7 +14,7 @@ type FullNameTransformer struct {
 }
 
 var (
-	FullNameParams = []transformers.Parameter{
+	fullNameParams = []transformers.Parameter{
 		{
 			Name:          "seed",
 			SupportedType: "int",
@@ -37,7 +37,7 @@ var (
 			Required:      false,
 		},
 	}
-	FullNameCompatibleTypes = []transformers.SupportedDataType{
+	fullNameCompatibleTypes = []transformers.SupportedDataType{
 		transformers.StringDataType,
 	}
 )
@@ -69,9 +69,16 @@ func NewFullNameTransformer(params transformers.ParameterValues) (*FullNameTrans
 }
 
 func (t *FullNameTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return FullNameCompatibleTypes
+	return fullNameCompatibleTypes
 }
 
 func (t *FullNameTransformer) Type() transformers.TransformerType {
 	return transformers.NeosyncFullName
+}
+
+func FullNameTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: fullNameCompatibleTypes,
+		Parameters:     fullNameParams,
+	}
 }

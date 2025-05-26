@@ -19,7 +19,7 @@ type UTCTimestampTransformer struct {
 var (
 	errMinMaxTimestampNotSpecified = errors.New("greenmask_timestamp: min_timestamp and max_timestamp must be specified")
 	errInvalidTimestamp            = errors.New("greenmask_timestamp: min_timestamp and max_timestamp must be valid RFC3339 timestamps")
-	UTCTimestampParams             = []transformers.Parameter{
+	utcTimestampParams             = []transformers.Parameter{
 		{
 			Name:          "generator",
 			SupportedType: "string",
@@ -51,7 +51,7 @@ var (
 			Required:      true,
 		},
 	}
-	UTCTimestampCompatibleTypes = []transformers.SupportedDataType{
+	utcTimestampCompatibleTypes = []transformers.SupportedDataType{
 		transformers.DatetimeDataType,
 		transformers.ByteArrayDataType,
 		transformers.StringDataType,
@@ -121,9 +121,16 @@ func (t *UTCTimestampTransformer) Transform(_ context.Context, value transformer
 }
 
 func (t *UTCTimestampTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return UTCTimestampCompatibleTypes
+	return utcTimestampCompatibleTypes
 }
 
 func (t *UTCTimestampTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskUTCTimestamp
+}
+
+func UTCTimestampTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: utcTimestampCompatibleTypes,
+		Parameters:     utcTimestampParams,
+	}
 }

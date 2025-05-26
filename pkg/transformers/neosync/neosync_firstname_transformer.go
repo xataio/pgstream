@@ -14,7 +14,7 @@ type FirstNameTransformer struct {
 }
 
 var (
-	FirstNameParams = []transformers.Parameter{
+	firstNameParams = []transformers.Parameter{
 		{
 			Name:          "seed",
 			SupportedType: "int",
@@ -37,7 +37,7 @@ var (
 			Required:      false,
 		},
 	}
-	FirstNameCompatibleTypes = []transformers.SupportedDataType{
+	firstNameCompatibleTypes = []transformers.SupportedDataType{
 		transformers.StringDataType,
 	}
 )
@@ -69,9 +69,16 @@ func NewFirstNameTransformer(params transformers.ParameterValues) (*FirstNameTra
 }
 
 func (t *FirstNameTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return FirstNameCompatibleTypes
+	return firstNameCompatibleTypes
 }
 
 func (t *FirstNameTransformer) Type() transformers.TransformerType {
 	return transformers.NeosyncFirstName
+}
+
+func FirstNameTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: firstNameCompatibleTypes,
+		Parameters:     firstNameParams,
+	}
 }

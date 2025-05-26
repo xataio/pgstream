@@ -18,12 +18,12 @@ type PhoneNumberTransformer struct {
 }
 
 var (
-	PhoneNumberCompatibleTypes = []SupportedDataType{
+	phoneNumberCompatibleTypes = []SupportedDataType{
 		StringDataType,
 		ByteArrayDataType,
 	}
 
-	PhoneNumberParams = []Parameter{
+	phoneNumberParams = []Parameter{
 		{
 			Name:          "prefix",
 			SupportedType: "string",
@@ -168,9 +168,16 @@ func (t *PhoneNumberTransformer) transform(value []byte, dynamicValues map[strin
 }
 
 func (t *PhoneNumberTransformer) CompatibleTypes() []SupportedDataType {
-	return PhoneNumberCompatibleTypes
+	return phoneNumberCompatibleTypes
 }
 
 func (t *PhoneNumberTransformer) Type() TransformerType {
 	return PhoneNumber
+}
+
+func PhoneNumberTransformerDefinition() *Definition {
+	return &Definition{
+		SupportedTypes: phoneNumberCompatibleTypes,
+		Parameters:     phoneNumberParams,
+	}
 }

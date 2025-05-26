@@ -14,7 +14,7 @@ type LastNameTransformer struct {
 }
 
 var (
-	LastNameParams = []transformers.Parameter{
+	lastNameParams = []transformers.Parameter{
 		{
 			Name:          "seed",
 			SupportedType: "int",
@@ -37,7 +37,7 @@ var (
 			Required:      false,
 		},
 	}
-	LastNameCompatibleTypes = []transformers.SupportedDataType{
+	lastNameCompatibleTypes = []transformers.SupportedDataType{
 		transformers.StringDataType,
 	}
 )
@@ -69,9 +69,16 @@ func NewLastNameTransformer(params transformers.ParameterValues) (*LastNameTrans
 }
 
 func (t *LastNameTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return LastNameCompatibleTypes
+	return lastNameCompatibleTypes
 }
 
 func (t *LastNameTransformer) Type() transformers.TransformerType {
 	return transformers.NeosyncLastName
+}
+
+func LastNameTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: lastNameCompatibleTypes,
+		Parameters:     lastNameParams,
+	}
 }

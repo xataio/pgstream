@@ -17,12 +17,12 @@ type StringTransformer struct {
 const defaultSymbols = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
 
 var (
-	StringCompatibleTypes = []transformers.SupportedDataType{
+	stringCompatibleTypes = []transformers.SupportedDataType{
 		transformers.StringDataType,
 		transformers.ByteArrayDataType,
 	}
 
-	StringParams = []transformers.Parameter{
+	stringParams = []transformers.Parameter{
 		{
 			Name:          "symbols",
 			SupportedType: "string",
@@ -101,9 +101,16 @@ func (st *StringTransformer) Transform(_ context.Context, value transformers.Val
 }
 
 func (st *StringTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return StringCompatibleTypes
+	return stringCompatibleTypes
 }
 
 func (st *StringTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskString
+}
+
+func StringTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: stringCompatibleTypes,
+		Parameters:     stringParams,
+	}
 }

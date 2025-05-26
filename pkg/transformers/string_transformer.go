@@ -16,8 +16,8 @@ type StringTransformer struct {
 }
 
 var (
-	StringParams          = []Parameter{}
-	StringCompatibleTypes = []SupportedDataType{
+	stringParams          = []Parameter{}
+	stringCompatibleTypes = []SupportedDataType{
 		StringDataType,
 		ByteArrayDataType,
 	}
@@ -49,9 +49,16 @@ func (st *StringTransformer) transform(str string) string {
 }
 
 func (st *StringTransformer) CompatibleTypes() []SupportedDataType {
-	return StringCompatibleTypes
+	return stringCompatibleTypes
 }
 
 func (st *StringTransformer) Type() TransformerType {
 	return String
+}
+
+func StringTransformerDefinition() *Definition {
+	return &Definition{
+		SupportedTypes: stringCompatibleTypes,
+		Parameters:     stringParams,
+	}
 }

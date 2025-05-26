@@ -31,7 +31,7 @@ var (
 		neosynctransformers.InvalidEmailAction_Generate.String(),
 	}
 
-	EmailParams = []transformers.Parameter{
+	emailParams = []transformers.Parameter{
 		{
 			Name:          "seed",
 			SupportedType: "int",
@@ -84,7 +84,7 @@ var (
 			Values:        []any{"reject", "passthrough", "null", "generate"},
 		},
 	}
-	EmailCompatibleTypes = []transformers.SupportedDataType{
+	emailCompatibleTypes = []transformers.SupportedDataType{
 		transformers.StringDataType,
 	}
 )
@@ -142,9 +142,16 @@ func NewEmailTransformer(params transformers.ParameterValues) (*EmailTransformer
 }
 
 func (t *EmailTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return EmailCompatibleTypes
+	return emailCompatibleTypes
 }
 
 func (t *EmailTransformer) Type() transformers.TransformerType {
 	return transformers.NeosyncEmail
+}
+
+func EmailTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: emailCompatibleTypes,
+		Parameters:     emailParams,
+	}
 }
