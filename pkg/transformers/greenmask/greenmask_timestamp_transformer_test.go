@@ -16,12 +16,12 @@ func TestNewUTCTimestampTransformer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
-		params  transformers.Parameters
+		params  transformers.ParameterValues
 		wantErr error
 	}{
 		{
 			name: "ok - valid random",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator":     random,
 				"min_timestamp": "2021-01-01T00:00:00Z",
 				"max_timestamp": "2022-01-02T00:00:00Z",
@@ -30,7 +30,7 @@ func TestNewUTCTimestampTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid truncate_part",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator":     deterministic,
 				"truncate_part": 1.2,
 			},
@@ -38,7 +38,7 @@ func TestNewUTCTimestampTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid min_timestamp",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator":     deterministic,
 				"min_timestamp": 1.2,
 			},
@@ -46,7 +46,7 @@ func TestNewUTCTimestampTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid min_timestamp format",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator":     deterministic,
 				"min_timestamp": "2021 Jan 01",
 				"max_timestamp": "2022-01-02T00:00:00Z",
@@ -55,7 +55,7 @@ func TestNewUTCTimestampTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid max_timestamp",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator":     random,
 				"min_timestamp": "2021-01-01T00:00:00Z",
 				"max_timestamp": 1.2,
@@ -64,7 +64,7 @@ func TestNewUTCTimestampTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid max_timestamp format",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator":     deterministic,
 				"min_timestamp": "2021-01-01T00:00:00Z",
 				"max_timestamp": "2021 Jan 01",
@@ -73,7 +73,7 @@ func TestNewUTCTimestampTransformer(t *testing.T) {
 		},
 		{
 			name: "error - min_timestamp not specified",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator":     random,
 				"max_timestamp": "2022-01-02T00:00:00Z",
 			},
@@ -81,7 +81,7 @@ func TestNewUTCTimestampTransformer(t *testing.T) {
 		},
 		{
 			name: "error - min_timestamp equal to max_timestamp",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator":     deterministic,
 				"min_timestamp": "2023-01-02T00:00:00Z",
 				"max_timestamp": "2023-01-02T00:01:00+01:00",
@@ -90,7 +90,7 @@ func TestNewUTCTimestampTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid generator type",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator":     "invalid",
 				"min_timestamp": "2021-01-01T00:00:00Z",
 				"max_timestamp": "2022-01-02T00:00:00Z",
@@ -117,13 +117,13 @@ func TestUTCTimestampTransformer_Transform(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   any
-		params  transformers.Parameters
+		params  transformers.ParameterValues
 		wantErr error
 	}{
 		{
 			name:  "ok - transform string randomly",
 			input: "test",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator":     random,
 				"min_timestamp": "2022-01-01T00:00:00Z",
 				"max_timestamp": "2023-01-02T00:00:00Z",
@@ -134,7 +134,7 @@ func TestUTCTimestampTransformer_Transform(t *testing.T) {
 		{
 			name:  "ok - transform []byte deterministically",
 			input: []byte("test"),
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator":     deterministic,
 				"min_timestamp": "2021-01-01T00:00:00Z",
 				"max_timestamp": "2023-01-02T00:00:00Z",
@@ -145,7 +145,7 @@ func TestUTCTimestampTransformer_Transform(t *testing.T) {
 		{
 			name:  "ok - transform time.Time deterministically",
 			input: time.Now(),
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator":     deterministic,
 				"min_timestamp": "2020-01-01T00:00:00Z",
 				"max_timestamp": "2023-01-02T00:00:00Z",
@@ -156,7 +156,7 @@ func TestUTCTimestampTransformer_Transform(t *testing.T) {
 		{
 			name:  "ok - truncate after millisecond part",
 			input: "2021-01-01T00:00:00Z",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator":     deterministic,
 				"min_timestamp": "2023-01-01T00:00:00Z",
 				"max_timestamp": "2023-01-01T01:10:00+01:00",
@@ -167,7 +167,7 @@ func TestUTCTimestampTransformer_Transform(t *testing.T) {
 		{
 			name:  "error - invalid input type",
 			input: 1,
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator":     deterministic,
 				"min_timestamp": "2020-01-01T00:00:00Z",
 				"max_timestamp": "2023-01-02T00:00:00Z",

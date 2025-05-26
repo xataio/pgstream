@@ -23,7 +23,7 @@ var (
 		StringDataType,
 		ByteArrayDataType,
 	}
-	TemplateParams = []TransformerParameter{
+	TemplateParams = []Parameter{
 		{
 			Name:          "template",
 			SupportedType: "string",
@@ -34,7 +34,7 @@ var (
 	}
 )
 
-func NewTemplateTransformer(params Parameters) (*TemplateTransformer, error) {
+func NewTemplateTransformer(params ParameterValues) (*TemplateTransformer, error) {
 	templateStr, found, err := FindParameter[string](params, "template")
 	if err != nil {
 		return nil, fmt.Errorf("template_transformer: template must be a string: %w", err)

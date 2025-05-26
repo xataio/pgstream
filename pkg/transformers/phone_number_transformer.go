@@ -23,7 +23,7 @@ var (
 		ByteArrayDataType,
 	}
 
-	PhoneNumberParams = []TransformerParameter{
+	PhoneNumberParams = []Parameter{
 		{
 			Name:          "prefix",
 			SupportedType: "string",
@@ -58,7 +58,7 @@ var (
 
 const prefixParam = "prefix"
 
-func NewPhoneNumberTransformer(params, dynamicParams Parameters) (*PhoneNumberTransformer, error) {
+func NewPhoneNumberTransformer(params, dynamicParams ParameterValues) (*PhoneNumberTransformer, error) {
 	prefix, err := FindParameterWithDefault(params, "prefix", "")
 	if err != nil {
 		return nil, fmt.Errorf("phone_number: prefix must be a string: %w", err)

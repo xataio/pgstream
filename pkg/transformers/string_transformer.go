@@ -16,14 +16,14 @@ type StringTransformer struct {
 }
 
 var (
-	StringParams          = []TransformerParameter{}
+	StringParams          = []Parameter{}
 	StringCompatibleTypes = []SupportedDataType{
 		StringDataType,
 		ByteArrayDataType,
 	}
 )
 
-func NewStringTransformer(params Parameters) (*StringTransformer, error) {
+func NewStringTransformer(params ParameterValues) (*StringTransformer, error) {
 	return &StringTransformer{}, nil
 }
 

@@ -25,8 +25,8 @@ type DynamicParameter struct {
 
 type Config struct {
 	Name              TransformerType
-	Parameters        Parameters
-	DynamicParameters Parameters
+	Parameters        ParameterValues
+	DynamicParameters ParameterValues
 }
 
 type TransformerType string
@@ -82,7 +82,12 @@ const (
 	columnDynamicParam = "column"
 )
 
-type TransformerParameter struct {
+type Definition struct {
+	SupportedTypes []SupportedDataType
+	Parameters     []Parameter
+}
+
+type Parameter struct {
 	Name          string
 	SupportedType string
 	Default       any
@@ -91,7 +96,7 @@ type TransformerParameter struct {
 	Values        []any
 }
 
-type Parameters map[string]any
+type ParameterValues map[string]any
 
 var (
 	ErrUnsupportedValueType     = errors.New("unsupported value type for transformer")
@@ -109,7 +114,7 @@ func NewValue(transformValue any, dynamicValues map[string]any) Value {
 	}
 }
 
-func FindParameter[T any](params Parameters, name string) (T, bool, error) {
+func FindParameter[T any](params ParameterValues, name string) (T, bool, error) {
 	valAny, found := params[name]
 	if !found {
 		return *new(T), false, nil
@@ -123,7 +128,7 @@ func FindParameter[T any](params Parameters, name string) (T, bool, error) {
 	return val, true, nil
 }
 
-func FindParameterWithDefault[T any](params Parameters, name string, defaultValue T) (T, error) {
+func FindParameterWithDefault[T any](params ParameterValues, name string, defaultValue T) (T, error) {
 	val, found, err := FindParameter[T](params, name)
 	if err != nil {
 		return val, err
@@ -134,7 +139,7 @@ func FindParameterWithDefault[T any](params Parameters, name string, defaultValu
 	return val, nil
 }
 
-func FindParameterArray[T any](params Parameters, name string) ([]T, bool, error) {
+func FindParameterArray[T any](params ParameterValues, name string) ([]T, bool, error) {
 	// first check if the array is of the expected type
 	arrValue, found, err := FindParameter[[]T](params, name)
 	if err == nil {
@@ -159,7 +164,7 @@ func FindParameterArray[T any](params Parameters, name string) ([]T, bool, error
 	return valArray, true, nil
 }
 
-func ParseDynamicParameters(params Parameters) (map[string]*DynamicParameter, error) {
+func ParseDynamicParameters(params ParameterValues) (map[string]*DynamicParameter, error) {
 	dynamicParamMap := make(map[string]*DynamicParameter, len(params))
 	for param, anyVal := range params {
 		if param == "" {

@@ -16,19 +16,19 @@ func TestNewIntegerTransformer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
-		params  transformers.Parameters
+		params  transformers.ParameterValues
 		wantErr error
 	}{
 		{
 			name: "ok - valid default parameters",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 			},
 			wantErr: nil,
 		},
 		{
 			name: "ok - valid custom parameters",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 				"size":      4,
 				"min_value": -100,
@@ -38,14 +38,14 @@ func TestNewIntegerTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid generator type",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": "invalid",
 			},
 			wantErr: transformers.ErrUnsupportedGenerator,
 		},
 		{
 			name: "error - invalid size, too small",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 				"size":      0,
 			},
@@ -53,7 +53,7 @@ func TestNewIntegerTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid size, too large",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 				"size":      9,
 			},
@@ -61,7 +61,7 @@ func TestNewIntegerTransformer(t *testing.T) {
 		},
 		{
 			name: "error - wrong limits",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 				"min_value": 100,
 				"max_value": 99,
@@ -70,7 +70,7 @@ func TestNewIntegerTransformer(t *testing.T) {
 		},
 		{
 			name: "error - wrong limits not fitting size",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 				"min_value": math.MaxInt,
 				"size":      2,
@@ -79,7 +79,7 @@ func TestNewIntegerTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid size type",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 				"size":      "invalid",
 			},
@@ -87,7 +87,7 @@ func TestNewIntegerTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid min_value type",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 				"min_value": "invalid",
 			},
@@ -95,7 +95,7 @@ func TestNewIntegerTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid max_value type",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 				"max_value": "invalid",
 			},
@@ -122,7 +122,7 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 	tests := []struct {
 		name   string
 		input  any
-		params transformers.Parameters
+		params transformers.ParameterValues
 
 		wantErr error
 	}{
@@ -167,28 +167,28 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - transform int64 randomly with default params",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 			},
 			input: int64(500),
 		},
 		{
 			name: "ok - transform int deterministically with default params",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 			},
 			input: int(500),
 		},
 		{
 			name: "ok - transform uint deterministically with default params",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 			},
 			input: uint(4646),
 		},
 		{
 			name: "ok - transform uint32 deterministically with default params",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 			},
 			input: uint32(500000000),

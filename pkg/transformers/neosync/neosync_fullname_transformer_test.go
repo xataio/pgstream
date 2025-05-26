@@ -14,14 +14,14 @@ func TestNewFullnameTransformer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name     string
-		params   transformers.Parameters
+		params   transformers.ParameterValues
 		input    any
 		wantErr  error
 		wantName string
 	}{
 		{
 			name: "ok - valid",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"preserve_length": false,
 				"max_length":      20,
 				"seed":            1234,
@@ -32,7 +32,7 @@ func TestNewFullnameTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid preserve_length",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"preserve_length": 123,
 				"max_length":      10,
 				"seed":            123,
@@ -41,7 +41,7 @@ func TestNewFullnameTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid max_length",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"preserve_length": true,
 				"max_length":      "invalid",
 				"seed":            123,
@@ -50,7 +50,7 @@ func TestNewFullnameTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid seed",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"preserve_length": true,
 				"max_length":      10,
 				"seed":            "invalid",

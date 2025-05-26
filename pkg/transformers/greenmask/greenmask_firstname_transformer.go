@@ -18,7 +18,7 @@ type FirstNameTransformer struct {
 const genderParam = "gender"
 
 var (
-	FirstNameParams = []transformers.TransformerParameter{
+	FirstNameParams = []transformers.Parameter{
 		{
 			Name:          "generator",
 			SupportedType: "string",
@@ -42,7 +42,7 @@ var (
 	}
 )
 
-func NewFirstNameTransformer(params, dynamicParams transformers.Parameters) (*FirstNameTransformer, error) {
+func NewFirstNameTransformer(params, dynamicParams transformers.ParameterValues) (*FirstNameTransformer, error) {
 	gender, err := transformers.FindParameterWithDefault(params, genderParam, greenmasktransformers.AnyGenderName)
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_firstname: gender must be a string: %w", err)

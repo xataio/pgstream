@@ -23,7 +23,7 @@ type FloatTransformer struct {
 }
 
 var (
-	FloatParams = []transformers.TransformerParameter{
+	FloatParams = []transformers.Parameter{
 		{
 			Name:          "generator",
 			SupportedType: "string",
@@ -61,7 +61,7 @@ var (
 	}
 )
 
-func NewFloatTransformer(params transformers.Parameters) (*FloatTransformer, error) {
+func NewFloatTransformer(params transformers.ParameterValues) (*FloatTransformer, error) {
 	minValue, err := findParameter(params, "min_value", defaultMinFloat)
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_float: min_value must be a float: %w", err)

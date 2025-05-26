@@ -19,7 +19,7 @@ type UTCTimestampTransformer struct {
 var (
 	errMinMaxTimestampNotSpecified = errors.New("greenmask_timestamp: min_timestamp and max_timestamp must be specified")
 	errInvalidTimestamp            = errors.New("greenmask_timestamp: min_timestamp and max_timestamp must be valid RFC3339 timestamps")
-	UTCTimestampParams             = []transformers.TransformerParameter{
+	UTCTimestampParams             = []transformers.Parameter{
 		{
 			Name:          "generator",
 			SupportedType: "string",
@@ -58,7 +58,7 @@ var (
 	}
 )
 
-func NewUTCTimestampTransformer(params transformers.Parameters) (*UTCTimestampTransformer, error) {
+func NewUTCTimestampTransformer(params transformers.ParameterValues) (*UTCTimestampTransformer, error) {
 	truncatePart, err := findParameter(params, "truncate_part", "")
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_utc_timestamp: truncate_part must be a string: %w", err)

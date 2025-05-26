@@ -13,7 +13,7 @@ func Test_FindParameter(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		params    Parameters
+		params    ParameterValues
 		paramName string
 
 		wantFound bool
@@ -72,7 +72,7 @@ func Test_FindParameterWithDefault(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		params       Parameters
+		params       ParameterValues
 		paramName    string
 		defaultValue int
 
@@ -130,7 +130,7 @@ func Test_FindParameterArray(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		params    Parameters
+		params    ParameterValues
 		paramName string
 
 		wantFound bool
@@ -211,7 +211,7 @@ func Test_ParseDynamicParameters(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		params  Parameters
+		params  ParameterValues
 		want    map[string]*DynamicParameter
 		wantErr error
 	}{

@@ -35,7 +35,7 @@ var (
 		StringDataType,
 		ByteArrayDataType,
 	}
-	MaskingParams = []TransformerParameter{
+	MaskingParams = []Parameter{
 		{
 			Name:          "type",
 			SupportedType: "string",
@@ -83,7 +83,7 @@ type MaskingTransformer struct {
 }
 
 // NewMaskingTransformer creates a new MaskingTransformer with the given masking function.
-func NewMaskingTransformer(params Parameters) (*MaskingTransformer, error) {
+func NewMaskingTransformer(params ParameterValues) (*MaskingTransformer, error) {
 	var mf maskingFunction
 	maskType, found, err := FindParameter[string](params, "type")
 	if err != nil {
@@ -151,7 +151,7 @@ func (t *MaskingTransformer) Type() TransformerType {
 	return Masking
 }
 
-func getCustomMaskingFn(params Parameters) (maskingFunction, error) {
+func getCustomMaskingFn(params ParameterValues) (maskingFunction, error) {
 	maskBegin, maskBeginFound, err := FindParameter[string](params, "mask_begin")
 	if err != nil {
 		return nil, fmt.Errorf("masking: mask_begin must be a string: %w", err)

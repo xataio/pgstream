@@ -14,7 +14,7 @@ type BooleanTransformer struct {
 }
 
 var (
-	BooleanParams = []transformers.TransformerParameter{
+	BooleanParams = []transformers.Parameter{
 		{
 			Name:          "generator",
 			SupportedType: "string",
@@ -30,7 +30,7 @@ var (
 	}
 )
 
-func NewBooleanTransformer(params transformers.Parameters) (*BooleanTransformer, error) {
+func NewBooleanTransformer(params transformers.ParameterValues) (*BooleanTransformer, error) {
 	t := greenmasktransformers.NewRandomBoolean()
 	if err := setGenerator(t, params); err != nil {
 		return nil, err

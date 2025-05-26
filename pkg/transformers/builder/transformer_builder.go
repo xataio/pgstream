@@ -20,8 +20,9 @@ type Option func(b *TransformerBuilder)
 
 type TransformerDefinition struct {
 	SupportedTypes []transformers.SupportedDataType
-	Parameters     []transformers.TransformerParameter
-	CreateFunc     func(*transformers.Config) (transformers.Transformer, error)
+	Parameters     []transformers.Parameter
+	Definition     *transformers.Definition
+	BuildFn        func(*transformers.Config) (transformers.Transformer, error)
 }
 
 func NewTransformerBuilder(opts ...Option) *TransformerBuilder {
@@ -42,35 +43,35 @@ var TransformersMap = map[transformers.TransformerType]TransformerDefinition{
 	transformers.Masking: {
 		SupportedTypes: transformers.MaskingCompatibleTypes,
 		Parameters:     transformers.MaskingParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return transformers.NewMaskingTransformer(cfg.Parameters)
 		},
 	},
 	transformers.Template: {
 		SupportedTypes: transformers.TemplateCompatibleTypes,
 		Parameters:     transformers.TemplateParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return transformers.NewTemplateTransformer(cfg.Parameters)
 		},
 	},
 	transformers.PhoneNumber: {
 		SupportedTypes: transformers.PhoneNumberCompatibleTypes,
 		Parameters:     transformers.PhoneNumberParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return transformers.NewPhoneNumberTransformer(cfg.Parameters, cfg.DynamicParameters)
 		},
 	},
 	transformers.LiteralString: {
 		SupportedTypes: transformers.LiteralStringCompatibleTypes,
 		Parameters:     transformers.LiteralStringParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return transformers.NewLiteralStringTransformer(cfg.Parameters)
 		},
 	},
 	transformers.String: {
 		SupportedTypes: transformers.StringCompatibleTypes,
 		Parameters:     transformers.StringParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return transformers.NewStringTransformer(cfg.Parameters)
 		},
 	},
@@ -78,70 +79,70 @@ var TransformersMap = map[transformers.TransformerType]TransformerDefinition{
 	transformers.GreenmaskString: {
 		SupportedTypes: greenmask.StringCompatibleTypes,
 		Parameters:     greenmask.StringParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return greenmask.NewStringTransformer(cfg.Parameters)
 		},
 	},
 	transformers.GreenmaskFirstName: {
 		SupportedTypes: greenmask.FirstNameCompatibleTypes,
 		Parameters:     greenmask.FirstNameParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return greenmask.NewFirstNameTransformer(cfg.Parameters, cfg.DynamicParameters)
 		},
 	},
 	transformers.GreenmaskInteger: {
 		SupportedTypes: greenmask.IntegerCompatibleTypes,
 		Parameters:     greenmask.IntegerParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return greenmask.NewIntegerTransformer(cfg.Parameters)
 		},
 	},
 	transformers.GreenmaskFloat: {
 		SupportedTypes: greenmask.FloatCompatibleTypes,
 		Parameters:     greenmask.FloatParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return greenmask.NewFloatTransformer(cfg.Parameters)
 		},
 	},
 	transformers.GreenmaskUUID: {
 		SupportedTypes: greenmask.UUIDCompatibleTypes,
 		Parameters:     greenmask.UUIDParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return greenmask.NewUUIDTransformer(cfg.Parameters)
 		},
 	},
 	transformers.GreenmaskBoolean: {
 		SupportedTypes: greenmask.BooleanCompatibleTypes,
 		Parameters:     greenmask.BooleanParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return greenmask.NewBooleanTransformer(cfg.Parameters)
 		},
 	},
 	transformers.GreenmaskChoice: {
 		SupportedTypes: greenmask.ChoiceCompatibleTypes,
 		Parameters:     greenmask.ChoiceParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return greenmask.NewChoiceTransformer(cfg.Parameters)
 		},
 	},
 	transformers.GreenmaskUnixTimestamp: {
 		SupportedTypes: greenmask.UnixTimestampCompatibleTypes,
 		Parameters:     greenmask.UnixTimestampParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return greenmask.NewUnixTimestampTransformer(cfg.Parameters)
 		},
 	},
 	transformers.GreenmaskDate: {
 		SupportedTypes: greenmask.DateCompatibleTypes,
 		Parameters:     greenmask.DateParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return greenmask.NewDateTransformer(cfg.Parameters)
 		},
 	},
 	transformers.GreenmaskUTCTimestamp: {
 		SupportedTypes: greenmask.UTCTimestampCompatibleTypes,
 		Parameters:     greenmask.UTCTimestampParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return greenmask.NewUTCTimestampTransformer(cfg.Parameters)
 		},
 	},
@@ -149,35 +150,35 @@ var TransformersMap = map[transformers.TransformerType]TransformerDefinition{
 	transformers.NeosyncString: {
 		SupportedTypes: neosync.StringCompatibleTypes,
 		Parameters:     neosync.StringParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return neosync.NewStringTransformer(cfg.Parameters)
 		},
 	},
 	transformers.NeosyncFirstName: {
 		SupportedTypes: neosync.FirstNameCompatibleTypes,
 		Parameters:     neosync.FirstNameParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return neosync.NewFirstNameTransformer(cfg.Parameters)
 		},
 	},
 	transformers.NeosyncLastName: {
 		SupportedTypes: neosync.LastNameCompatibleTypes,
 		Parameters:     neosync.LastNameParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return neosync.NewLastNameTransformer(cfg.Parameters)
 		},
 	},
 	transformers.NeosyncFullName: {
 		SupportedTypes: neosync.FullNameCompatibleTypes,
 		Parameters:     neosync.FullNameParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return neosync.NewFullNameTransformer(cfg.Parameters)
 		},
 	},
 	transformers.NeosyncEmail: {
 		SupportedTypes: neosync.EmailCompatibleTypes,
 		Parameters:     neosync.EmailParams,
-		CreateFunc: func(cfg *transformers.Config) (transformers.Transformer, error) {
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
 			return neosync.NewEmailTransformer(cfg.Parameters)
 		},
 	},
@@ -203,5 +204,5 @@ func (b *TransformerBuilder) New(cfg *transformers.Config) (t transformers.Trans
 	if err := transformers.ValidateParameters(cfg.Parameters, paramNames); err != nil {
 		return nil, err
 	}
-	return transformerDef.CreateFunc(cfg)
+	return transformerDef.BuildFn(cfg)
 }

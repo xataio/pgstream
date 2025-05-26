@@ -77,7 +77,7 @@ func extractSupportedTypes(types []transformers.SupportedDataType) []string {
 	return supportedTypes
 }
 
-func extractParameters(params []transformers.TransformerParameter) []Parameter {
+func extractParameters(params []transformers.Parameter) []Parameter {
 	parameters := make([]Parameter, 0, len(params))
 	for _, param := range params {
 		parameters = append(parameters, Parameter{
