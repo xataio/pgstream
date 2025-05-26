@@ -1,7 +1,7 @@
 version: "3"
 x-common: &common
   networks:
-    - signoz-net
+    - pgstream-net
   restart: unless-stopped
   logging:
     options:
@@ -113,12 +113,10 @@ services:
     profiles: ["instrumentation"]
   signoz:
     !!merge <<: *db-depend
-    image: signoz/signoz:${VERSION:-v0.81.0}
+    image: signoz/signoz:${VERSION:-v0.82.0}
     container_name: signoz
     command:
       - --config=/root/config/prometheus.yml
-      - --use-logs-new-schema=true
-      - --use-trace-new-schema=true
     ports:
       - "8080:8080" # signoz port
     #   - "6060:6060"     # pprof port
@@ -148,7 +146,7 @@ services:
     profiles: ["instrumentation"]
   otel-collector:
     !!merge <<: *db-depend
-    image: signoz/signoz-otel-collector:${OTELCOL_TAG:-v0.111.40}
+    image: signoz/signoz-otel-collector:${OTELCOL_TAG:-v0.111.41}
     container_name: signoz-otel-collector
     command:
       - --config=/etc/otel-collector-config.yaml
@@ -158,6 +156,7 @@ services:
     volumes:
       - ./signoz/otel-collector-config.yaml:/etc/otel-collector-config.yaml
       - ./signoz/otel-collector-opamp-config.yaml:/etc/manager-config.yaml
+      - /var/run/docker.sock.raw:/var/run/docker.sock
     environment:
       - OTEL_RESOURCE_ATTRIBUTES=host.name=signoz-host,os.type=linux
       - LOW_CARDINAL_EXCEPTION_GROUPING=false
@@ -171,7 +170,7 @@ services:
     profiles: ["instrumentation"]
   schema-migrator-sync:
     !!merge <<: *common
-    image: signoz/signoz-schema-migrator:${OTELCOL_TAG:-v0.111.40}
+    image: signoz/signoz-schema-migrator:${OTELCOL_TAG:-v0.111.41}
     container_name: schema-migrator-sync
     command:
       - sync
@@ -184,7 +183,7 @@ services:
     profiles: ["instrumentation"]
   schema-migrator-async:
     !!merge <<: *db-depend
-    image: signoz/signoz-schema-migrator:${OTELCOL_TAG:-v0.111.40}
+    image: signoz/signoz-schema-migrator:${OTELCOL_TAG:-v0.111.41}
     container_name: schema-migrator-async
     command:
       - async
@@ -192,9 +191,7 @@ services:
       - --up=
     restart: on-failure
     profiles: ["instrumentation"]
-networks:
-  signoz-net:
-    name: signoz-net
+
 volumes:
   clickhouse:
     name: signoz-clickhouse
