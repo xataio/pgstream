@@ -13,7 +13,7 @@ import (
 
 var (
 	errMinMaxValueNotSpecified = errors.New("min_value and max_value must be specified")
-	UnixTimestampParams        = []transformers.TransformerParameter{
+	UnixTimestampParams        = []transformers.Parameter{
 		{
 			Name:          "generator",
 			SupportedType: "string",
@@ -44,7 +44,7 @@ type UnixTimestampTransformer struct {
 	*IntegerTransformer
 }
 
-func NewUnixTimestampTransformer(params transformers.Parameters) (*UnixTimestampTransformer, error) {
+func NewUnixTimestampTransformer(params transformers.ParameterValues) (*UnixTimestampTransformer, error) {
 	minValueStr, foundMin, err := transformers.FindParameter[string](params, "min_value")
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_unix_timestamp: min_value must be a string: %w", err)

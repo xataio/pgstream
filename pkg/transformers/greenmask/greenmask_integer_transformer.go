@@ -23,7 +23,7 @@ type IntegerTransformer struct {
 
 var (
 	errUnsupportedSizeError = errors.New("greenmask_integer: size must be 2 or 4")
-	IntegerParams           = []transformers.TransformerParameter{
+	IntegerParams           = []transformers.Parameter{
 		{
 			Name:          "generator",
 			SupportedType: "string",
@@ -74,7 +74,7 @@ var (
 // generator and parameters. The size parameter must be 2 or 4, and the
 // min_value and max_value parameters must be valid integers within the range of
 // the specified size.
-func NewIntegerTransformer(params transformers.Parameters) (*IntegerTransformer, error) {
+func NewIntegerTransformer(params transformers.ParameterValues) (*IntegerTransformer, error) {
 	size, err := findParameter(params, "size", int(defaultSize))
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_integer: size must be an integer: %w", err)

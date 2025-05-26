@@ -17,7 +17,7 @@ var (
 	LiteralStringCompatibleTypes = []SupportedDataType{
 		AllDataTypes,
 	}
-	LiteralStringParams = []TransformerParameter{
+	LiteralStringParams = []Parameter{
 		{
 			Name:          "literal",
 			SupportedType: "string",
@@ -28,7 +28,7 @@ var (
 	}
 )
 
-func NewLiteralStringTransformer(params Parameters) (*LiteralStringTransformer, error) {
+func NewLiteralStringTransformer(params ParameterValues) (*LiteralStringTransformer, error) {
 	literal, found, err := FindParameter[string](params, "literal")
 	if err != nil {
 		return nil, fmt.Errorf("literal_string_transformer: literal must be a string: %w", err)

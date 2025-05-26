@@ -15,7 +15,7 @@ const (
 	deterministic = "deterministic"
 )
 
-func setGenerator(t greenmasktransformers.Transformer, params transformers.Parameters) error {
+func setGenerator(t greenmasktransformers.Transformer, params transformers.ParameterValues) error {
 	generatorType, err := getGeneratorType(params)
 	if err != nil {
 		return err
@@ -38,16 +38,16 @@ func setGenerator(t greenmasktransformers.Transformer, params transformers.Param
 	return t.SetGenerator(greenmaskGenerator)
 }
 
-func getGeneratorType(params transformers.Parameters) (string, error) {
+func getGeneratorType(params transformers.ParameterValues) (string, error) {
 	// default to using the random generator
 	return findParameter(params, "generator", random)
 }
 
-func findParameter[T any](params transformers.Parameters, name string, defaultVal T) (T, error) {
+func findParameter[T any](params transformers.ParameterValues, name string, defaultVal T) (T, error) {
 	return transformers.FindParameterWithDefault(params, name, defaultVal)
 }
 
-func findParameterArray[T any](params transformers.Parameters, name string, defaultVal []T) ([]T, error) {
+func findParameterArray[T any](params transformers.ParameterValues, name string, defaultVal []T) ([]T, error) {
 	val, found, err := transformers.FindParameterArray[T](params, name)
 	if err != nil {
 		return val, err

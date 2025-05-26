@@ -15,12 +15,12 @@ func TestNewChoiceTransformer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
-		params  transformers.Parameters
+		params  transformers.ParameterValues
 		wantErr error
 	}{
 		{
 			name: "ok - valid random",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 				"choices":   []string{"a", "b", "c", "d"},
 			},
@@ -28,7 +28,7 @@ func TestNewChoiceTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid generator type",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": "invalid",
 				"choices":   []string{"a", "b", "c", "d"},
 			},
@@ -36,7 +36,7 @@ func TestNewChoiceTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid choices",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 			},
 			wantErr: errChoicesEmpty,
@@ -61,13 +61,13 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   any
-		params  transformers.Parameters
+		params  transformers.ParameterValues
 		wantErr error
 	}{
 		{
 			name:  "ok - transform string randomly",
 			input: "test",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 				"choices":   []string{"a", "b", "c", "d"},
 			},
@@ -76,7 +76,7 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 		{
 			name:  "ok - transform []byte deterministically",
 			input: []byte("test"),
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 				"choices":   []string{"a", "b", "c", "d"},
 			},
@@ -85,7 +85,7 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 		{
 			name:  "ok - transform RawValue deterministically",
 			input: toolkit.NewRawValue([]byte("test"), false),
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 				"choices":   []string{"a", "b", "c", "d"},
 			},
@@ -94,7 +94,7 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 		{
 			name:  "error - invalid input type",
 			input: 1,
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 				"choices":   []string{"a", "b", "c", "d"},
 			},

@@ -14,7 +14,7 @@ type StringTransformer struct {
 }
 
 var (
-	StringParams = []transformers.TransformerParameter{
+	StringParams = []transformers.Parameter{
 		{
 			Name:          "seed",
 			SupportedType: "int",
@@ -49,7 +49,7 @@ var (
 	}
 )
 
-func NewStringTransformer(params transformers.Parameters) (*StringTransformer, error) {
+func NewStringTransformer(params transformers.ParameterValues) (*StringTransformer, error) {
 	preserveLength, err := findParameter[bool](params, "preserve_length")
 	if err != nil {
 		return nil, fmt.Errorf("neosync_string: preserve_length must be a boolean: %w", err)

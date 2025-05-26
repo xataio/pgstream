@@ -22,7 +22,7 @@ var (
 		transformers.ByteArrayDataType,
 	}
 
-	StringParams = []transformers.TransformerParameter{
+	StringParams = []transformers.Parameter{
 		{
 			Name:          "symbols",
 			SupportedType: "string",
@@ -55,7 +55,7 @@ var (
 	}
 )
 
-func NewStringTransformer(params transformers.Parameters) (*StringTransformer, error) {
+func NewStringTransformer(params transformers.ParameterValues) (*StringTransformer, error) {
 	symbols, err := findParameter(params, "symbols", defaultSymbols)
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_string: symbols must be a string: %w", err)

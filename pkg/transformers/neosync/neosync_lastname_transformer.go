@@ -14,7 +14,7 @@ type LastNameTransformer struct {
 }
 
 var (
-	LastNameParams = []transformers.TransformerParameter{
+	LastNameParams = []transformers.Parameter{
 		{
 			Name:          "seed",
 			SupportedType: "int",
@@ -42,7 +42,7 @@ var (
 	}
 )
 
-func NewLastNameTransformer(params transformers.Parameters) (*LastNameTransformer, error) {
+func NewLastNameTransformer(params transformers.ParameterValues) (*LastNameTransformer, error) {
 	preserveLength, err := findParameter[bool](params, "preserve_length")
 	if err != nil {
 		return nil, fmt.Errorf("neosync_lastname: preserve_length must be a boolean: %w", err)
