@@ -51,6 +51,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 	assert.Equal(t, int64(204800), streamConfig.Processor.Postgres.BatchWriter.BatchConfig.MaxQueueBytes)
 	assert.False(t, streamConfig.Processor.Postgres.BatchWriter.DisableTriggers)
 	assert.Equal(t, "nothing", streamConfig.Processor.Postgres.BatchWriter.OnConflictAction)
+	assert.Equal(t, true, streamConfig.Processor.Postgres.BatchWriter.BulkIngestEnabled)
 
 	assert.NotNil(t, streamConfig.Processor.Kafka)
 	assert.Equal(t, "mytopic", streamConfig.Processor.Kafka.Writer.Kafka.Topic.Name)

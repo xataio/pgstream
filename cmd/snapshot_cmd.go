@@ -54,6 +54,10 @@ func snapshotFlagBinding(cmd *cobra.Command, args []string) error {
 	if viper.GetString("source.postgres.snapshot.recorder.repeatable_snapshots") == "" {
 		viper.Set("source.postgres.snapshot.recorder.repeatable_snapshots", true)
 	}
+	// if the target is postgres, default to using bulk ingest
+	if viper.GetString("target.postgres.url") != "" {
+		viper.Set("target.postgres.bulk_ingest.enabled", true)
+	}
 
 	// to be able to overwrite configuration with flags when env config file is
 	// provided or when no configuration is provided

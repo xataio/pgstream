@@ -49,6 +49,8 @@ target:
       max_queue_bytes: 204800 # max size of memory guard queue in bytes (100MiB)
     disable_triggers: false # whether to disable triggers on the target database
     on_conflict_action: "nothing" # options are update, nothing or error
+    bulk_ingest:
+      enabled: true # whether to use bulk ingest for the target database
   kafka:
     servers: ["localhost:9092"]
     topic:

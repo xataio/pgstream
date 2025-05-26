@@ -147,11 +147,12 @@ type ConstantBackoffConfig struct {
 }
 
 type PostgresTargetConfig struct {
-	URL               string       `mapstructure:"url" yaml:"url"`
-	Batch             *BatchConfig `mapstructure:"batch" yaml:"batch"`
-	SchemaLogStoreURL string       `mapstructure:"schema_log_store_url" yaml:"schema_log_store_url"`
-	DisableTriggers   bool         `mapstructure:"disable_triggers" yaml:"disable_triggers"`
-	OnConflictAction  string       `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
+	URL               string            `mapstructure:"url" yaml:"url"`
+	Batch             *BatchConfig      `mapstructure:"batch" yaml:"batch"`
+	BulkIngest        *BulkIngestConfig `mapstructure:"bulk_ingest" yaml:"bulk_ingest"`
+	SchemaLogStoreURL string            `mapstructure:"schema_log_store_url" yaml:"schema_log_store_url"`
+	DisableTriggers   bool              `mapstructure:"disable_triggers" yaml:"disable_triggers"`
+	OnConflictAction  string            `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
 }
 
 type KafkaTargetConfig struct {
@@ -180,6 +181,10 @@ type BatchConfig struct {
 	Size          int `mapstructure:"size" yaml:"size"`
 	MaxBytes      int `mapstructure:"max_bytes" yaml:"max_bytes"`
 	MaxQueueBytes int `mapstructure:"max_queue_bytes" yaml:"max_queue_bytes"`
+}
+
+type BulkIngestConfig struct {
+	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
 }
 
 type WebhooksConfig struct {
@@ -547,7 +552,7 @@ func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorCon
 		return nil
 	}
 
-	return &stream.PostgresProcessorConfig{
+	cfg := &stream.PostgresProcessorConfig{
 		BatchWriter: postgres.Config{
 			URL:         c.Target.Postgres.URL,
 			BatchConfig: c.Target.Postgres.Batch.parseBatchConfig(),
@@ -558,6 +563,12 @@ func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorCon
 			OnConflictAction: c.Target.Postgres.OnConflictAction,
 		},
 	}
+
+	if c.Target.Postgres.BulkIngest != nil {
+		cfg.BatchWriter.BulkIngestEnabled = c.Target.Postgres.BulkIngest.Enabled
+	}
+
+	return cfg
 }
 
 func (c *YAMLConfig) parseSearchProcessorConfig() (*stream.SearchProcessorConfig, error) {
