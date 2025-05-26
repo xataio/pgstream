@@ -14,12 +14,26 @@ type UUIDTransformer struct {
 	transformer *greenmasktransformers.RandomUuidTransformer
 }
 
-var UUIDTransformerParams = []string{"generator"}
-
-func NewUUIDTransformer(params transformers.Parameters) (*UUIDTransformer, error) {
-	if err := transformers.ValidateParameters(params, UUIDTransformerParams); err != nil {
-		return nil, err
+var (
+	uuidParams = []transformers.Parameter{
+		{
+			Name:          "generator",
+			SupportedType: "string",
+			Default:       "random",
+			Dynamic:       false,
+			Required:      false,
+			Values:        []any{"random", "deterministic"},
+		},
 	}
+	uuidCompatibleTypes = []transformers.SupportedDataType{
+		transformers.StringDataType,
+		transformers.ByteArrayDataType,
+		transformers.UUIDDataType,
+		transformers.UInt8ArrayOf16DataType,
+	}
+)
+
+func NewUUIDTransformer(params transformers.ParameterValues) (*UUIDTransformer, error) {
 	t := greenmasktransformers.NewRandomUuidTransformer()
 	if err := setGenerator(t, params); err != nil {
 		return nil, err
@@ -51,14 +65,16 @@ func (ut *UUIDTransformer) Transform(_ context.Context, value transformers.Value
 }
 
 func (ut *UUIDTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return []transformers.SupportedDataType{
-		transformers.StringDataType,
-		transformers.UUIDDataType,
-		transformers.ByteArrayDataType,
-		transformers.UInt8ArrayOf16DataType,
-	}
+	return uuidCompatibleTypes
 }
 
 func (ut *UUIDTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskUUID
+}
+
+func UUIDTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: uuidCompatibleTypes,
+		Parameters:     uuidParams,
+	}
 }

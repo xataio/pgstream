@@ -15,12 +15,15 @@ type StringTransformer struct {
 	// minLength int
 }
 
-var stringTransformerParams = []string{}
-
-func NewStringTransformer(params Parameters) (*StringTransformer, error) {
-	if err := ValidateParameters(params, stringTransformerParams); err != nil {
-		return nil, err
+var (
+	stringParams          = []Parameter{}
+	stringCompatibleTypes = []SupportedDataType{
+		StringDataType,
+		ByteArrayDataType,
 	}
+)
+
+func NewStringTransformer(params ParameterValues) (*StringTransformer, error) {
 	return &StringTransformer{}, nil
 }
 
@@ -46,12 +49,16 @@ func (st *StringTransformer) transform(str string) string {
 }
 
 func (st *StringTransformer) CompatibleTypes() []SupportedDataType {
-	return []SupportedDataType{
-		StringDataType,
-		ByteArrayDataType,
-	}
+	return stringCompatibleTypes
 }
 
 func (st *StringTransformer) Type() TransformerType {
 	return String
+}
+
+func StringTransformerDefinition() *Definition {
+	return &Definition{
+		SupportedTypes: stringCompatibleTypes,
+		Parameters:     stringParams,
+	}
 }

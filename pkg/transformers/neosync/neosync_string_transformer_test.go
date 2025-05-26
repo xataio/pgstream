@@ -16,7 +16,7 @@ func TestStringTransformer_Transform(t *testing.T) {
 	tests := []struct {
 		name   string
 		value  any
-		params transformers.Parameters
+		params transformers.ParameterValues
 
 		wantString string
 		wantErr    error

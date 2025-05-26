@@ -15,32 +15,24 @@ func TestNewTemplateTransformer(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		params  Parameters
+		params  ParameterValues
 		wantErr error
 	}{
 		{
 			name: "ok - template",
-			params: Parameters{
+			params: ParameterValues{
 				"template": "{{- if eq .GetValue \"hello\" -}} first {{- else -}} second {{- end -}}",
 			},
 			wantErr: nil,
 		},
 		{
-			name: "error - invalid parameter",
-			params: Parameters{
-				"template": "{{- if eq .GetValue \"hello\" -}} first {{- else -}} second {{- end -}}",
-				"invalid":  "invalid",
-			},
-			wantErr: ErrUnknownParameter,
-		},
-		{
 			name:    "error - template not provided",
-			params:  Parameters{},
+			params:  ParameterValues{},
 			wantErr: errTemplateMustBeProvided,
 		},
 		{
 			name: "error - template cannot be parsed",
-			params: Parameters{
+			params: ParameterValues{
 				"template": "{{- if eq syntaxerror",
 			},
 			wantErr: errors.New("template_transformer: error parsing template"),
@@ -71,7 +63,7 @@ func TestTemplateTransformer_Transform(t *testing.T) {
 	tests := []struct {
 		name   string
 		value  any
-		params Parameters
+		params ParameterValues
 
 		wantOutput string
 		wantErr    error
@@ -79,7 +71,7 @@ func TestTemplateTransformer_Transform(t *testing.T) {
 		{
 			name:  "ok - basic template",
 			value: "hello",
-			params: Parameters{
+			params: ParameterValues{
 				"template": "hello world",
 			},
 			wantOutput: "hello world",
@@ -88,7 +80,7 @@ func TestTemplateTransformer_Transform(t *testing.T) {
 		{
 			name:  "ok - GetValue with if statement",
 			value: "hello",
-			params: Parameters{
+			params: ParameterValues{
 				"template": "{{- if eq .GetValue \"hello\" -}} first {{- else -}} second {{- end -}}",
 			},
 
@@ -98,7 +90,7 @@ func TestTemplateTransformer_Transform(t *testing.T) {
 		{
 			name:  "ok - GetValue with if statement - else",
 			value: "world",
-			params: Parameters{
+			params: ParameterValues{
 				"template": "{{- if eq .GetValue \"hello\" -}} first {{- else -}} second {{- end -}}",
 			},
 
@@ -108,7 +100,7 @@ func TestTemplateTransformer_Transform(t *testing.T) {
 		{
 			name:  "incompatible types for comparison",
 			value: 1,
-			params: Parameters{
+			params: ParameterValues{
 				"template": "{{- if eq .GetValue \"hello\" -}} first {{- else -}} second {{- end -}}",
 			},
 			wantOutput: "",
@@ -144,7 +136,7 @@ func TestTemplateTransformer_Transform_WithDynamicValues(t *testing.T) {
 		name          string
 		value         any
 		dynamicValues map[string]any
-		params        Parameters
+		params        ParameterValues
 		wantOutput    string
 		wantErr       error
 	}{
@@ -155,7 +147,7 @@ func TestTemplateTransformer_Transform_WithDynamicValues(t *testing.T) {
 				"value1": "first",
 				"value2": "second",
 			},
-			params: Parameters{
+			params: ParameterValues{
 				"template": "{{- if eq .GetValue \"hello\" -}} {{.GetDynamicValue \"value1\" }} {{- else -}} {{.GetDynamicValue \"value2\" }} {{- end -}}",
 			},
 			wantOutput: "first",
@@ -168,7 +160,7 @@ func TestTemplateTransformer_Transform_WithDynamicValues(t *testing.T) {
 				"value1": "first",
 				"value2": "second",
 			},
-			params: Parameters{
+			params: ParameterValues{
 				"template": "{{- if eq .GetValue \"hello\" -}} {{.GetDynamicValue \"value1\" }} {{- else -}} {{.GetDynamicValue \"value2\" }} {{- end -}}",
 			},
 			wantOutput: "second",
@@ -178,7 +170,7 @@ func TestTemplateTransformer_Transform_WithDynamicValues(t *testing.T) {
 			name:          "error - no dynamic values",
 			value:         "hello",
 			dynamicValues: nil,
-			params: Parameters{
+			params: ParameterValues{
 				"template": "{{- if eq .GetValue \"hello\" -}} {{.GetDynamicValue \"value1\" }} {{- else -}} {{.GetDynamicValue \"value2\" }} {{- end -}}",
 			},
 			wantOutput: "",
@@ -190,7 +182,7 @@ func TestTemplateTransformer_Transform_WithDynamicValues(t *testing.T) {
 			dynamicValues: map[string]any{
 				"value1": "first",
 			},
-			params: Parameters{
+			params: ParameterValues{
 				"template": "{{- if eq .GetValue \"hello\" -}} {{.GetDynamicValue \"value1\" }} {{- else -}} {{.GetDynamicValue \"value2\" }} {{- end -}}",
 			},
 			wantOutput: "",
@@ -228,7 +220,7 @@ func TestTemplateTransformer_Transform_WithGreenmaskToolkitFuncs(t *testing.T) {
 		name          string
 		value         any
 		dynamicValues map[string]any
-		params        Parameters
+		params        ParameterValues
 		wantOutput    string
 		wantErr       error
 	}{
@@ -239,7 +231,7 @@ func TestTemplateTransformer_Transform_WithGreenmaskToolkitFuncs(t *testing.T) {
 				"value1": nil,
 				"value2": "john.doe@xata.io",
 			},
-			params: Parameters{
+			params: ParameterValues{
 				"template": "{{ $first := .GetDynamicValue \"value1\" }}{{ $second :=.GetDynamicValue \"value2\" }} {{- if eq $first nil -}} {{ masking .GetValue $second }} {{- else -}} {{ masking .GetValue $first }} {{- end -}}",
 			},
 			wantOutput: "joh****e@xata.io",
@@ -248,7 +240,7 @@ func TestTemplateTransformer_Transform_WithGreenmaskToolkitFuncs(t *testing.T) {
 		{
 			name:  "ok - random integer",
 			value: 3,
-			params: Parameters{
+			params: ParameterValues{
 				"template": "{{ $randval := randomInt 0 .GetValue}} {{- if and (isInt $randval) (ge $randval 0) (lt $randval .GetValue) -}} {{\"yes\"}} {{- else -}} {{\"no\"}} {{- end -}}",
 			},
 			wantOutput: "yes",

@@ -16,13 +16,46 @@ type StringTransformer struct {
 
 const defaultSymbols = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
 
-var stringTransformerParams = []string{"symbols", "min_length", "max_length", "generator"}
-
-func NewStringTransformer(params transformers.Parameters) (*StringTransformer, error) {
-	if err := transformers.ValidateParameters(params, stringTransformerParams); err != nil {
-		return nil, err
+var (
+	stringCompatibleTypes = []transformers.SupportedDataType{
+		transformers.StringDataType,
+		transformers.ByteArrayDataType,
 	}
 
+	stringParams = []transformers.Parameter{
+		{
+			Name:          "symbols",
+			SupportedType: "string",
+			Default:       defaultSymbols,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "min_length",
+			SupportedType: "int",
+			Default:       1,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "max_length",
+			SupportedType: "int",
+			Default:       100,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "generator",
+			SupportedType: "string",
+			Default:       "random",
+			Dynamic:       false,
+			Required:      false,
+			Values:        []any{"random", "deterministic"},
+		},
+	}
+)
+
+func NewStringTransformer(params transformers.ParameterValues) (*StringTransformer, error) {
 	symbols, err := findParameter(params, "symbols", defaultSymbols)
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_string: symbols must be a string: %w", err)
@@ -68,12 +101,16 @@ func (st *StringTransformer) Transform(_ context.Context, value transformers.Val
 }
 
 func (st *StringTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return []transformers.SupportedDataType{
-		transformers.StringDataType,
-		transformers.ByteArrayDataType,
-	}
+	return stringCompatibleTypes
 }
 
 func (st *StringTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskString
+}
+
+func StringTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: stringCompatibleTypes,
+		Parameters:     stringParams,
+	}
 }

@@ -16,26 +16,26 @@ func Test_NewUUIDTransformer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
-		params  transformers.Parameters
+		params  transformers.ParameterValues
 		wantErr error
 	}{
 		{
 			name: "ok - valid random",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 			},
 			wantErr: nil,
 		},
 		{
 			name: "ok - valid deterministic",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 			},
 			wantErr: nil,
 		},
 		{
 			name: "error - invalid generator type",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": "invalid",
 			},
 			wantErr: transformers.ErrUnsupportedGenerator,
@@ -59,12 +59,12 @@ func Test_UUIDTransformer_Transform(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   any
-		params  transformers.Parameters
+		params  transformers.ParameterValues
 		wantErr error
 	}{
 		{
 			name: "ok - string, random",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 			},
 			input:   "123e4567-e89b-12d3-a456-426655440000",
@@ -72,7 +72,7 @@ func Test_UUIDTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - []byte, deterministic",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 			},
 			input:   []byte("123e4567-e89b-12d3-a456-426655440000"),
@@ -80,7 +80,7 @@ func Test_UUIDTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - uuid.UUID, deterministic",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 			},
 			input:   uuid.MustParse("123e4567-e89b-12d3-a456-426655440000"),
@@ -88,7 +88,7 @@ func Test_UUIDTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - can be any string",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 			},
 			input:   "this is not a uuid",
@@ -96,7 +96,7 @@ func Test_UUIDTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "error - invalid input type",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 			},
 			input:   123,

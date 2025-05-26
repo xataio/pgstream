@@ -16,8 +16,8 @@ func Test_NewFirstNameTransformer(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		params        transformers.Parameters
-		dynamicParams transformers.Parameters
+		params        transformers.ParameterValues
+		dynamicParams transformers.ParameterValues
 
 		wantErr error
 	}{
@@ -95,8 +95,8 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 		name          string
 		value         any
 		dynamicValues map[string]any
-		params        transformers.Parameters
-		dynamicParams transformers.Parameters
+		params        transformers.ParameterValues
+		dynamicParams transformers.ParameterValues
 
 		wantName string
 		wantErr  error
