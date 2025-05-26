@@ -23,7 +23,7 @@ type FloatTransformer struct {
 }
 
 var (
-	FloatParams = []transformers.Parameter{
+	floatParams = []transformers.Parameter{
 		{
 			Name:          "generator",
 			SupportedType: "string",
@@ -54,7 +54,7 @@ var (
 			Required:      false,
 		},
 	}
-	FloatCompatibleTypes = []transformers.SupportedDataType{
+	floatCompatibleTypes = []transformers.SupportedDataType{
 		transformers.Float32DataType,
 		transformers.Float64DataType,
 		transformers.ByteArrayDataType,
@@ -109,11 +109,18 @@ func (ft *FloatTransformer) Transform(_ context.Context, value transformers.Valu
 }
 
 func (ft *FloatTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return FloatCompatibleTypes
+	return floatCompatibleTypes
 }
 
 func (ft *FloatTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskFloat
+}
+
+func FloatTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: floatCompatibleTypes,
+		Parameters:     floatParams,
+	}
 }
 
 func getBytesForFloat(f float64) []byte {

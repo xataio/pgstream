@@ -16,7 +16,7 @@ type DateTransformer struct {
 }
 
 var (
-	DateParams = []transformers.Parameter{
+	dateParams = []transformers.Parameter{
 		{
 			Name:          "generator",
 			SupportedType: "string",
@@ -40,7 +40,7 @@ var (
 			Required:      true,
 		},
 	}
-	DateCompatibleTypes = []transformers.SupportedDataType{
+	dateCompatibleTypes = []transformers.SupportedDataType{
 		transformers.StringDataType,
 		transformers.ByteArrayDataType,
 		transformers.DateDataType,
@@ -116,9 +116,16 @@ func (t *DateTransformer) Transform(_ context.Context, value transformers.Value)
 }
 
 func (t *DateTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return DateCompatibleTypes
+	return dateCompatibleTypes
 }
 
 func (t *DateTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskDate
+}
+
+func DateTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: dateCompatibleTypes,
+		Parameters:     dateParams,
+	}
 }

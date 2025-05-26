@@ -13,7 +13,7 @@ import (
 
 var (
 	errMinMaxValueNotSpecified = errors.New("min_value and max_value must be specified")
-	UnixTimestampParams        = []transformers.Parameter{
+	unixTimestampParams        = []transformers.Parameter{
 		{
 			Name:          "generator",
 			SupportedType: "string",
@@ -37,7 +37,7 @@ var (
 			Required:      true,
 		},
 	}
-	UnixTimestampCompatibleTypes = IntegerCompatibleTypes
+	unixTimestampCompatibleTypes = integerCompatibleTypes
 )
 
 type UnixTimestampTransformer struct {
@@ -92,4 +92,11 @@ func NewUnixTimestampTransformer(params transformers.ParameterValues) (*UnixTime
 
 func (t *UnixTimestampTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskUnixTimestamp
+}
+
+func UnixTimestampTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: unixTimestampCompatibleTypes,
+		Parameters:     unixTimestampParams,
+	}
 }

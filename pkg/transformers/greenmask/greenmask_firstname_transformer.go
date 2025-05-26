@@ -18,7 +18,7 @@ type FirstNameTransformer struct {
 const genderParam = "gender"
 
 var (
-	FirstNameParams = []transformers.Parameter{
+	firstNameParams = []transformers.Parameter{
 		{
 			Name:          "generator",
 			SupportedType: "string",
@@ -36,7 +36,7 @@ var (
 			Values:        []any{"Male", "Female", "Any"},
 		},
 	}
-	FirstNameCompatibleTypes = []transformers.SupportedDataType{
+	firstNameCompatibleTypes = []transformers.SupportedDataType{
 		transformers.StringDataType,
 		transformers.ByteArrayDataType,
 	}
@@ -106,9 +106,16 @@ func toGreenmaskGender(gender string) string {
 }
 
 func (fnt *FirstNameTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return FirstNameCompatibleTypes
+	return firstNameCompatibleTypes
 }
 
 func (fnt *FirstNameTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskFirstName
+}
+
+func FirstNameTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: firstNameCompatibleTypes,
+		Parameters:     firstNameParams,
+	}
 }

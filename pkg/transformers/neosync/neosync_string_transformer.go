@@ -14,7 +14,7 @@ type StringTransformer struct {
 }
 
 var (
-	StringParams = []transformers.Parameter{
+	stringParams = []transformers.Parameter{
 		{
 			Name:          "seed",
 			SupportedType: "int",
@@ -44,7 +44,7 @@ var (
 			Required:      false,
 		},
 	}
-	StringCompatibleTypes = []transformers.SupportedDataType{
+	stringCompatibleTypes = []transformers.SupportedDataType{
 		transformers.StringDataType,
 	}
 )
@@ -81,9 +81,16 @@ func NewStringTransformer(params transformers.ParameterValues) (*StringTransform
 }
 
 func (t *StringTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return StringCompatibleTypes
+	return stringCompatibleTypes
 }
 
 func (t *StringTransformer) Type() transformers.TransformerType {
 	return transformers.NeosyncString
+}
+
+func StringTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: stringCompatibleTypes,
+		Parameters:     stringParams,
+	}
 }

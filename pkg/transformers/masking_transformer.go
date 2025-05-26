@@ -31,11 +31,11 @@ var (
 		"type must be one of 'custom', 'password', 'name', 'address', 'email', 'mobile', 'tel', 'id', 'credit_card', 'url' or 'default'",
 	)
 	errMaskUnmaskCannotBeUsedTogether = errors.New("masking: mask and unmask parameters cannot be used together")
-	MaskingCompatibleTypes            = []SupportedDataType{
+	maskingCompatibleTypes            = []SupportedDataType{
 		StringDataType,
 		ByteArrayDataType,
 	}
-	MaskingParams = []Parameter{
+	maskingParams = []Parameter{
 		{
 			Name:          "type",
 			SupportedType: "string",
@@ -144,11 +144,18 @@ func (t *MaskingTransformer) Transform(_ context.Context, value Value) (any, err
 }
 
 func (t *MaskingTransformer) CompatibleTypes() []SupportedDataType {
-	return MaskingCompatibleTypes
+	return maskingCompatibleTypes
 }
 
 func (t *MaskingTransformer) Type() TransformerType {
 	return Masking
+}
+
+func MaskingTransformerDefinition() *Definition {
+	return &Definition{
+		SupportedTypes: maskingCompatibleTypes,
+		Parameters:     maskingParams,
+	}
 }
 
 func getCustomMaskingFn(params ParameterValues) (maskingFunction, error) {

@@ -18,7 +18,7 @@ type ChoiceTransformer struct {
 
 var (
 	errChoicesEmpty = errors.New("greenmask_choice: choices must not be empty")
-	ChoiceParams    = []transformers.Parameter{
+	choiceParams    = []transformers.Parameter{
 		{
 			Name:          "choices",
 			SupportedType: "array",
@@ -35,7 +35,7 @@ var (
 			Values:        []any{"random", "deterministic"},
 		},
 	}
-	ChoiceCompatibleTypes = []transformers.SupportedDataType{
+	choiceCompatibleTypes = []transformers.SupportedDataType{
 		transformers.StringDataType,
 		transformers.ByteArrayDataType,
 	}
@@ -89,9 +89,16 @@ func (t *ChoiceTransformer) Transform(_ context.Context, value transformers.Valu
 }
 
 func (t *ChoiceTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return ChoiceCompatibleTypes
+	return choiceCompatibleTypes
 }
 
 func (t *ChoiceTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskChoice
+}
+
+func ChoiceTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: choiceCompatibleTypes,
+		Parameters:     choiceParams,
+	}
 }

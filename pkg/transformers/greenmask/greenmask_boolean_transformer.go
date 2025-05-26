@@ -14,7 +14,7 @@ type BooleanTransformer struct {
 }
 
 var (
-	BooleanParams = []transformers.Parameter{
+	booleanParams = []transformers.Parameter{
 		{
 			Name:          "generator",
 			SupportedType: "string",
@@ -24,7 +24,7 @@ var (
 			Values:        []any{"random", "deterministic"},
 		},
 	}
-	BooleanCompatibleTypes = []transformers.SupportedDataType{
+	booleanCompatibleTypes = []transformers.SupportedDataType{
 		transformers.BooleanDataType,
 		transformers.ByteArrayDataType,
 	}
@@ -63,9 +63,16 @@ func (bt *BooleanTransformer) Transform(_ context.Context, value transformers.Va
 }
 
 func (bt *BooleanTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return BooleanCompatibleTypes
+	return booleanCompatibleTypes
 }
 
 func (bt *BooleanTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskBoolean
+}
+
+func BooleanTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: booleanCompatibleTypes,
+		Parameters:     booleanParams,
+	}
 }

@@ -48,7 +48,11 @@ func main() {
 	log.Println("Transformers JSON schema generated successfully")
 }
 
-func extractTransformers(transformersMap map[transformers.TransformerType]builder.TransformerDefinition) []Transformer {
+func extractTransformers(transformersMap map[transformers.TransformerType]struct {
+	Definition *transformers.Definition
+	BuildFn    func(cfg *transformers.Config) (transformers.Transformer, error)
+},
+) []Transformer {
 	// Sort the keys to ensure consistent ordering
 	keys := make([]string, 0, len(transformersMap))
 	for trName := range transformersMap {
@@ -61,8 +65,8 @@ func extractTransformers(transformersMap map[transformers.TransformerType]builde
 		transformer := transformersMap[transformers.TransformerType(trName)]
 		transformersList = append(transformersList, Transformer{
 			Name:           trName,
-			SupportedTypes: extractSupportedTypes(transformer.SupportedTypes),
-			Parameters:     extractParameters(transformer.Parameters),
+			SupportedTypes: extractSupportedTypes(transformer.Definition.SupportedTypes),
+			Parameters:     extractParameters(transformer.Definition.Parameters),
 		})
 	}
 

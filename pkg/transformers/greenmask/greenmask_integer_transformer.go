@@ -23,7 +23,7 @@ type IntegerTransformer struct {
 
 var (
 	errUnsupportedSizeError = errors.New("greenmask_integer: size must be 2 or 4")
-	IntegerParams           = []transformers.Parameter{
+	integerParams           = []transformers.Parameter{
 		{
 			Name:          "generator",
 			SupportedType: "string",
@@ -55,7 +55,7 @@ var (
 			Required:      false,
 		},
 	}
-	IntegerCompatibleTypes = []transformers.SupportedDataType{
+	integerCompatibleTypes = []transformers.SupportedDataType{
 		transformers.ByteArrayDataType,
 		transformers.Integer8DataType,
 		transformers.UInteger8DataType,
@@ -159,11 +159,18 @@ func (t *IntegerTransformer) Transform(_ context.Context, value transformers.Val
 }
 
 func (t *IntegerTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return IntegerCompatibleTypes
+	return integerCompatibleTypes
 }
 
 func (t *IntegerTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskInteger
+}
+
+func IntegerTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: integerCompatibleTypes,
+		Parameters:     integerParams,
+	}
 }
 
 func minMaxValueForSize(size int) (int, int, error) {
