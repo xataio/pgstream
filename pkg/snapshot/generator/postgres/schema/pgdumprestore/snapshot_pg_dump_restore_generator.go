@@ -240,8 +240,16 @@ func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, ss *snapshot.Snap
 		ConnectionString: s.sourceURL,
 		Format:           "p",
 		SchemaOnly:       true,
-		Schemas:          []string{pglib.QuoteIdentifier(ss.SchemaName)},
 		Clean:            s.cleanTargetDB,
+	}
+
+	// instead of using the schema filter, we use the exclude schemas filter to
+	// make sure extensions are created. pg_dump will not include
+	// them when using the schema filter, since they do not belong to the schema.
+	var err error
+	opts.ExcludeSchemas, err = s.pgdumpExcludedSchemas(ctx, ss.SchemaName)
+	if err != nil {
+		return nil, err
 	}
 
 	// wildcard means all tables in the schema, so no table filter required
@@ -300,6 +308,37 @@ func (s *SnapshotGenerator) pgdumpExcludedTables(ctx context.Context, schemaName
 	}
 
 	return excludeTables, nil
+}
+
+func (s *SnapshotGenerator) pgdumpExcludedSchemas(ctx context.Context, schemaName string) ([]string, error) {
+	conn, err := s.connBuilder(ctx, s.sourceURL)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close(ctx)
+
+	// get all schemas in the database that are not in the snapshot request
+	const query = "SELECT schema_name FROM information_schema.schemata WHERE schema_name != $1"
+	rows, err := conn.Query(ctx, query, schemaName)
+	if err != nil {
+		return nil, fmt.Errorf("retrieving tables from schema: %w", err)
+	}
+	defer rows.Close()
+
+	excludeSchemas := []string{}
+	for rows.Next() {
+		schema := ""
+		if err := rows.Scan(&schema); err != nil {
+			return nil, fmt.Errorf("scanning schema name: %w", err)
+		}
+		excludeSchemas = append(excludeSchemas, pglib.QuoteIdentifier(schema))
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return excludeSchemas, nil
 }
 
 func (s *SnapshotGenerator) initialiseSchemaLogStore(ctx context.Context) error {
