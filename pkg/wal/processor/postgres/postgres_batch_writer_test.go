@@ -124,9 +124,11 @@ func TestBatchWriter_ProcessWALEvent(t *testing.T) {
 			t.Parallel()
 
 			writer := &BatchWriter{
-				logger:      loglib.NewNoopLogger(),
+				Writer: &Writer{
+					logger:  loglib.NewNoopLogger(),
+					adapter: tc.adapter,
+				},
 				batchSender: tc.batchSender,
-				adapter:     tc.adapter,
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -227,10 +229,12 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 			t.Parallel()
 
 			writer := &BatchWriter{
-				logger:       loglib.NewNoopLogger(),
-				batchSender:  tc.batchSender,
-				pgConn:       tc.pgconn,
-				checkpointer: tc.checkpointer,
+				Writer: &Writer{
+					logger:       loglib.NewNoopLogger(),
+					pgConn:       tc.pgconn,
+					checkpointer: tc.checkpointer,
+				},
+				batchSender: tc.batchSender,
 			}
 			defer writer.Close()
 
@@ -334,8 +338,10 @@ func TestBatchWriter_flushQueries(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			bw := &BatchWriter{
-				logger: loglib.NewNoopLogger(),
-				pgConn: tc.pgconn,
+				Writer: &Writer{
+					logger: loglib.NewNoopLogger(),
+					pgConn: tc.pgconn,
+				},
 			}
 
 			err := bw.flushQueries(context.Background(), tc.queries)
