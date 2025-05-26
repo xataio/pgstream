@@ -60,6 +60,21 @@ func (c *Conn) ExecInTxWithOptions(ctx context.Context, fn func(Tx) error, opts 
 	return tx.Commit(ctx)
 }
 
+func (c *Conn) CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error) {
+	identifier, err := newIdentifier(tableName)
+	if err != nil {
+		return -1, err
+	}
+
+	// sanitize the input, removing any added quotes. The CopyFrom will sanitize
+	// them and double quotes will cause errors.
+	for i, c := range columnNames {
+		columnNames[i] = removeQuotes(c)
+	}
+
+	return c.conn.CopyFrom(ctx, identifier, columnNames, pgx.CopyFromRows(srcRows))
+}
+
 func (c *Conn) Ping(ctx context.Context) error {
 	return mapError(c.conn.Ping(ctx))
 }

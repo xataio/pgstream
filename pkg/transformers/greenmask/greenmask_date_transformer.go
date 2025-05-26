@@ -15,13 +15,39 @@ type DateTransformer struct {
 	transformer *greenmasktransformers.Timestamp
 }
 
-var dateTransformerParams = []string{"min_value", "max_value", "generator"}
-
-func NewDateTransformer(params transformers.Parameters) (*DateTransformer, error) {
-	if err := transformers.ValidateParameters(params, dateTransformerParams); err != nil {
-		return nil, err
+var (
+	dateParams = []transformers.Parameter{
+		{
+			Name:          "generator",
+			SupportedType: "string",
+			Default:       "random",
+			Dynamic:       false,
+			Required:      false,
+			Values:        []any{"random", "deterministic"},
+		},
+		{
+			Name:          "min_value",
+			SupportedType: "string",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      true,
+		},
+		{
+			Name:          "max_value",
+			SupportedType: "string",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      true,
+		},
 	}
+	dateCompatibleTypes = []transformers.SupportedDataType{
+		transformers.StringDataType,
+		transformers.ByteArrayDataType,
+		transformers.DateDataType,
+	}
+)
 
+func NewDateTransformer(params transformers.ParameterValues) (*DateTransformer, error) {
 	minValue, foundMin, err := transformers.FindParameter[string](params, "min_value")
 	if err != nil {
 		return nil, fmt.Errorf("greenmask_date: min_value must be a string: %w", err)
@@ -90,13 +116,16 @@ func (t *DateTransformer) Transform(_ context.Context, value transformers.Value)
 }
 
 func (t *DateTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return []transformers.SupportedDataType{
-		transformers.DateDataType,
-		transformers.ByteArrayDataType,
-		transformers.StringDataType,
-	}
+	return dateCompatibleTypes
 }
 
 func (t *DateTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskDate
+}
+
+func DateTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: dateCompatibleTypes,
+		Parameters:     dateParams,
+	}
 }

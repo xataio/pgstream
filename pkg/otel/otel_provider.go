@@ -4,8 +4,10 @@ package otel
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -87,7 +89,10 @@ func (o *Provider) initMeterProvider(ctx context.Context, metricsConfig *Metrics
 
 	// periodic reader collects and exports metrics to the exporter at the
 	// defined interval (defaults to 60s)
-	reader := sdkmetric.NewPeriodicReader(metricsExporter, sdkmetric.WithInterval(metricsConfig.collectionInterval()))
+	reader := sdkmetric.NewPeriodicReader(metricsExporter,
+		sdkmetric.WithInterval(metricsConfig.collectionInterval()),
+		sdkmetric.WithProducer(runtime.NewProducer()))
+
 	mp := sdkmetric.NewMeterProvider(
 		sdkmetric.WithResource(newResource()),
 		sdkmetric.WithReader(reader))
@@ -95,6 +100,10 @@ func (o *Provider) initMeterProvider(ctx context.Context, metricsConfig *Metrics
 
 	o.meterProvider = mp
 	otel.SetMeterProvider(o.meterProvider)
+
+	if err := runtime.Start(runtime.WithMeterProvider(o.meterProvider)); err != nil {
+		return fmt.Errorf("initialising runtime metrics: %w", err)
+	}
 
 	return nil
 }

@@ -26,6 +26,7 @@ gen-migrations:
 generate:
 	# Generate the cli-definition.json file
 	go run tools/build-cli-definition.go
+	go run tools/transformer-definition/build-transformers-definition.go
 
 GIT_COMMIT := $(shell git rev-parse --short HEAD)
 .PHONY: build

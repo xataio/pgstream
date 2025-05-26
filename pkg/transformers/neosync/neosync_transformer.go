@@ -40,7 +40,7 @@ func (t *transformer[T]) Transform(_ context.Context, value transformers.Value) 
 	return *ret, nil
 }
 
-func findParameter[T any](params transformers.Parameters, name string) (*T, error) {
+func findParameter[T any](params transformers.ParameterValues, name string) (*T, error) {
 	var found bool
 	var err error
 
@@ -55,7 +55,7 @@ func findParameter[T any](params transformers.Parameters, name string) (*T, erro
 	return val, nil
 }
 
-func findParameterArray[T any](params transformers.Parameters, name string) ([]T, error) {
+func findParameterArray[T any](params transformers.ParameterValues, name string) ([]T, error) {
 	val, found, err := transformers.FindParameterArray[T](params, name)
 	if err != nil {
 		return val, err

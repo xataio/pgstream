@@ -14,26 +14,26 @@ func Test_NewBooleanTransformer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
-		params  transformers.Parameters
+		params  transformers.ParameterValues
 		wantErr error
 	}{
 		{
 			name: "ok - valid random",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 			},
 			wantErr: nil,
 		},
 		{
 			name: "ok - valid deterministic",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 			},
 			wantErr: nil,
 		},
 		{
 			name: "error - invalid generator type",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": "invalid",
 			},
 			wantErr: transformers.ErrUnsupportedGenerator,
@@ -56,13 +56,13 @@ func Test_BooleanTransformer_Transform(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
-		params  transformers.Parameters
+		params  transformers.ParameterValues
 		input   any
 		wantErr error
 	}{
 		{
 			name: "ok - bool, random",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 			},
 			input:   true,
@@ -70,7 +70,7 @@ func Test_BooleanTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - bool, deterministic",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 			},
 			input:   false,
@@ -78,7 +78,7 @@ func Test_BooleanTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - []byte, deterministic",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 			},
 			input:   []byte("123e4567-e89b-12d3-a456-426655440000"),

@@ -13,12 +13,24 @@ type BooleanTransformer struct {
 	transformer *greenmasktransformers.RandomBoolean
 }
 
-var booleanTransformerParams = []string{"generator"}
-
-func NewBooleanTransformer(params transformers.Parameters) (*BooleanTransformer, error) {
-	if err := transformers.ValidateParameters(params, booleanTransformerParams); err != nil {
-		return nil, err
+var (
+	booleanParams = []transformers.Parameter{
+		{
+			Name:          "generator",
+			SupportedType: "string",
+			Default:       "random",
+			Dynamic:       false,
+			Required:      false,
+			Values:        []any{"random", "deterministic"},
+		},
 	}
+	booleanCompatibleTypes = []transformers.SupportedDataType{
+		transformers.BooleanDataType,
+		transformers.ByteArrayDataType,
+	}
+)
+
+func NewBooleanTransformer(params transformers.ParameterValues) (*BooleanTransformer, error) {
 	t := greenmasktransformers.NewRandomBoolean()
 	if err := setGenerator(t, params); err != nil {
 		return nil, err
@@ -51,12 +63,16 @@ func (bt *BooleanTransformer) Transform(_ context.Context, value transformers.Va
 }
 
 func (bt *BooleanTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return []transformers.SupportedDataType{
-		transformers.BooleanDataType,
-		transformers.ByteArrayDataType,
-	}
+	return booleanCompatibleTypes
 }
 
 func (bt *BooleanTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskBoolean
+}
+
+func BooleanTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: booleanCompatibleTypes,
+		Parameters:     booleanParams,
+	}
 }

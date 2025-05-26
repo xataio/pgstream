@@ -15,17 +15,17 @@ func TestNewEmailTransformer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
-		params  transformers.Parameters
+		params  transformers.ParameterValues
 		wantErr error
 	}{
 		{
 			name:    "ok - valid default parameters",
-			params:  transformers.Parameters{},
+			params:  transformers.ParameterValues{},
 			wantErr: nil,
 		},
 		{
 			name: "ok - valid custom parameters",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"email_type":           "fullname",
 				"invalid_email_action": "generate",
 				"excluded_domains":     []string{"example.com", "example.org"},
@@ -38,63 +38,63 @@ func TestNewEmailTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid preserve_length",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"preserve_length": 1,
 			},
 			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
 			name: "error - invalid preserve_domain",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"preserve_domain": 1,
 			},
 			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
 			name: "error - invalid max_length",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"max_length": "1",
 			},
 			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
 			name: "error - invalid seed",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"seed": "1",
 			},
 			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
 			name: "error - invalid excluded_domains, []any",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"excluded_domains": []any{"example.com", 3},
 			},
 			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
 			name: "error - invalid email_type",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"email_type": 1,
 			},
 			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
 			name: "error - invalid email_type value",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"email_type": "invalid",
 			},
 			wantErr: errInvalidEmailType,
 		},
 		{
 			name: "error - invalid invalid_email_action",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"invalid_email_action": 1,
 			},
 			wantErr: transformers.ErrInvalidParameters,
 		},
 		{
 			name: "error - invalid invalid_email_action value",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"invalid_email_action": "invalid",
 			},
 			wantErr: errInvalidInvalidEmailAction,
@@ -174,7 +174,7 @@ func TestEmailTransformer_Transform(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			params := transformers.Parameters{
+			params := transformers.ParameterValues{
 				"email_type":           tc.emailType,
 				"invalid_email_action": tc.invalidEmailAction,
 				"excluded_domains":     tc.excludedDomains,
