@@ -137,17 +137,27 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 
 		opts := []pgwriter.WriterOption{
 			pgwriter.WithLogger(logger),
-			pgwriter.WithCheckpoint(checkpoint),
 		}
 		if instrumentation.IsEnabled() {
 			opts = append(opts, pgwriter.WithInstrumentation(instrumentation))
 		}
-		pgBatchWriter, err := pgwriter.NewBatchWriter(ctx, &config.Postgres.BatchWriter, opts...)
-		if err != nil {
-			return nil, err
-		}
 
-		processor = pgBatchWriter
+		if config.Postgres.BatchWriter.BulkIngestEnabled {
+			logger.Info("postgres bulk ingest writer enabled")
+			bulkIngestWriter, err := pgwriter.NewBulkIngestWriter(ctx, &config.Postgres.BatchWriter, opts...)
+			if err != nil {
+				return nil, err
+			}
+			processor = bulkIngestWriter
+		} else {
+			opts := append(opts, pgwriter.WithCheckpoint(checkpoint))
+			pgBatchWriter, err := pgwriter.NewBatchWriter(ctx, &config.Postgres.BatchWriter, opts...)
+			if err != nil {
+				return nil, err
+			}
+
+			processor = pgBatchWriter
+		}
 
 	default:
 		return nil, errors.New("no supported processor found")
