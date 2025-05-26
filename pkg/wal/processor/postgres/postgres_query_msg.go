@@ -3,9 +3,12 @@
 package postgres
 
 type query struct {
-	sql   string
-	args  []any
-	isDDL bool
+	schema      string
+	table       string
+	sql         string
+	columnNames []string
+	args        []any
+	isDDL       bool
 }
 
 // size returns the size of the message sql query (does not include the

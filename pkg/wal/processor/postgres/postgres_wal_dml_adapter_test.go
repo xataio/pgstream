@@ -18,6 +18,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 	testTable := "table"
 	testSchema := "test"
 	quotedTestTable := quotedTableName(testSchema, testTable)
+	quotedColumnNames := []string{`"id"`, `"name"`}
 
 	columnID := func(i int) string {
 		return fmt.Sprintf("%s-%d", testTableID, i)
@@ -42,7 +43,9 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 
 			wantQuery: &query{
-				sql: fmt.Sprintf("TRUNCATE %s", quotedTestTable),
+				schema: testSchema,
+				table:  testTable,
+				sql:    fmt.Sprintf("TRUNCATE %s", quotedTestTable),
 			},
 		},
 		{
@@ -61,8 +64,10 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 
 			wantQuery: &query{
-				sql:  fmt.Sprintf("DELETE FROM %s WHERE \"id\" = $1", quotedTestTable),
-				args: []any{1},
+				schema: testSchema,
+				table:  testTable,
+				sql:    fmt.Sprintf("DELETE FROM %s WHERE \"id\" = $1", quotedTestTable),
+				args:   []any{1},
 			},
 		},
 		{
@@ -81,8 +86,10 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 
 			wantQuery: &query{
-				sql:  fmt.Sprintf("DELETE FROM %s WHERE \"id\" = $1 AND \"name\" = $2", quotedTestTable),
-				args: []any{1, "alice"},
+				schema: testSchema,
+				table:  testTable,
+				sql:    fmt.Sprintf("DELETE FROM %s WHERE \"id\" = $1 AND \"name\" = $2", quotedTestTable),
+				args:   []any{1, "alice"},
 			},
 		},
 		{
@@ -101,8 +108,11 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 
 			wantQuery: &query{
-				sql:  fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") VALUES($1, $2)", quotedTestTable),
-				args: []any{1, "alice"},
+				schema:      testSchema,
+				table:       testTable,
+				columnNames: quotedColumnNames,
+				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") VALUES($1, $2)", quotedTestTable),
+				args:        []any{1, "alice"},
 			},
 		},
 		{
@@ -122,8 +132,11 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			action: onConflictDoNothing,
 
 			wantQuery: &query{
-				sql:  fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") VALUES($1, $2) ON CONFLICT DO NOTHING", quotedTestTable),
-				args: []any{1, "alice"},
+				schema:      testSchema,
+				table:       testTable,
+				columnNames: quotedColumnNames,
+				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") VALUES($1, $2) ON CONFLICT DO NOTHING", quotedTestTable),
+				args:        []any{1, "alice"},
 			},
 		},
 		{
@@ -143,8 +156,11 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			action: onConflictUpdate,
 
 			wantQuery: &query{
-				sql:  fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") VALUES($1, $2) ON CONFLICT (\"id\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"name\" = EXCLUDED.\"name\"", quotedTestTable),
-				args: []any{1, "alice"},
+				schema:      testSchema,
+				table:       testTable,
+				columnNames: quotedColumnNames,
+				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") VALUES($1, $2) ON CONFLICT (\"id\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"name\" = EXCLUDED.\"name\"", quotedTestTable),
+				args:        []any{1, "alice"},
 			},
 		},
 		{
@@ -161,8 +177,11 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			action: onConflictUpdate,
 
 			wantQuery: &query{
-				sql:  fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") VALUES($1, $2)", quotedTestTable),
-				args: []any{1, "alice"},
+				schema:      testSchema,
+				table:       testTable,
+				columnNames: quotedColumnNames,
+				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") VALUES($1, $2)", quotedTestTable),
+				args:        []any{1, "alice"},
 			},
 		},
 		{
@@ -181,8 +200,10 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 
 			wantQuery: &query{
-				sql:  fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3", quotedTestTable),
-				args: []any{1, "alice", 1},
+				schema: testSchema,
+				table:  testTable,
+				sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3", quotedTestTable),
+				args:   []any{1, "alice", 1},
 			},
 		},
 		{
