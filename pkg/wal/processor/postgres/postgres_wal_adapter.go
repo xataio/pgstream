@@ -39,7 +39,12 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 		return []*query{{}}, nil
 	}
 
-	if processor.IsSchemaLogEvent(e.Data) && a.ddlAdapter != nil {
+	if processor.IsSchemaLogEvent(e.Data) {
+		// there's no ddl adapter, the ddl query will not be processed
+		if a.ddlAdapter == nil {
+			return []*query{{}}, nil
+		}
+
 		return a.ddlAdapter.walDataToQueries(ctx, e.Data)
 	}
 

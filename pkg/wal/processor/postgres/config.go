@@ -8,9 +8,10 @@ import (
 )
 
 type Config struct {
-	URL              string
-	BatchConfig      batch.Config
-	SchemaLogStore   schemalogpg.Config
-	DisableTriggers  bool
-	OnConflictAction string
+	URL               string
+	BatchConfig       batch.Config
+	SchemaLogStore    schemalogpg.Config
+	DisableTriggers   bool
+	OnConflictAction  string
+	BulkIngestEnabled bool
 }

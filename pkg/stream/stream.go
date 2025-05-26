@@ -134,7 +134,8 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 
 	case config.Postgres != nil:
 		logger.Info("postgres processor configured")
-		opts := []pgwriter.Option{
+
+		opts := []pgwriter.WriterOption{
 			pgwriter.WithLogger(logger),
 			pgwriter.WithCheckpoint(checkpoint),
 		}
