@@ -31,6 +31,48 @@ var (
 		"type must be one of 'custom', 'password', 'name', 'address', 'email', 'mobile', 'tel', 'id', 'credit_card', 'url' or 'default'",
 	)
 	errMaskUnmaskCannotBeUsedTogether = errors.New("masking: mask and unmask parameters cannot be used together")
+	maskingCompatibleTypes            = []SupportedDataType{
+		StringDataType,
+		ByteArrayDataType,
+	}
+	maskingParams = []Parameter{
+		{
+			Name:          "type",
+			SupportedType: "string",
+			Default:       "default",
+			Dynamic:       false,
+			Required:      false,
+			Values:        []any{"custom", "password", "name", "address", "email", "mobile", "tel", "id", "credit_card", "url", "default"},
+		},
+		{
+			Name:          "mask_begin",
+			SupportedType: "string",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "mask_end",
+			SupportedType: "string",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "unmask_begin",
+			SupportedType: "string",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "unmask_end",
+			SupportedType: "string",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      false,
+		},
+	}
 )
 
 type maskingFunction func(val string) string
@@ -40,14 +82,8 @@ type MaskingTransformer struct {
 	maskingFunction maskingFunction
 }
 
-var maskingTransformerParams = []string{"type", "mask_begin", "mask_end", "unmask_begin", "unmask_end"}
-
 // NewMaskingTransformer creates a new MaskingTransformer with the given masking function.
-func NewMaskingTransformer(params Parameters) (*MaskingTransformer, error) {
-	if err := ValidateParameters(params, maskingTransformerParams); err != nil {
-		return nil, err
-	}
-
+func NewMaskingTransformer(params ParameterValues) (*MaskingTransformer, error) {
 	var mf maskingFunction
 	maskType, found, err := FindParameter[string](params, "type")
 	if err != nil {
@@ -108,17 +144,21 @@ func (t *MaskingTransformer) Transform(_ context.Context, value Value) (any, err
 }
 
 func (t *MaskingTransformer) CompatibleTypes() []SupportedDataType {
-	return []SupportedDataType{
-		StringDataType,
-		ByteArrayDataType,
-	}
+	return maskingCompatibleTypes
 }
 
 func (t *MaskingTransformer) Type() TransformerType {
 	return Masking
 }
 
-func getCustomMaskingFn(params Parameters) (maskingFunction, error) {
+func MaskingTransformerDefinition() *Definition {
+	return &Definition{
+		SupportedTypes: maskingCompatibleTypes,
+		Parameters:     maskingParams,
+	}
+}
+
+func getCustomMaskingFn(params ParameterValues) (maskingFunction, error) {
 	maskBegin, maskBeginFound, err := FindParameter[string](params, "mask_begin")
 	if err != nil {
 		return nil, fmt.Errorf("masking: mask_begin must be a string: %w", err)

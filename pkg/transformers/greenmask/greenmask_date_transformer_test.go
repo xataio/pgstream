@@ -16,12 +16,12 @@ func TestNewDateTransformer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
-		params  transformers.Parameters
+		params  transformers.ParameterValues
 		wantErr error
 	}{
 		{
 			name: "ok - valid parameters",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 				"min_value": "2021-01-01",
 				"max_value": "2022-01-02",
@@ -30,7 +30,7 @@ func TestNewDateTransformer(t *testing.T) {
 		},
 		{
 			name: "error - min_value missing",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 				"max_value": "2022-01-02",
 			},
@@ -38,7 +38,7 @@ func TestNewDateTransformer(t *testing.T) {
 		},
 		{
 			name: "error - min_value after max_value",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 				"min_value": "2022-01-03",
 				"max_value": "2022-01-02",
@@ -47,7 +47,7 @@ func TestNewDateTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid generator type",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": "invalid",
 				"min_value": "2021-01-01",
 				"max_value": "2022-01-02",
@@ -72,13 +72,13 @@ func TestDateTransformer_Transform(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
-		params  transformers.Parameters
+		params  transformers.ParameterValues
 		input   any
 		wantErr error
 	}{
 		{
 			name: "ok - valid random",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 				"min_value": "2021-01-01",
 				"max_value": "2022-01-02",
@@ -88,7 +88,7 @@ func TestDateTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - valid deterministic",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 				"min_value": "2021-01-01",
 				"max_value": "2022-01-02",
@@ -98,7 +98,7 @@ func TestDateTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - valid with time input",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 				"min_value": "2022-01-02",
 				"max_value": "2022-01-02",
@@ -108,7 +108,7 @@ func TestDateTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "error - invalid input",
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": random,
 				"min_value": "2021-01-01",
 				"max_value": "2022-01-02",

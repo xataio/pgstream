@@ -16,15 +16,32 @@ type ChoiceTransformer struct {
 	transformer *greenmasktransformers.RandomChoiceTransformer
 }
 
-var choiceTransformerParams = []string{"choices", "generator"}
-
-var errChoicesEmpty = errors.New("greenmask_choice: choices must not be empty")
-
-func NewChoiceTransformer(params transformers.Parameters) (*ChoiceTransformer, error) {
-	if err := transformers.ValidateParameters(params, choiceTransformerParams); err != nil {
-		return nil, err
+var (
+	errChoicesEmpty = errors.New("greenmask_choice: choices must not be empty")
+	choiceParams    = []transformers.Parameter{
+		{
+			Name:          "choices",
+			SupportedType: "array",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      true,
+		},
+		{
+			Name:          "generator",
+			SupportedType: "string",
+			Default:       "random",
+			Dynamic:       false,
+			Required:      false,
+			Values:        []any{"random", "deterministic"},
+		},
 	}
+	choiceCompatibleTypes = []transformers.SupportedDataType{
+		transformers.StringDataType,
+		transformers.ByteArrayDataType,
+	}
+)
 
+func NewChoiceTransformer(params transformers.ParameterValues) (*ChoiceTransformer, error) {
 	choices := []string{}
 	choices, err := findParameterArray(params, "choices", choices)
 	if err != nil {
@@ -72,12 +89,16 @@ func (t *ChoiceTransformer) Transform(_ context.Context, value transformers.Valu
 }
 
 func (t *ChoiceTransformer) CompatibleTypes() []transformers.SupportedDataType {
-	return []transformers.SupportedDataType{
-		transformers.ByteArrayDataType,
-		transformers.StringDataType,
-	}
+	return choiceCompatibleTypes
 }
 
 func (t *ChoiceTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskChoice
+}
+
+func ChoiceTransformerDefinition() *transformers.Definition {
+	return &transformers.Definition{
+		SupportedTypes: choiceCompatibleTypes,
+		Parameters:     choiceParams,
+	}
 }

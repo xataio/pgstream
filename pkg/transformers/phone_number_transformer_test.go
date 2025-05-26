@@ -14,8 +14,8 @@ func TestPhoneNumberTransformer_Transform(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		params        Parameters
-		dynamicParams Parameters
+		params        ParameterValues
+		dynamicParams ParameterValues
 		dynamicValues map[string]any
 		value         any
 		wantPrefix    string
@@ -24,7 +24,7 @@ func TestPhoneNumberTransformer_Transform(t *testing.T) {
 	}{
 		{
 			name: "ok - string with prefix",
-			params: Parameters{
+			params: ParameterValues{
 				"prefix":     "(030) ",
 				"min_length": 10,
 				"max_length": 10,
@@ -36,7 +36,7 @@ func TestPhoneNumberTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - []byte without prefix",
-			params: Parameters{
+			params: ParameterValues{
 				"min_length": 6,
 				"max_length": 6,
 			},
@@ -47,7 +47,7 @@ func TestPhoneNumberTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - []byte without prefix, deterministic generator",
-			params: Parameters{
+			params: ParameterValues{
 				"min_length": 6,
 				"max_length": 6,
 				"generator":  "deterministic",
@@ -59,7 +59,7 @@ func TestPhoneNumberTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - with dynamic country code",
-			params: Parameters{
+			params: ParameterValues{
 				"min_length": 12,
 				"max_length": 12,
 			},
@@ -78,7 +78,7 @@ func TestPhoneNumberTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "error - prefix longer than min_length",
-			params: Parameters{
+			params: ParameterValues{
 				"prefix":     "12345678",
 				"min_length": 6,
 				"max_length": 10,
@@ -88,7 +88,7 @@ func TestPhoneNumberTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "error - max_length less than min_length",
-			params: Parameters{
+			params: ParameterValues{
 				"min_length": 10,
 				"max_length": 8,
 			},

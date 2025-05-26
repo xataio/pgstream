@@ -13,26 +13,26 @@ func TestLiteralStringTransformer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
-		params  Parameters
+		params  ParameterValues
 		wantErr error
 	}{
 		{
 			name: "ok - valid",
-			params: Parameters{
+			params: ParameterValues{
 				"literal": "test",
 			},
 			wantErr: nil,
 		},
 		{
 			name: "error - invalid literal",
-			params: Parameters{
+			params: ParameterValues{
 				"literal": 123,
 			},
 			wantErr: ErrInvalidParameters,
 		},
 		{
 			name:    "error - empty literal",
-			params:  Parameters{},
+			params:  ParameterValues{},
 			wantErr: errLiteralStringNotFound,
 		},
 	}
@@ -53,11 +53,11 @@ func TestLiteralStringTransformer(t *testing.T) {
 func TestLiteralStringTransformer_Transform(t *testing.T) {
 	t.Parallel()
 	wantOutput := "{'output': 'testoutput'"
-	lst, err := NewLiteralStringTransformer(Parameters{"literal": wantOutput})
+	lst, err := NewLiteralStringTransformer(ParameterValues{"literal": wantOutput})
 	require.NoError(t, err)
 	tests := []struct {
 		name    string
-		params  Parameters
+		params  ParameterValues
 		input   any
 		want    any
 		wantErr error

@@ -17,7 +17,7 @@ func Test_NewFloatTransformer(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		params  transformers.Parameters
+		params  transformers.ParameterValues
 		wantErr error
 	}{
 		{
@@ -123,7 +123,7 @@ func TestFloatTransformer_Transform(t *testing.T) {
 	tests := []struct {
 		name    string
 		value   any
-		params  transformers.Parameters
+		params  transformers.ParameterValues
 		wantErr error
 	}{
 		{
@@ -140,7 +140,7 @@ func TestFloatTransformer_Transform(t *testing.T) {
 		{
 			name:  "ok - deterministic with float32, with default params",
 			value: float32(5555.5),
-			params: transformers.Parameters{
+			params: transformers.ParameterValues{
 				"generator": deterministic,
 			},
 			wantErr: nil,

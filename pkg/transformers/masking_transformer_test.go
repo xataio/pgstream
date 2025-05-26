@@ -13,7 +13,7 @@ func TestMaskingTransformer(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
-		params  Parameters
+		params  ParameterValues
 		wantErr error
 	}{
 		{
@@ -22,14 +22,14 @@ func TestMaskingTransformer(t *testing.T) {
 		},
 		{
 			name: "ok - valid custom parameters",
-			params: Parameters{
+			params: ParameterValues{
 				"type": "password",
 			},
 			wantErr: nil,
 		},
 		{
 			name: "error - invalid, custom masking",
-			params: Parameters{
+			params: ParameterValues{
 				"type":         "custom",
 				"mask_begin":   "4",
 				"unmask_begin": "4",
@@ -38,7 +38,7 @@ func TestMaskingTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid param type, custom masking",
-			params: Parameters{
+			params: ParameterValues{
 				"type":       "custom",
 				"mask_begin": 4,
 			},
@@ -46,14 +46,14 @@ func TestMaskingTransformer(t *testing.T) {
 		},
 		{
 			name: "error - invalid masking type",
-			params: Parameters{
+			params: ParameterValues{
 				"type": "invalid",
 			},
 			wantErr: errInvalidMaskingType,
 		},
 		{
 			name: "error - invalid parameter type",
-			params: Parameters{
+			params: ParameterValues{
 				"type": 123,
 			},
 			wantErr: ErrInvalidParameters,
@@ -78,14 +78,14 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
-		params  Parameters
+		params  ParameterValues
 		input   any
 		want    any
 		wantErr error
 	}{
 		{
 			name: "ok - password",
-			params: Parameters{
+			params: ParameterValues{
 				"type": "password",
 			},
 			input:   "aVeryStrongPassword123",
@@ -94,7 +94,7 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - name",
-			params: Parameters{
+			params: ParameterValues{
 				"type": "name",
 			},
 			input:   []byte("John Doe"),
@@ -103,7 +103,7 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - address",
-			params: Parameters{
+			params: ParameterValues{
 				"type": "address",
 			},
 			input:   "123 Main St, Anytown, USA",
@@ -112,7 +112,7 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - email",
-			params: Parameters{
+			params: ParameterValues{
 				"type": "email",
 			},
 			input:   "john.doe@example.com",
@@ -121,7 +121,7 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - mobile",
-			params: Parameters{
+			params: ParameterValues{
 				"type": "mobile",
 			},
 			input:   "1234567890",
@@ -130,7 +130,7 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - tel",
-			params: Parameters{
+			params: ParameterValues{
 				"type": "tel",
 			},
 			input:   "+1-23-456-789",
@@ -139,7 +139,7 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - id",
-			params: Parameters{
+			params: ParameterValues{
 				"type": "id",
 			},
 			input:   "123456789",
@@ -148,7 +148,7 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - credit_card",
-			params: Parameters{
+			params: ParameterValues{
 				"type": "credit_card",
 			},
 			input:   "4111-1111-1111-1111",
@@ -157,7 +157,7 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - url",
-			params: Parameters{
+			params: ParameterValues{
 				"type": "url",
 			},
 			input:   "http://admin:mysecretpassword@localhost:1234/uri",
@@ -166,7 +166,7 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - default",
-			params: Parameters{
+			params: ParameterValues{
 				"type": "default",
 			},
 			input:   "Sensitive Data",
@@ -175,7 +175,7 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - custom masking",
-			params: Parameters{
+			params: ParameterValues{
 				"type": "custom",
 			},
 			input:   "Sensitive Data",
@@ -184,7 +184,7 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - custom masking with mask indexes",
-			params: Parameters{
+			params: ParameterValues{
 				"type":       "custom",
 				"mask_begin": "4",
 				"mask_end":   "400%",
@@ -195,7 +195,7 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "ok - custom masking with unmask indexes",
-			params: Parameters{
+			params: ParameterValues{
 				"type":         "custom",
 				"unmask_begin": "78%",
 				"unmask_end":   "-4%",
@@ -206,7 +206,7 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 		},
 		{
 			name: "error - invalid input type",
-			params: Parameters{
+			params: ParameterValues{
 				"type": "default",
 			},
 			input:   123,
