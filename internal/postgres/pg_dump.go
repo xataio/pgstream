@@ -18,6 +18,8 @@ type PGDumpOptions struct {
 	Format string
 	// Schemas to export
 	Schemas []string
+	// Schemas to be excluded from the dump, regex patterns supported
+	ExcludeSchemas []string
 	// Tables to export
 	Tables []string
 	// Tables to be excluded from the dump, regex patterns supported
@@ -51,6 +53,10 @@ func (opts *PGDumpOptions) ToArgs() []string {
 
 	for _, schema := range opts.Schemas {
 		options = append(options, fmt.Sprintf("--schema=%v", schema))
+	}
+
+	for _, schema := range opts.ExcludeSchemas {
+		options = append(options, fmt.Sprintf("--exclude-schema=%v", schema))
 	}
 
 	for _, table := range opts.Tables {
