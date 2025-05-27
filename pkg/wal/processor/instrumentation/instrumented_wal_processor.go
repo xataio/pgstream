@@ -58,13 +58,13 @@ func (i *Processor) ProcessWALEvent(ctx context.Context, event *wal.Event) (err 
 	if i.meter != nil {
 		startTime := time.Now()
 		defer func() {
-			i.metrics.processingLatency.Record(ctx, int64(time.Since(startTime).Milliseconds()), metric.WithAttributes(i.targetAttribute()))
+			i.metrics.processingLatency.Record(ctx, int64(time.Since(startTime).Nanoseconds()), metric.WithAttributes(i.targetAttribute()))
 		}()
 
 		if event.Data != nil {
 			timestamp, err := event.Data.GetTimestamp()
 			if err == nil {
-				i.metrics.processLag.Record(ctx, time.Since(timestamp).Milliseconds(), metric.WithAttributes(i.targetAttribute()))
+				i.metrics.processLag.Record(ctx, time.Since(timestamp).Nanoseconds(), metric.WithAttributes(i.targetAttribute()))
 			}
 		}
 	}
@@ -86,14 +86,14 @@ func (i *Processor) initMetrics() error {
 
 	var err error
 	i.metrics.processLag, err = i.meter.Int64Histogram("pgstream.target.processing.lag",
-		metric.WithUnit("ms"),
+		metric.WithUnit("ns"),
 		metric.WithDescription("Distribution of time passed since the wal event was put into the stream until it is processed by the wal event processor"))
 	if err != nil {
 		return err
 	}
 
 	i.metrics.processingLatency, err = i.meter.Int64Histogram("pgstream.target.processing.latency",
-		metric.WithUnit("ms"),
+		metric.WithUnit("ns"),
 		metric.WithDescription("Distribution of the time taken to process the wal event"))
 	if err != nil {
 		return err
