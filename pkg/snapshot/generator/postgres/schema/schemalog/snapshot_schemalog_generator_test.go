@@ -15,6 +15,7 @@ import (
 	"github.com/xataio/pgstream/pkg/schemalog"
 	schemalogmocks "github.com/xataio/pgstream/pkg/schemalog/mocks"
 	"github.com/xataio/pgstream/pkg/snapshot"
+	generatormocks "github.com/xataio/pgstream/pkg/snapshot/generator/mocks"
 )
 
 func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
@@ -70,8 +71,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		schemaStore *schemalogmocks.Store
 		processRow  snapshot.RowProcessor
 		marshaler   func(any) ([]byte, error)
+		generator   *generatormocks.Generator
 
-		wantErr error
+		wantGeneratorCalls uint
+		wantErr            error
 	}{
 		{
 			name: "ok",
@@ -86,6 +89,28 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			},
 
 			wantErr: nil,
+		},
+		{
+			name: "ok - with generator",
+			schemaStore: &schemalogmocks.Store{
+				InsertFn: func(ctx context.Context, schemaName string) (*schemalog.LogEntry, error) {
+					return testSchemaLog, nil
+				},
+			},
+			processRow: func(ctx context.Context, r *snapshot.Row) error {
+				require.Equal(t, testRow, r)
+				return nil
+			},
+			generator: &generatormocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
+					require.Equal(t, testSnapshot, ss)
+					return nil
+				},
+				CloseFn: func() error { return nil },
+			},
+
+			wantGeneratorCalls: 1,
+			wantErr:            nil,
 		},
 		{
 			name: "error - inserting schema log",
@@ -134,7 +159,12 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			g := NewSnapshotGenerator(tc.schemaStore, tc.processRow)
+			opts := []Option{}
+			if tc.generator != nil {
+				opts = append(opts, WithSnapshotGenerator(tc.generator))
+			}
+
+			g := NewSnapshotGenerator(tc.schemaStore, tc.processRow, opts...)
 			defer g.Close()
 
 			if tc.marshaler != nil {
@@ -143,6 +173,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 
 			err := g.CreateSnapshot(context.Background(), testSnapshot)
 			require.Equal(t, err, tc.wantErr)
+
+			if tc.generator != nil {
+				require.Equal(t, tc.wantGeneratorCalls, tc.generator.CreateSnapshotCalls())
+			}
 		})
 	}
 }

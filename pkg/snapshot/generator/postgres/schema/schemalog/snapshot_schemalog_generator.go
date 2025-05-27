@@ -9,19 +9,35 @@ import (
 	"github.com/xataio/pgstream/internal/json"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/snapshot"
+	"github.com/xataio/pgstream/pkg/snapshot/generator"
 )
 
 type SnapshotGenerator struct {
 	schemalogStore schemalog.Store
 	marshaler      func(any) ([]byte, error)
 	processRow     snapshot.RowProcessor
+	generator      generator.SnapshotGenerator
 }
 
-func NewSnapshotGenerator(schemalogStore schemalog.Store, processRow snapshot.RowProcessor) *SnapshotGenerator {
-	return &SnapshotGenerator{
+type Option func(*SnapshotGenerator)
+
+func NewSnapshotGenerator(schemalogStore schemalog.Store, processRow snapshot.RowProcessor, opts ...Option) *SnapshotGenerator {
+	sg := &SnapshotGenerator{
 		schemalogStore: schemalogStore,
 		processRow:     processRow,
 		marshaler:      json.Marshal,
+	}
+
+	for _, opt := range opts {
+		opt(sg)
+	}
+
+	return sg
+}
+
+func WithSnapshotGenerator(g generator.SnapshotGenerator) Option {
+	return func(sg *SnapshotGenerator) {
+		sg.generator = g
 	}
 }
 
@@ -43,10 +59,17 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return snapshot.NewErrors(err)
 	}
 
+	if s.generator != nil {
+		return s.generator.CreateSnapshot(ctx, ss)
+	}
+
 	return nil
 }
 
 func (s *SnapshotGenerator) Close() error {
+	if s.generator != nil {
+		return s.generator.Close()
+	}
 	return nil
 }
 

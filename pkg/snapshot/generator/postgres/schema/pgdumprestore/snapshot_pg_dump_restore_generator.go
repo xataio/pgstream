@@ -17,6 +17,7 @@ import (
 	schemaloginstrumentation "github.com/xataio/pgstream/pkg/schemalog/instrumentation"
 	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/snapshot"
+	"github.com/xataio/pgstream/pkg/snapshot/generator"
 )
 
 // SnapshotGenerator generates postgres schema snapshots using pg_dump and
@@ -30,6 +31,7 @@ type SnapshotGenerator struct {
 	connBuilder    pglib.QuerierBuilder
 	cleanTargetDB  bool
 	logger         loglib.Logger
+	generator      generator.SnapshotGenerator
 }
 
 type Config struct {
@@ -74,6 +76,12 @@ func WithLogger(logger loglib.Logger) Option {
 		sg.logger = loglib.NewLogger(logger).WithFields(loglib.Fields{
 			loglib.ModuleField: "postgres_schema_snapshot_generator",
 		})
+	}
+}
+
+func WithSnapshotGenerator(g generator.SnapshotGenerator) Option {
+	return func(sg *SnapshotGenerator) {
+		sg.generator = g
 	}
 }
 
