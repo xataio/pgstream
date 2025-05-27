@@ -32,6 +32,7 @@ type transformerBuilder interface {
 
 type Config struct {
 	TransformerRules []TableRules
+	ValidateStrict   bool
 }
 
 type Option func(t *Transformer)

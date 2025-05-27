@@ -26,7 +26,7 @@ type StatusChecker struct {
 	connBuilder          pglib.QuerierBuilder
 	configParser         func(pgURL string) (*pgx.ConnConfig, error)
 	migratorBuilder      func(string) (migrator, error)
-	ruleValidatorBuilder func(context.Context, string) (ruleValidator, error)
+	ruleValidatorBuilder func(context.Context, string, []string) (ruleValidator, error)
 }
 
 type ruleValidator func(rules []transformer.TableRules) (map[string]transformer.ColumnTransformers, error)
@@ -51,8 +51,8 @@ func NewStatusChecker() *StatusChecker {
 		connBuilder:     pglib.ConnBuilder,
 		configParser:    pgx.ParseConfig,
 		migratorBuilder: func(pgURL string) (migrator, error) { return newPGMigrator(pgURL) },
-		ruleValidatorBuilder: func(ctx context.Context, pgURL string) (ruleValidator, error) {
-			validator, err := transformer.NewPostgresTransformerParser(ctx, pgURL, builder.NewTransformerBuilder())
+		ruleValidatorBuilder: func(ctx context.Context, pgURL string, requiredTables []string) (ruleValidator, error) {
+			validator, err := transformer.NewPostgresTransformerParser(ctx, pgURL, builder.NewTransformerBuilder(), requiredTables)
 			if err != nil {
 				return nil, err
 			}
@@ -185,7 +185,11 @@ func (s *StatusChecker) transformationRulesStatus(ctx context.Context, config *C
 	status := &TransformationRulesStatus{
 		Valid: true,
 	}
-	validator, err := s.ruleValidatorBuilder(ctx, pgURL)
+	requiredTables := []string{}
+	if config.Processor.Transformer.ValidateStrict {
+		requiredTables = config.RequiredTables()
+	}
+	validator, err := s.ruleValidatorBuilder(ctx, pgURL, requiredTables)
 	if err != nil {
 		return nil, err
 	}

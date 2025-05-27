@@ -154,3 +154,12 @@ func (c *Config) PostgresReplicationSlot() string {
 	}
 	return ""
 }
+
+func (c *Config) RequiredTables() []string {
+	requiredTables := []string{}
+	if c.Listener.Snapshot != nil {
+		requiredTables = c.Listener.Snapshot.Adapter.Tables
+	}
+	// TODO: add included tables for the replication case as well
+	return requiredTables
+}
