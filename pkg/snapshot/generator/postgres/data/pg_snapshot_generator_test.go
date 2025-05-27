@@ -38,7 +38,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	}
 
 	testSnapshotID := "test-snapshot-id"
-	testPageCount := uint(1)
+	testPageCount := 1
 	testUUID := uuid.New().String()
 	testColumns := []snapshot.Column{
 		{Name: "id", Type: "uuid", Value: testUUID},
@@ -99,8 +99,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										require.Len(t, args, 1)
-										pageCount, ok := args[0].(*uint)
-										require.True(t, ok, fmt.Sprintf("pageCount, expected *uint, got %T", args[0]))
+										pageCount, ok := args[0].(*int)
+										require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
 										*pageCount = testPageCount
 										return nil
 									},
@@ -166,8 +166,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										require.Len(t, args, 1)
-										pageCount, ok := args[0].(*uint)
-										require.True(t, ok, fmt.Sprintf("pageCount, expected *uint, got %T", args[0]))
+										pageCount, ok := args[0].(*int)
+										require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
 										*pageCount = testPageCount
 										return nil
 									},
@@ -251,8 +251,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										require.Len(t, args, 1)
-										pageCount, ok := args[0].(*uint)
-										require.True(t, ok, fmt.Sprintf("pageCount, expected *uint, got %T", args[0]))
+										pageCount, ok := args[0].(*int)
+										require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
 										*pageCount = testPageCount
 										return nil
 									},
@@ -332,8 +332,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										require.Len(t, args, 1)
-										pageCount, ok := args[0].(*uint)
-										require.True(t, ok, fmt.Sprintf("pageCount, expected *uint, got %T", args[0]))
+										pageCount, ok := args[0].(*int)
+										require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
 										*pageCount = testPageCount
 										return nil
 									},
@@ -535,8 +535,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										require.Len(t, args, 1)
-										pageCount, ok := args[0].(*uint)
-										require.True(t, ok, fmt.Sprintf("pageCount, expected *uint, got %T", args[0]))
+										pageCount, ok := args[0].(*int)
+										require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
 										*pageCount = testPageCount
 										return nil
 									},
@@ -604,8 +604,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										require.Len(t, args, 1)
-										pageCount, ok := args[0].(*uint)
-										require.True(t, ok, fmt.Sprintf("pageCount, expected *uint, got %T", args[0]))
+										pageCount, ok := args[0].(*int)
+										require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
 										*pageCount = testPageCount
 										return nil
 									},
@@ -678,8 +678,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										require.Len(t, args, 1)
-										pageCount, ok := args[0].(*uint)
-										require.True(t, ok, fmt.Sprintf("pageCount, expected *uint, got %T", args[0]))
+										pageCount, ok := args[0].(*int)
+										require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
 										*pageCount = testPageCount
 										return nil
 									},
@@ -756,8 +756,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										require.Len(t, args, 1)
-										pageCount, ok := args[0].(*uint)
-										require.True(t, ok, fmt.Sprintf("pageCount, expected *uint, got %T", args[0]))
+										pageCount, ok := args[0].(*int)
+										require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
 										*pageCount = testPageCount
 										return nil
 									},
