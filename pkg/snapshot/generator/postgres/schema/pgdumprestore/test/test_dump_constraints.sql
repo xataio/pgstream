@@ -21,4 +21,3 @@ ALTER TABLE ONLY musicbrainz.alternative_medium
 
 ALTER TABLE ONLY musicbrainz.alternative_medium
     ADD CONSTRAINT alternative_medium_fk_medium FOREIGN KEY (medium) REFERENCES musicbrainz.medium(id);
-

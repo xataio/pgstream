@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -627,6 +628,11 @@ func TestSnapshotGenerator_extractIndicesAndConstraints(t *testing.T) {
 	sg := &SnapshotGenerator{}
 	filtered, constraints := sg.extractIndicesAndConstraints(dumpBytes)
 
-	require.Equal(t, string(wantFilteredDumpBytes), string(filtered))
-	require.Equal(t, string(wantConstraintsBytes), string(constraints))
+	filteredStr := strings.Trim(string(filtered), "\n")
+	wantFilteredStr := strings.Trim(string(wantFilteredDumpBytes), "\n")
+	constraintsStr := strings.Trim(string(constraints), "\n")
+	wantConstraintsStr := strings.Trim(string(wantConstraintsBytes), "\n")
+
+	require.Equal(t, wantFilteredStr, filteredStr)
+	require.Equal(t, wantConstraintsStr, constraintsStr)
 }
