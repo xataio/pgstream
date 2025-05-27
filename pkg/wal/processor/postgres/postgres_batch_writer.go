@@ -10,11 +10,9 @@ import (
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
-	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/wal"
-	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 )
@@ -22,34 +20,19 @@ import (
 // BatchWriter is a WAL processor implementation that batches and writes wal
 // events to a Postgres instance.
 type BatchWriter struct {
-	logger          loglib.Logger
-	pgConn          pglib.Querier
-	adapter         walAdapter
-	disableTriggers bool
+	*Writer
 
 	batchSender queryBatchSender
-
-	// optional checkpointer callback to mark what was safely processed
-	checkpointer checkpointer.Checkpoint
 }
 
-type Option func(*BatchWriter)
-
-type queryBatchSender interface {
-	SendMessage(context.Context, *batch.WALMessage[*query]) error
-	Close()
-}
+const batchWriter = "postgres_batch_writer"
 
 // NewBatchWriter returns a postgres processor that batches and writes data to
 // the configured postgres instance.
-func NewBatchWriter(ctx context.Context, config *Config, opts ...Option) (*BatchWriter, error) {
-	pgConn, err := pglib.NewConnPool(ctx, config.URL)
-	if err != nil {
-		return nil, err
-	}
-
+func NewBatchWriter(ctx context.Context, config *Config, opts ...WriterOption) (*BatchWriter, error) {
 	var schemaLogStore schemalog.Store
 	if config.SchemaLogStore.URL != "" {
+		var err error
 		schemaLogStore, err = schemalogpg.NewStore(ctx, config.SchemaLogStore)
 		if err != nil {
 			return nil, fmt.Errorf("create schema log postgres store: %w", err)
@@ -62,50 +45,21 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...Option) (*Batch
 		return nil, err
 	}
 
-	w := &BatchWriter{
-		logger:          loglib.NewNoopLogger(),
-		pgConn:          pgConn,
-		adapter:         adapter,
-		disableTriggers: config.DisableTriggers,
-	}
-
-	for _, opt := range opts {
-		opt(w)
-	}
-
-	if w.disableTriggers {
-		_, err := pgConn.Exec(ctx, "SET session_replication_role = replica")
-		if err != nil {
-			return nil, fmt.Errorf("disabling triggers on postgres instance: %w", err)
-		}
-	}
-
-	w.batchSender, err = batch.NewSender(ctx, &config.BatchConfig, w.sendBatch, w.logger)
+	w, err := newWriter(ctx, config, adapter, batchWriter, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	return w, nil
-}
-
-func WithLogger(l loglib.Logger) Option {
-	return func(w *BatchWriter) {
-		w.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
-			loglib.ModuleField: "postgres_batch_writer",
-		})
+	bw := &BatchWriter{
+		Writer: w,
 	}
-}
 
-func WithCheckpoint(c checkpointer.Checkpoint) Option {
-	return func(w *BatchWriter) {
-		w.checkpointer = c
+	bw.batchSender, err = batch.NewSender(ctx, &config.BatchConfig, bw.sendBatch, w.logger)
+	if err != nil {
+		return nil, err
 	}
-}
 
-func WithInstrumentation(i *otel.Instrumentation) Option {
-	return func(w *BatchWriter) {
-		w.adapter = newInstrumentedWalAdapter(w.adapter, i)
-	}
+	return bw, nil
 }
 
 // ProcessWalEvent is called on every new message from the wal. It can be called
@@ -140,21 +94,14 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) 
 }
 
 func (w *BatchWriter) Name() string {
-	return "postgres-batch-writer"
+	return batchWriter
 }
 
 func (w *BatchWriter) Close() error {
 	w.logger.Debug("closing batch writer")
 	w.batchSender.Close()
 
-	ctx := context.Background()
-	if w.disableTriggers {
-		// reset the replica role once we're done with the batch writer
-		if _, err := w.pgConn.Exec(ctx, "SET session_replication_role = DEFAULT"); err != nil {
-			w.logger.Error(err, "reseting session replication role to default")
-		}
-	}
-	return w.pgConn.Close(ctx)
+	return w.close()
 }
 
 func (w *BatchWriter) sendBatch(ctx context.Context, batch *batch.Batch[*query]) error {

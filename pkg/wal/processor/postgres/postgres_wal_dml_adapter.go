@@ -53,7 +53,9 @@ func (a *dmlAdapter) walDataToQuery(d *wal.Data) *query {
 
 func (a *dmlAdapter) buildTruncateQuery(d *wal.Data) *query {
 	return &query{
-		sql: fmt.Sprintf("TRUNCATE %s", quotedTableName(d.Schema, d.Table)),
+		table:  d.Table,
+		schema: d.Schema,
+		sql:    fmt.Sprintf("TRUNCATE %s", quotedTableName(d.Schema, d.Table)),
 	}
 }
 
@@ -61,8 +63,10 @@ func (a *dmlAdapter) buildDeleteQuery(d *wal.Data) *query {
 	primaryKeyCols := a.extractPrimaryKeyColumns(d.Metadata.InternalColIDs, d.Identity)
 	whereQuery, whereValues := a.buildWhereQuery(primaryKeyCols, 0)
 	return &query{
-		sql:  fmt.Sprintf("DELETE FROM %s %s", quotedTableName(d.Schema, d.Table), whereQuery),
-		args: whereValues,
+		table:  d.Table,
+		schema: d.Schema,
+		sql:    fmt.Sprintf("DELETE FROM %s %s", quotedTableName(d.Schema, d.Table), whereQuery),
+		args:   whereValues,
 	}
 }
 
@@ -77,6 +81,9 @@ func (a *dmlAdapter) buildInsertQuery(d *wal.Data) *query {
 	}
 
 	return &query{
+		table:       d.Table,
+		schema:      d.Schema,
+		columnNames: names,
 		sql: fmt.Sprintf("INSERT INTO %s(%s) VALUES(%s)%s",
 			quotedTableName(d.Schema, d.Table), strings.Join(names, ", "),
 			strings.Join(placeholders, ", "),
@@ -90,8 +97,10 @@ func (a *dmlAdapter) buildUpdateQuery(d *wal.Data) *query {
 	primaryKeyCols := a.extractPrimaryKeyColumns(d.Metadata.InternalColIDs, d.Columns)
 	whereQuery, whereValues := a.buildWhereQuery(primaryKeyCols, len(d.Columns))
 	return &query{
-		sql:  fmt.Sprintf("UPDATE %s %s %s", quotedTableName(d.Schema, d.Table), setQuery, whereQuery),
-		args: append(setValues, whereValues...),
+		table:  d.Table,
+		schema: d.Schema,
+		sql:    fmt.Sprintf("UPDATE %s %s %s", quotedTableName(d.Schema, d.Table), setQuery, whereQuery),
+		args:   append(setValues, whereValues...),
 	}
 }
 

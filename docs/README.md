@@ -144,6 +144,8 @@ target:
       schema_log_store_url: "postgresql://user:password@localhost:5432/mydatabase" # url to the postgres database where the schema log is stored to be used when performing schema change diffs
     disable_triggers: false # whether to disable triggers on the target database. Defaults to false
     on_conflict_action: "nothing" # options are update, nothing or error. Defaults to error
+    bulk_ingest:
+      enabled: true # whether to enable bulk ingest on the target postgres, using COPY FROM (supported for insert only workloads)
   kafka:
     servers: ["localhost:9092"]
     topic:
@@ -355,6 +357,7 @@ One of exponential/constant backoff policies can be provided for the search stor
 | PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL | N/A                        | No       | URL of the store where the pgstream schemalog table which keeps track of schema changes is.                                                                                                                    |
 | PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS    | False(run), True(snapshot) | No       | Option to disable triggers on the target PostgreSQL database while performing the snaphot/replication streaming. It defaults to false when using the run command, and to true when using the snapshot command. |
 | PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION  | error                      | No       | Action to apply to inserts on conflict. Options are `nothing`, `update` or `error`.                                                                                                                            |
+| PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED | False(run), True(snapshot) | No       | Wether to use COPY FROM on insert only workloads. It defaults to false when using the run command, and to true when using the snapshot command.                                                                |
 
 </details>
 
@@ -582,7 +585,6 @@ transformations:
 | Parameter | Type   | Default | Required |
 | --------- | ------ | ------- | -------- |
 | template  | string | N/A     | Yes      |
-
 
 This transformer can be used for any Postgres type as long as the given template produces a value with correct syntax for that column type. e.g It can be "5-10-2021" for a date column, or "3.14159265" for a double precision one.
 

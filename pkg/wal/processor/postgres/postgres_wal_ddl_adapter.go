@@ -61,7 +61,7 @@ func (a *ddlAdapter) schemaDiffToQueries(schemaName string, diff *schemalog.Diff
 	queries := []*query{}
 	for _, table := range diff.TablesRemoved {
 		dropQuery := fmt.Sprintf("DROP TABLE IF EXISTS %s", quotedTableName(schemaName, table.Name))
-		queries = append(queries, a.newDDLQuery(dropQuery))
+		queries = append(queries, a.newDDLQuery(schemaName, table.Name, dropQuery))
 	}
 
 	for _, table := range diff.TablesAdded {
@@ -104,7 +104,7 @@ func (a *ddlAdapter) buildCreateTableQuery(schemaName string, table schemalog.Ta
 
 	createQuery += ")"
 
-	return a.newDDLQuery(createQuery)
+	return a.newDDLQuery(schemaName, table.Name, createQuery)
 }
 
 func (a *ddlAdapter) buildColumnDefinition(column *schemalog.Column) string {
@@ -139,17 +139,17 @@ func (a *ddlAdapter) buildAlterTableQueries(schemaName string, tableDiff schemal
 			quotedTableName(schemaName, tableDiff.TableNameChange.Old),
 			tableDiff.TableNameChange.New,
 		)
-		queries = append(queries, a.newDDLQuery(alterQuery))
+		queries = append(queries, a.newDDLQuery(schemaName, tableDiff.TableName, alterQuery))
 	}
 
 	for _, col := range tableDiff.ColumnsRemoved {
 		alterQuery := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", quotedTableName(schemaName, tableDiff.TableName), pglib.QuoteIdentifier(col.Name))
-		queries = append(queries, a.newDDLQuery(alterQuery))
+		queries = append(queries, a.newDDLQuery(schemaName, tableDiff.TableName, alterQuery))
 	}
 
 	for _, col := range tableDiff.ColumnsAdded {
 		alterQuery := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", quotedTableName(schemaName, tableDiff.TableName), a.buildColumnDefinition(&col))
-		queries = append(queries, a.newDDLQuery(alterQuery))
+		queries = append(queries, a.newDDLQuery(schemaName, tableDiff.TableName, alterQuery))
 	}
 
 	for _, colDiff := range tableDiff.ColumnsChanged {
@@ -172,7 +172,7 @@ func (a *ddlAdapter) buildAlterColumnQueries(schemaName, tableName string, colum
 			pglib.QuoteIdentifier(columnDiff.NameChange.Old),
 			pglib.QuoteIdentifier(columnDiff.NameChange.New),
 		)
-		queries = append(queries, a.newDDLQuery(alterQuery))
+		queries = append(queries, a.newDDLQuery(schemaName, tableName, alterQuery))
 	}
 
 	if columnDiff.TypeChange != nil {
@@ -181,7 +181,7 @@ func (a *ddlAdapter) buildAlterColumnQueries(schemaName, tableName string, colum
 			pglib.QuoteIdentifier(columnDiff.ColumnName),
 			columnDiff.TypeChange.New,
 		)
-		queries = append(queries, a.newDDLQuery(alterQuery))
+		queries = append(queries, a.newDDLQuery(schemaName, tableName, alterQuery))
 	}
 
 	if columnDiff.NullChange != nil {
@@ -200,7 +200,7 @@ func (a *ddlAdapter) buildAlterColumnQueries(schemaName, tableName string, colum
 				pglib.QuoteIdentifier(columnDiff.ColumnName),
 			)
 		}
-		queries = append(queries, a.newDDLQuery(alterQuery))
+		queries = append(queries, a.newDDLQuery(schemaName, tableName, alterQuery))
 	}
 
 	if columnDiff.DefaultChange != nil {
@@ -223,7 +223,7 @@ func (a *ddlAdapter) buildAlterColumnQueries(schemaName, tableName string, colum
 				)
 			}
 		}
-		queries = append(queries, a.newDDLQuery(alterQuery))
+		queries = append(queries, a.newDDLQuery(schemaName, tableName, alterQuery))
 	}
 
 	// TODO: add support for unique constraint changes
@@ -231,9 +231,11 @@ func (a *ddlAdapter) buildAlterColumnQueries(schemaName, tableName string, colum
 	return queries
 }
 
-func (a *ddlAdapter) newDDLQuery(sql string) *query {
+func (a *ddlAdapter) newDDLQuery(schema, table, sql string) *query {
 	return &query{
-		sql:   sql,
-		isDDL: true,
+		schema: schema,
+		table:  table,
+		sql:    sql,
+		isDDL:  true,
 	}
 }

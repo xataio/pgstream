@@ -60,6 +60,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION")
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED")
 
 	viper.BindEnv("PGSTREAM_KAFKA_READER_SERVERS")
 	viper.BindEnv("PGSTREAM_KAFKA_WRITER_SERVERS")
@@ -387,8 +388,9 @@ func parsePostgresProcessorConfig() *stream.PostgresProcessorConfig {
 			SchemaLogStore: pgschemalog.Config{
 				URL: viper.GetString("PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL"),
 			},
-			DisableTriggers:  viper.GetBool("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS"),
-			OnConflictAction: viper.GetString("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION"),
+			DisableTriggers:   viper.GetBool("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS"),
+			OnConflictAction:  viper.GetString("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION"),
+			BulkIngestEnabled: viper.GetBool("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED"),
 		},
 	}
 }
