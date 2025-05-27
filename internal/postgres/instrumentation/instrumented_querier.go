@@ -54,7 +54,7 @@ func NewQuerier(q pglib.Querier, instrumentation *otel.Instrumentation) (pglib.Q
 }
 
 func (i *Querier) Query(ctx context.Context, query string, args ...any) (rows pglib.Rows, err error) {
-	queryAttrs := i.queryAttributes(query)
+	queryAttrs := queryAttributes(query)
 	ctx, span := otel.StartSpan(ctx, i.tracer, "querier.Query", trace.WithAttributes(queryAttrs...))
 	defer otel.CloseSpan(span, err)
 
@@ -68,7 +68,7 @@ func (i *Querier) Query(ctx context.Context, query string, args ...any) (rows pg
 }
 
 func (i *Querier) QueryRow(ctx context.Context, query string, args ...any) pglib.Row {
-	queryAttrs := i.queryAttributes(query)
+	queryAttrs := queryAttributes(query)
 	ctx, span := otel.StartSpan(ctx, i.tracer, "querier.QueryRow", trace.WithAttributes(queryAttrs...))
 	defer otel.CloseSpan(span, nil)
 
@@ -82,7 +82,7 @@ func (i *Querier) QueryRow(ctx context.Context, query string, args ...any) pglib
 }
 
 func (i *Querier) Exec(ctx context.Context, query string, args ...any) (tag pglib.CommandTag, err error) {
-	queryAttrs := i.queryAttributes(query)
+	queryAttrs := queryAttributes(query)
 	ctx, span := otel.StartSpan(ctx, i.tracer, "querier.Exec", trace.WithAttributes(queryAttrs...))
 	defer otel.CloseSpan(span, err)
 
@@ -96,7 +96,7 @@ func (i *Querier) Exec(ctx context.Context, query string, args ...any) (tag pgli
 }
 
 func (i *Querier) ExecInTx(ctx context.Context, fn func(tx pglib.Tx) error) (err error) {
-	queryAttrs := i.queryAttributes(txQueryType)
+	queryAttrs := queryAttributes(txQueryType)
 	ctx, span := otel.StartSpan(ctx, i.tracer, "querier.ExecInTx", trace.WithAttributes(queryAttrs...))
 	defer otel.CloseSpan(span, err)
 
@@ -106,11 +106,16 @@ func (i *Querier) ExecInTx(ctx context.Context, fn func(tx pglib.Tx) error) (err
 			i.metrics.queryLatency.Record(ctx, int64(time.Since(startTime).Milliseconds()), metric.WithAttributes(queryAttrs...))
 		}()
 	}
-	return i.inner.ExecInTx(ctx, fn)
+
+	instrumentedTxFn := func(tx pglib.Tx) error {
+		itx := NewTx(tx, &otel.Instrumentation{Tracer: i.tracer})
+		return fn(itx)
+	}
+	return i.inner.ExecInTx(ctx, instrumentedTxFn)
 }
 
 func (i *Querier) ExecInTxWithOptions(ctx context.Context, fn func(tx pglib.Tx) error, txOpts pglib.TxOptions) (err error) {
-	queryAttrs := i.queryAttributes(txQueryType)
+	queryAttrs := queryAttributes(txQueryType)
 	ctx, span := otel.StartSpan(ctx, i.tracer, "querier.ExecInTxWithOptions", trace.WithAttributes(queryAttrs...))
 	defer otel.CloseSpan(span, err)
 
@@ -121,18 +126,19 @@ func (i *Querier) ExecInTxWithOptions(ctx context.Context, fn func(tx pglib.Tx) 
 		}()
 	}
 
-	return i.inner.ExecInTxWithOptions(ctx, fn, txOpts)
+	instrumentedTxFn := func(tx pglib.Tx) error {
+		itx := NewTx(tx, &otel.Instrumentation{Tracer: i.tracer})
+		return fn(itx)
+	}
+
+	return i.inner.ExecInTxWithOptions(ctx, instrumentedTxFn, txOpts)
 }
 
 func (i *Querier) Ping(ctx context.Context) (err error) {
-	ctx, span := otel.StartSpan(ctx, i.tracer, "querier.Ping")
-	defer otel.CloseSpan(span, err)
 	return i.inner.Ping(ctx)
 }
 
 func (i *Querier) Close(ctx context.Context) (err error) {
-	ctx, span := otel.StartSpan(ctx, i.tracer, "querier.Close")
-	defer otel.CloseSpan(span, err)
 	return i.inner.Close(ctx)
 }
 
@@ -158,11 +164,9 @@ func (i *Querier) initMetrics() error {
 	return nil
 }
 
-func (i *Querier) queryAttributes(query string) []attribute.KeyValue {
+func queryAttributes(query string) []attribute.KeyValue {
 	var qt string
 	switch query {
-	case txQueryType:
-		qt = txQueryType
 	case "":
 		qt = unknownQueryType
 	default:
@@ -176,7 +180,7 @@ func (i *Querier) queryAttributes(query string) []attribute.KeyValue {
 		},
 	}
 
-	if qt == txQueryType || qt == unknownQueryType {
+	if qt == unknownQueryType {
 		return attrs
 	}
 
