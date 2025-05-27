@@ -419,13 +419,14 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			t.Parallel()
 
 			sg := SnapshotGenerator{
-				sourceURL:      "source-url",
-				targetURL:      "target-url",
-				connBuilder:    func(ctx context.Context, s string) (pglib.Querier, error) { return tc.conn, nil },
-				pgDumpFn:       tc.pgdumpFn,
-				pgRestoreFn:    tc.pgrestoreFn,
-				schemalogStore: tc.schemalogStore,
-				logger:         log.NewNoopLogger(),
+				sourceURL:              "source-url",
+				targetURL:              "target-url",
+				connBuilder:            func(ctx context.Context, s string) (pglib.Querier, error) { return tc.conn, nil },
+				pgDumpFn:               tc.pgdumpFn,
+				pgRestoreFn:            tc.pgrestoreFn,
+				schemalogStore:         tc.schemalogStore,
+				logger:                 log.NewNoopLogger(),
+				includeGlobalDBObjects: true,
 			}
 
 			if tc.connBuilder != nil {

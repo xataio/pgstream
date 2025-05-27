@@ -97,7 +97,8 @@ type SnapshotSchemaConfig struct {
 }
 
 type PgDumpPgRestoreConfig struct {
-	CleanTargetDB bool `mapstructure:"clean_target_db" yaml:"clean_target_db"`
+	CleanTargetDB          bool `mapstructure:"clean_target_db" yaml:"clean_target_db"`
+	IncludeGlobalDBObjects bool `mapstructure:"include_global_db_objects" yaml:"include_global_db_objects"`
 }
 
 type ReplicationConfig struct {
@@ -497,6 +498,7 @@ func (c *YAMLConfig) parseSchemaSnapshotConfig() (snapshotbuilder.SchemaSnapshot
 
 		if schemaSnapshotCfg.PgDumpPgRestore != nil {
 			streamSchemaCfg.DumpRestore.CleanTargetDB = schemaSnapshotCfg.PgDumpPgRestore.CleanTargetDB
+			streamSchemaCfg.DumpRestore.IncludeGlobalDBObjects = schemaSnapshotCfg.PgDumpPgRestore.IncludeGlobalDBObjects
 		}
 
 		return streamSchemaCfg, nil
