@@ -165,6 +165,10 @@ func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID strin
 	if err != nil {
 		return err
 	}
+	// the table is empty
+	if tablePageCount < 0 {
+		return nil
+	}
 
 	// If one page range fails, we abort the entire table snapshot. The
 	// snapshot relies on the transaction snapshot id to ensure all workers
@@ -180,7 +184,7 @@ func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID strin
 
 	// page count returned by postgres starts at 0, so we need to include it
 	// when creating the page ranges.
-	for start := uint(0); start <= tablePageCount; start += sg.batchPageSize {
+	for start := uint(0); start <= uint(tablePageCount); start += sg.batchPageSize {
 		rangeChan <- pageRange{
 			start: start,
 			end:   start + sg.batchPageSize,
@@ -216,7 +220,9 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID,
 		defer rows.Close()
 
 		fieldDescriptions := rows.FieldDescriptions()
+		rowCount := uint(0)
 		for rows.Next() {
+			rowCount++
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -241,6 +247,8 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID,
 			}
 		}
 
+		sg.logger.Debug(fmt.Sprintf("%d rows processed", rowCount))
+
 		return rows.Err()
 	})
 }
@@ -264,8 +272,8 @@ func (sg *SnapshotGenerator) toSnapshotColumns(ctx context.Context, fieldDescrip
 	return columns
 }
 
-func (sg *SnapshotGenerator) getTablePageCount(ctx context.Context, schemaName, tableName, snapshotID string) (uint, error) {
-	pageCount := uint(0)
+func (sg *SnapshotGenerator) getTablePageCount(ctx context.Context, schemaName, tableName, snapshotID string) (int, error) {
+	pageCount := int(0)
 	err := sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
 		const query = "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2"
 		if err := tx.QueryRow(ctx, query, tableName, schemaName).Scan(&pageCount); err != nil {
