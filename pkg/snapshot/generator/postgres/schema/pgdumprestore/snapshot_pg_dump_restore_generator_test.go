@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -608,4 +609,24 @@ func TestSnapshotGenerator_schemalogExists(t *testing.T) {
 			require.Equal(t, tc.wantExists, exists)
 		})
 	}
+}
+
+func TestSnapshotGenerator_extractIndicesAndConstraints(t *testing.T) {
+	t.Parallel()
+
+	// Read the file as []byte
+	dumpBytes, err := os.ReadFile("test/test_dump.sql")
+	require.NoError(t, err)
+
+	wantFilteredDumpBytes, err := os.ReadFile("test/test_dump_filtered.sql")
+	require.NoError(t, err)
+
+	wantConstraintsBytes, err := os.ReadFile("test/test_dump_constraints.sql")
+	require.NoError(t, err)
+
+	sg := &SnapshotGenerator{}
+	filtered, constraints := sg.extractIndicesAndConstraints(dumpBytes)
+
+	require.Equal(t, string(wantFilteredDumpBytes), string(filtered))
+	require.Equal(t, string(wantConstraintsBytes), string(constraints))
 }
