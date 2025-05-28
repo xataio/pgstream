@@ -3,6 +3,8 @@
 package pgdumprestore
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -17,6 +19,7 @@ import (
 	schemaloginstrumentation "github.com/xataio/pgstream/pkg/schemalog/instrumentation"
 	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/snapshot"
+	"github.com/xataio/pgstream/pkg/snapshot/generator"
 )
 
 // SnapshotGenerator generates postgres schema snapshots using pg_dump and
@@ -30,6 +33,7 @@ type SnapshotGenerator struct {
 	connBuilder    pglib.QuerierBuilder
 	cleanTargetDB  bool
 	logger         loglib.Logger
+	generator      generator.SnapshotGenerator
 }
 
 type Config struct {
@@ -39,6 +43,12 @@ type Config struct {
 }
 
 type Option func(s *SnapshotGenerator)
+
+type dump struct {
+	full                  []byte
+	filtered              []byte
+	indicesAndConstraints []byte
+}
 
 const (
 	publicSchema = "public"
@@ -77,6 +87,12 @@ func WithLogger(logger loglib.Logger) Option {
 	}
 }
 
+func WithSnapshotGenerator(g generator.SnapshotGenerator) Option {
+	return func(sg *SnapshotGenerator) {
+		sg.generator = g
+	}
+}
+
 func WithInstrumentation(i *otel.Instrumentation) Option {
 	return func(sg *SnapshotGenerator) {
 		var err error
@@ -103,16 +119,66 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return nil
 	}
 
-	pgdumpOpts, err := s.pgdumpOptions(ctx, ss)
-	if err != nil {
-		return fmt.Errorf("preparing pg_dump options: %w", err)
-	}
-
-	dump, err := s.pgDumpFn(ctx, *pgdumpOpts)
+	dump, err := s.pgdump(ctx, ss)
 	if err != nil {
 		return err
 	}
 
+	// if there's no further snapshotting happening, we can apply the full dump,
+	// no need to apply the constraints/indices separately.
+	if s.generator == nil {
+		return s.pgrestore(ctx, ss, dump.full)
+	}
+
+	// otherwise, we need to apply the filtered schema dump first, then call the
+	// wrapped snapshot generator, and apply the indices and constraints last.
+	// This will make the data snapshot faster, since there will be no
+	// constraints to be updated/checked on each insert.
+	if err := s.pgrestore(ctx, ss, dump.filtered); err != nil {
+		return err
+	}
+
+	if err := s.generator.CreateSnapshot(ctx, ss); err != nil {
+		return err
+	}
+
+	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schema": ss.SchemaName, "tables": ss.TableNames})
+	// apply the indices and constraints when the wrapped generator has finished
+	return s.pgrestore(ctx, ss, dump.indicesAndConstraints)
+}
+
+func (s *SnapshotGenerator) Close() error {
+	if s.schemalogStore != nil {
+		return s.schemalogStore.Close()
+	}
+
+	if s.generator != nil {
+		return s.generator.Close()
+	}
+
+	return nil
+}
+
+func (s *SnapshotGenerator) pgdump(ctx context.Context, ss *snapshot.Snapshot) (*dump, error) {
+	pgdumpOpts, err := s.pgdumpOptions(ctx, ss)
+	if err != nil {
+		return nil, fmt.Errorf("preparing pg_dump options: %w", err)
+	}
+
+	d, err := s.pgDumpFn(ctx, *pgdumpOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered, constraints := s.extractIndicesAndConstraints(d)
+	return &dump{
+		full:                  d,
+		filtered:              filtered,
+		indicesAndConstraints: constraints,
+	}, nil
+}
+
+func (s *SnapshotGenerator) pgrestore(ctx context.Context, ss *snapshot.Snapshot, dump []byte) error {
 	// if we use table filtering in the pg_dump command, the schema creation
 	// will not be dumped, so it needs to be created explicitly (except for
 	// public schema)
@@ -122,7 +188,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		}
 	}
 
-	_, err = s.pgRestoreFn(ctx, s.pgrestoreOptions(), dump)
+	_, err := s.pgRestoreFn(ctx, s.pgrestoreOptions(), dump)
 	pgrestoreErr := &pglib.PGRestoreErrors{}
 	if err != nil {
 		switch {
@@ -146,13 +212,6 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		}
 	}
 
-	return nil
-}
-
-func (s *SnapshotGenerator) Close() error {
-	if s.schemalogStore != nil {
-		return s.schemalogStore.Close()
-	}
 	return nil
 }
 
@@ -274,4 +333,47 @@ func (s *SnapshotGenerator) schemalogExists(ctx context.Context) (bool, error) {
 	}
 
 	return exists, nil
+}
+
+func (s *SnapshotGenerator) extractIndicesAndConstraints(d []byte) ([]byte, []byte) {
+	scanner := bufio.NewScanner(bytes.NewReader(d))
+	scanner.Split(bufio.ScanLines)
+	indicesAndConstraints := strings.Builder{}
+	filteredDump := strings.Builder{}
+	alterTable := ""
+	for scanner.Scan() {
+		line := scanner.Text()
+		switch {
+		case alterTable != "":
+			// check if the previous alter table line is split in two lines and matches a constraint
+			if strings.Contains(line, "ADD CONSTRAINT") {
+				indicesAndConstraints.WriteString(alterTable)
+				indicesAndConstraints.WriteString("\n")
+				indicesAndConstraints.WriteString(line)
+				indicesAndConstraints.WriteString("\n\n")
+			} else {
+				filteredDump.WriteString(alterTable)
+				filteredDump.WriteString("\n")
+				filteredDump.WriteString(line)
+				filteredDump.WriteString("\n")
+			}
+			alterTable = ""
+		case strings.HasPrefix(line, "CREATE INDEX"),
+			strings.HasPrefix(line, "CREATE UNIQUE INDEX"),
+			strings.HasPrefix(line, "CREATE CONSTRAINT"),
+			strings.HasPrefix(line, "CREATE TRIGGER"):
+			indicesAndConstraints.WriteString(line)
+			indicesAndConstraints.WriteString("\n\n")
+		case strings.HasPrefix(line, "ALTER TABLE") && strings.Contains(line, "ADD CONSTRAINT"):
+			indicesAndConstraints.WriteString(line)
+		case strings.HasPrefix(line, "ALTER TABLE") && !strings.HasSuffix(line, ";"):
+			// keep it in case the alter table is provided in two lines (pg_dump format)
+			alterTable = line
+		default:
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
+		}
+	}
+
+	return []byte(filteredDump.String()), []byte(indicesAndConstraints.String())
 }
