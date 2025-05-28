@@ -32,3 +32,11 @@ GIT_COMMIT := $(shell git rev-parse --short HEAD)
 .PHONY: build
 build:
 	@go build -ldflags "-X github.com/xataio/pgstream/cmd.Env=development -X github.com/xataio/pgstream/cmd.Version=$(GIT_COMMIT)" .
+
+.PHONY: build-linux-amd64
+build-linux-amd64:
+	@GOOS=linux GOARCH=amd64 go build -ldflags "-X github.com/xataio/pgstream/cmd.Env=development -X github.com/xataio/pgstream/cmd.Version=$(GIT_COMMIT)" .
+
+.PHONY: build-linux-arm64
+build-linux-arm64:
+	@GOOS=linux GOARCH=arm64 go build -ldflags "-X github.com/xataio/pgstream/cmd.Env=development -X github.com/xataio/pgstream/cmd.Version=$(GIT_COMMIT)" .
