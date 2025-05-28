@@ -25,21 +25,25 @@ import (
 // SnapshotGenerator generates postgres schema snapshots using pg_dump and
 // pg_restore
 type SnapshotGenerator struct {
-	sourceURL      string
-	targetURL      string
-	pgDumpFn       pglib.PGDumpFn
-	pgRestoreFn    pglib.PGRestoreFn
-	schemalogStore schemalog.Store
-	connBuilder    pglib.QuerierBuilder
-	cleanTargetDB  bool
-	logger         loglib.Logger
-	generator      generator.SnapshotGenerator
+	sourceURL              string
+	targetURL              string
+	pgDumpFn               pglib.PGDumpFn
+	pgRestoreFn            pglib.PGRestoreFn
+	schemalogStore         schemalog.Store
+	connBuilder            pglib.QuerierBuilder
+	cleanTargetDB          bool
+	includeGlobalDBObjects bool
+	logger                 loglib.Logger
+	generator              generator.SnapshotGenerator
 }
 
 type Config struct {
 	SourcePGURL   string
 	TargetPGURL   string
 	CleanTargetDB bool
+	// if set to true the snapshot will include all database objects, not tied
+	// to any particular schema, such as extensions or triggers.
+	IncludeGlobalDBObjects bool
 }
 
 type Option func(s *SnapshotGenerator)
@@ -59,13 +63,14 @@ const (
 // uses pg_dump and pg_restore to sync the schema of two postgres databases
 func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*SnapshotGenerator, error) {
 	sg := &SnapshotGenerator{
-		sourceURL:     c.SourcePGURL,
-		targetURL:     c.TargetPGURL,
-		pgDumpFn:      pglib.RunPGDump,
-		pgRestoreFn:   pglib.RunPGRestore,
-		connBuilder:   pglib.ConnBuilder,
-		cleanTargetDB: c.CleanTargetDB,
-		logger:        loglib.NewNoopLogger(),
+		sourceURL:              c.SourcePGURL,
+		targetURL:              c.TargetPGURL,
+		pgDumpFn:               pglib.RunPGDump,
+		pgRestoreFn:            pglib.RunPGRestore,
+		connBuilder:            pglib.ConnBuilder,
+		cleanTargetDB:          c.CleanTargetDB,
+		includeGlobalDBObjects: c.IncludeGlobalDBObjects,
+		logger:                 loglib.NewNoopLogger(),
 	}
 
 	if err := sg.initialiseSchemaLogStore(ctx); err != nil {
@@ -240,8 +245,21 @@ func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, ss *snapshot.Snap
 		ConnectionString: s.sourceURL,
 		Format:           "p",
 		SchemaOnly:       true,
-		Schemas:          []string{pglib.QuoteIdentifier(ss.SchemaName)},
+		Schemas:          []string{ss.SchemaName},
 		Clean:            s.cleanTargetDB,
+	}
+
+	if s.includeGlobalDBObjects {
+		// instead of using the schema filter, we use the exclude schemas filter
+		// to make sure extensions and other database global objects are
+		// created. pg_dump will not include them when using the schema filter,
+		// since they do not belong to the schema.
+		var err error
+		opts.ExcludeSchemas, err = s.pgdumpExcludedSchemas(ctx, ss.SchemaName)
+		if err != nil {
+			return nil, err
+		}
+		opts.Schemas = nil
 	}
 
 	// wildcard means all tables in the schema, so no table filter required
@@ -300,6 +318,37 @@ func (s *SnapshotGenerator) pgdumpExcludedTables(ctx context.Context, schemaName
 	}
 
 	return excludeTables, nil
+}
+
+func (s *SnapshotGenerator) pgdumpExcludedSchemas(ctx context.Context, schemaName string) ([]string, error) {
+	conn, err := s.connBuilder(ctx, s.sourceURL)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close(ctx)
+
+	// get all schemas in the database that are not in the snapshot request
+	const query = "SELECT schema_name FROM information_schema.schemata WHERE schema_name != $1"
+	rows, err := conn.Query(ctx, query, schemaName)
+	if err != nil {
+		return nil, fmt.Errorf("retrieving tables from schema: %w", err)
+	}
+	defer rows.Close()
+
+	excludeSchemas := []string{}
+	for rows.Next() {
+		schema := ""
+		if err := rows.Scan(&schema); err != nil {
+			return nil, fmt.Errorf("scanning schema name: %w", err)
+		}
+		excludeSchemas = append(excludeSchemas, pglib.QuoteIdentifier(schema))
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return excludeSchemas, nil
 }
 
 func (s *SnapshotGenerator) initialiseSchemaLogStore(ctx context.Context) error {
