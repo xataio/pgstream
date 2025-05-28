@@ -122,7 +122,7 @@ func (v *PostgresTransformerParser) validateAllRequiredTables(rules []TableRules
 
 	for _, requiredTable := range requiredTablesQuoteQualified {
 		if _, found := ruleTablesMap[requiredTable]; !found {
-			return fmt.Errorf("required table %s not found in rules", requiredTable)
+			return fmt.Errorf("required table %s not found in transformation rules", requiredTable)
 		}
 	}
 	return nil
@@ -136,7 +136,7 @@ func (v *PostgresTransformerParser) getRequiredTablesList() ([]string, error) {
 			return nil, err
 		}
 		if schemaName == wildcard {
-			return nil, fmt.Errorf("wildcard schema name is not supported yet: *.%s", table)
+			return nil, fmt.Errorf("wildcard schema name is not supported: %s", table)
 		}
 
 		if tableName != wildcard {
