@@ -61,6 +61,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS")
 
 	viper.BindEnv("PGSTREAM_KAFKA_READER_SERVERS")
 	viper.BindEnv("PGSTREAM_KAFKA_WRITER_SERVERS")
@@ -221,9 +222,10 @@ func parseSchemaSnapshotConfig(pgurl string) snapshotbuilder.SchemaSnapshotConfi
 	if pgTargetURL != "" && !useSchemaLog {
 		return snapshotbuilder.SchemaSnapshotConfig{
 			DumpRestore: &pgdumprestore.Config{
-				SourcePGURL:   pgurl,
-				TargetPGURL:   pgTargetURL,
-				CleanTargetDB: viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB"),
+				SourcePGURL:            pgurl,
+				TargetPGURL:            pgTargetURL,
+				CleanTargetDB:          viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB"),
+				IncludeGlobalDBObjects: viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS"),
 			},
 		}
 	}

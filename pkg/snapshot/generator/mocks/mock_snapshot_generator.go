@@ -9,11 +9,13 @@ import (
 )
 
 type Generator struct {
-	CreateSnapshotFn func(ctx context.Context, snapshot *snapshot.Snapshot) error
-	CloseFn          func() error
+	CreateSnapshotFn    func(ctx context.Context, snapshot *snapshot.Snapshot) error
+	CloseFn             func() error
+	createSnapshotCalls uint
 }
 
 func (m *Generator) CreateSnapshot(ctx context.Context, snapshot *snapshot.Snapshot) error {
+	m.createSnapshotCalls++
 	return m.CreateSnapshotFn(ctx, snapshot)
 }
 
@@ -22,4 +24,8 @@ func (m *Generator) Close() error {
 		return m.CloseFn()
 	}
 	return nil
+}
+
+func (m *Generator) CreateSnapshotCalls() uint {
+	return m.createSnapshotCalls
 }
