@@ -54,8 +54,8 @@ func snapshotFlagBinding(cmd *cobra.Command, args []string) error {
 	if viper.GetString("source.postgres.snapshot.recorder.repeatable_snapshots") == "" {
 		viper.Set("source.postgres.snapshot.recorder.repeatable_snapshots", true)
 	}
-	// if the target is postgres, default to using bulk ingest
-	if viper.GetString("target.postgres.url") != "" {
+	// if the target is postgres, default to using bulk ingest if not set
+	if viper.GetString("target.postgres.url") != "" && viper.GetString("target.postgres.bulk_ingest.enabled") == "" {
 		viper.Set("target.postgres.bulk_ingest.enabled", true)
 	}
 
@@ -67,6 +67,11 @@ func snapshotFlagBinding(cmd *cobra.Command, args []string) error {
 	// if not explicitly set, default to repeatable for snapshot command
 	if viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE") == "" {
 		viper.Set("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE", true)
+	}
+	// if the target is postgres, default to using bulk ingest if not set
+	if viper.GetString("PGSTREAM_POSTGRES_WRITER_TARGET_URL") != "" &&
+		viper.GetString("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED") == "" {
+		viper.Set("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED", true)
 	}
 
 	return targetFlagBinding(cmd)
