@@ -54,6 +54,10 @@ func snapshotFlagBinding(cmd *cobra.Command, args []string) error {
 	if viper.GetString("source.postgres.snapshot.recorder.repeatable_snapshots") == "" {
 		viper.Set("source.postgres.snapshot.recorder.repeatable_snapshots", true)
 	}
+	// if not explicitly set, default to creating the database on the target
+	if viper.GetString("source.postgres.snapshot.schema.pgdump_pgrestore.create_target_db") == "" {
+		viper.Set("source.postgres.snapshot.schema.pgdump_pgrestore.create_target_db", true)
+	}
 	// if the target is postgres, default to using bulk ingest if not set
 	if viper.GetString("target.postgres.url") != "" && viper.GetString("target.postgres.bulk_ingest.enabled") == "" {
 		viper.Set("target.postgres.bulk_ingest.enabled", true)
@@ -67,6 +71,10 @@ func snapshotFlagBinding(cmd *cobra.Command, args []string) error {
 	// if not explicitly set, default to repeatable for snapshot command
 	if viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE") == "" {
 		viper.Set("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE", true)
+	}
+	// if not explicitly set, default to creating the database on the target
+	if viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB") == "" {
+		viper.Set("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB", true)
 	}
 	// if the target is postgres, default to using bulk ingest if not set
 	if viper.GetString("PGSTREAM_POSTGRES_WRITER_TARGET_URL") != "" &&

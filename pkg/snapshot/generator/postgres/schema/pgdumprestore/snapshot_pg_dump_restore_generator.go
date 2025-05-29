@@ -32,15 +32,17 @@ type SnapshotGenerator struct {
 	schemalogStore         schemalog.Store
 	connBuilder            pglib.QuerierBuilder
 	cleanTargetDB          bool
+	createTargetDB         bool
 	includeGlobalDBObjects bool
 	logger                 loglib.Logger
 	generator              generator.SnapshotGenerator
 }
 
 type Config struct {
-	SourcePGURL   string
-	TargetPGURL   string
-	CleanTargetDB bool
+	SourcePGURL    string
+	TargetPGURL    string
+	CleanTargetDB  bool
+	CreateTargetDB bool
 	// if set to true the snapshot will include all database objects, not tied
 	// to any particular schema, such as extensions or triggers.
 	IncludeGlobalDBObjects bool
@@ -69,6 +71,7 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		pgRestoreFn:            pglib.RunPGRestore,
 		connBuilder:            pglib.ConnBuilder,
 		cleanTargetDB:          c.CleanTargetDB,
+		createTargetDB:         c.CreateTargetDB,
 		includeGlobalDBObjects: c.IncludeGlobalDBObjects,
 		logger:                 loglib.NewNoopLogger(),
 	}
@@ -237,6 +240,7 @@ func (s *SnapshotGenerator) pgrestoreOptions() pglib.PGRestoreOptions {
 		SchemaOnly:       true,
 		Clean:            s.cleanTargetDB,
 		Format:           "p",
+		Create:           s.createTargetDB,
 	}
 }
 
@@ -247,6 +251,7 @@ func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, ss *snapshot.Snap
 		SchemaOnly:       true,
 		Schemas:          []string{ss.SchemaName},
 		Clean:            s.cleanTargetDB,
+		Create:           s.createTargetDB,
 	}
 
 	if s.includeGlobalDBObjects {
@@ -407,6 +412,11 @@ func (s *SnapshotGenerator) extractIndicesAndConstraints(d []byte) ([]byte, []by
 				filteredDump.WriteString("\n")
 			}
 			alterTable = ""
+		case strings.Contains(line, `\connect`):
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
+			indicesAndConstraints.WriteString(line)
+			indicesAndConstraints.WriteString("\n\n")
 		case strings.HasPrefix(line, "CREATE INDEX"),
 			strings.HasPrefix(line, "CREATE UNIQUE INDEX"),
 			strings.HasPrefix(line, "CREATE CONSTRAINT"),

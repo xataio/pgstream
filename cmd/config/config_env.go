@@ -53,6 +53,7 @@ func init() {
 
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_TARGET_URL")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_BYTES")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_SIZE")
@@ -225,6 +226,7 @@ func parseSchemaSnapshotConfig(pgurl string) snapshotbuilder.SchemaSnapshotConfi
 				SourcePGURL:            pgurl,
 				TargetPGURL:            pgTargetURL,
 				CleanTargetDB:          viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB"),
+				CreateTargetDB:         viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB"),
 				IncludeGlobalDBObjects: viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS"),
 			},
 		}
