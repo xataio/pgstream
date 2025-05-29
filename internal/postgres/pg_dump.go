@@ -30,6 +30,8 @@ type PGDumpOptions struct {
 	NoPrivileges bool
 	// Clean all the objects that will be dumped
 	Clean bool
+	// Create the database
+	Create bool
 	// Options to pass to pg_dump
 	Options []string
 }
@@ -70,6 +72,10 @@ func (opts *PGDumpOptions) ToArgs() []string {
 	if opts.Clean {
 		options = append(options, "--clean")
 		options = append(options, "--if-exists")
+	}
+
+	if opts.Create {
+		options = append(options, "--create")
 	}
 
 	options = append(options, opts.Options...)

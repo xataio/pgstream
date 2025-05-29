@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -29,10 +30,17 @@ func Test_pgdump_pgrestore(t *testing.T) {
 		require.NoError(t, err)
 		defer cleanup2()
 
+		conn, err := NewConn(ctx, sourcePGURL)
+		require.NoError(t, err)
+		conn.Exec(ctx, "CREATE DATABASE test")
+		conn.Close(ctx)
+
+		sourcePGURL = strings.ReplaceAll(sourcePGURL, "/postgres?", "/test?")
+		targetPGURL = strings.ReplaceAll(targetPGURL, "/postgres?", "/test?")
+
 		sourceConn, err := NewConn(ctx, sourcePGURL)
 		require.NoError(t, err)
-		targetConn, err := NewConn(ctx, targetPGURL)
-		require.NoError(t, err)
+		defer sourceConn.Close(ctx)
 
 		testSchema := "test_schema"
 		testTable1 := "test_table_1"
@@ -56,6 +64,7 @@ func Test_pgdump_pgrestore(t *testing.T) {
 			Clean:            true,
 			Schemas:          []string{testSchema},
 			ExcludeTables:    []string{testSchema + "." + testTable2},
+			Create:           true,
 		}
 
 		dump, err := RunPGDump(context.TODO(), pgdumpOpts)
@@ -66,11 +75,15 @@ func Test_pgdump_pgrestore(t *testing.T) {
 			SchemaOnly:       true,
 			Clean:            true,
 			Format:           format,
+			Create:           true,
 		}
 
 		_, err = RunPGRestore(context.TODO(), pgrestoreOpts, dump)
 		require.NoError(t, err)
 
+		targetConn, err := NewConn(ctx, targetPGURL)
+		require.NoError(t, err)
+		defer targetConn.Close(ctx)
 		// schema only pgdump, no data should be available but the schema and
 		// selected table should exist.
 		var count int
