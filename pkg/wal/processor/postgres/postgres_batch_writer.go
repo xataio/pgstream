@@ -167,6 +167,10 @@ func (w *BatchWriter) flushQueries(ctx context.Context, queries []*query) error 
 func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*query, error) {
 	retryQueries := []*query{}
 	err := w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
+		if err := w.setReplicationRoleToReplica(ctx, tx); err != nil {
+			return err
+		}
+
 		for i, q := range queries {
 			if _, err := tx.Exec(ctx, q.sql, q.args...); err != nil {
 				w.logger.Error(err, "executing sql query", loglib.Fields{
@@ -181,7 +185,8 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 				return err
 			}
 		}
-		return nil
+
+		return w.resetReplicationRole(ctx, tx)
 	})
 	if err != nil && w.isInternalError(err) {
 		// if there was an internal error in the tx, there's no point in

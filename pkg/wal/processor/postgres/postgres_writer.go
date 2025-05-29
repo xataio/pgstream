@@ -47,25 +47,11 @@ func newWriter(ctx context.Context, config *Config, adapter walAdapter, writerTy
 		opt(w)
 	}
 
-	if w.disableTriggers {
-		w.logger.Info("disabling triggers on postgres instance")
-		if err := w.setReplicationRoleToReplica(ctx); err != nil {
-			return nil, err
-		}
-	}
-
 	return w, nil
 }
 
 func (w *Writer) close() error {
-	ctx := context.Background()
-	if w.disableTriggers {
-		if err := w.resetReplicationRole(ctx); err != nil {
-			w.logger.Error(err, "reseting triggers")
-		}
-	}
-
-	return w.pgConn.Close(ctx)
+	return w.pgConn.Close(context.Background())
 }
 
 func WithLogger(l loglib.Logger) WriterOption {
@@ -88,16 +74,24 @@ func WithInstrumentation(i *otel.Instrumentation) WriterOption {
 	}
 }
 
-func (w *Writer) setReplicationRoleToReplica(ctx context.Context) error {
-	_, err := w.pgConn.Exec(ctx, "SET session_replication_role = replica")
+func (w *Writer) setReplicationRoleToReplica(ctx context.Context, tx pglib.Tx) error {
+	if !w.disableTriggers {
+		return nil
+	}
+
+	_, err := tx.Exec(ctx, "SET session_replication_role = replica")
 	if err != nil {
 		return fmt.Errorf("disabling triggers on postgres instance: %w", err)
 	}
 	return nil
 }
 
-func (w *Writer) resetReplicationRole(ctx context.Context) error {
-	if _, err := w.pgConn.Exec(ctx, "SET session_replication_role = DEFAULT"); err != nil {
+func (w *Writer) resetReplicationRole(ctx context.Context, tx pglib.Tx) error {
+	if !w.disableTriggers {
+		return nil
+	}
+
+	if _, err := tx.Exec(ctx, "SET session_replication_role = DEFAULT"); err != nil {
 		return fmt.Errorf("resetting session replication role to default: %w", err)
 	}
 	return nil
