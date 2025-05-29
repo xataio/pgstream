@@ -170,7 +170,7 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					mockTx := pgmocks.Tx{
-						ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 							require.Equal(t, testQuery.sql, query)
 							require.Equal(t, testQuery.args, args)
 							return pglib.CommandTag{}, nil
@@ -190,7 +190,7 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					mockTx := pgmocks.Tx{
-						ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 							return pglib.CommandTag{}, errTest
 						},
 					}
@@ -208,7 +208,7 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					mockTx := pgmocks.Tx{
-						ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 							return pglib.CommandTag{}, nil
 						},
 					}
@@ -284,7 +284,7 @@ func TestBatchWriter_flushQueries(t *testing.T) {
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					mockTx := pgmocks.Tx{
-						ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+						ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
 							execCalls++
 							require.Equal(t, testQuerySQL, query)
 							require.Len(t, args, 2)
@@ -311,7 +311,7 @@ func TestBatchWriter_flushQueries(t *testing.T) {
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					mockTx := pgmocks.Tx{
-						ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+						ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
 							execCalls++
 							require.Equal(t, testQuerySQL, query)
 							require.Len(t, args, 2)

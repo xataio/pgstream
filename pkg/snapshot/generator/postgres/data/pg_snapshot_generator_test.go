@@ -88,7 +88,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return f(&mockTx)
 					case 2:
 						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
@@ -110,7 +110,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return f(&mockTx)
 					case 3:
 						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
@@ -193,7 +193,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								ErrFn: func() error { return nil },
 							}, nil
 						},
-						ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 							require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 							require.Len(t, args, 0)
 							return pglib.CommandTag{}, nil
@@ -240,7 +240,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return f(&mockTx)
 					case 2:
 						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
@@ -262,7 +262,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return f(&mockTx)
 					case 3:
 						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
@@ -321,7 +321,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return f(&mockTx)
 					case 2:
 						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
@@ -343,7 +343,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return f(&mockTx)
 					case 3:
 						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
@@ -421,7 +421,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return f(&mockTx)
 					case 2:
 						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, errTest
@@ -468,7 +468,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return f(&mockTx)
 					case 2:
 						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
@@ -524,7 +524,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return f(&mockTx)
 					case 2:
 						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
@@ -546,7 +546,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return f(&mockTx)
 					case 3:
 						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, errTest
@@ -593,7 +593,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return f(&mockTx)
 					case 2:
 						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
@@ -615,7 +615,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return f(&mockTx)
 					case 3:
 						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
@@ -667,7 +667,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return f(&mockTx)
 					case 2:
 						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
@@ -689,7 +689,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return f(&mockTx)
 					case 3:
 						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
@@ -745,7 +745,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return f(&mockTx)
 					case 2:
 						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
@@ -767,7 +767,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return f(&mockTx)
 					case 3:
 						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
@@ -828,7 +828,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								ScanFn: func(args ...any) error { return fmt.Errorf("unexpected call to QueryRowFn: %s", query) },
 							}
 						},
-						ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 							require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
 							require.Len(t, args, 0)
 							return pglib.CommandTag{}, nil
