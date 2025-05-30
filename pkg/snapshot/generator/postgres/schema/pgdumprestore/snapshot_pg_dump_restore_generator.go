@@ -34,6 +34,7 @@ type SnapshotGenerator struct {
 	cleanTargetDB          bool
 	createTargetDB         bool
 	includeGlobalDBObjects bool
+	role                   string
 	logger                 loglib.Logger
 	generator              generator.SnapshotGenerator
 }
@@ -46,6 +47,8 @@ type Config struct {
 	// if set to true the snapshot will include all database objects, not tied
 	// to any particular schema, such as extensions or triggers.
 	IncludeGlobalDBObjects bool
+	// Role name to be used to create the dump
+	Role string
 }
 
 type Option func(s *SnapshotGenerator)
@@ -74,6 +77,7 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		cleanTargetDB:          c.CleanTargetDB,
 		createTargetDB:         c.CreateTargetDB,
 		includeGlobalDBObjects: c.IncludeGlobalDBObjects,
+		role:                   c.Role,
 		logger:                 loglib.NewNoopLogger(),
 	}
 
@@ -271,6 +275,11 @@ func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, ss *snapshot.Snap
 		Schemas:          []string{ss.SchemaName},
 		Clean:            s.cleanTargetDB,
 		Create:           s.createTargetDB,
+	}
+
+	if s.role != "" {
+		opts.Role = s.role
+		opts.NoOwner = true
 	}
 
 	if s.includeGlobalDBObjects {

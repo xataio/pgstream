@@ -43,6 +43,7 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB", "true")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB", "true")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS", "true")
+	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_ROLE", "test-role")
 
 	os.Setenv("PGSTREAM_KAFKA_READER_SERVERS", "localhost:9092")
 	os.Setenv("PGSTREAM_KAFKA_TOPIC_NAME", "mytopic")
