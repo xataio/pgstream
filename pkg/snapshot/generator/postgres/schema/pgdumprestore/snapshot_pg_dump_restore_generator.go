@@ -192,6 +192,10 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, ss *snapshot.Snapsho
 }
 
 func (s *SnapshotGenerator) dumpSequenceValues(ctx context.Context, sequences []string) ([]byte, error) {
+	if len(sequences) == 0 {
+		return nil, nil
+	}
+
 	opts := &pglib.PGDumpOptions{
 		ConnectionString: s.sourceURL,
 		Format:           "p",
