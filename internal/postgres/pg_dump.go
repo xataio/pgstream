@@ -26,6 +26,8 @@ type PGDumpOptions struct {
 	ExcludeTables []string
 	// SchemaOnly if true, only schema will be exported (no data)
 	SchemaOnly bool
+	// DataOnly if true, only data will be exported (no schema)
+	DataOnly bool
 	// do not dump privileges (grant/revoke)
 	NoPrivileges bool
 	// Clean all the objects that will be dumped
@@ -47,6 +49,10 @@ func (opts *PGDumpOptions) ToArgs() []string {
 
 	if opts.SchemaOnly {
 		options = append(options, "--schema-only")
+	}
+
+	if opts.DataOnly {
+		options = append(options, "--data-only")
 	}
 
 	if opts.NoPrivileges {

@@ -54,6 +54,7 @@ type dump struct {
 	full                  []byte
 	filtered              []byte
 	indicesAndConstraints []byte
+	sequences             []string
 }
 
 const (
@@ -127,7 +128,16 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return nil
 	}
 
-	dump, err := s.pgdump(ctx, ss)
+	dump, err := s.dumpSchema(ctx, ss)
+	if err != nil {
+		return err
+	}
+
+	// the schema will include the sequences but will not produce the `SETVAL`
+	// queries since that's considered data and it's a schema only dump. Produce
+	// the data only dump for the sequences only and restore it along with the
+	// schema.
+	sequenceDump, err := s.dumpSequenceValues(ctx, dump.sequences)
 	if err != nil {
 		return err
 	}
@@ -135,14 +145,14 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	// if there's no further snapshotting happening, we can apply the full dump,
 	// no need to apply the constraints/indices separately.
 	if s.generator == nil {
-		return s.pgrestore(ctx, ss, dump.full)
+		return s.restoreDump(ctx, ss, append(dump.full, sequenceDump...))
 	}
 
 	// otherwise, we need to apply the filtered schema dump first, then call the
 	// wrapped snapshot generator, and apply the indices and constraints last.
 	// This will make the data snapshot faster, since there will be no
 	// constraints to be updated/checked on each insert.
-	if err := s.pgrestore(ctx, ss, dump.filtered); err != nil {
+	if err := s.restoreDump(ctx, ss, dump.filtered); err != nil {
 		return err
 	}
 
@@ -152,7 +162,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 
 	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schema": ss.SchemaName, "tables": ss.TableNames})
 	// apply the indices and constraints when the wrapped generator has finished
-	return s.pgrestore(ctx, ss, dump.indicesAndConstraints)
+	return s.restoreDump(ctx, ss, append(dump.indicesAndConstraints, sequenceDump...))
 }
 
 func (s *SnapshotGenerator) Close() error {
@@ -167,7 +177,7 @@ func (s *SnapshotGenerator) Close() error {
 	return nil
 }
 
-func (s *SnapshotGenerator) pgdump(ctx context.Context, ss *snapshot.Snapshot) (*dump, error) {
+func (s *SnapshotGenerator) dumpSchema(ctx context.Context, ss *snapshot.Snapshot) (*dump, error) {
 	pgdumpOpts, err := s.pgdumpOptions(ctx, ss)
 	if err != nil {
 		return nil, fmt.Errorf("preparing pg_dump options: %w", err)
@@ -178,15 +188,21 @@ func (s *SnapshotGenerator) pgdump(ctx context.Context, ss *snapshot.Snapshot) (
 		return nil, err
 	}
 
-	filtered, constraints := s.extractIndicesAndConstraints(d)
-	return &dump{
-		full:                  d,
-		filtered:              filtered,
-		indicesAndConstraints: constraints,
-	}, nil
+	return s.parseDump(d), nil
 }
 
-func (s *SnapshotGenerator) pgrestore(ctx context.Context, ss *snapshot.Snapshot, dump []byte) error {
+func (s *SnapshotGenerator) dumpSequenceValues(ctx context.Context, sequences []string) ([]byte, error) {
+	opts := &pglib.PGDumpOptions{
+		ConnectionString: s.sourceURL,
+		Format:           "p",
+		DataOnly:         true,
+		Tables:           sequences,
+	}
+
+	return s.pgDumpFn(ctx, *opts)
+}
+
+func (s *SnapshotGenerator) restoreDump(ctx context.Context, ss *snapshot.Snapshot, dump []byte) error {
 	// if we use table filtering in the pg_dump command, the schema creation
 	// will not be dumped, so it needs to be created explicitly (except for
 	// public schema)
@@ -237,7 +253,6 @@ func (s *SnapshotGenerator) createSchemaIfNotExists(ctx context.Context, schemaN
 func (s *SnapshotGenerator) pgrestoreOptions() pglib.PGRestoreOptions {
 	return pglib.PGRestoreOptions{
 		ConnectionString: s.targetURL,
-		SchemaOnly:       true,
 		Clean:            s.cleanTargetDB,
 		Format:           "p",
 		Create:           s.createTargetDB,
@@ -389,11 +404,12 @@ func (s *SnapshotGenerator) schemalogExists(ctx context.Context) (bool, error) {
 	return exists, nil
 }
 
-func (s *SnapshotGenerator) extractIndicesAndConstraints(d []byte) ([]byte, []byte) {
+func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	scanner := bufio.NewScanner(bytes.NewReader(d))
 	scanner.Split(bufio.ScanLines)
 	indicesAndConstraints := strings.Builder{}
 	filteredDump := strings.Builder{}
+	sequenceNames := []string{}
 	alterTable := ""
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -428,11 +444,22 @@ func (s *SnapshotGenerator) extractIndicesAndConstraints(d []byte) ([]byte, []by
 		case strings.HasPrefix(line, "ALTER TABLE") && !strings.HasSuffix(line, ";"):
 			// keep it in case the alter table is provided in two lines (pg_dump format)
 			alterTable = line
+		case strings.HasPrefix(line, "CREATE SEQUENCE"):
+			qualifiedName, err := pglib.NewQualifiedName(strings.TrimPrefix(line, "CREATE SEQUENCE "))
+			if err == nil {
+				sequenceNames = append(sequenceNames, qualifiedName.Name())
+			}
+			fallthrough
 		default:
 			filteredDump.WriteString(line)
 			filteredDump.WriteString("\n")
 		}
 	}
 
-	return []byte(filteredDump.String()), []byte(indicesAndConstraints.String())
+	return &dump{
+		full:                  d,
+		filtered:              []byte(filteredDump.String()),
+		indicesAndConstraints: []byte(indicesAndConstraints.String()),
+		sequences:             sequenceNames,
+	}
 }

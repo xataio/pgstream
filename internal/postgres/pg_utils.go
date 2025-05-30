@@ -4,12 +4,45 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/lib/pq"
 )
+
+type QualifiedName struct {
+	schema string
+	name   string
+}
+
+var errUnexpectedQualifiedName = errors.New("unexpected qualified name format")
+
+func NewQualifiedName(s string) (*QualifiedName, error) {
+	qualifiedName := strings.Split(s, ".")
+	switch len(qualifiedName) {
+	case 1:
+		return &QualifiedName{
+			name: s,
+		}, nil
+	case 2:
+		return &QualifiedName{
+			schema: qualifiedName[0],
+			name:   qualifiedName[1],
+		}, nil
+	default:
+		return nil, errUnexpectedQualifiedName
+	}
+}
+
+func (qn *QualifiedName) Schema() string {
+	return qn.schema
+}
+
+func (qn *QualifiedName) Name() string {
+	return qn.name
+}
 
 func QuoteIdentifier(s string) string {
 	return pq.QuoteIdentifier(s)
