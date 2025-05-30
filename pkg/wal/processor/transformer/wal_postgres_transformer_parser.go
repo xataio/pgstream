@@ -44,13 +44,13 @@ func NewPostgresTransformerParser(ctx context.Context, pgURL string, builder tra
 	}, nil
 }
 
-func (v *PostgresTransformerParser) ParseAndValidate(rules []TableRules) (map[string]ColumnTransformers, error) {
+func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules Rules) (map[string]ColumnTransformers, error) {
 	// validate that all required tables are present in the rules
-	if err := v.validateAllRequiredTables(rules); err != nil {
+	if err := v.validateAllRequiredTables(ctx, rules); err != nil {
 		return nil, err
 	}
 	transformerMap := map[string]ColumnTransformers{}
-	for _, table := range rules {
+	for _, table := range rules.Transformers {
 		tableKey := schemaTableKey(table.Schema, table.Table)
 		fieldDescriptions, err := v.getFieldDescriptions(context.Background(), tableKey)
 		if err != nil {
@@ -109,14 +109,18 @@ func (v *PostgresTransformerParser) ParseAndValidate(rules []TableRules) (map[st
 	return transformerMap, nil
 }
 
-func (v *PostgresTransformerParser) validateAllRequiredTables(rules []TableRules) error {
-	requiredTablesQuoteQualified, err := v.getRequiredTablesList()
+func (v *PostgresTransformerParser) validateAllRequiredTables(ctx context.Context, rules Rules) error {
+	if rules.ValidationMode != validationModeStrict {
+		// if validation mode is not strict, we don't need to validate required tables
+		return nil
+	}
+	requiredTablesQuoteQualified, err := v.getRequiredTablesList(ctx)
 	if err != nil {
 		return fmt.Errorf("getting required tables list: %w", err)
 	}
 
-	ruleTablesMap := make(map[string]struct{}, len(rules))
-	for _, table := range rules {
+	ruleTablesMap := make(map[string]struct{}, len(rules.Transformers))
+	for _, table := range rules.Transformers {
 		ruleTablesMap[pglib.QuoteQualifiedIdentifier(table.Schema, table.Table)] = struct{}{}
 	}
 
@@ -128,7 +132,7 @@ func (v *PostgresTransformerParser) validateAllRequiredTables(rules []TableRules
 	return nil
 }
 
-func (v *PostgresTransformerParser) getRequiredTablesList() ([]string, error) {
+func (v *PostgresTransformerParser) getRequiredTablesList(ctx context.Context) ([]string, error) {
 	schemaTablesList := []string{}
 	for _, table := range v.requiredTables {
 		schemaName, tableName, err := parseTableName(table)
@@ -145,7 +149,7 @@ func (v *PostgresTransformerParser) getRequiredTablesList() ([]string, error) {
 		}
 
 		// if tableName is wildcard, fetch all tables in the schema
-		allTablesInSchema, err := v.getAllSchemaTables(context.Background(), schemaName)
+		allTablesInSchema, err := v.getAllSchemaTables(ctx, schemaName)
 		if err != nil {
 			return nil, fmt.Errorf("fetching all tables for schema %s: %w", schemaName, err)
 		}

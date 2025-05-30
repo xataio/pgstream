@@ -3,6 +3,7 @@
 package transformer
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -92,7 +93,7 @@ func TestTransformerParser_parse(t *testing.T) {
 
 			tp := newTransformerParser(mockBuilder)
 
-			transformerMap, err := tp.parse(tc.rules)
+			transformerMap, err := tp.parse(context.Background(), Rules{Transformers: tc.rules})
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantTransformerMap, transformerMap)
 		})

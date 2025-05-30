@@ -187,11 +187,7 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 			pgURL = config.Listener.Snapshot.Generator.URL
 		}
 		if pgURL != "" {
-			requiredTables := []string{}
-			if config.Processor.Transformer.ValidateStrict {
-				requiredTables = config.RequiredTables()
-			}
-			pgParser, err := transformer.NewPostgresTransformerParser(ctx, pgURL, transformerBuilder, requiredTables)
+			pgParser, err := transformer.NewPostgresTransformerParser(ctx, pgURL, transformerBuilder, config.RequiredTables())
 			if err != nil {
 				return nil, nil, fmt.Errorf("creating transformer validator: %w", err)
 			}

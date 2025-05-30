@@ -3,6 +3,8 @@
 package transformer
 
 import (
+	"context"
+
 	"github.com/xataio/pgstream/pkg/transformers"
 )
 
@@ -16,10 +18,10 @@ func newTransformerParser(b transformerBuilder) *transformerParser {
 	}
 }
 
-func (p *transformerParser) parse(rules []TableRules) (map[string]ColumnTransformers, error) {
+func (p *transformerParser) parse(_ context.Context, rules Rules) (map[string]ColumnTransformers, error) {
 	var err error
 	transformerMap := map[string]ColumnTransformers{}
-	for _, table := range rules {
+	for _, table := range rules.Transformers {
 		if table.ValidationMode == validationModeStrict {
 			return nil, errValidatorRequiredForStrictMode
 		}
