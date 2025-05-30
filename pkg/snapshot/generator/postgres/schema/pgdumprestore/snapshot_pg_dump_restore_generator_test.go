@@ -24,14 +24,16 @@ import (
 func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	t.Parallel()
 
-	schemaDump := []byte("schema dump")
-	filteredDump := []byte("schema dump\n")
+	schemaDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence")
+	schemaDumpNoSequences := []byte("schema dump")
+	filteredDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence\n")
 	sequenceDump := []byte("sequence dump")
 	testSchema := "test_schema"
 	testTable := "test_table"
 	excludedTable := "excluded_test_table"
 	excludedSchema := "excluded_test_schema"
 	errTest := errors.New("oh noes")
+	testSequence := "test_sequence"
 
 	validQuerier := func() *mocks.Querier {
 		return &mocks.Querier{
@@ -112,7 +114,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						DataOnly:         true,
-						Tables:           []string{},
+						Tables:           []string{testSequence},
 					}, po)
 					return sequenceDump, nil
 				default:
@@ -125,6 +127,39 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					Format:           "p",
 				}, po)
 				require.Equal(t, append(schemaDump, sequenceDump...), dump)
+				return "", nil
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - no sequence dump",
+			snapshot: &snapshot.Snapshot{
+				SchemaName: testSchema,
+				TableNames: []string{testTable},
+			},
+			conn: validQuerier(),
+			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						SchemaOnly:       true,
+						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
+						ExcludeTables:    []string{pglib.QuoteIdentifier(excludedTable)},
+					}, po)
+					return schemaDumpNoSequences, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
+				}
+			}),
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
+				require.Equal(t, pglib.PGRestoreOptions{
+					ConnectionString: "target-url",
+					Format:           "p",
+				}, po)
+				require.Equal(t, schemaDumpNoSequences, dump)
 				return "", nil
 			},
 
@@ -153,7 +188,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						DataOnly:         true,
-						Tables:           []string{},
+						Tables:           []string{testSequence},
 					}, po)
 					return sequenceDump, nil
 				default:
@@ -209,7 +244,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						DataOnly:         true,
-						Tables:           []string{},
+						Tables:           []string{testSequence},
 					}, po)
 					return sequenceDump, nil
 				default:
@@ -452,7 +487,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						DataOnly:         true,
-						Tables:           []string{},
+						Tables:           []string{testSequence},
 					}, po)
 					return sequenceDump, nil
 				default:
@@ -506,7 +541,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						DataOnly:         true,
-						Tables:           []string{},
+						Tables:           []string{testSequence},
 					}, po)
 					return sequenceDump, nil
 				default:
