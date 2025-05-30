@@ -16,6 +16,7 @@ import (
 const (
 	pgRestoreCmd = "pg_restore"
 	psqlCmd      = "psql"
+	postgres     = "postgres"
 )
 
 type PGRestoreOptions struct {
@@ -25,6 +26,8 @@ type PGRestoreOptions struct {
 	SchemaOnly bool
 	// Clean all the objects that will be restored
 	Clean bool
+	// Create target database
+	Create bool
 	// Format (c custom, d directory, t tar, p plain text)
 	Format string
 	// Options to pass to pg_restore
@@ -45,6 +48,10 @@ func (opts PGRestoreOptions) toArgs() []string {
 		options = append(options, "--if-exists")
 	}
 
+	if opts.Create {
+		options = append(options, "--create")
+	}
+
 	options = append(options, opts.Options...)
 	return options
 }
@@ -55,8 +62,17 @@ func (opts PGRestoreOptions) toPSQLArgs() []string {
 
 // Func RunPGRestore runs pg_restore command with the given options and returns
 // the result.
-func RunPGRestore(_ context.Context, opts PGRestoreOptions, dump []byte) (string, error) {
+func RunPGRestore(ctx context.Context, opts PGRestoreOptions, dump []byte) (string, error) {
 	var cmd *exec.Cmd
+	// if the database is being created, make sure the connection string
+	// does not include it so that pg_restore can create it.
+	if opts.Create {
+		var err error
+		opts.ConnectionString, err = removeDatabaseFromConnectionString(opts.ConnectionString)
+		if err != nil {
+			return "", err
+		}
+	}
 	switch opts.Format {
 	case "c":
 		cmd = exec.Command(pgRestoreCmd, opts.toArgs()...) //nolint:gosec
@@ -81,6 +97,18 @@ func RunPGRestore(_ context.Context, opts PGRestoreOptions, dump []byte) (string
 	}
 
 	return string(out), nil
+}
+
+func removeDatabaseFromConnectionString(url string) (string, error) {
+	dbName, err := extractDatabase(url)
+	if err != nil {
+		return "", err
+	}
+	if dbName == "" || dbName == postgres {
+		return url, nil
+	}
+
+	return strings.ReplaceAll(url, "/"+dbName, "/"), nil
 }
 
 func parsePgRestoreOutputErrs(out []byte) error {
