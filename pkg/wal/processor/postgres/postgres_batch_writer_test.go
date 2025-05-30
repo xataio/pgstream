@@ -170,7 +170,7 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					mockTx := pgmocks.Tx{
-						ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 							require.Equal(t, testQuery.sql, query)
 							require.Equal(t, testQuery.args, args)
 							return pglib.CommandTag{}, nil
@@ -190,7 +190,7 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					mockTx := pgmocks.Tx{
-						ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 							return pglib.CommandTag{}, errTest
 						},
 					}
@@ -208,7 +208,7 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					mockTx := pgmocks.Tx{
-						ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 							return pglib.CommandTag{}, nil
 						},
 					}
@@ -249,7 +249,7 @@ func TestBatchWriter_flushQueries(t *testing.T) {
 
 	testQuerySQL := "INSERT INTO test(id, name) VALUES($1, $2)"
 	args1 := []any{1, "alice"}
-	args2 := []any{1, "bob"}
+	args2 := []any{2, "bob"}
 
 	testQuery := func(args []any) *query {
 		return &query{
@@ -260,9 +260,10 @@ func TestBatchWriter_flushQueries(t *testing.T) {
 	execCalls := uint(0)
 
 	tests := []struct {
-		name    string
-		pgconn  *pgmocks.Querier
-		queries []*query
+		name            string
+		pgconn          *pgmocks.Querier
+		queries         []*query
+		disableTriggers bool
 
 		wantExecCalls uint
 		wantErr       error
@@ -284,17 +285,19 @@ func TestBatchWriter_flushQueries(t *testing.T) {
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					mockTx := pgmocks.Tx{
-						ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+						ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
 							execCalls++
-							require.Equal(t, testQuerySQL, query)
-							require.Len(t, args, 2)
-							switch args[1] {
-							case args1[1]:
+							switch i {
+							case 1:
+								require.Equal(t, testQuerySQL, query)
+								require.Equal(t, args1, args)
 								return pglib.CommandTag{}, nil
-							case args2[1]:
+							case 2:
+								require.Equal(t, testQuerySQL, query)
+								require.Equal(t, args2, args)
 								return pglib.CommandTag{}, &pglib.ErrConstraintViolation{}
 							default:
-								return pglib.CommandTag{}, fmt.Errorf("unexpected argument in sql query: %v", args[1])
+								return pglib.CommandTag{}, fmt.Errorf("unexpected call to tx ExecFn: %v", args[1])
 							}
 						},
 					}
@@ -307,21 +310,67 @@ func TestBatchWriter_flushQueries(t *testing.T) {
 			wantErr:       nil,
 		},
 		{
+			name: "ok - disable triggers",
+			pgconn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
+							execCalls++
+							switch i {
+							case 1:
+								require.Equal(t, "SET session_replication_role = replica", query)
+							case 2:
+								require.Equal(t, testQuerySQL, query)
+								require.Len(t, args, 2)
+								if args[0] != args1[0] && args[0] != args2[0] {
+									return pglib.CommandTag{}, fmt.Errorf("unexpected arguments in query: %v", args)
+								}
+								if args[0] == args1[0] {
+									require.Equal(t, args1, args)
+								}
+								// the second time it's called we don't return a retriable error
+								if args[0] == args2[0] {
+									require.Equal(t, args2, args)
+								}
+							case 3:
+								if query == testQuerySQL {
+									require.Equal(t, args2, args)
+									return pglib.CommandTag{}, &pglib.ErrConstraintViolation{}
+								}
+								require.Equal(t, "SET session_replication_role = DEFAULT", query)
+							default:
+								return pglib.CommandTag{}, fmt.Errorf("unexpected call to tx ExecFn: %v", args[1])
+							}
+							return pglib.CommandTag{}, nil
+						},
+					}
+					return f(&mockTx)
+				},
+			},
+			queries:         []*query{testQuery(args1), testQuery(args2)},
+			disableTriggers: true,
+
+			wantExecCalls: 6,
+			wantErr:       nil,
+		},
+		{
 			name: "error - internal error in tx exec",
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					mockTx := pgmocks.Tx{
-						ExecFn: func(ctx context.Context, query string, args ...any) (pglib.CommandTag, error) {
+						ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
 							execCalls++
-							require.Equal(t, testQuerySQL, query)
-							require.Len(t, args, 2)
-							switch args[1] {
-							case args1[1]:
+							switch i {
+							case 1:
+								require.Equal(t, testQuerySQL, query)
+								require.Equal(t, args1, args)
 								return pglib.CommandTag{}, nil
-							case args2[1]:
+							case 2:
+								require.Equal(t, testQuerySQL, query)
+								require.Equal(t, args2, args)
 								return pglib.CommandTag{}, errTest
 							default:
-								return pglib.CommandTag{}, fmt.Errorf("unexpected argument in sql query: %v", args[1])
+								return pglib.CommandTag{}, fmt.Errorf("unexpected call to tx ExecFn: %v", args[1])
 							}
 						},
 					}
@@ -333,14 +382,71 @@ func TestBatchWriter_flushQueries(t *testing.T) {
 			wantExecCalls: 2,
 			wantErr:       errTest,
 		},
+		{
+			name: "error - setting replication role to replica",
+			pgconn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
+							execCalls++
+							switch i {
+							case 1:
+								require.Equal(t, "SET session_replication_role = replica", query)
+								return pglib.CommandTag{}, errTest
+							default:
+								return pglib.CommandTag{}, fmt.Errorf("unexpected call to tx ExecFn: %v", args[1])
+							}
+						},
+					}
+					return f(&mockTx)
+				},
+			},
+			queries:         []*query{testQuery(args1), testQuery(args2)},
+			disableTriggers: true,
+
+			wantExecCalls: 1,
+			wantErr:       errTest,
+		},
+		{
+			name: "error - resetting replication role to replica",
+			pgconn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
+							execCalls++
+							switch i {
+							case 1:
+								require.Equal(t, "SET session_replication_role = replica", query)
+							case 2:
+								require.Equal(t, testQuerySQL, query)
+								require.Equal(t, args1, args)
+							case 3:
+								require.Equal(t, "SET session_replication_role = DEFAULT", query)
+								return pglib.CommandTag{}, errTest
+							default:
+								return pglib.CommandTag{}, fmt.Errorf("unexpected call to tx ExecFn: %v", args[1])
+							}
+							return pglib.CommandTag{}, nil
+						},
+					}
+					return f(&mockTx)
+				},
+			},
+			queries:         []*query{testQuery(args1)},
+			disableTriggers: true,
+
+			wantExecCalls: 3,
+			wantErr:       errTest,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			bw := &BatchWriter{
 				Writer: &Writer{
-					logger: loglib.NewNoopLogger(),
-					pgConn: tc.pgconn,
+					logger:          loglib.NewNoopLogger(),
+					pgConn:          tc.pgconn,
+					disableTriggers: tc.disableTriggers,
 				},
 			}
 

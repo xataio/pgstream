@@ -46,3 +46,9 @@ func (i *Tx) Exec(ctx context.Context, query string, args ...any) (tag pglib.Com
 	defer otel.CloseSpan(span, err)
 	return i.inner.Exec(ctx, query, args...)
 }
+
+func (i *Tx) CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (rowCount int64, err error) {
+	ctx, span := otel.StartSpan(ctx, i.tracer, "tx.CopyFrom")
+	defer otel.CloseSpan(span, err)
+	return i.inner.CopyFrom(ctx, tableName, columnNames, srcRows)
+}

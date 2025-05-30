@@ -240,9 +240,10 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 	}
 
 	tests := []struct {
-		name   string
-		batch  *batch.Batch[*query]
-		pgConn *pgmocks.Querier
+		name            string
+		batch           *batch.Batch[*query]
+		pgConn          *pgmocks.Querier
+		disableTriggers bool
 
 		wantErr error
 	}{
@@ -250,8 +251,13 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 			name:  "ok - empty batch",
 			batch: batch.NewBatch([]*query{}, nil),
 			pgConn: &pgmocks.Querier{
-				CopyFromFn: func(ctx context.Context, tableName string, columnNames []string, rows [][]any) (int64, error) {
-					return -1, errors.New("unexpected call to CopyFrom with empty batch")
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					tx := &pgmocks.Tx{
+						CopyFromFn: func(ctx context.Context, tableName string, columnNames []string, rows [][]any) (int64, error) {
+							return -1, errors.New("unexpected call to CopyFrom with empty batch")
+						},
+					}
+					return f(tx)
 				},
 			},
 
@@ -261,13 +267,49 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 			name:  "ok",
 			batch: batch.NewBatch([]*query{testQuery}, nil),
 			pgConn: &pgmocks.Querier{
-				CopyFromFn: func(ctx context.Context, tableName string, columnNames []string, rows [][]any) (int64, error) {
-					require.Equal(t, pglib.QuoteQualifiedIdentifier(testSchema, testTable), tableName)
-					require.Equal(t, testQuery.columnNames, columnNames)
-					require.Equal(t, testQuery.args, rows[0])
-					return 1, nil
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					tx := &pgmocks.Tx{
+						CopyFromFn: func(ctx context.Context, tableName string, columnNames []string, rows [][]any) (int64, error) {
+							require.Equal(t, pglib.QuoteQualifiedIdentifier(testSchema, testTable), tableName)
+							require.Equal(t, testQuery.columnNames, columnNames)
+							require.Equal(t, testQuery.args, rows[0])
+							return 1, nil
+						},
+					}
+					return f(tx)
 				},
 			},
+
+			wantErr: nil,
+		},
+		{
+			name:  "ok - disable triggers",
+			batch: batch.NewBatch([]*query{testQuery}, nil),
+			pgConn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					tx := &pgmocks.Tx{
+						ExecFn: func(ctx context.Context, i uint, s string, a ...any) (pglib.CommandTag, error) {
+							switch i {
+							case 1:
+								require.Equal(t, "SET session_replication_role = replica", s)
+							case 2:
+								require.Equal(t, "SET session_replication_role = DEFAULT", s)
+							default:
+								return pglib.CommandTag{}, fmt.Errorf("unexpected number of calls to tx ExecFn: %d", i)
+							}
+							return pglib.CommandTag{}, nil
+						},
+						CopyFromFn: func(ctx context.Context, tableName string, columnNames []string, rows [][]any) (int64, error) {
+							require.Equal(t, pglib.QuoteQualifiedIdentifier(testSchema, testTable), tableName)
+							require.Equal(t, testQuery.columnNames, columnNames)
+							require.Equal(t, testQuery.args, rows[0])
+							return 1, nil
+						},
+					}
+					return f(tx)
+				},
+			},
+			disableTriggers: true,
 
 			wantErr: nil,
 		},
@@ -275,8 +317,13 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 			name:  "error - copying from",
 			batch: batch.NewBatch([]*query{testQuery}, nil),
 			pgConn: &pgmocks.Querier{
-				CopyFromFn: func(ctx context.Context, tableName string, columnNames []string, rows [][]any) (int64, error) {
-					return 0, errTest
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					tx := &pgmocks.Tx{
+						CopyFromFn: func(ctx context.Context, tableName string, columnNames []string, rows [][]any) (int64, error) {
+							return 0, errTest
+						},
+					}
+					return f(tx)
 				},
 			},
 
@@ -286,12 +333,72 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 			name:  "error - rows copied mismatch",
 			batch: batch.NewBatch([]*query{testQuery}, nil),
 			pgConn: &pgmocks.Querier{
-				CopyFromFn: func(ctx context.Context, tableName string, columnNames []string, rows [][]any) (int64, error) {
-					return 0, nil
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					tx := &pgmocks.Tx{
+						CopyFromFn: func(ctx context.Context, tableName string, columnNames []string, rows [][]any) (int64, error) {
+							return 0, nil
+						},
+					}
+					return f(tx)
 				},
 			},
 
-			wantErr: errors.New("number of rows copied (0) doesn't match the source rows (1)"),
+			wantErr: errUnexpectedCopiedRows,
+		},
+		{
+			name:  "error - setting replication role to replica",
+			batch: batch.NewBatch([]*query{testQuery}, nil),
+			pgConn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					tx := &pgmocks.Tx{
+						ExecFn: func(ctx context.Context, i uint, s string, a ...any) (pglib.CommandTag, error) {
+							switch i {
+							case 1:
+								require.Equal(t, "SET session_replication_role = replica", s)
+								return pglib.CommandTag{}, errTest
+							default:
+								return pglib.CommandTag{}, fmt.Errorf("unexpected number of calls to tx ExecFn: %d", i)
+							}
+						},
+						CopyFromFn: func(ctx context.Context, tableName string, columnNames []string, rows [][]any) (int64, error) {
+							return 0, errors.New("CopyFrom should not be called")
+						},
+					}
+					return f(tx)
+				},
+			},
+			disableTriggers: true,
+
+			wantErr: errTest,
+		},
+		{
+			name:  "error - resetting replication role",
+			batch: batch.NewBatch([]*query{testQuery}, nil),
+			pgConn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					tx := &pgmocks.Tx{
+						ExecFn: func(ctx context.Context, i uint, s string, a ...any) (pglib.CommandTag, error) {
+							switch i {
+							case 1:
+								require.Equal(t, "SET session_replication_role = replica", s)
+								return pglib.CommandTag{}, nil
+							case 2:
+								require.Equal(t, "SET session_replication_role = DEFAULT", s)
+								return pglib.CommandTag{}, errTest
+							default:
+								return pglib.CommandTag{}, fmt.Errorf("unexpected number of calls to tx ExecFn: %d", i)
+							}
+						},
+						CopyFromFn: func(ctx context.Context, tableName string, columnNames []string, rows [][]any) (int64, error) {
+							return 1, nil
+						},
+					}
+					return f(tx)
+				},
+			},
+			disableTriggers: true,
+
+			wantErr: errTest,
 		},
 	}
 
@@ -301,15 +408,14 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 
 			writer := &BulkIngestWriter{
 				Writer: &Writer{
-					logger: loglib.NewNoopLogger(),
-					pgConn: tc.pgConn,
+					logger:          loglib.NewNoopLogger(),
+					pgConn:          tc.pgConn,
+					disableTriggers: tc.disableTriggers,
 				},
 			}
 
 			err := writer.sendBatch(context.Background(), tc.batch)
-			if errors.Is(err, tc.wantErr) {
-				require.Equal(t, tc.wantErr, err)
-			}
+			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
 }

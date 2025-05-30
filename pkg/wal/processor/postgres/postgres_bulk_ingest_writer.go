@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"sync"
@@ -27,6 +28,8 @@ type BulkIngestWriter struct {
 }
 
 const bulkIngestWriter = "postgres_bulk_ingest_writer"
+
+var errUnexpectedCopiedRows = errors.New("number of rows copied doesn't match the source rows")
 
 // NewBulkIngestWriter returns a postgres processor that batches and writes data
 // to the configured postgres instance in bulk using the COPY command. It uses a
@@ -175,15 +178,25 @@ func (w *BulkIngestWriter) copyFromInsertQueries(ctx context.Context, inserts []
 		srcRows = append(srcRows, q.args)
 	}
 
-	rowsToCopy := len(inserts)
-	rowsCopied, err := w.pgConn.CopyFrom(ctx, pglib.QuoteQualifiedIdentifier(query.schema, query.table), query.columnNames, srcRows)
+	err := w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
+		if err := w.setReplicationRoleToReplica(ctx, tx); err != nil {
+			return err
+		}
+
+		rowsCopied, err := tx.CopyFrom(ctx, pglib.QuoteQualifiedIdentifier(query.schema, query.table), query.columnNames, srcRows)
+		if err != nil {
+			return err
+		}
+
+		rowsToCopy := len(inserts)
+		if rowsCopied != int64(rowsToCopy) {
+			return fmt.Errorf("%w: copied (%d), expected(%d)", errUnexpectedCopiedRows, rowsCopied, rowsToCopy)
+		}
+
+		return w.resetReplicationRole(ctx, tx)
+	})
 	if err != nil {
-		return err
+		return fmt.Errorf("copy from: %w", err)
 	}
-
-	if rowsCopied != int64(rowsToCopy) {
-		return fmt.Errorf("number of rows copied (%d) doesn't match the source rows (%d)", rowsCopied, rowsToCopy)
-	}
-
 	return nil
 }

@@ -8,6 +8,13 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+type Tx interface {
+	Query(ctx context.Context, query string, args ...any) (Rows, error)
+	QueryRow(ctx context.Context, query string, args ...any) Row
+	Exec(ctx context.Context, query string, args ...any) (CommandTag, error)
+	CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
+}
+
 type TxIsolationLevel string
 
 const (
@@ -46,6 +53,21 @@ func (t *Txn) Query(ctx context.Context, query string, args ...any) (Rows, error
 func (t *Txn) Exec(ctx context.Context, query string, args ...any) (CommandTag, error) {
 	tag, err := t.Tx.Exec(ctx, query, args...)
 	return CommandTag{tag}, mapError(err)
+}
+
+func (t *Txn) CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error) {
+	identifier, err := newIdentifier(tableName)
+	if err != nil {
+		return -1, err
+	}
+
+	// sanitize the input, removing any added quotes. The CopyFrom will sanitize
+	// them and double quotes will cause errors.
+	for i, c := range columnNames {
+		columnNames[i] = removeQuotes(c)
+	}
+
+	return t.Tx.CopyFrom(ctx, identifier, columnNames, pgx.CopyFromRows(srcRows))
 }
 
 func toTxOptions(opts TxOptions) pgx.TxOptions {
