@@ -105,7 +105,7 @@ func TestStatusChecker_Status(t *testing.T) {
 	}
 
 	validRuleValidatorBuilder := func(context.Context, string, []string) (ruleValidator, error) {
-		return func(rules []transformer.TableRules) (map[string]transformer.ColumnTransformers, error) {
+		return func(ctx context.Context, rules transformer.Rules) (map[string]transformer.ColumnTransformers, error) {
 			return nil, nil
 		}, nil
 	}
@@ -620,7 +620,7 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 		{
 			name: "ok - valid transformation rules",
 			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string) (ruleValidator, error) {
-				return func(rules []transformer.TableRules) (map[string]transformer.ColumnTransformers, error) {
+				return func(ctx context.Context, rules transformer.Rules) (map[string]transformer.ColumnTransformers, error) {
 					return nil, nil
 				}, nil
 			},
@@ -679,7 +679,7 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 		{
 			name: "error - rule validation failure",
 			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string) (ruleValidator, error) {
-				return func(rules []transformer.TableRules) (map[string]transformer.ColumnTransformers, error) {
+				return func(ctx context.Context, rules transformer.Rules) (map[string]transformer.ColumnTransformers, error) {
 					return nil, errTest
 				}, nil
 			},

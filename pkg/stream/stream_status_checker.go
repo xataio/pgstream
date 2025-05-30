@@ -29,7 +29,7 @@ type StatusChecker struct {
 	ruleValidatorBuilder func(context.Context, string, []string) (ruleValidator, error)
 }
 
-type ruleValidator func(rules []transformer.TableRules) (map[string]transformer.ColumnTransformers, error)
+type ruleValidator func(ctx context.Context, rules transformer.Rules) (map[string]transformer.ColumnTransformers, error)
 
 type migrator interface {
 	Version() (uint, bool, error)
@@ -185,15 +185,15 @@ func (s *StatusChecker) transformationRulesStatus(ctx context.Context, config *C
 	status := &TransformationRulesStatus{
 		Valid: true,
 	}
-	requiredTables := []string{}
-	if config.Processor.Transformer.ValidateStrict {
-		requiredTables = config.RequiredTables()
-	}
-	validator, err := s.ruleValidatorBuilder(ctx, pgURL, requiredTables)
+	validator, err := s.ruleValidatorBuilder(ctx, pgURL, config.RequiredTables())
 	if err != nil {
 		return nil, err
 	}
-	if _, err := validator(config.Processor.Transformer.TransformerRules); err != nil {
+	rules := transformer.Rules{
+		Transformers:   config.Processor.Transformer.TransformerRules,
+		ValidationMode: config.Processor.Transformer.ValidationMode,
+	}
+	if _, err := validator(ctx, rules); err != nil {
 		status.Valid = false
 		switch {
 		case errors.Is(err, syscall.ECONNREFUSED):

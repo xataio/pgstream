@@ -22,7 +22,7 @@ type Transformer struct {
 	parser         ParseFn
 }
 
-type ParseFn func(rules []TableRules) (map[string]ColumnTransformers, error)
+type ParseFn func(ctx context.Context, rules Rules) (map[string]ColumnTransformers, error)
 
 type ColumnTransformers map[string]transformers.Transformer
 
@@ -32,7 +32,7 @@ type transformerBuilder interface {
 
 type Config struct {
 	TransformerRules []TableRules
-	ValidateStrict   bool
+	ValidationMode   string
 }
 
 type Option func(t *Transformer)
@@ -55,7 +55,7 @@ func New(ctx context.Context, cfg *Config, processor processor.Processor, builde
 	}
 
 	var err error
-	t.transformerMap, err = t.parser(cfg.TransformerRules)
+	t.transformerMap, err = t.parser(ctx, Rules{cfg.TransformerRules, cfg.ValidationMode})
 	if err != nil {
 		return nil, err
 	}

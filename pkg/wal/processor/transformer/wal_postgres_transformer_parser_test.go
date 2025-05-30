@@ -244,7 +244,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			transformerMap, err := tc.validator.ParseAndValidate(tc.transformerRules)
+			transformerMap, err := tc.validator.ParseAndValidate(context.Background(), Rules{Transformers: tc.transformerRules, ValidationMode: validationModeStrict})
 			if tc.wantErr != nil {
 				require.Error(t, err)
 				if !errors.Is(err, tc.wantErr) {

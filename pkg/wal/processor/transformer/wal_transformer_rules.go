@@ -3,7 +3,8 @@
 package transformer
 
 type Rules struct {
-	Transformers []TableRules `yaml:"transformations"`
+	Transformers   []TableRules `yaml:"transformations"`
+	ValidationMode string       `yaml:"validation_mode"`
 }
 
 type TableRules struct {
