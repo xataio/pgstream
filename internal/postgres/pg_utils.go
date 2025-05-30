@@ -49,3 +49,11 @@ func newIdentifier(tableName string) (pgx.Identifier, error) {
 func removeQuotes(s string) string {
 	return strings.Trim(s, `"`)
 }
+
+func extractDatabase(url string) (string, error) {
+	pgCfg, err := pgx.ParseConfig(url)
+	if err != nil {
+		return "", err
+	}
+	return pgCfg.Database, nil
+}

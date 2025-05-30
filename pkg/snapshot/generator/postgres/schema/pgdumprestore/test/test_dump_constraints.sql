@@ -1,3 +1,5 @@
+\connect test
+
 ALTER TABLE ONLY musicbrainz.alternative_medium
     ADD CONSTRAINT alternative_medium_pkey PRIMARY KEY (id);
 
