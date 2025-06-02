@@ -33,12 +33,12 @@ func Test_SnapshotToPostgres(t *testing.T) {
 	testTable := "snapshot2pg_integration_test"
 	// create table and populate it before initialising and running pgstream to
 	// ensure the snapshot captures pre-existing schema and data properly
-	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf("create table %s(id serial primary key, name text)", testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(`CREATE TABLE %s(id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name TEXT, username TEXT GENERATED ALWAYS AS ('user_' || name ) STORED)`, testTable))
 	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf("insert into %s(name) values('a'),('b')", testTable))
 
 	cfg := &stream.Config{
 		Listener:  testSnapshotListenerCfg(snapshotPGURL, targetPGURL, []string{testTable}),
-		Processor: testPostgresProcessorCfg(snapshotPGURL),
+		Processor: testPostgresProcessorCfg(snapshotPGURL, withBulkIngestion),
 	}
 	initStream(t, ctx, snapshotPGURL)
 	runSnapshot(t, ctx, cfg)
@@ -53,24 +53,25 @@ func Test_SnapshotToPostgres(t *testing.T) {
 
 	validation := func() bool {
 		schemaColumns := getInformationSchemaColumns(t, ctx, targetConn, testTable)
-		if len(schemaColumns) != 2 {
+		if len(schemaColumns) != 3 {
 			return false
 		}
 
 		wantSchemaCols := []*informationSchemaColumn{
 			{name: "id", dataType: "integer", isNullable: "NO"},
 			{name: "name", dataType: "text", isNullable: "YES"},
+			{name: "username", dataType: "text", isNullable: "YES"},
 		}
 		require.ElementsMatch(t, wantSchemaCols, schemaColumns)
 
-		columns := getTestTableColumns(t, ctx, targetConn, fmt.Sprintf("select id,name from %s", testTable))
+		columns := getTestTableColumns(t, ctx, targetConn, fmt.Sprintf("select id,name,username from %s", testTable), withGeneratedColumn)
 		if len(columns) != 2 {
 			return false
 		}
 
 		wantCols := []*testTableColumn{
-			{id: 1, name: "a"},
-			{id: 2, name: "b"},
+			{id: 1, name: "a", username: "user_a"},
+			{id: 2, name: "b", username: "user_b"},
 		}
 		require.ElementsMatch(t, wantCols, columns)
 
