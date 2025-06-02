@@ -11,6 +11,7 @@
      - [Sources](#sources)
      - [Targets](#targets)
        - [Modifiers](#modifiers-1)
+     - [Instrumentation](#instrumentation)
 3. [Tracking Schema Changes](#tracking-schema-changes)
 4. [Snapshots](#snapshots)
 5. [Transformers](#transformers)
@@ -399,17 +400,26 @@ One of exponential/constant backoff policies can be provided for the search stor
 
 #### Instrumentation
 
-PGSTREAM_METRICS_ENDPOINT="0.0.0.0:4317"
-PGSTREAM_METRICS_COLLECTION_INTERVAL=60s
-PGSTREAM_TRACES_ENDPOINT="0.0.0.0:4317"
-PGSTREAM_TRACES_SAMPLE_RATIO=0
+<details>
+  <summary>Metrics</summary>
 
 | Environment Variable                 | Default | Required | Description                                                                                                                     |
 | ------------------------------------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | PGSTREAM_METRICS_ENDPOINT            | N/A     | No       | Endpoint where the pgstream metrics will be exported to.                                                                        |
 | PGSTREAM_METRICS_COLLECTION_INTERVAL | 60s     | No       | Interval at which the pgstream metrics will be collected and exported.                                                          |
+
+</details>
+
+<details>
+  <summary>Traces</summary>
+   
+| Environment Variable                 | Default | Required | Description                                                                                                                     |
+| ------------------------------------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | PGSTREAM_TRACES_ENDPOINT             | N/A     | No       | Endpoint where the pgstream traces will be exported to.                                                                         |
 | PGSTREAM_TRACES_SAMPLE_RATIO         | 0       | No       | Ratio for the trace sampling. Value must be between 0.0 and 1.0, where 0.0 is no traces sampled, and 1.0 is all traces sampled. |
+
+</details>
+
 
 ## Tracking schema changes
 
