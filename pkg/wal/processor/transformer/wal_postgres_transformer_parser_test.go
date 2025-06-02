@@ -21,35 +21,54 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 	testSchemaTable := "\"public\".\"test\""
 	testQuerier := &pgmocks.Querier{
 		QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-			require.Equal(t, "SELECT * FROM \"public\".\"test\" LIMIT 0", query)
-			return &pgmocks.Rows{
-				FieldDescriptionsFn: func() []pgconn.FieldDescription {
-					return []pgconn.FieldDescription{
-						{
-							Name:        "id",
-							DataTypeOID: pgtype.Int8OID,
-						},
-						{
-							Name:        "name",
-							DataTypeOID: pgtype.TextOID,
-						},
-					}
-				},
-				CloseFn: func() {},
-				ErrFn:   func() error { return nil },
-			}, nil
+			switch query {
+			case "SELECT * FROM \"public\".\"test\" LIMIT 0":
+				return &pgmocks.Rows{
+					FieldDescriptionsFn: func() []pgconn.FieldDescription {
+						return []pgconn.FieldDescription{
+							{
+								Name:        "id",
+								DataTypeOID: pgtype.Int8OID,
+							},
+							{
+								Name:        "name",
+								DataTypeOID: pgtype.TextOID,
+							},
+						}
+					},
+					CloseFn: func() {},
+					ErrFn:   func() error { return nil },
+				}, nil
+			case "SELECT tablename FROM pg_tables WHERE schemaname=$1":
+				return &pgmocks.Rows{
+					CloseFn: func() {},
+					NextFn:  func(i uint) bool { return i == 1 },
+					ScanFn: func(dest ...any) error {
+						require.Len(t, dest, 1)
+						tableName, ok := dest[0].(*string)
+						require.True(t, ok)
+						*tableName = "test"
+						return nil
+					},
+					ErrFn: func() error { return nil },
+				}, nil
+			default:
+				return nil, fmt.Errorf("unexpected query: %s", query)
+			}
 		},
 	}
 
 	testPGValidator := PostgresTransformerParser{
-		conn:      testQuerier,
-		builder:   builder.NewTransformerBuilder(),
-		pgtypeMap: pgtype.NewMap(),
+		conn:           testQuerier,
+		builder:        builder.NewTransformerBuilder(),
+		pgtypeMap:      pgtype.NewMap(),
+		requiredTables: []string{"public.test"},
 	}
 
 	tests := []struct {
 		name             string
 		transformerRules []TableRules
+		validator        PostgresTransformerParser
 
 		wantErr             error
 		wantTransformersFor []string
@@ -71,6 +90,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 					},
 				},
 			},
+			validator: testPGValidator,
 
 			wantTransformersFor: []string{"name"},
 			wantErr:             nil,
@@ -89,6 +109,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 					},
 				},
 			},
+			validator: testPGValidator,
 
 			wantTransformersFor: []string{"name"},
 			wantErr:             nil,
@@ -107,6 +128,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 					},
 				},
 			},
+			validator: testPGValidator,
 
 			wantErr: fmt.Errorf("column id of table %s has no transformer configured", testSchemaTable),
 		},
@@ -127,7 +149,8 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 					},
 				},
 			},
-			wantErr: errors.New("transformer 'string' specified for column 'id' in table \"public\".\"test\" does not support pg data type: int8"),
+			validator: testPGValidator,
+			wantErr:   errors.New("transformer 'string' specified for column 'id' in table \"public\".\"test\" does not support pg data type: int8"),
 		},
 		{
 			name: "error - column not found in table",
@@ -146,14 +169,82 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 					},
 				},
 			},
-			wantErr: fmt.Errorf("column %s not found in table %s", "unknown_column", testSchemaTable),
+			validator: testPGValidator,
+			wantErr:   fmt.Errorf("column %s not found in table %s", "unknown_column", testSchemaTable),
+		},
+		{
+			name: "error - required table not present in rules",
+			transformerRules: []TableRules{
+				{
+					Schema:         "public",
+					Table:          "test2",
+					ValidationMode: "relaxed",
+					ColumnRules: map[string]TransformerRules{
+						"id": {
+							Name: "string",
+						},
+						"name": {
+							Name: "string",
+						},
+					},
+				},
+			},
+			validator: testPGValidator,
+			wantErr:   fmt.Errorf("required table %s not found in transformation rules", "\"public\".\"test\""),
+		},
+		{
+			name: "error - required table not present in rules, validator with wildcard",
+			transformerRules: []TableRules{
+				{
+					Schema:         "public",
+					Table:          "test2",
+					ValidationMode: "relaxed",
+					ColumnRules: map[string]TransformerRules{
+						"id": {
+							Name: "string",
+						},
+						"name": {
+							Name: "string",
+						},
+					},
+				},
+			},
+			validator: PostgresTransformerParser{
+				conn:           testQuerier,
+				builder:        builder.NewTransformerBuilder(),
+				pgtypeMap:      pgtype.NewMap(),
+				requiredTables: []string{"*"},
+			},
+			wantErr: fmt.Errorf("required table %s not found in transformation rules", "\"public\".\"test\""),
+		},
+		{
+			name:             "error - invalid table name",
+			transformerRules: []TableRules{},
+			validator: PostgresTransformerParser{
+				conn:           testQuerier,
+				builder:        builder.NewTransformerBuilder(),
+				pgtypeMap:      pgtype.NewMap(),
+				requiredTables: []string{"invalid.table.name"},
+			},
+			wantErr: errInvalidTableName,
+		},
+		{
+			name:             "error - wildcard schema name",
+			transformerRules: []TableRules{},
+			validator: PostgresTransformerParser{
+				conn:           testQuerier,
+				builder:        builder.NewTransformerBuilder(),
+				pgtypeMap:      pgtype.NewMap(),
+				requiredTables: []string{"*.test"},
+			},
+			wantErr: fmt.Errorf("wildcard schema name is not supported: *.test"),
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			transformerMap, err := testPGValidator.ParseAndValidate(tc.transformerRules)
+			transformerMap, err := tc.validator.ParseAndValidate(context.Background(), Rules{Transformers: tc.transformerRules, ValidationMode: validationModeStrict})
 			if tc.wantErr != nil {
 				require.Error(t, err)
 				if !errors.Is(err, tc.wantErr) {

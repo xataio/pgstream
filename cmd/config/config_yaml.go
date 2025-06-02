@@ -706,6 +706,7 @@ func (c TransformationsConfig) parseTransformationConfig() (*transformer.Config,
 
 	return &transformer.Config{
 		TransformerRules: rules,
+		ValidationMode:   globalValidationMode,
 	}, nil
 }
 

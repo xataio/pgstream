@@ -104,8 +104,8 @@ func TestStatusChecker_Status(t *testing.T) {
 		}, nil
 	}
 
-	validRuleValidatorBuilder := func(context.Context, string) (ruleValidator, error) {
-		return func(rules []transformer.TableRules) (map[string]transformer.ColumnTransformers, error) {
+	validRuleValidatorBuilder := func(context.Context, string, []string) (ruleValidator, error) {
+		return func(ctx context.Context, rules transformer.Rules) (map[string]transformer.ColumnTransformers, error) {
 			return nil, nil
 		}, nil
 	}
@@ -115,7 +115,7 @@ func TestStatusChecker_Status(t *testing.T) {
 		connBuilder          pglib.QuerierBuilder
 		migratorBuilder      func(string) (migrator, error)
 		config               *Config
-		ruleValidatorBuilder func(context.Context, string) (ruleValidator, error)
+		ruleValidatorBuilder func(context.Context, string, []string) (ruleValidator, error)
 
 		wantStatus *Status
 		wantErr    error
@@ -184,7 +184,7 @@ func TestStatusChecker_Status(t *testing.T) {
 			connBuilder:     validConnBuilder,
 			migratorBuilder: validMigratorBuilder,
 			config:          validConfig,
-			ruleValidatorBuilder: func(ctx context.Context, s string) (ruleValidator, error) {
+			ruleValidatorBuilder: func(ctx context.Context, s string, r []string) (ruleValidator, error) {
 				return nil, errTest
 			},
 
@@ -612,15 +612,15 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 
 	tests := []struct {
 		name                 string
-		ruleValidatorBuilder func(context.Context, string) (ruleValidator, error)
+		ruleValidatorBuilder func(context.Context, string, []string) (ruleValidator, error)
 		config               *Config
 		wantStatus           *TransformationRulesStatus
 		wantErr              error
 	}{
 		{
 			name: "ok - valid transformation rules",
-			ruleValidatorBuilder: func(ctx context.Context, pgURL string) (ruleValidator, error) {
-				return func(rules []transformer.TableRules) (map[string]transformer.ColumnTransformers, error) {
+			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string) (ruleValidator, error) {
+				return func(ctx context.Context, rules transformer.Rules) (map[string]transformer.ColumnTransformers, error) {
 					return nil, nil
 				}, nil
 			},
@@ -641,7 +641,7 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 		},
 		{
 			name: "ok - no transformer configured",
-			ruleValidatorBuilder: func(ctx context.Context, pgURL string) (ruleValidator, error) {
+			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string) (ruleValidator, error) {
 				return nil, errors.New("unexpected call to ruleValidatorBuilder")
 			},
 			config: &Config{
@@ -657,7 +657,7 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 		},
 		{
 			name: "error - source postgres URL not provided",
-			ruleValidatorBuilder: func(ctx context.Context, pgURL string) (ruleValidator, error) {
+			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string) (ruleValidator, error) {
 				return nil, errors.New("unexpected call to ruleValidatorBuilder")
 			},
 			config: &Config{
@@ -678,8 +678,8 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 		},
 		{
 			name: "error - rule validation failure",
-			ruleValidatorBuilder: func(ctx context.Context, pgURL string) (ruleValidator, error) {
-				return func(rules []transformer.TableRules) (map[string]transformer.ColumnTransformers, error) {
+			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string) (ruleValidator, error) {
+				return func(ctx context.Context, rules transformer.Rules) (map[string]transformer.ColumnTransformers, error) {
 					return nil, errTest
 				}, nil
 			},
@@ -701,7 +701,7 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 		},
 		{
 			name: "error - ruleValidatorBuilder failure",
-			ruleValidatorBuilder: func(ctx context.Context, pgURL string) (ruleValidator, error) {
+			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string) (ruleValidator, error) {
 				return nil, errTest
 			},
 			config: &Config{

@@ -26,10 +26,10 @@ type StatusChecker struct {
 	connBuilder          pglib.QuerierBuilder
 	configParser         func(pgURL string) (*pgx.ConnConfig, error)
 	migratorBuilder      func(string) (migrator, error)
-	ruleValidatorBuilder func(context.Context, string) (ruleValidator, error)
+	ruleValidatorBuilder func(context.Context, string, []string) (ruleValidator, error)
 }
 
-type ruleValidator func(rules []transformer.TableRules) (map[string]transformer.ColumnTransformers, error)
+type ruleValidator func(ctx context.Context, rules transformer.Rules) (map[string]transformer.ColumnTransformers, error)
 
 type migrator interface {
 	Version() (uint, bool, error)
@@ -51,8 +51,8 @@ func NewStatusChecker() *StatusChecker {
 		connBuilder:     pglib.ConnBuilder,
 		configParser:    pgx.ParseConfig,
 		migratorBuilder: func(pgURL string) (migrator, error) { return newPGMigrator(pgURL) },
-		ruleValidatorBuilder: func(ctx context.Context, pgURL string) (ruleValidator, error) {
-			validator, err := transformer.NewPostgresTransformerParser(ctx, pgURL, builder.NewTransformerBuilder())
+		ruleValidatorBuilder: func(ctx context.Context, pgURL string, requiredTables []string) (ruleValidator, error) {
+			validator, err := transformer.NewPostgresTransformerParser(ctx, pgURL, builder.NewTransformerBuilder(), requiredTables)
 			if err != nil {
 				return nil, err
 			}
@@ -185,11 +185,15 @@ func (s *StatusChecker) transformationRulesStatus(ctx context.Context, config *C
 	status := &TransformationRulesStatus{
 		Valid: true,
 	}
-	validator, err := s.ruleValidatorBuilder(ctx, pgURL)
+	validator, err := s.ruleValidatorBuilder(ctx, pgURL, config.RequiredTables())
 	if err != nil {
 		return nil, err
 	}
-	if _, err := validator(config.Processor.Transformer.TransformerRules); err != nil {
+	rules := transformer.Rules{
+		Transformers:   config.Processor.Transformer.TransformerRules,
+		ValidationMode: config.Processor.Transformer.ValidationMode,
+	}
+	if _, err := validator(ctx, rules); err != nil {
 		status.Valid = false
 		switch {
 		case errors.Is(err, syscall.ECONNREFUSED):

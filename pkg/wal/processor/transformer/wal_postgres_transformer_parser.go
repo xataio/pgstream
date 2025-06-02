@@ -4,7 +4,9 @@ package transformer
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -14,28 +16,41 @@ import (
 )
 
 type PostgresTransformerParser struct {
-	conn      pglib.Querier
-	builder   transformerBuilder
-	pgtypeMap *pgtype.Map
+	conn           pglib.Querier
+	builder        transformerBuilder
+	pgtypeMap      *pgtype.Map
+	requiredTables []string
 }
 
-const fieldDescriptionsQuery = "SELECT * FROM %s LIMIT 0"
+const (
+	fieldDescriptionsQuery = "SELECT * FROM %s LIMIT 0"
+	schemaTablesQuery      = "SELECT tablename FROM pg_tables WHERE schemaname=$1"
+	publicSchema           = "public"
+	wildcard               = "*"
+)
 
-func NewPostgresTransformerParser(ctx context.Context, pgURL string, builder transformerBuilder) (*PostgresTransformerParser, error) {
+var errInvalidTableName = errors.New("invalid table name, expected format: schema.table or table")
+
+func NewPostgresTransformerParser(ctx context.Context, pgURL string, builder transformerBuilder, requiredTables []string) (*PostgresTransformerParser, error) {
 	pool, err := pglib.NewConnPool(ctx, pgURL)
 	if err != nil {
 		return nil, err
 	}
 	return &PostgresTransformerParser{
-		conn:      pool,
-		builder:   builder,
-		pgtypeMap: pgtype.NewMap(),
+		conn:           pool,
+		builder:        builder,
+		pgtypeMap:      pgtype.NewMap(),
+		requiredTables: requiredTables,
 	}, nil
 }
 
-func (v *PostgresTransformerParser) ParseAndValidate(rules []TableRules) (map[string]ColumnTransformers, error) {
+func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules Rules) (map[string]ColumnTransformers, error) {
+	// validate that all required tables are present in the rules
+	if err := v.validateAllRequiredTables(ctx, rules); err != nil {
+		return nil, err
+	}
 	transformerMap := map[string]ColumnTransformers{}
-	for _, table := range rules {
+	for _, table := range rules.Transformers {
 		tableKey := schemaTableKey(table.Schema, table.Table)
 		fieldDescriptions, err := v.getFieldDescriptions(context.Background(), tableKey)
 		if err != nil {
@@ -94,6 +109,55 @@ func (v *PostgresTransformerParser) ParseAndValidate(rules []TableRules) (map[st
 	return transformerMap, nil
 }
 
+func (v *PostgresTransformerParser) validateAllRequiredTables(ctx context.Context, rules Rules) error {
+	if rules.ValidationMode != validationModeStrict {
+		// if validation mode is not strict, we don't need to validate required tables
+		return nil
+	}
+	requiredTablesQuoteQualified, err := v.getRequiredTablesList(ctx)
+	if err != nil {
+		return fmt.Errorf("getting required tables list: %w", err)
+	}
+
+	ruleTablesMap := make(map[string]struct{}, len(rules.Transformers))
+	for _, table := range rules.Transformers {
+		ruleTablesMap[pglib.QuoteQualifiedIdentifier(table.Schema, table.Table)] = struct{}{}
+	}
+
+	for _, requiredTable := range requiredTablesQuoteQualified {
+		if _, found := ruleTablesMap[requiredTable]; !found {
+			return fmt.Errorf("required table %s not found in transformation rules", requiredTable)
+		}
+	}
+	return nil
+}
+
+func (v *PostgresTransformerParser) getRequiredTablesList(ctx context.Context) ([]string, error) {
+	schemaTablesList := []string{}
+	for _, table := range v.requiredTables {
+		schemaName, tableName, err := parseTableName(table)
+		if err != nil {
+			return nil, err
+		}
+		if schemaName == wildcard {
+			return nil, fmt.Errorf("wildcard schema name is not supported: %s", table)
+		}
+
+		if tableName != wildcard {
+			schemaTablesList = append(schemaTablesList, pglib.QuoteQualifiedIdentifier(schemaName, tableName))
+			continue
+		}
+
+		// if tableName is wildcard, fetch all tables in the schema
+		allTablesInSchema, err := v.getAllSchemaTables(ctx, schemaName)
+		if err != nil {
+			return nil, fmt.Errorf("fetching all tables for schema %s: %w", schemaName, err)
+		}
+		schemaTablesList = append(schemaTablesList, allTablesInSchema...)
+	}
+	return schemaTablesList, nil
+}
+
 func (v *PostgresTransformerParser) Close() error {
 	return v.conn.Close(context.Background())
 }
@@ -106,6 +170,41 @@ func (v *PostgresTransformerParser) getFieldDescriptions(ctx context.Context, sc
 	}
 	defer rows.Close()
 	return rows.FieldDescriptions(), rows.Err()
+}
+
+func (v *PostgresTransformerParser) getAllSchemaTables(ctx context.Context, schema string) ([]string, error) {
+	rows, err := v.conn.Query(ctx, schemaTablesQuery, schema)
+	if err != nil {
+		return nil, fmt.Errorf("fetching all tables for schema %s: %w", schema, err)
+	}
+	defer rows.Close()
+
+	tableNames := []string{}
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			return nil, fmt.Errorf("scanning table name: %w", err)
+		}
+		tableNames = append(tableNames, pglib.QuoteQualifiedIdentifier(schema, tableName))
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return tableNames, nil
+}
+
+func parseTableName(qualifiedTableName string) (string, string, error) {
+	parts := strings.Split(qualifiedTableName, ".")
+	switch len(parts) {
+	case 1:
+		return publicSchema, parts[0], nil
+	case 2:
+		return parts[0], parts[1], nil
+	default:
+		return "", "", errInvalidTableName
+	}
 }
 
 func pgTypeCompatibleWithTransformerType(compatibleTypes []transformers.SupportedDataType, pgType uint32) bool {
