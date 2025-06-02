@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -170,6 +171,12 @@ func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID strin
 		return nil
 	}
 
+	// get table columns (excluding the generated ones)
+	columNames, err := sg.getTableColumnNames(ctx, schema, table, snapshotID)
+	if err != nil {
+		return err
+	}
+
 	// If one page range fails, we abort the entire table snapshot. The
 	// snapshot relies on the transaction snapshot id to ensure all workers
 	// have the same table view, which allows us to use the ctid to
@@ -178,7 +185,7 @@ func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID strin
 	errGroup, ctx := errgroup.WithContext(ctx)
 	for i := uint(0); i < sg.tableWorkers; i++ {
 		errGroup.Go(func() error {
-			return sg.snapshotTableRangeWorker(ctx, snapshotID, schema, table, rangeChan)
+			return sg.snapshotTableRangeWorker(ctx, snapshotID, schema, table, columNames, rangeChan)
 		})
 	}
 
@@ -196,22 +203,23 @@ func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID strin
 	return errGroup.Wait()
 }
 
-func (sg *SnapshotGenerator) snapshotTableRangeWorker(ctx context.Context, snapshotID, schema, table string, pageRangeChan <-chan (pageRange)) error {
+func (sg *SnapshotGenerator) snapshotTableRangeWorker(ctx context.Context, snapshotID, schema, table string, columnNames []string, pageRangeChan <-chan (pageRange)) error {
 	for pageRange := range pageRangeChan {
-		if err := sg.snapshotTableRange(ctx, snapshotID, schema, table, pageRange); err != nil {
+		if err := sg.snapshotTableRange(ctx, snapshotID, schema, table, columnNames, pageRange); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID, schema, table string, pageRange pageRange) error {
+func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID, schema, table string, columnNames []string, pageRange pageRange) error {
 	return sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
 		sg.logger.Debug(fmt.Sprintf("querying table page range %d-%d", pageRange.start, pageRange.end), loglib.Fields{
 			"schema": schema, "table": table, "snapshotID": snapshotID,
 		})
 
-		query := fmt.Sprintf("SELECT * FROM %s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'",
+		query := fmt.Sprintf("SELECT %s FROM %s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'",
+			strings.Join(columnNames, ","),
 			pglib.QuoteQualifiedIdentifier(schema, table), pageRange.start, pageRange.end)
 		rows, err := tx.Query(ctx, query)
 		if err != nil {
@@ -272,11 +280,12 @@ func (sg *SnapshotGenerator) toSnapshotColumns(ctx context.Context, fieldDescrip
 	return columns
 }
 
+const tablePageCountQuery = "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2"
+
 func (sg *SnapshotGenerator) getTablePageCount(ctx context.Context, schemaName, tableName, snapshotID string) (int, error) {
 	pageCount := int(0)
 	err := sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
-		const query = "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2"
-		if err := tx.QueryRow(ctx, query, tableName, schemaName).Scan(&pageCount); err != nil {
+		if err := tx.QueryRow(ctx, tablePageCountQuery, tableName, schemaName).Scan(&pageCount); err != nil {
 			return fmt.Errorf("getting page count for table %s.%s: %w", schemaName, tableName, err)
 		}
 
@@ -292,9 +301,44 @@ func (sg *SnapshotGenerator) getTablePageCount(ctx context.Context, schemaName, 
 	return pageCount, nil
 }
 
+const tableColumnsQuery = `SELECT attname FROM pg_attribute
+		WHERE attnum > 0
+		AND attrelid = (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2)
+		AND attgenerated = ''`
+
+func (sg *SnapshotGenerator) getTableColumnNames(ctx context.Context, schemaName, tableName, snapshotID string) ([]string, error) {
+	columnNames := []string{}
+	err := sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
+		// filter out generated columns (excluding identities) since they will
+		// be generated automatically, and they can't be overwriten.
+		rows, err := tx.Query(ctx, tableColumnsQuery, tableName, schemaName)
+		if err != nil {
+			return fmt.Errorf("getting table column names for table %s.%s: %w", schemaName, tableName, err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			columnName := ""
+			if err := rows.Scan(&columnName); err != nil {
+				return fmt.Errorf("scanning table column name: %w", err)
+			}
+			columnNames = append(columnNames, pglib.QuoteIdentifier(columnName))
+		}
+
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return columnNames, nil
+}
+
+const exportSnapshotQuery = "SELECT pg_export_snapshot()"
+
 func (sg *SnapshotGenerator) exportSnapshot(ctx context.Context, tx pglib.Tx) (string, error) {
 	var snapshotID string
-	if err := tx.QueryRow(ctx, "SELECT pg_export_snapshot()").Scan(&snapshotID); err != nil {
+	if err := tx.QueryRow(ctx, exportSnapshotQuery).Scan(&snapshotID); err != nil {
 		return "", fmt.Errorf("exporting snapshot: %w", err)
 	}
 	return snapshotID, nil

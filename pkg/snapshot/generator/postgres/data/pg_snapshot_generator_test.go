@@ -44,6 +44,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{Name: "id", Type: "uuid", Value: testUUID},
 		{Name: "name", Type: "text", Value: "alice"},
 	}
+	testIDColumn := "id"
 
 	testRow := func(tableName string, columns []snapshot.Column) *snapshot.Row {
 		return &snapshot.Row{
@@ -54,6 +55,116 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	}
 
 	errTest := errors.New("oh noes")
+
+	// export snapshot
+	validExportSnapshotRow := func() *pgmocks.Row {
+		return &pgmocks.Row{
+			ScanFn: func(args ...any) error {
+				require.Len(t, args, 1)
+				snapshotID, ok := args[0].(*string)
+				require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
+				*snapshotID = testSnapshotID
+				return nil
+			},
+		}
+	}
+	validExportSnapshotTx := func() *pgmocks.Tx {
+		return &pgmocks.Tx{
+			QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+				require.Equal(t, exportSnapshotQuery, query)
+				return validExportSnapshotRow()
+			},
+		}
+	}
+
+	// table page count
+	validTablePageCountRow := func() *pgmocks.Row {
+		return &pgmocks.Row{
+			ScanFn: func(args ...any) error {
+				require.Len(t, args, 1)
+				pageCount, ok := args[0].(*int)
+				require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
+				*pageCount = testPageCount
+				return nil
+			},
+		}
+	}
+	validTablePageCountTx := func() *pgmocks.Tx {
+		return &pgmocks.Tx{
+			ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+				require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+				require.Len(t, args, 0)
+				return pglib.CommandTag{}, nil
+			},
+			QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+				require.Equal(t, tablePageCountQuery, query)
+				require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
+				return validTablePageCountRow()
+			},
+		}
+	}
+
+	// table column names
+	validTableColumnNamesRows := func() *pgmocks.Rows {
+		return &pgmocks.Rows{
+			CloseFn: func() {},
+			NextFn:  func(i uint) bool { return i == 1 },
+			ScanFn: func(args ...any) error {
+				require.Len(t, args, 1)
+				colName, ok := args[0].(*string)
+				require.True(t, ok, fmt.Sprintf("column name, expected *string, got %T", args[0]))
+				*colName = testIDColumn
+				return nil
+			},
+			ErrFn: func() error { return nil },
+		}
+	}
+	validTableColumnNamesTx := func() *pgmocks.Tx {
+		return &pgmocks.Tx{
+			ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+				require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+				require.Len(t, args, 0)
+				return pglib.CommandTag{}, nil
+			},
+			QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				require.Equal(t, tableColumnsQuery, query)
+				require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
+				return validTableColumnNamesRows(), nil
+			},
+		}
+	}
+
+	// select ctid range
+	validSelectCtidRows := func() *pgmocks.Rows {
+		return &pgmocks.Rows{
+			CloseFn: func() {},
+			NextFn:  func(i uint) bool { return i == 1 },
+			FieldDescriptionsFn: func() []pgconn.FieldDescription {
+				return []pgconn.FieldDescription{
+					{Name: "id", DataTypeOID: pgtype.UUIDOID},
+					{Name: "name", DataTypeOID: pgtype.TextOID},
+				}
+			},
+			ValuesFn: func() ([]any, error) {
+				return []any{testUUID, "alice"}, nil
+			},
+			ErrFn: func() error { return nil },
+		}
+	}
+	validSelectCtidTx := func() *pgmocks.Tx {
+		return &pgmocks.Tx{
+			ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+				require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+				require.Len(t, args, 0)
+				return pglib.CommandTag{}, nil
+			},
+			QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				require.Equal(t, fmt.Sprintf("SELECT \"id\" FROM %q.%q WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'", testSnapshot.SchemaName, testTable1, 0, 10), query)
+				require.Len(t, args, 0)
+				return validSelectCtidRows(), nil
+			},
+		}
+	}
 
 	tests := []struct {
 		name          string
@@ -71,70 +182,13 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					require.Equal(t, txOptions, to)
 					switch i {
 					case 1:
-						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT pg_export_snapshot()", query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
-							},
-						}
-						return f(&mockTx)
+						return f(validExportSnapshotTx())
 					case 2:
-						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
-								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
-								require.Len(t, args, 0)
-								return pglib.CommandTag{}, nil
-							},
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2", query)
-								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										pageCount, ok := args[0].(*int)
-										require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
-										*pageCount = testPageCount
-										return nil
-									},
-								}
-							},
-						}
-						return f(&mockTx)
+						return f(validTablePageCountTx())
 					case 3:
-						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
-								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
-								require.Len(t, args, 0)
-								return pglib.CommandTag{}, nil
-							},
-							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf("SELECT * FROM %q.%q WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'", testSnapshot.SchemaName, testTable1, 0, 10), query)
-								require.Len(t, args, 0)
-								return &pgmocks.Rows{
-									CloseFn: func() {},
-									NextFn:  func(i uint) bool { return i == 1 },
-									FieldDescriptionsFn: func() []pgconn.FieldDescription {
-										return []pgconn.FieldDescription{
-											{Name: "id", DataTypeOID: pgtype.UUIDOID},
-											{Name: "name", DataTypeOID: pgtype.TextOID},
-										}
-									},
-									ValuesFn: func() ([]any, error) {
-										return []any{testUUID, "alice"}, nil
-									},
-									ErrFn: func() error { return nil },
-								}, nil
-							},
-						}
-						return f(&mockTx)
+						return f(validTableColumnNamesTx())
+					case 4:
+						return f(validSelectCtidTx())
 					default:
 						return fmt.Errorf("unexpected call to ExecInTxWithOptions: %d", i)
 					}
@@ -151,47 +205,21 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					require.Equal(t, txOptions, to)
 					mockTx := pgmocks.Tx{
 						QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-							if query == "SELECT pg_export_snapshot()" {
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
+							if query == exportSnapshotQuery {
+								return validExportSnapshotRow()
 							}
-							if query == "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2" {
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										pageCount, ok := args[0].(*int)
-										require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
-										*pageCount = testPageCount
-										return nil
-									},
-								}
+							if query == tablePageCountQuery {
+								return validTablePageCountRow()
 							}
 							return &pgmocks.Row{
 								ScanFn: func(args ...any) error { return fmt.Errorf("unexpected call to QueryRowFn: %s", query) },
 							}
 						},
 						QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-							return &pgmocks.Rows{
-								CloseFn: func() {},
-								NextFn:  func(i uint) bool { return i == 1 },
-								FieldDescriptionsFn: func() []pgconn.FieldDescription {
-									return []pgconn.FieldDescription{
-										{Name: "id", DataTypeOID: pgtype.UUIDOID},
-										{Name: "name", DataTypeOID: pgtype.TextOID},
-									}
-								},
-								ValuesFn: func() ([]any, error) {
-									return []any{testUUID, "alice"}, nil
-								},
-								ErrFn: func() error { return nil },
-							}, nil
+							if query == tableColumnsQuery {
+								return validTableColumnNamesRows(), nil
+							}
+							return validSelectCtidRows(), nil
 						},
 						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 							require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
@@ -223,44 +251,12 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					require.Equal(t, txOptions, to)
 					switch i {
 					case 1:
-						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT pg_export_snapshot()", query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
-							},
-						}
-						return f(&mockTx)
+						return f(validExportSnapshotTx())
 					case 2:
-						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
-								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
-								require.Len(t, args, 0)
-								return pglib.CommandTag{}, nil
-							},
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2", query)
-								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										pageCount, ok := args[0].(*int)
-										require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
-										*pageCount = testPageCount
-										return nil
-									},
-								}
-							},
-						}
-						return f(&mockTx)
+						return f(validTablePageCountTx())
 					case 3:
+						return f(validTableColumnNamesTx())
+					case 4:
 						mockTx := pgmocks.Tx{
 							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
@@ -268,7 +264,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf("SELECT * FROM %q.%q WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'", testSnapshot.SchemaName, testTable1, 0, 10), query)
+								require.Equal(t, fmt.Sprintf("SELECT \"id\" FROM %q.%q WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'", testSnapshot.SchemaName, testTable1, 0, 10), query)
 								require.Len(t, args, 0)
 								return &pgmocks.Rows{
 									CloseFn: func() {},
@@ -304,44 +300,12 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					require.Equal(t, txOptions, to)
 					switch i {
 					case 1:
-						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT pg_export_snapshot()", query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
-							},
-						}
-						return f(&mockTx)
+						return f(validExportSnapshotTx())
 					case 2:
-						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
-								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
-								require.Len(t, args, 0)
-								return pglib.CommandTag{}, nil
-							},
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2", query)
-								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										pageCount, ok := args[0].(*int)
-										require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
-										*pageCount = testPageCount
-										return nil
-									},
-								}
-							},
-						}
-						return f(&mockTx)
+						return f(validTablePageCountTx())
 					case 3:
+						return f(validTableColumnNamesTx())
+					case 4:
 						mockTx := pgmocks.Tx{
 							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
@@ -349,7 +313,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf("SELECT * FROM %q.%q WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'", testSnapshot.SchemaName, testTable1, 0, 10), query)
+								require.Equal(t, fmt.Sprintf("SELECT \"id\" FROM %q.%q WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'", testSnapshot.SchemaName, testTable1, 0, 10), query)
 								require.Len(t, args, 0)
 								return &pgmocks.Rows{
 									CloseFn:             func() {},
@@ -379,7 +343,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					case 1:
 						mockTx := pgmocks.Tx{
 							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT pg_export_snapshot()", query)
+								require.Equal(t, exportSnapshotQuery, query)
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										return errTest
@@ -404,21 +368,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					require.Equal(t, txOptions, to)
 					switch i {
 					case 1:
-						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT pg_export_snapshot()", query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
-							},
-						}
-						return f(&mockTx)
+						return f(validExportSnapshotTx())
 					case 2:
 						mockTx := pgmocks.Tx{
 							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
@@ -451,21 +401,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					require.Equal(t, txOptions, to)
 					switch i {
 					case 1:
-						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT pg_export_snapshot()", query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
-							},
-						}
-						return f(&mockTx)
+						return f(validExportSnapshotTx())
 					case 2:
 						mockTx := pgmocks.Tx{
 							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
@@ -474,7 +410,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2", query)
+								require.Equal(t, tablePageCountQuery, query)
 								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
@@ -507,44 +443,12 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					require.Equal(t, txOptions, to)
 					switch i {
 					case 1:
-						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT pg_export_snapshot()", query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
-							},
-						}
-						return f(&mockTx)
+						return f(validExportSnapshotTx())
 					case 2:
-						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
-								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
-								require.Len(t, args, 0)
-								return pglib.CommandTag{}, nil
-							},
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2", query)
-								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										pageCount, ok := args[0].(*int)
-										require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
-										*pageCount = testPageCount
-										return nil
-									},
-								}
-							},
-						}
-						return f(&mockTx)
+						return f(validTablePageCountTx())
 					case 3:
+						return f(validTableColumnNamesTx())
+					case 4:
 						mockTx := pgmocks.Tx{
 							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
@@ -570,49 +474,15 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			wantRows: []*snapshot.Row{},
 		},
 		{
-			name: "error - querying range data",
+			name: "error - getting table column names",
 			querier: &pgmocks.Querier{
 				ExecInTxWithOptionsFn: func(ctx context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
 					require.Equal(t, txOptions, to)
 					switch i {
 					case 1:
-						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT pg_export_snapshot()", query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
-							},
-						}
-						return f(&mockTx)
+						return f(validExportSnapshotTx())
 					case 2:
-						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
-								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
-								require.Len(t, args, 0)
-								return pglib.CommandTag{}, nil
-							},
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2", query)
-								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										pageCount, ok := args[0].(*int)
-										require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
-										*pageCount = testPageCount
-										return nil
-									},
-								}
-							},
-						}
-						return f(&mockTx)
+						return f(validTablePageCountTx())
 					case 3:
 						mockTx := pgmocks.Tx{
 							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
@@ -621,7 +491,96 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf("SELECT * FROM %q.%q WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'", testSnapshot.SchemaName, testTable1, 0, 10), query)
+								require.Equal(t, tableColumnsQuery, query)
+								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
+								return nil, errTest
+							},
+						}
+						return f(&mockTx)
+					default:
+						return fmt.Errorf("unexpected call to ExecInTxWithOptions: %d", i)
+					}
+				},
+			},
+
+			wantErr: &snapshot.Errors{
+				Tables: []snapshot.TableError{
+					{
+						Table:    testTable1,
+						ErrorMsg: fmt.Sprintf("getting table column names for table test-schema.test-table-1: %v", errTest),
+					},
+				},
+			},
+			wantRows: []*snapshot.Row{},
+		},
+		{
+			name: "error - scanning table column name",
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(ctx context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					require.Equal(t, txOptions, to)
+					switch i {
+					case 1:
+						return f(validExportSnapshotTx())
+					case 2:
+						return f(validTablePageCountTx())
+					case 3:
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+								require.Len(t, args, 0)
+								return pglib.CommandTag{}, nil
+							},
+							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+								require.Equal(t, tableColumnsQuery, query)
+								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
+								return &pgmocks.Rows{
+									CloseFn: func() {},
+									NextFn:  func(i uint) bool { return i == 1 },
+									ScanFn: func(args ...any) error {
+										return errTest
+									},
+									ErrFn: func() error { return nil },
+								}, nil
+							},
+						}
+						return f(&mockTx)
+					default:
+						return fmt.Errorf("unexpected call to ExecInTxWithOptions: %d", i)
+					}
+				},
+			},
+
+			wantErr: &snapshot.Errors{
+				Tables: []snapshot.TableError{
+					{
+						Table:    testTable1,
+						ErrorMsg: fmt.Sprintf("scanning table column name: %v", errTest),
+					},
+				},
+			},
+			wantRows: []*snapshot.Row{},
+		},
+		{
+			name: "error - querying range data",
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(ctx context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					require.Equal(t, txOptions, to)
+					switch i {
+					case 1:
+						return f(validExportSnapshotTx())
+					case 2:
+						return f(validTablePageCountTx())
+					case 3:
+						return f(validTableColumnNamesTx())
+					case 4:
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+								require.Len(t, args, 0)
+								return pglib.CommandTag{}, nil
+							},
+							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+								require.Equal(t, fmt.Sprintf("SELECT \"id\" FROM %q.%q WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'", testSnapshot.SchemaName, testTable1, 0, 10), query)
 								require.Len(t, args, 0)
 								return nil, errTest
 							},
@@ -650,44 +609,12 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					require.Equal(t, txOptions, to)
 					switch i {
 					case 1:
-						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT pg_export_snapshot()", query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
-							},
-						}
-						return f(&mockTx)
+						return f(validExportSnapshotTx())
 					case 2:
-						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
-								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
-								require.Len(t, args, 0)
-								return pglib.CommandTag{}, nil
-							},
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2", query)
-								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										pageCount, ok := args[0].(*int)
-										require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
-										*pageCount = testPageCount
-										return nil
-									},
-								}
-							},
-						}
-						return f(&mockTx)
+						return f(validTablePageCountTx())
 					case 3:
+						return f(validTableColumnNamesTx())
+					case 4:
 						mockTx := pgmocks.Tx{
 							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
@@ -728,44 +655,12 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					require.Equal(t, txOptions, to)
 					switch i {
 					case 1:
-						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT pg_export_snapshot()", query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
-							},
-						}
-						return f(&mockTx)
+						return f(validExportSnapshotTx())
 					case 2:
-						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
-								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
-								require.Len(t, args, 0)
-								return pglib.CommandTag{}, nil
-							},
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-								require.Equal(t, "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2", query)
-								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										pageCount, ok := args[0].(*int)
-										require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
-										*pageCount = testPageCount
-										return nil
-									},
-								}
-							},
-						}
-						return f(&mockTx)
+						return f(validTablePageCountTx())
 					case 3:
+						return f(validTableColumnNamesTx())
+					case 4:
 						mockTx := pgmocks.Tx{
 							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
@@ -806,18 +701,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					require.Equal(t, txOptions, to)
 					mockTx := pgmocks.Tx{
 						QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-							if query == "SELECT pg_export_snapshot()" {
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
+							if query == exportSnapshotQuery {
+								return validExportSnapshotRow()
 							}
-							if query == "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2" {
+							if query == tablePageCountQuery {
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										return errTest
