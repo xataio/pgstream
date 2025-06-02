@@ -28,6 +28,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 	assert.True(t, streamConfig.Listener.Postgres.Snapshot.Schema.DumpRestore.CleanTargetDB)
 	assert.True(t, streamConfig.Listener.Postgres.Snapshot.Schema.DumpRestore.CreateTargetDB)
 	assert.True(t, streamConfig.Listener.Postgres.Snapshot.Schema.DumpRestore.IncludeGlobalDBObjects)
+	assert.Equal(t, "test-role", streamConfig.Listener.Postgres.Snapshot.Schema.DumpRestore.Role)
 	assert.NotNil(t, streamConfig.Listener.Postgres.Snapshot.Recorder)
 	assert.Equal(t, "postgresql://user:password@localhost:5432/mytargetdatabase", streamConfig.Listener.Postgres.Snapshot.Recorder.SnapshotStoreURL)
 	assert.True(t, streamConfig.Listener.Postgres.Snapshot.Recorder.RepeatableSnapshots)

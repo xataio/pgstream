@@ -28,12 +28,16 @@ type PGDumpOptions struct {
 	SchemaOnly bool
 	// DataOnly if true, only data will be exported (no schema)
 	DataOnly bool
-	// do not dump privileges (grant/revoke)
+	// Do not dump privileges (grant/revoke)
 	NoPrivileges bool
+	// Do not output commands to set ownership of objects to match the original database
+	NoOwner bool
 	// Clean all the objects that will be dumped
 	Clean bool
 	// Create the database
 	Create bool
+	// Specifies a role name to be used to create the dump
+	Role string
 	// Options to pass to pg_dump
 	Options []string
 }
@@ -57,6 +61,14 @@ func (opts *PGDumpOptions) ToArgs() []string {
 
 	if opts.NoPrivileges {
 		options = append(options, "--no-privileges")
+	}
+
+	if opts.NoOwner {
+		options = append(options, "--no-owner")
+	}
+
+	if opts.Role != "" {
+		options = append(options, fmt.Sprintf("--role=%v", opts.Role))
 	}
 
 	for _, schema := range opts.Schemas {
