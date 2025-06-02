@@ -107,6 +107,8 @@ Pgstream source and target need to be configured appropriately before the comman
 
 Check the [documentation](docs/README.md#configuration) for more information about the configuration options, or check the help on the CLI for details on the available flags. Additionally, at the root of this repository you can find sample files for both .env and .yaml.
 
+If you want to configure column transformations, leveraging [greenmask](https://github.com/GreenmaskIO/greenmask), [neosync](https://github.com/nucleuscloud/neosync) and [go-masker](https://github.com/ggwhite/go-masker) open source integrations, as well as custom transformers, check the [transformation rules](docs/README.md#transformation-rules) configuration for more details, along with the list of [available transformers](docs/README.md#supported-transformers).
+
 ### Prepare the database
 
 This will create the `pgstream` schema in the configured Postgres database, along with the tables/functions/triggers required to keep track of the schema changes. See [Tracking schema changes](docs/README.md#tracking-schema-changes) section for more details. It will also create a replication slot for the configured database which will be used by the pgstream service. If no replication slot name is provided, it will use a default one with the format `pgstream_<database>_slot`.
