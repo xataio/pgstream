@@ -20,7 +20,7 @@ require (
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/lib/pq v1.10.9
 	github.com/mitchellh/mapstructure v1.5.0
-	github.com/nucleuscloud/neosync v0.5.37
+	github.com/nucleuscloud/neosync v0.5.40
 	github.com/opensearch-project/opensearch-go v1.1.0
 	github.com/pterm/pterm v0.12.80
 	github.com/rs/xid v1.6.0
