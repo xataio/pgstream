@@ -111,9 +111,9 @@ source:
       schema: # when mode is full or schema
         mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
         pgdump_pgrestore:
-          clean_target_db: true # whether to clean the target database before restoring
-          create_target_db: true # whether to create the database on the target postgres
-          include_global_db_objects: true # whether to include database global objects, such as extensions or triggers, on the schema snapshot
+          clean_target_db: true # whether to clean the target database before restoring. Defaults to false
+          create_target_db: true # whether to create the database on the target postgres. Defaults to false
+          include_global_db_objects: true # whether to include database global objects, such as extensions or triggers, on the schema snapshot. Defaults to false
           role: postgres # role name to be used to create the dump
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
@@ -250,19 +250,19 @@ Here's a list of all the environment variables that can be used to configure the
 <details>
   <summary>Postgres Snapshoter</summary>
 
-| Environment Variable                                 | Default                      | Required | Description                                                                                                                                                                                                                                                                                                  |
-| ---------------------------------------------------- | ---------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL              | N/A                          | Yes      | URL of the Postgres database to snapshot.                                                                                                                                                                                                                                                                    |
-| PGSTREAM_POSTGRES_SNAPSHOT_TABLES                    | ""                           | No       | Tables for which there will be an initial snapshot generated. The syntax supports wildcards. Tables without a schema defined will be applied the public schema. Example: for `public.test_table` and all tables in the `test_schema` schema, the value would be the following: `"test_table test_schema.\*"` |
-| PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS            | 4                            | No       | Number of tables per schema that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                  |
-| PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS             | 4                            | No       | Number of concurrent workers that will be used per table by the snapshotting process.                                                                                                                                                                                                                        |
-| PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE           | 1000                         | No       | Size of the table page range which will be processed concurrently by the table workers from `PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS`.                                                                                                                                                                      |
-| PGSTREAM_POSTGRES_SNAPSHOT_WORKERS                   | 1                            | No       | Number of schemas that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                            |
-| PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG             | False                        | No       | Forces the use of the `pgstream.schema_log` for the schema snapshot instead of using `pg_dump`/`pg_restore` for Postgres targets.                                                                                                                                                                            |
-| PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB           | False                        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to issue commands to DROP all the objects that will be restored.                                                                                                                                                           |
-| PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS | False                        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to snapshot all global database objects outside of the selected schema (such as extensions, triggers, etc).                                                                                                                |
-| PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB          | False (run), True (snapshot) | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to create the database being restored.                                                                                                                                                                                     |
-| PGSTREAM_POSTGRES_SNAPSHOT_ROLE                      | ""                           | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, role name to be used to create the dump.                                                                                                                                                                                          |
+| Environment Variable                                 | Default | Required | Description                                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL              | N/A     | Yes      | URL of the Postgres database to snapshot.                                                                                                                                                                                                                                                                    |
+| PGSTREAM_POSTGRES_SNAPSHOT_TABLES                    | ""      | No       | Tables for which there will be an initial snapshot generated. The syntax supports wildcards. Tables without a schema defined will be applied the public schema. Example: for `public.test_table` and all tables in the `test_schema` schema, the value would be the following: `"test_table test_schema.\*"` |
+| PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS            | 4       | No       | Number of tables per schema that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                  |
+| PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS             | 4       | No       | Number of concurrent workers that will be used per table by the snapshotting process.                                                                                                                                                                                                                        |
+| PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE           | 1000    | No       | Size of the table page range which will be processed concurrently by the table workers from `PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS`.                                                                                                                                                                      |
+| PGSTREAM_POSTGRES_SNAPSHOT_WORKERS                   | 1       | No       | Number of schemas that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                            |
+| PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG             | False   | No       | Forces the use of the `pgstream.schema_log` for the schema snapshot instead of using `pg_dump`/`pg_restore` for Postgres targets.                                                                                                                                                                            |
+| PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB           | False   | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to issue commands to DROP all the objects that will be restored.                                                                                                                                                           |
+| PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS | False   | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to snapshot all global database objects outside of the selected schema (such as extensions, triggers, etc).                                                                                                                |
+| PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB          | False   | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to create the database being restored.                                                                                                                                                                                     |
+| PGSTREAM_POSTGRES_SNAPSHOT_ROLE                      | ""      | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, role name to be used to create the dump.                                                                                                                                                                                          |
 
 </details>
 
@@ -403,23 +403,22 @@ One of exponential/constant backoff policies can be provided for the search stor
 <details>
   <summary>Metrics</summary>
 
-| Environment Variable                 | Default | Required | Description                                                                                                                     |
-| ------------------------------------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| PGSTREAM_METRICS_ENDPOINT            | N/A     | No       | Endpoint where the pgstream metrics will be exported to.                                                                        |
-| PGSTREAM_METRICS_COLLECTION_INTERVAL | 60s     | No       | Interval at which the pgstream metrics will be collected and exported.                                                          |
+| Environment Variable                 | Default | Required | Description                                                            |
+| ------------------------------------ | ------- | -------- | ---------------------------------------------------------------------- |
+| PGSTREAM_METRICS_ENDPOINT            | N/A     | No       | Endpoint where the pgstream metrics will be exported to.               |
+| PGSTREAM_METRICS_COLLECTION_INTERVAL | 60s     | No       | Interval at which the pgstream metrics will be collected and exported. |
 
 </details>
 
 <details>
   <summary>Traces</summary>
-   
-| Environment Variable                 | Default | Required | Description                                                                                                                     |
-| ------------------------------------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| PGSTREAM_TRACES_ENDPOINT             | N/A     | No       | Endpoint where the pgstream traces will be exported to.                                                                         |
-| PGSTREAM_TRACES_SAMPLE_RATIO         | 0       | No       | Ratio for the trace sampling. Value must be between 0.0 and 1.0, where 0.0 is no traces sampled, and 1.0 is all traces sampled. |
+
+| Environment Variable         | Default | Required | Description                                                                                                                     |
+| ---------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| PGSTREAM_TRACES_ENDPOINT     | N/A     | No       | Endpoint where the pgstream traces will be exported to.                                                                         |
+| PGSTREAM_TRACES_SAMPLE_RATIO | 0       | No       | Ratio for the trace sampling. Value must be between 0.0 and 1.0, where 0.0 is no traces sampled, and 1.0 is all traces sampled. |
 
 </details>
-
 
 ## Tracking schema changes
 

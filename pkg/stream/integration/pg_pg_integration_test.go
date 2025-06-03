@@ -22,8 +22,9 @@ type informationSchemaColumn struct {
 }
 
 type testTableColumn struct {
-	id   int
-	name string
+	id       int
+	name     string
+	username string
 }
 
 func Test_PostgresToPostgres(t *testing.T) {
@@ -33,7 +34,7 @@ func Test_PostgresToPostgres(t *testing.T) {
 
 	cfg := &stream.Config{
 		Listener:  testPostgresListenerCfg(),
-		Processor: testPostgresProcessorCfg(pgurl),
+		Processor: testPostgresProcessorCfg(pgurl, withoutBulkIngestion),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -240,7 +241,7 @@ func Test_PostgresToPostgres_Snapshot(t *testing.T) {
 
 	cfg := &stream.Config{
 		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
-		Processor: testPostgresProcessorCfg(snapshotPGURL),
+		Processor: testPostgresProcessorCfg(snapshotPGURL, withoutBulkIngestion),
 	}
 	initStream(t, ctx, snapshotPGURL)
 	runStream(t, ctx, cfg)
@@ -310,7 +311,7 @@ func getInformationSchemaColumns(t *testing.T, ctx context.Context, conn pglib.Q
 	return columns
 }
 
-func getTestTableColumns(t *testing.T, ctx context.Context, conn pglib.Querier, query string) []*testTableColumn {
+func getTestTableColumns(t *testing.T, ctx context.Context, conn pglib.Querier, query string, withGeneratedColumn ...bool) []*testTableColumn {
 	rows, err := conn.Query(ctx, query)
 	require.NoError(t, err)
 	defer rows.Close()
@@ -318,7 +319,11 @@ func getTestTableColumns(t *testing.T, ctx context.Context, conn pglib.Querier, 
 	columns := []*testTableColumn{}
 	for rows.Next() {
 		column := &testTableColumn{}
-		err := rows.Scan(&column.id, &column.name)
+		if len(withGeneratedColumn) > 0 && withGeneratedColumn[0] {
+			err = rows.Scan(&column.id, &column.name, &column.username)
+		} else {
+			err = rows.Scan(&column.id, &column.name)
+		}
 		require.NoError(t, err)
 		columns = append(columns, column)
 	}
