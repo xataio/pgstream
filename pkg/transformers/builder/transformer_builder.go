@@ -48,6 +48,12 @@ var TransformersMap = map[transformers.TransformerType]struct {
 			return transformers.NewTemplateTransformer(cfg.Parameters)
 		},
 	},
+	transformers.JSON: {
+		Definition: transformers.JSONTransformerDefinition(),
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return transformers.NewJSONTransformer(cfg.Parameters)
+		},
+	},
 	transformers.PhoneNumber: {
 		Definition: transformers.PhoneNumberTransformerDefinition(),
 		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
