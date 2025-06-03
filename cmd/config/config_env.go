@@ -382,7 +382,8 @@ func parsePostgresProcessorConfig() *stream.PostgresProcessorConfig {
 		return nil
 	}
 
-	return &stream.PostgresProcessorConfig{
+	bulkIngestEnabled := viper.GetBool("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED")
+	cfg := &stream.PostgresProcessorConfig{
 		BatchWriter: postgres.Config{
 			URL: targetPostgresURL,
 			BatchConfig: batch.Config{
@@ -396,9 +397,15 @@ func parsePostgresProcessorConfig() *stream.PostgresProcessorConfig {
 			},
 			DisableTriggers:   viper.GetBool("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS"),
 			OnConflictAction:  viper.GetString("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION"),
-			BulkIngestEnabled: viper.GetBool("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED"),
+			BulkIngestEnabled: bulkIngestEnabled,
 		},
 	}
+
+	if bulkIngestEnabled {
+		applyPostgresBulkBatchDefaults(&cfg.BatchWriter.BatchConfig)
+	}
+
+	return cfg
 }
 
 func parseBackoffConfig(prefix string) backoff.Config {

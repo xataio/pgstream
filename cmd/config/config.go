@@ -6,11 +6,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/viper"
 	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/stream"
+	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 	"gopkg.in/yaml.v3"
+)
+
+const (
+	defaultPostgresBulkBatchSize    = 20000
+	defaultPostgresBulkBatchTimeout = time.Duration(30 * time.Second)
+	defaultPostgresBulkBatchBytes   = int64(80 * 1024 * 1024) // 80MiB
 )
 
 func Load() error {
@@ -84,5 +92,17 @@ func ParseStreamConfig() (*stream.Config, error) {
 		return yamlCfg.toStreamConfig()
 	default:
 		return envConfigToStreamConfig()
+	}
+}
+
+func applyPostgresBulkBatchDefaults(batchCfg *batch.Config) {
+	if batchCfg.MaxBatchSize == 0 {
+		batchCfg.MaxBatchSize = defaultPostgresBulkBatchSize
+	}
+	if batchCfg.MaxBatchBytes == 0 {
+		batchCfg.MaxBatchBytes = defaultPostgresBulkBatchBytes
+	}
+	if batchCfg.BatchTimeout == 0 {
+		batchCfg.BatchTimeout = defaultPostgresBulkBatchTimeout
 	}
 }
