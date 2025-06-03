@@ -43,6 +43,14 @@ var (
 	elasticsearchURL string
 )
 
+const (
+	withBulkIngestion    = true
+	withoutBulkIngestion = false
+
+	withGeneratedColumn    = true
+	withoutGeneratedColumn = false
+)
+
 type mockProcessor struct {
 	eventChan chan *wal.Event
 }
@@ -230,17 +238,19 @@ func testWebhookProcessorCfg() stream.ProcessorConfig {
 	}
 }
 
-func testPostgresProcessorCfg(sourcePGURL string) stream.ProcessorConfig {
+func testPostgresProcessorCfg(sourcePGURL string, bulkIngestion bool) stream.ProcessorConfig {
 	return stream.ProcessorConfig{
 		Postgres: &stream.PostgresProcessorConfig{
 			BatchWriter: postgres.Config{
 				URL: targetPGURL,
 				BatchConfig: batch.Config{
-					BatchTimeout: 50 * time.Millisecond,
+					MaxBatchSize: 1,
+					// BatchTimeout: 50 * time.Millisecond,
 				},
 				SchemaLogStore: schemalogpg.Config{
 					URL: sourcePGURL,
 				},
+				BulkIngestEnabled: bulkIngestion,
 			},
 		},
 		Injector: &injector.Config{

@@ -234,9 +234,29 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 	testQuery := &query{
 		schema:      testSchema,
 		table:       testTable,
-		columnNames: []string{"id", "name"},
+		columnNames: []string{`"id"`, `"name"`},
 		sql:         "INSERT INTO users(id, name) VALUES($1, $2)",
 		args:        []any{1, "alice"},
+	}
+
+	filteredColumnNames := []string{"id"}
+	filteredValues := []any{1}
+
+	validQueryFn := func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+		require.Equal(t, tableColumnsQuery, query)
+		require.Equal(t, []any{testTable, testSchema}, args)
+		return &pgmocks.Rows{
+			CloseFn: func() {},
+			NextFn:  func(i uint) bool { return i == 1 },
+			ScanFn: func(args ...any) error {
+				require.Len(t, args, 1)
+				colName, ok := args[0].(*string)
+				require.True(t, ok, fmt.Sprintf("column name, expected *string, got %T", args[0]))
+				*colName = "id"
+				return nil
+			},
+			ErrFn: func() error { return nil },
+		}, nil
 	}
 
 	tests := []struct {
@@ -259,6 +279,9 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 					}
 					return f(tx)
 				},
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					return nil, errors.New("unexpected call to QueryFn with empty batch")
+				},
 			},
 
 			wantErr: nil,
@@ -267,12 +290,13 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 			name:  "ok",
 			batch: batch.NewBatch([]*query{testQuery}, nil),
 			pgConn: &pgmocks.Querier{
+				QueryFn: validQueryFn,
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					tx := &pgmocks.Tx{
 						CopyFromFn: func(ctx context.Context, tableName string, columnNames []string, rows [][]any) (int64, error) {
 							require.Equal(t, pglib.QuoteQualifiedIdentifier(testSchema, testTable), tableName)
-							require.Equal(t, testQuery.columnNames, columnNames)
-							require.Equal(t, testQuery.args, rows[0])
+							require.Equal(t, filteredColumnNames, columnNames)
+							require.Equal(t, filteredValues, rows[0])
 							return 1, nil
 						},
 					}
@@ -286,6 +310,7 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 			name:  "ok - disable triggers",
 			batch: batch.NewBatch([]*query{testQuery}, nil),
 			pgConn: &pgmocks.Querier{
+				QueryFn: validQueryFn,
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					tx := &pgmocks.Tx{
 						ExecFn: func(ctx context.Context, i uint, s string, a ...any) (pglib.CommandTag, error) {
@@ -301,8 +326,8 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 						},
 						CopyFromFn: func(ctx context.Context, tableName string, columnNames []string, rows [][]any) (int64, error) {
 							require.Equal(t, pglib.QuoteQualifiedIdentifier(testSchema, testTable), tableName)
-							require.Equal(t, testQuery.columnNames, columnNames)
-							require.Equal(t, testQuery.args, rows[0])
+							require.Equal(t, filteredColumnNames, columnNames)
+							require.Equal(t, filteredValues, rows[0])
 							return 1, nil
 						},
 					}
@@ -314,9 +339,24 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name:  "error - getting column names",
+			batch: batch.NewBatch([]*query{testQuery}, nil),
+			pgConn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					return nil, errTest
+				},
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					return errors.New("unexpected call to CopyFrom")
+				},
+			},
+
+			wantErr: errTest,
+		},
+		{
 			name:  "error - copying from",
 			batch: batch.NewBatch([]*query{testQuery}, nil),
 			pgConn: &pgmocks.Querier{
+				QueryFn: validQueryFn,
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					tx := &pgmocks.Tx{
 						CopyFromFn: func(ctx context.Context, tableName string, columnNames []string, rows [][]any) (int64, error) {
@@ -333,6 +373,7 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 			name:  "error - rows copied mismatch",
 			batch: batch.NewBatch([]*query{testQuery}, nil),
 			pgConn: &pgmocks.Querier{
+				QueryFn: validQueryFn,
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					tx := &pgmocks.Tx{
 						CopyFromFn: func(ctx context.Context, tableName string, columnNames []string, rows [][]any) (int64, error) {
@@ -349,6 +390,7 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 			name:  "error - setting replication role to replica",
 			batch: batch.NewBatch([]*query{testQuery}, nil),
 			pgConn: &pgmocks.Querier{
+				QueryFn: validQueryFn,
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					tx := &pgmocks.Tx{
 						ExecFn: func(ctx context.Context, i uint, s string, a ...any) (pglib.CommandTag, error) {
@@ -375,6 +417,7 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 			name:  "error - resetting replication role",
 			batch: batch.NewBatch([]*query{testQuery}, nil),
 			pgConn: &pgmocks.Querier{
+				QueryFn: validQueryFn,
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					tx := &pgmocks.Tx{
 						ExecFn: func(ctx context.Context, i uint, s string, a ...any) (pglib.CommandTag, error) {
@@ -412,10 +455,206 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 					pgConn:          tc.pgConn,
 					disableTriggers: tc.disableTriggers,
 				},
+				tableColumns:      map[string][]string{},
+				tableColumnsMutex: &sync.RWMutex{},
 			}
 
 			err := writer.sendBatch(context.Background(), tc.batch)
+			if !errors.Is(err, tc.wantErr) {
+				require.Equal(t, tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestBulkIngestWriter_getTableColumnNames(t *testing.T) {
+	t.Parallel()
+
+	quotedQualifiedTableName := `"test_schema"."test_table"`
+	idColumn := "id"
+
+	tests := []struct {
+		name         string
+		tableColumns map[string][]string
+		pgConn       pglib.Querier
+
+		wantColumns      []string
+		wantTableColumns map[string][]string
+		wantErr          error
+	}{
+		{
+			name:         "ok - empty map",
+			tableColumns: map[string][]string{},
+			pgConn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, tableColumnsQuery, query)
+					require.Equal(t, []any{testTable, testSchema}, args)
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(args ...any) error {
+							require.Len(t, args, 1)
+							colName, ok := args[0].(*string)
+							require.True(t, ok, fmt.Sprintf("column name, expected *string, got %T", args[0]))
+							*colName = "id"
+							return nil
+						},
+						ErrFn: func() error { return nil },
+					}, nil
+				},
+			},
+
+			wantColumns: []string{idColumn},
+			wantTableColumns: map[string][]string{
+				quotedQualifiedTableName: {idColumn},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - existing table",
+			tableColumns: map[string][]string{
+				quotedQualifiedTableName: {idColumn},
+			},
+			pgConn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					return nil, errors.New("unexpected call to QueryFn")
+				},
+			},
+
+			wantColumns: []string{idColumn},
+			wantTableColumns: map[string][]string{
+				quotedQualifiedTableName: {idColumn},
+			},
+			wantErr: nil,
+		},
+		{
+			name:         "error - quering table columns",
+			tableColumns: map[string][]string{},
+			pgConn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					return nil, errTest
+				},
+			},
+
+			wantColumns:      nil,
+			wantTableColumns: map[string][]string{},
+			wantErr:          errTest,
+		},
+		{
+			name:         "error - scanning table column",
+			tableColumns: map[string][]string{},
+			pgConn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, tableColumnsQuery, query)
+					require.Equal(t, []any{testTable, testSchema}, args)
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(args ...any) error {
+							return errTest
+						},
+						ErrFn: func() error { return nil },
+					}, nil
+				},
+			},
+
+			wantColumns:      nil,
+			wantTableColumns: map[string][]string{},
+			wantErr:          errTest,
+		},
+		{
+			name:         "error - rows error",
+			tableColumns: map[string][]string{},
+			pgConn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, tableColumnsQuery, query)
+					require.Equal(t, []any{testTable, testSchema}, args)
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(args ...any) error {
+							return nil
+						},
+						ErrFn: func() error { return errTest },
+					}, nil
+				},
+			},
+
+			wantColumns:      nil,
+			wantTableColumns: map[string][]string{},
+			wantErr:          errTest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := &BulkIngestWriter{
+				Writer: &Writer{
+					logger: loglib.NewNoopLogger(),
+					pgConn: tc.pgConn,
+				},
+				tableColumns:      tc.tableColumns,
+				tableColumnsMutex: &sync.RWMutex{},
+			}
+
+			colNames, err := w.getTableColumnNames(context.TODO(), "test_schema", "test_table")
 			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantColumns, colNames)
+			require.Equal(t, tc.wantTableColumns, w.tableColumns)
+		})
+	}
+}
+
+func TestBulkIngestWriter_getSrcRows(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		inserts     []*query
+		columnNames []string
+
+		wantRows [][]any
+	}{
+		{
+			name: "ok - no generated columns",
+			inserts: []*query{
+				{
+					columnNames: []string{`"a"`, `"b"`, `"c"`},
+					args:        []any{"1", "2", "3"},
+				},
+			},
+			columnNames: []string{"a", "b", "c"},
+
+			wantRows: [][]any{
+				{"1", "2", "3"},
+			},
+		},
+		{
+			name: "ok - with generated columns",
+			inserts: []*query{
+				{
+					columnNames: []string{`"a"`, `"b"`, `"c"`, `"d"`, `"e"`},
+					args:        []any{"1", "2", "3", "4", "5"},
+				},
+			},
+			columnNames: []string{"a", "c", "d"},
+
+			wantRows: [][]any{
+				{"1", "3", "4"},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := &BulkIngestWriter{}
+
+			rows := w.getSrcRows(tc.inserts, tc.columnNames)
+			require.Equal(t, tc.wantRows, rows)
 		})
 	}
 }

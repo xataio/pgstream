@@ -412,7 +412,7 @@ One of exponential/constant backoff policies can be provided for the search stor
 
 <details>
   <summary>Traces</summary>
-   
+
 | Environment Variable                 | Default | Required | Description                                                                                                                     |
 | ------------------------------------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | PGSTREAM_TRACES_ENDPOINT             | N/A     | No       | Endpoint where the pgstream traces will be exported to.                                                                         |
