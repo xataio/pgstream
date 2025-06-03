@@ -48,5 +48,10 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 		return a.ddlAdapter.walDataToQueries(ctx, e.Data)
 	}
 
-	return []*query{a.dmlAdapter.walDataToQuery(e.Data)}, nil
+	q, err := a.dmlAdapter.walDataToQuery(e.Data)
+	if err != nil {
+		return nil, err
+	}
+
+	return []*query{q}, nil
 }

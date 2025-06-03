@@ -20,7 +20,10 @@ const (
 	onConflictDoNothing
 )
 
-var errUnsupportedOnConflictAction = errors.New("unsupported on conflict action")
+var (
+	errUnsupportedOnConflictAction = errors.New("unsupported on conflict action")
+	errUnableToBuildQuery          = errors.New("unable to build query, no primary keys of previous values available")
+)
 
 type dmlAdapter struct {
 	onConflictAction onConflictAction
@@ -36,18 +39,18 @@ func newDMLAdapter(action string) (*dmlAdapter, error) {
 	}, nil
 }
 
-func (a *dmlAdapter) walDataToQuery(d *wal.Data) *query {
+func (a *dmlAdapter) walDataToQuery(d *wal.Data) (*query, error) {
 	switch d.Action {
 	case "T":
-		return a.buildTruncateQuery(d)
+		return a.buildTruncateQuery(d), nil
 	case "D":
 		return a.buildDeleteQuery(d)
 	case "I":
-		return a.buildInsertQuery(d)
+		return a.buildInsertQuery(d), nil
 	case "U":
 		return a.buildUpdateQuery(d)
 	default:
-		return &query{}
+		return &query{}, nil
 	}
 }
 
@@ -59,15 +62,17 @@ func (a *dmlAdapter) buildTruncateQuery(d *wal.Data) *query {
 	}
 }
 
-func (a *dmlAdapter) buildDeleteQuery(d *wal.Data) *query {
-	primaryKeyCols := a.extractPrimaryKeyColumns(d.Metadata.InternalColIDs, d.Identity)
-	whereQuery, whereValues := a.buildWhereQuery(primaryKeyCols, 0)
+func (a *dmlAdapter) buildDeleteQuery(d *wal.Data) (*query, error) {
+	whereQuery, whereValues, err := a.buildWhereQuery(d, 0)
+	if err != nil {
+		return nil, fmt.Errorf("building delete query: %w", err)
+	}
 	return &query{
 		table:  d.Table,
 		schema: d.Schema,
 		sql:    fmt.Sprintf("DELETE FROM %s %s", quotedTableName(d.Schema, d.Table), whereQuery),
 		args:   whereValues,
-	}
+	}, nil
 }
 
 func (a *dmlAdapter) buildInsertQuery(d *wal.Data) *query {
@@ -92,19 +97,37 @@ func (a *dmlAdapter) buildInsertQuery(d *wal.Data) *query {
 	}
 }
 
-func (a *dmlAdapter) buildUpdateQuery(d *wal.Data) *query {
+func (a *dmlAdapter) buildUpdateQuery(d *wal.Data) (*query, error) {
 	setQuery, setValues := a.buildSetQuery(d.Columns)
-	primaryKeyCols := a.extractPrimaryKeyColumns(d.Metadata.InternalColIDs, d.Columns)
-	whereQuery, whereValues := a.buildWhereQuery(primaryKeyCols, len(d.Columns))
+	whereQuery, whereValues, err := a.buildWhereQuery(d, len(d.Columns))
+	if err != nil {
+		return nil, fmt.Errorf("building update query: %w", err)
+	}
+
 	return &query{
 		table:  d.Table,
 		schema: d.Schema,
 		sql:    fmt.Sprintf("UPDATE %s %s %s", quotedTableName(d.Schema, d.Table), setQuery, whereQuery),
 		args:   append(setValues, whereValues...),
-	}
+	}, nil
 }
 
-func (a *dmlAdapter) buildWhereQuery(cols []wal.Column, placeholderOffset int) (string, []any) {
+func (a *dmlAdapter) buildWhereQuery(d *wal.Data, placeholderOffset int) (string, []any, error) {
+	var cols []wal.Column
+	switch {
+	case len(d.Identity) > 0:
+		// if we have the previous values (replica identity), add them to the where query
+		cols = d.Identity
+	case len(d.Metadata.InternalColIDs) > 0:
+		// if we don't have previous values we have to rely on the primary keys
+		primaryKeyCols := a.extractPrimaryKeyColumns(d.Metadata.InternalColIDs, d.Columns)
+		cols = primaryKeyCols
+	default:
+		// without a where clause in the query we'd be updating/deleting all table
+		// rows, so we need to error to prevent that from happening
+		return "", nil, errUnableToBuildQuery
+	}
+
 	whereQuery := "WHERE"
 	whereValues := make([]any, 0, len(cols))
 	for i, c := range cols {
@@ -114,7 +137,7 @@ func (a *dmlAdapter) buildWhereQuery(cols []wal.Column, placeholderOffset int) (
 		whereQuery = fmt.Sprintf("%s %s = $%d", whereQuery, pglib.QuoteIdentifier(c.Name), i+placeholderOffset+1)
 		whereValues = append(whereValues, c.Value)
 	}
-	return whereQuery, whereValues
+	return whereQuery, whereValues, nil
 }
 
 func (a *dmlAdapter) buildSetQuery(cols []wal.Column) (string, []any) {

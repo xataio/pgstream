@@ -30,6 +30,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 		action  onConflictAction
 
 		wantQuery *query
+		wantErr   error
 	}{
 		{
 			name: "truncate",
@@ -56,7 +57,6 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				Table:  testTable,
 				Identity: []wal.Column{
 					{ID: columnID(1), Name: "id", Value: 1},
-					{ID: columnID(2), Name: "name", Value: "alice"},
 				},
 				Metadata: wal.Metadata{
 					InternalColIDs: []string{columnID(1)},
@@ -91,6 +91,39 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				sql:    fmt.Sprintf("DELETE FROM %s WHERE \"id\" = $1 AND \"name\" = $2", quotedTestTable),
 				args:   []any{1, "alice"},
 			},
+		},
+		{
+			name: "delete with full identity",
+			walData: &wal.Data{
+				Action: "D",
+				Schema: testSchema,
+				Table:  testTable,
+				Identity: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+				},
+				Metadata: wal.Metadata{},
+			},
+
+			wantQuery: &query{
+				schema: testSchema,
+				table:  testTable,
+				sql:    fmt.Sprintf("DELETE FROM %s WHERE \"id\" = $1 AND \"name\" = $2", quotedTestTable),
+				args:   []any{1, "alice"},
+			},
+		},
+		{
+			name: "error - delete",
+			walData: &wal.Data{
+				Action:   "D",
+				Schema:   testSchema,
+				Table:    testTable,
+				Identity: []wal.Column{},
+				Metadata: wal.Metadata{},
+			},
+
+			wantQuery: nil,
+			wantErr:   errUnableToBuildQuery,
 		},
 		{
 			name: "insert",
@@ -185,7 +218,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 		},
 		{
-			name: "update",
+			name: "update - primary key",
 			walData: &wal.Data{
 				Action: "U",
 				Schema: testSchema,
@@ -205,6 +238,70 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3", quotedTestTable),
 				args:   []any{1, "alice", 1},
 			},
+		},
+		{
+			name: "update - default identity",
+			walData: &wal.Data{
+				Action: "U",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+				},
+				Identity: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+				},
+				Metadata: wal.Metadata{},
+			},
+
+			wantQuery: &query{
+				schema: testSchema,
+				table:  testTable,
+				sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3", quotedTestTable),
+				args:   []any{1, "alice", 1},
+			},
+		},
+		{
+			name: "update - full identity",
+			walData: &wal.Data{
+				Action: "U",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+				},
+				Identity: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "a"},
+				},
+				Metadata: wal.Metadata{},
+			},
+
+			wantQuery: &query{
+				schema: testSchema,
+				table:  testTable,
+				sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3 AND \"name\" = $4", quotedTestTable),
+				args:   []any{1, "alice", 1, "a"},
+			},
+		},
+		{
+			name: "error - update",
+			walData: &wal.Data{
+				Action: "U",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+				},
+				Identity: []wal.Column{},
+				Metadata: wal.Metadata{},
+			},
+
+			wantQuery: nil,
+			wantErr:   errUnableToBuildQuery,
 		},
 		{
 			name: "unknown",
@@ -232,7 +329,8 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			a := &dmlAdapter{
 				onConflictAction: tc.action,
 			}
-			query := a.walDataToQuery(tc.walData)
+			query, err := a.walDataToQuery(tc.walData)
+			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantQuery, query)
 		})
 	}
