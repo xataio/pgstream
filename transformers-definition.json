@@ -371,6 +371,21 @@
       ]
     },
     {
+      "name": "json",
+      "supported_types": [
+        "json"
+      ],
+      "parameters": [
+        {
+          "name": "operations",
+          "supported_type": "array",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        }
+      ]
+    },
+    {
       "name": "literal_string",
       "supported_types": [
         "all"

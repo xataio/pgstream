@@ -52,6 +52,7 @@ const (
 	GreenmaskUTCTimestamp  TransformerType = "greenmask_utc_timestamp"
 	Masking                TransformerType = "masking"
 	Template               TransformerType = "template"
+	JSON                   TransformerType = "json"
 )
 
 type SupportedDataType string
