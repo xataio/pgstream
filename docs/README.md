@@ -141,10 +141,10 @@ target:
   postgres:
     url: "postgresql://user:password@localhost:5432/mytargetdatabase"
     batch:
-      timeout: 1000 # batch timeout in milliseconds. Defaults to 1s
-      size: 100 # number of messages in a batch. Defaults to 100
-      max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB
-      max_queue_bytes: 204800 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
+      timeout: 1000 # batch timeout in milliseconds. Defaults to 30s
+      size: 100 # number of messages in a batch. Defaults to 20000
+      max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB without bulk enabled, 80MiB with bulk ingest.
+      max_queue_bytes: 104857600 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
       schema_log_store_url: "postgresql://user:password@localhost:5432/mydatabase" # url to the postgres database where the schema log is stored to be used when performing schema change diffs
     disable_triggers: false # whether to disable triggers on the target database. Defaults to false
     on_conflict_action: "nothing" # options are update, nothing or error. Defaults to error
@@ -165,7 +165,7 @@ target:
       timeout: 1000 # batch timeout in milliseconds. Defaults to 1s
       size: 100 # number of messages in a batch. Defaults to 100
       max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB
-      max_queue_bytes: 204800 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
+      max_queue_bytes: 104857600 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
   search:
     engine: "elasticsearch" # options are elasticsearch or opensearch
     url: "http://localhost:9200" # URL of the search engine
@@ -173,7 +173,7 @@ target:
       timeout: 1000 # batch timeout in milliseconds. Defaults to 1s
       size: 100 # number of messages in a batch. Defaults to 100
       max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB
-      max_queue_bytes: 204800 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
+      max_queue_bytes: 104857600 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
     backoff:
       exponential:
         max_retries: 5 # maximum number of retries
@@ -354,17 +354,17 @@ One of exponential/constant backoff policies can be provided for the search stor
 <details>
   <summary>Postgres Batch Writer</summary>
 
-| Environment Variable                         | Default                    | Required | Description                                                                                                                                                                                                    |
-| -------------------------------------------- | -------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PGSTREAM_POSTGRES_WRITER_TARGET_URL          | N/A                        | Yes      | URL for the PostgreSQL store to connect to                                                                                                                                                                     |
-| PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT       | 1s                         | No       | Max time interval at which the batch sending to PostgreSQL is triggered.                                                                                                                                       |
-| PGSTREAM_POSTGRES_WRITER_BATCH_SIZE          | 100                        | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                       |
-| PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES     | 100MiB                     | No       | Max memory used by the postgres batch writer for inflight batches.                                                                                                                                             |
-| PGSTREAM_POSTGRES_WRITER_BATCH_BYTES         | 1572864                    | No       | Max size in bytes for a given batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                               |
-| PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL | N/A                        | No       | URL of the store where the pgstream schemalog table which keeps track of schema changes is.                                                                                                                    |
-| PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS    | False(run), True(snapshot) | No       | Option to disable triggers on the target PostgreSQL database while performing the snaphot/replication streaming. It defaults to false when using the run command, and to true when using the snapshot command. |
-| PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION  | error                      | No       | Action to apply to inserts on conflict. Options are `nothing`, `update` or `error`.                                                                                                                            |
-| PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED | False(run), True(snapshot) | No       | Wether to use COPY FROM on insert only workloads. It defaults to false when using the run command, and to true when using the snapshot command.                                                                |
+| Environment Variable                         | Default                         | Required | Description                                                                                                                                                                                                    |
+| -------------------------------------------- | ------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PGSTREAM_POSTGRES_WRITER_TARGET_URL          | N/A                             | Yes      | URL for the PostgreSQL store to connect to                                                                                                                                                                     |
+| PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT       | 30s                             | No       | Max time interval at which the batch sending to PostgreSQL is triggered.                                                                                                                                       |
+| PGSTREAM_POSTGRES_WRITER_BATCH_SIZE          | 20000                           | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                       |
+| PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES     | 100MiB                          | No       | Max memory used by the postgres batch writer for inflight batches.                                                                                                                                             |
+| PGSTREAM_POSTGRES_WRITER_BATCH_BYTES         | 1.5MiB, 80MiB with bulk enabled | No       | Max size in bytes for a given batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                               |
+| PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL | N/A                             | No       | URL of the store where the pgstream schemalog table which keeps track of schema changes is.                                                                                                                    |
+| PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS    | False(run), True(snapshot)      | No       | Option to disable triggers on the target PostgreSQL database while performing the snaphot/replication streaming. It defaults to false when using the run command, and to true when using the snapshot command. |
+| PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION  | error                           | No       | Action to apply to inserts on conflict. Options are `nothing`, `update` or `error`.                                                                                                                            |
+| PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED | False(run), True(snapshot)      | No       | Wether to use COPY FROM on insert only workloads. It defaults to false when using the run command, and to true when using the snapshot command.                                                                |
 
 </details>
 

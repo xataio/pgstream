@@ -572,6 +572,9 @@ func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorCon
 
 	if c.Target.Postgres.BulkIngest != nil {
 		cfg.BatchWriter.BulkIngestEnabled = c.Target.Postgres.BulkIngest.Enabled
+		if cfg.BatchWriter.BulkIngestEnabled {
+			applyPostgresBulkBatchDefaults(&cfg.BatchWriter.BatchConfig)
+		}
 	}
 
 	return cfg
