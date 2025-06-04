@@ -1108,6 +1108,125 @@ transformations:
 #### Other Transformers
 
  <details>
+  <summary>json</summary>
+
+**Description:** Transforms json data with set and delete operations
+
+| Supported PostgreSQL types |
+| -------------------------- |
+| json, jsonb                |
+
+| Parameter   | Type   | Default | Required |
+| ----------- | ------ | ------- | -------- |
+| operations  | array  | N/A     | Yes      |
+
+Parameter for each operation:
+| Parameter       | Type    | Default | Required | Values                         |
+| --------------- | ------- | ------- | -------- | ------------------------------ |
+| operation       | string  | N/A     | Yes      | set, delete                    |
+| path            | string  | N/A     | Yes      | *sjson syntax                  |
+| error_not_exist | boolean | false   | No       | true, false                    |
+| value           | string  | N\A     | **Yes    | Any valid JSON representation  |
+| value_template  | string  | N\A     | **Yes    | Any template with valid syntax |
+
+*Paths should follow [sjson syntax](https://github.com/tidwall/sjson#path-syntax)
+
+**Either `value` or `value_template` must be provided if the operation is `set`. If both are provided, `value_template` takes precedence.
+
+JSON transformer can be used for Postgres types json and jsonb. This transformer executes a list of given operations on the json data to be transformed.
+
+All operations must be either `set` or `delete`.
+`set` operations support literal values as well as templates, making use of `sprig` and `greenmask`'s function sets. See template transformer section for more details. Also, like the template transformer, `.GetValue` and `.GetDynamicValue` functions are supported. Unlike template transformer, here `.GetValue` refers to the value at given path, rather than the entire JSON object; whereas `.GetDynamicValue` is again used for referring to other columns.
+`delete` operations simply delete the object at the given path.
+Execution of an operation errors out if the given path does not exists and the parameter `error_not_exist` - which is false by default - is set to true.
+
+JSON transformer uses [sjson](https://github.com/tidwall/sjson) library for executing the operations. Operation paths should follow the [synxtax rules of sjson](https://github.com/tidwall/sjson#path-syntax)
+
+With the below config `pgstream` transforms the json values in the column `user_info_json` of the table `users` by:
+- First, traversing all the items in the array named `purchases`, and for each element, setting value to "-" for key "item".
+- Then, deleting the object named "country" under the top-level object "address".
+- Completely masking the "city" value under object "address", using `go-masker`'s default masking function supported by `pgstream`'s templating.
+- Finally, setting the user's lastname after fetching it from some other column named `lastname`, using dynamic values support. Assuming there's such column, having the lastname info for users.
+
+Example input-output is given below the config.
+
+**Example Configuration:**
+
+```yaml
+transformations:
+  table_transformers:
+    - schema: public
+      table: users
+      column_transformers:
+        user_info_json:
+          name: json
+          parameters:
+            operations:
+              - operation: set
+                path: "purchases.#.item"
+                value: "-"
+                error_not_exists: true
+              - operation: delete
+                path: "address.country"
+              - operation: set
+                path: "address.city"
+                value_template:  "\"{{ masking \"default\" .GetValue }}\""
+              - operation: set
+                path: "user.lastname"
+                value_template:  "\"{{ .GetDynamicValue \"lastname\" }}\""
+```
+
+For input JSON value,
+```json
+{
+  "user": {
+    "firstname": "john",
+    "lastname": "unknown"
+  },
+  "residency": {
+    "city": "some city",
+    "country": "some country"
+  },
+  "purchases": [
+    {
+      "item": "book",
+      "price": 10
+    },
+    {
+      "item": "pen",
+      "price": 2
+    }
+  ]
+}
+```
+
+the JSON transformer with above config produces output:
+```json
+{
+  "user": {
+    "firstname": "john",
+    "lastname": "doe"
+  },
+  "residency": {
+    "city": "*********"
+  },
+  "purchases": [
+    {
+      "item": "-",
+      "price": 10
+    },
+    {
+      "item": "-",
+      "price": 2
+    }
+  ]
+}
+```
+
+</details>
+
+
+ <details>
   <summary>literal_string</summary>
 
 **Description:** Transforms all values into the given constant value.
