@@ -174,7 +174,7 @@ func TestTemplateTransformer_Transform_WithDynamicValues(t *testing.T) {
 				"template": "{{- if eq .GetValue \"hello\" -}} {{.GetDynamicValue \"value1\" }} {{- else -}} {{.GetDynamicValue \"value2\" }} {{- end -}}",
 			},
 			wantOutput: "",
-			wantErr:    errors.New("dynamic values are nil"),
+			wantErr:    errDynamicValuesNil,
 		},
 		{
 			name:  "error - dynamic value not found",
