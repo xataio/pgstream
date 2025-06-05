@@ -36,7 +36,7 @@ func newDDLAdapter(querier schemalogQuerier) *ddlAdapter {
 
 func (a *ddlAdapter) schemaLogToQueries(ctx context.Context, schemaLog *schemalog.LogEntry) ([]*query, error) {
 	var previousSchemaLog *schemalog.LogEntry
-	if schemaLog.Version != 0 {
+	if schemaLog.Version > 0 {
 		var err error
 		previousSchemaLog, err = a.schemalogQuerier.Fetch(ctx, schemaLog.SchemaName, int(schemaLog.Version)-1)
 		if err != nil && !errors.Is(err, schemalog.ErrNoRows) {

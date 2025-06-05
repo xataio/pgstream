@@ -11,12 +11,18 @@ import (
 	"github.com/xataio/pgstream/pkg/schemalog"
 )
 
+// pgColumnObserver keeps track of column names for tables. It uses a cache to
+// reduce the number of calls to postgres, and it updates the state whenever a
+// DDL event is received through the WAL.
 type pgColumnObserver struct {
 	pgConn                     pglib.Querier
 	generatedTableColumns      map[string][]string
 	generatedTableColumnsMutex *sync.RWMutex
 }
 
+// newPGColumnObserver returns a postgres that checks column names for tables.
+// It keeps a cache to reduce the number of calls to postgres, and it updates
+// the state whenever a DDL event is received through the WAL.
 func newPGColumnObserver(ctx context.Context, pgURL string) (*pgColumnObserver, error) {
 	pgConn, err := pglib.NewConnPool(ctx, pgURL)
 	if err != nil {
@@ -29,6 +35,9 @@ func newPGColumnObserver(ctx context.Context, pgURL string) (*pgColumnObserver, 
 	}, nil
 }
 
+// getGeneratedColumnNames will return a list of generated column names for the
+// schema.table on input. If the value is not in the internal cache, it will
+// query postgres.
 func (o *pgColumnObserver) getGeneratedColumnNames(ctx context.Context, schema, table string) ([]string, error) {
 	key := pglib.QuoteQualifiedIdentifier(schema, table)
 	o.generatedTableColumnsMutex.RLock()
@@ -50,6 +59,8 @@ func (o *pgColumnObserver) getGeneratedColumnNames(ctx context.Context, schema, 
 	return colNames, nil
 }
 
+// updateGeneratedColumnNames will update the internal cache with the table
+// columns for the schema log on input.
 func (o *pgColumnObserver) updateGeneratedColumnNames(logEntry *schemalog.LogEntry) {
 	for _, table := range logEntry.Schema.Tables {
 		key := pglib.QuoteQualifiedIdentifier(logEntry.SchemaName, table.Name)
