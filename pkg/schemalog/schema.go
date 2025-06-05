@@ -28,6 +28,7 @@ type Column struct {
 	DataType     string  `json:"type"`
 	DefaultValue *string `json:"default,omitempty"`
 	Nullable     bool    `json:"nullable"`
+	Generated    bool    `json:"generated"`
 	Unique       bool    `json:"unique"`
 	// Metadata is NOT typed here because we don't fully control the content that is sent from the publisher.
 	Metadata   *string `json:"metadata"`
@@ -141,6 +142,7 @@ func (c *Column) IsEqual(other *Column) bool {
 			c.PgstreamID == other.PgstreamID &&
 			c.DefaultValue == other.DefaultValue &&
 			c.Unique == other.Unique &&
+			c.Generated == other.Generated &&
 			c.Metadata == other.Metadata
 	}
 }
