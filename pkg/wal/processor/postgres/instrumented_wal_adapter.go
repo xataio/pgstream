@@ -33,3 +33,7 @@ func (i *instrumentedWalAdapter) walEventToQueries(ctx context.Context, event *w
 
 	return i.inner.walEventToQueries(ctx, event)
 }
+
+func (i *instrumentedWalAdapter) close() error {
+	return i.inner.close()
+}

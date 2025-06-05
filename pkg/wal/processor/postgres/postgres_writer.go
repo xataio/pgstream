@@ -51,6 +51,9 @@ func newWriter(ctx context.Context, config *Config, adapter walAdapter, writerTy
 }
 
 func (w *Writer) close() error {
+	if err := w.adapter.close(); err != nil {
+		w.logger.Error(err, "closing adapter")
+	}
 	return w.pgConn.Close(context.Background())
 }
 

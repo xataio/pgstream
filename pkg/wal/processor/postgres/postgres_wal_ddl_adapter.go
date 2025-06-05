@@ -12,13 +12,11 @@ import (
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
-	"github.com/xataio/pgstream/pkg/wal/processor"
 )
 
 type ddlAdapter struct {
 	schemalogQuerier schemalogQuerier
 	schemaDiffer     schemaDiffer
-	logEntryAdapter  logEntryAdapter
 }
 
 type schemalogQuerier interface {
@@ -33,24 +31,22 @@ func newDDLAdapter(querier schemalogQuerier) *ddlAdapter {
 	return &ddlAdapter{
 		schemalogQuerier: querier,
 		schemaDiffer:     schemalog.ComputeSchemaDiff,
-		logEntryAdapter:  processor.WalDataToLogEntry,
 	}
 }
 
-func (a *ddlAdapter) walDataToQueries(ctx context.Context, d *wal.Data) ([]*query, error) {
-	newSchemaLog, err := a.logEntryAdapter(d)
-	if err != nil {
-		return nil, err
+func (a *ddlAdapter) schemaLogToQueries(ctx context.Context, schemaLog *schemalog.LogEntry) ([]*query, error) {
+	var previousSchemaLog *schemalog.LogEntry
+	if schemaLog.Version != 0 {
+		var err error
+		previousSchemaLog, err = a.schemalogQuerier.Fetch(ctx, schemaLog.SchemaName, int(schemaLog.Version)-1)
+		if err != nil && !errors.Is(err, schemalog.ErrNoRows) {
+			return nil, fmt.Errorf("fetching existing schema log entry: %w", err)
+		}
 	}
 
-	previousSchemaLog, err := a.schemalogQuerier.Fetch(ctx, newSchemaLog.SchemaName, int(newSchemaLog.Version)-1)
-	if err != nil && !errors.Is(err, schemalog.ErrNoRows) {
-		return nil, fmt.Errorf("fetching existing schema log entry: %w", err)
-	}
+	diff := a.schemaDiffer(previousSchemaLog, schemaLog)
 
-	diff := a.schemaDiffer(previousSchemaLog, newSchemaLog)
-
-	return a.schemaDiffToQueries(newSchemaLog.SchemaName, diff)
+	return a.schemaDiffToQueries(schemaLog.SchemaName, diff)
 }
 
 func (a *ddlAdapter) schemaDiffToQueries(schemaName string, diff *schemalog.Diff) ([]*query, error) {
@@ -114,7 +110,7 @@ func (a *ddlAdapter) buildColumnDefinition(column *schemalog.Column) string {
 	}
 	// do not set default values with sequences since they will differ between
 	// source/target. Keep source database as source of truth.
-	if column.DefaultValue != nil && !strings.Contains(*column.DefaultValue, "seq") {
+	if column.DefaultValue != nil && (!strings.Contains(*column.DefaultValue, "seq") || column.Generated) {
 		colDefinition = fmt.Sprintf("%s DEFAULT %s", colDefinition, *column.DefaultValue)
 	}
 
