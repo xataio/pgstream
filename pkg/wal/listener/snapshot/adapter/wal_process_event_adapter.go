@@ -13,19 +13,24 @@ import (
 )
 
 type ProcessEventAdapter struct {
-	processEvent listener.ProcessWalEvent
-	clock        clockwork.Clock
+	processor listener.Processor
+
+	clock clockwork.Clock
 }
 
-func NewProcessEventAdapter(processEvent listener.ProcessWalEvent) *ProcessEventAdapter {
+func NewProcessEventAdapter(p listener.Processor) *ProcessEventAdapter {
 	return &ProcessEventAdapter{
-		processEvent: processEvent,
-		clock:        clockwork.NewRealClock(),
+		processor: p,
+		clock:     clockwork.NewRealClock(),
 	}
 }
 
 func (a *ProcessEventAdapter) ProcessRow(ctx context.Context, row *snapshot.Row) error {
-	return a.processEvent(ctx, a.snapshotRowToWalEvent(row))
+	return a.processor.ProcessWALEvent(ctx, a.snapshotRowToWalEvent(row))
+}
+
+func (a *ProcessEventAdapter) Close() error {
+	return a.processor.Close()
 }
 
 func (a *ProcessEventAdapter) snapshotRowToWalEvent(row *snapshot.Row) *wal.Event {
