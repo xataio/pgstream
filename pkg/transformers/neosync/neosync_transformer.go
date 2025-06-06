@@ -37,6 +37,11 @@ func (t *transformer[T]) Transform(_ context.Context, value transformers.Value) 
 	if !ok {
 		return nil, transformers.ErrUnsupportedValueType
 	}
+
+	if ret == nil {
+		return nil, nil
+	}
+
 	return *ret, nil
 }
 
