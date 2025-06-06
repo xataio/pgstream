@@ -45,7 +45,7 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 	snapshotGenerator, err := snapshotbuilder.NewSnapshotGenerator(
 		ctx,
 		config.Listener.Snapshot,
-		processor.ProcessWALEvent,
+		processor,
 		logger,
 		instrumentation)
 	if err != nil {

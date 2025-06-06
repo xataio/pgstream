@@ -48,8 +48,8 @@ var errSchemaSnapshotNotConfigured = errors.New("no schema snapshot has been con
 // │ └─────────┘  └─────────┘  └────────┘  └─────────┘ │
 // └───────────────────────────────────────────────────┘
 
-func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, processEvent listener.ProcessWalEvent, logger loglib.Logger, instrumentation *otel.Instrumentation) (listenersnapshot.Generator, error) {
-	processEventAdapter := adapter.NewProcessEventAdapter(processEvent)
+func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p listener.Processor, logger loglib.Logger, instrumentation *otel.Instrumentation) (listenersnapshot.Generator, error) {
+	rowsProcessor := adapter.NewProcessEventAdapter(p)
 
 	var g generator.SnapshotGenerator
 	var err error
@@ -61,7 +61,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, proc
 	if instrumentation.IsEnabled() {
 		opts = append(opts, pgsnapshotgenerator.WithInstrumentation(instrumentation))
 	}
-	g, err = pgsnapshotgenerator.NewSnapshotGenerator(ctx, &cfg.Generator, processEventAdapter.ProcessRow, opts...)
+	g, err = pgsnapshotgenerator.NewSnapshotGenerator(ctx, &cfg.Generator, rowsProcessor, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, proc
 	}
 
 	// postgres schema snapshot generator layer
-	g, err = newSchemaSnapshotGenerator(ctx, &cfg.Schema, g, processEventAdapter.ProcessRow, logger, instrumentation)
+	g, err = newSchemaSnapshotGenerator(ctx, &cfg.Schema, g, rowsProcessor.ProcessRow, logger, instrumentation)
 	if err != nil {
 		return nil, err
 	}

@@ -121,7 +121,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 			snapshotGenerator, err := snapshotbuilder.NewSnapshotGenerator(
 				ctx,
 				config.Listener.Postgres.Snapshot,
-				processor.ProcessWALEvent,
+				processor,
 				logger,
 				instrumentation)
 			if err != nil {

@@ -145,7 +145,7 @@ func TestSender_SendMessage(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer func() {
-					batchSender.closeMsgChan()
+					batchSender.Close()
 					wg.Done()
 				}()
 				err := batchSender.SendMessage(ctx, tc.msg)

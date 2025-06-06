@@ -15,3 +15,8 @@ type Listener interface {
 }
 
 type ProcessWalEvent func(context.Context, *wal.Event) error
+
+type Processor interface {
+	ProcessWALEvent(context.Context, *wal.Event) error
+	Close() error
+}

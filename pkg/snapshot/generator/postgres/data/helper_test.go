@@ -18,13 +18,14 @@ type mockRowProcessor struct {
 	once    sync.Once
 }
 
-func (mp *mockRowProcessor) process(ctx context.Context, row *snapshot.Row) error {
+func (mp *mockRowProcessor) ProcessRow(ctx context.Context, row *snapshot.Row) error {
 	mp.rowChan <- row
 	return nil
 }
 
-func (mp *mockRowProcessor) close() {
+func (mp *mockRowProcessor) Close() error {
 	mp.once.Do(func() { close(mp.rowChan) })
+	return nil
 }
 
 func execQuery(t *testing.T, ctx context.Context, pgurl, query string) {
