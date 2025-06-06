@@ -200,17 +200,15 @@ func (s *Sender[T]) send(ctx context.Context) error {
 	return err
 }
 
+// Close will stop the sending, and wait for all ongoing batches to finish. It
+// is safe to call multiple times.
 func (s *Sender[T]) Close() {
-	s.cancelFn()
-	// wait for the send loop to finish
-	s.wg.Wait()
-	s.closeMsgChan()
-}
-
-// closeMsgChan closes the internal msg channel. It can be called multiple
-// times.
-func (s *Sender[T]) closeMsgChan() {
 	s.once.Do(func() {
+		s.logger.Trace("closing batch sender")
+		s.cancelFn()
+		// wait for the send loop to finish
+		s.wg.Wait()
 		close(s.msgChan)
+		s.logger.Trace("batch sender closed")
 	})
 }

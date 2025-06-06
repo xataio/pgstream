@@ -27,7 +27,7 @@ type SnapshotGenerator struct {
 	batchPageSize uint
 
 	// Function called for processing produced rows.
-	processRow             snapshot.RowProcessor
+	rowsProcessor          snapshot.RowsProcessor
 	tableSnapshotGenerator snapshotTableFn
 }
 
@@ -44,7 +44,7 @@ type snapshotTableFn func(ctx context.Context, snapshotID string, schema, table 
 
 type Option func(sg *SnapshotGenerator)
 
-func NewSnapshotGenerator(ctx context.Context, cfg *Config, processRow snapshot.RowProcessor, opts ...Option) (*SnapshotGenerator, error) {
+func NewSnapshotGenerator(ctx context.Context, cfg *Config, rowsProcessor snapshot.RowsProcessor, opts ...Option) (*SnapshotGenerator, error) {
 	conn, err := pglib.NewConnPool(ctx, cfg.URL)
 	if err != nil {
 		return nil, err
@@ -54,7 +54,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, processRow snapshot.
 		logger:        loglib.NewNoopLogger(),
 		mapper:        pglib.NewMapper(conn),
 		conn:          conn,
-		processRow:    processRow,
+		rowsProcessor: rowsProcessor,
 		batchPageSize: cfg.batchPageSize(),
 		tableWorkers:  cfg.tableWorkers(),
 		schemaWorkers: cfg.schemaWorkers(),
@@ -91,7 +91,12 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 	}
 }
 
-func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) error {
+func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) (err error) {
+	defer func() {
+		// make sure we close the rows processor once the snapshot is completed.
+		// It will wait until all rows are processed before returning.
+		sg.rowsProcessor.Close()
+	}()
 	// use a transaction snapshot to ensure the table rows can be parallelised.
 	// The transaction snapshot is available for use only until the end of the
 	// transaction that exported it.
@@ -237,7 +242,7 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID,
 					continue
 				}
 
-				if err := sg.processRow(ctx, &snapshot.Row{
+				if err := sg.rowsProcessor.ProcessRow(ctx, &snapshot.Row{
 					Schema:  schema,
 					Table:   table,
 					Columns: columns,
