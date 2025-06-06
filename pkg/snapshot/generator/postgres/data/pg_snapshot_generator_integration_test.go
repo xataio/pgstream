@@ -32,7 +32,7 @@ func Test_PostgresSnapshotGenerator(t *testing.T) {
 		rowChan: make(chan *snapshot.Row),
 	}
 
-	generator, err := NewSnapshotGenerator(ctx, &Config{URL: pgurl}, mockProcessor.process)
+	generator, err := NewSnapshotGenerator(ctx, &Config{URL: pgurl}, mockProcessor)
 	require.NoError(t, err)
 	defer generator.Close()
 
@@ -49,7 +49,7 @@ func Test_PostgresSnapshotGenerator(t *testing.T) {
 			TableNames: []string{testTable},
 		})
 		require.NoError(t, err)
-		mockProcessor.close()
+		mockProcessor.Close()
 	}()
 
 	rows := make([]*snapshot.Row, 0, 3)

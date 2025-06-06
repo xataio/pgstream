@@ -31,6 +31,11 @@ type Column struct {
 
 type RowProcessor func(context.Context, *Row) error
 
+type RowsProcessor interface {
+	ProcessRow(context.Context, *Row) error
+	Close() error
+}
+
 type Status string
 
 const (

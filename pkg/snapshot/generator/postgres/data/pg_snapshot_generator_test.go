@@ -19,6 +19,7 @@ import (
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 	"github.com/xataio/pgstream/pkg/snapshot"
+	"github.com/xataio/pgstream/pkg/snapshot/generator/mocks"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
@@ -870,9 +871,11 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				})),
 				conn:   tc.querier,
 				mapper: pglib.NewMapper(tc.querier),
-				processRow: func(ctx context.Context, e *snapshot.Row) error {
-					rowChan <- e
-					return nil
+				rowsProcessor: &mocks.RowsProcessor{
+					ProcessRowFn: func(ctx context.Context, e *snapshot.Row) error {
+						rowChan <- e
+						return nil
+					},
 				},
 				schemaWorkers: 1,
 				tableWorkers:  1,
