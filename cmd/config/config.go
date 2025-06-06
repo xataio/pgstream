@@ -85,10 +85,13 @@ func ParseStreamConfig() (*stream.Config, error) {
 		// parse the transformers configuration with support for case sensitive
 		// keys.
 		// https://github.com/spf13/viper/issues/260
-		err = yaml.Unmarshal(buf, &yamlCfg.Modifiers)
+		yamlLibCfg := YAMLConfig{}
+		err = yaml.Unmarshal(buf, &yamlLibCfg)
 		if err != nil {
-			return nil, fmt.Errorf("invalid format for modifiers config in file %q: %w", cfgFile, err)
+			return nil, fmt.Errorf("invalid format for config in file %q: %w", cfgFile, err)
 		}
+		yamlCfg.Modifiers.Transformations = yamlLibCfg.Modifiers.Transformations
+
 		return yamlCfg.toStreamConfig()
 	default:
 		return envConfigToStreamConfig()
