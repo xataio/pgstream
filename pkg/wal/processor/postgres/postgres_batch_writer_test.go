@@ -233,6 +233,7 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 					logger:       loglib.NewNoopLogger(),
 					pgConn:       tc.pgconn,
 					checkpointer: tc.checkpointer,
+					adapter:      &mockAdapter{},
 				},
 				batchSender: tc.batchSender,
 			}

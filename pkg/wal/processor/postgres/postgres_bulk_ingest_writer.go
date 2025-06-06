@@ -25,9 +25,6 @@ type BulkIngestWriter struct {
 	batchSenderMapMutex *sync.RWMutex
 	batchSenderMap      map[string]queryBatchSender
 	batchSenderBuilder  func(ctx context.Context) (queryBatchSender, error)
-
-	tableColumns      map[string][]string
-	tableColumnsMutex *sync.RWMutex
 }
 
 const bulkIngestWriter = "postgres_bulk_ingest_writer"
@@ -41,7 +38,7 @@ var errUnexpectedCopiedRows = errors.New("number of rows copied doesn't match th
 func NewBulkIngestWriter(ctx context.Context, config *Config, opts ...WriterOption) (*BulkIngestWriter, error) {
 	// the bulk ingest writer only processes insert events, so we don't need a
 	// DDL adapter
-	adapter, err := newAdapter(nil, config.OnConflictAction)
+	adapter, err := newAdapter(ctx, nil, config.URL, config.OnConflictAction)
 	if err != nil {
 		return nil, err
 	}
@@ -56,8 +53,6 @@ func NewBulkIngestWriter(ctx context.Context, config *Config, opts ...WriterOpti
 		Writer:              w,
 		batchSenderMapMutex: &sync.RWMutex{},
 		batchSenderMap:      make(map[string]queryBatchSender),
-		tableColumns:        map[string][]string{},
-		tableColumnsMutex:   &sync.RWMutex{},
 	}
 
 	biw.batchSenderBuilder = func(ctx context.Context) (queryBatchSender, error) {
@@ -176,22 +171,20 @@ func (w *BulkIngestWriter) copyFromInsertQueries(ctx context.Context, inserts []
 		return nil
 	}
 
-	// Get the table name from the first insert query, since all the inserts
-	// in the batch will be for the same schema.table
+	// Get the table and column names from the first insert query, since all the
+	// inserts in the batch will be for the same schema.table
 	query := inserts[0]
-	// get column names for the table, removing generated columns, since the
-	// COPY command does not support them.
-	columnNames, err := w.getTableColumnNames(ctx, query.schema, query.table)
-	if err != nil {
-		return err
+	rows := [][]any{}
+	for _, q := range inserts {
+		rows = append(rows, q.args)
 	}
 
-	err = w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
+	err := w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
 		if err := w.setReplicationRoleToReplica(ctx, tx); err != nil {
 			return err
 		}
 
-		rowsCopied, err := tx.CopyFrom(ctx, pglib.QuoteQualifiedIdentifier(query.schema, query.table), columnNames, w.getSrcRows(inserts, columnNames))
+		rowsCopied, err := tx.CopyFrom(ctx, pglib.QuoteQualifiedIdentifier(query.schema, query.table), query.columnNames, rows)
 		if err != nil {
 			return err
 		}
@@ -207,77 +200,4 @@ func (w *BulkIngestWriter) copyFromInsertQueries(ctx context.Context, inserts []
 		return fmt.Errorf("copy from: %w", err)
 	}
 	return nil
-}
-
-func (w *BulkIngestWriter) getTableColumnNames(ctx context.Context, schema, table string) ([]string, error) {
-	key := pglib.QuoteQualifiedIdentifier(schema, table)
-	w.tableColumnsMutex.RLock()
-	columnNames, found := w.tableColumns[key]
-	w.tableColumnsMutex.RUnlock()
-	if found {
-		return columnNames, nil
-	}
-
-	colNames, err := w.queryTableColumnNames(ctx, schema, table)
-	if err != nil {
-		return nil, err
-	}
-
-	w.tableColumnsMutex.Lock()
-	w.tableColumns[key] = colNames
-	w.tableColumnsMutex.Unlock()
-
-	return colNames, nil
-}
-
-func (w *BulkIngestWriter) getSrcRows(inserts []*query, columnNames []string) [][]any {
-	srcRows := [][]any{}
-	columnMap := make(map[string]struct{}, len(columnNames))
-	for _, col := range columnNames {
-		columnMap[pglib.QuoteIdentifier(col)] = struct{}{}
-	}
-	for _, q := range inserts {
-		// we need to make sure we only add the arguments for the
-		// relevant column names (this removes any generated columns row values)
-		rows := []any{}
-		for i, colName := range q.columnNames {
-			if _, found := columnMap[colName]; !found {
-				continue
-			}
-			rows = append(rows, q.args[i])
-		}
-		srcRows = append(srcRows, rows)
-	}
-
-	return srcRows
-}
-
-const tableColumnsQuery = `SELECT attname FROM pg_attribute
-		WHERE attnum > 0
-		AND attrelid = (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2)
-		AND attgenerated = ''`
-
-func (w *BulkIngestWriter) queryTableColumnNames(ctx context.Context, schemaName, tableName string) ([]string, error) {
-	columnNames := []string{}
-	// filter out generated columns (excluding identities) since they will
-	// be generated automatically, and they can't be overwriten.
-	rows, err := w.pgConn.Query(ctx, tableColumnsQuery, tableName, schemaName)
-	if err != nil {
-		return nil, fmt.Errorf("getting table column names for table %s.%s: %w", schemaName, tableName, err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var columnName string
-		if err := rows.Scan(&columnName); err != nil {
-			return nil, fmt.Errorf("scanning table column name: %w", err)
-		}
-		columnNames = append(columnNames, columnName)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return columnNames, nil
 }

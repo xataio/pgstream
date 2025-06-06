@@ -39,16 +39,16 @@ func newDMLAdapter(action string) (*dmlAdapter, error) {
 	}, nil
 }
 
-func (a *dmlAdapter) walDataToQuery(d *wal.Data) (*query, error) {
+func (a *dmlAdapter) walDataToQuery(d *wal.Data, generatedColumns []string) (*query, error) {
 	switch d.Action {
 	case "T":
 		return a.buildTruncateQuery(d), nil
 	case "D":
 		return a.buildDeleteQuery(d)
 	case "I":
-		return a.buildInsertQuery(d), nil
+		return a.buildInsertQuery(d, generatedColumns), nil
 	case "U":
-		return a.buildUpdateQuery(d)
+		return a.buildUpdateQuery(d, generatedColumns)
 	default:
 		return &query{}, nil
 	}
@@ -75,13 +75,15 @@ func (a *dmlAdapter) buildDeleteQuery(d *wal.Data) (*query, error) {
 	}, nil
 }
 
-func (a *dmlAdapter) buildInsertQuery(d *wal.Data) *query {
-	names := make([]string, 0, len(d.Columns))
-	values := make([]any, 0, len(d.Columns))
+func (a *dmlAdapter) buildInsertQuery(d *wal.Data, generatedColumns []string) *query {
+	names, values := a.filterRowColumns(d.Columns, generatedColumns)
+	// if there are no columns after filtering generated ones, no query to run
+	if len(names) == 0 {
+		return &query{}
+	}
+
 	placeholders := make([]string, 0, len(d.Columns))
-	for i, col := range d.Columns {
-		names = append(names, pglib.QuoteIdentifier(col.Name))
-		values = append(values, col.Value)
+	for i := range names {
 		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
 	}
 
@@ -89,16 +91,26 @@ func (a *dmlAdapter) buildInsertQuery(d *wal.Data) *query {
 		table:       d.Table,
 		schema:      d.Schema,
 		columnNames: names,
-		sql: fmt.Sprintf("INSERT INTO %s(%s) VALUES(%s)%s",
+		sql: fmt.Sprintf("INSERT INTO %s(%s) OVERRIDING SYSTEM VALUE VALUES(%s)%s",
 			quotedTableName(d.Schema, d.Table), strings.Join(names, ", "),
 			strings.Join(placeholders, ", "),
-			a.buildOnConflictQuery(d)),
+			a.buildOnConflictQuery(d, names)),
 		args: values,
 	}
 }
 
-func (a *dmlAdapter) buildUpdateQuery(d *wal.Data) (*query, error) {
-	setQuery, setValues := a.buildSetQuery(d.Columns)
+func (a *dmlAdapter) buildUpdateQuery(d *wal.Data, generatedColumns []string) (*query, error) {
+	rowColumns, rowValues := a.filterRowColumns(d.Columns, generatedColumns)
+	// if there are no columns after filtering generated ones, no query to run
+	if len(rowColumns) == 0 {
+		return &query{}, nil
+	}
+
+	setQuery, setValues := a.buildSetQuery(d.Columns, rowColumns, rowValues)
+	// if there are no columns after filtering generated ones, no query to run
+	if setQuery == "" {
+		return &query{}, nil
+	}
 	whereQuery, whereValues, err := a.buildWhereQuery(d, len(d.Columns))
 	if err != nil {
 		return nil, fmt.Errorf("building update query: %w", err)
@@ -140,20 +152,20 @@ func (a *dmlAdapter) buildWhereQuery(d *wal.Data, placeholderOffset int) (string
 	return whereQuery, whereValues, nil
 }
 
-func (a *dmlAdapter) buildSetQuery(cols []wal.Column) (string, []any) {
+func (a *dmlAdapter) buildSetQuery(cols []wal.Column, rowColumns []string, rowValues []any) (string, []any) {
 	setQuery := "SET"
 	setValues := make([]any, 0, len(cols))
-	for i, c := range cols {
+	for i, column := range rowColumns {
 		if i != 0 {
 			setQuery = fmt.Sprintf("%s,", setQuery)
 		}
-		setQuery = fmt.Sprintf("%s %s = $%d", setQuery, pglib.QuoteIdentifier(c.Name), i+1)
-		setValues = append(setValues, c.Value)
+		setQuery = fmt.Sprintf("%s %s = $%d", setQuery, column, i+1)
+		setValues = append(setValues, rowValues[i])
 	}
 	return setQuery, setValues
 }
 
-func (a *dmlAdapter) buildOnConflictQuery(d *wal.Data) string {
+func (a *dmlAdapter) buildOnConflictQuery(d *wal.Data, filteredColumnNames []string) string {
 	switch a.onConflictAction {
 	case onConflictUpdate:
 		// on conflict do update requires a conflict target. If there are no
@@ -165,8 +177,8 @@ func (a *dmlAdapter) buildOnConflictQuery(d *wal.Data) string {
 		}
 
 		cols := make([]string, 0, len(d.Columns))
-		for _, col := range d.Columns {
-			cols = append(cols, fmt.Sprintf("%[1]s = EXCLUDED.%[1]s", pglib.QuoteIdentifier(col.Name)))
+		for _, col := range filteredColumnNames {
+			cols = append(cols, fmt.Sprintf("%[1]s = EXCLUDED.%[1]s", col))
 		}
 		return fmt.Sprintf(" ON CONFLICT (%s) DO UPDATE SET %s", strings.Join(primaryKeyCols, ","), strings.Join(cols, ", "))
 	case onConflictDoNothing:
@@ -198,6 +210,25 @@ func (a *dmlAdapter) extractPrimaryKeyColumnNames(colIDs []string, cols []wal.Co
 		colNames = append(colNames, pglib.QuoteIdentifier(col.Name))
 	}
 	return colNames
+}
+
+func (a *dmlAdapter) filterRowColumns(cols []wal.Column, generatedColumns []string) ([]string, []any) {
+	generatedColumnMap := make(map[string]struct{}, len(generatedColumns))
+	for _, col := range generatedColumns {
+		generatedColumnMap[pglib.QuoteIdentifier(col)] = struct{}{}
+	}
+	// we need to make sure we only add the arguments for the
+	// relevant column names (this removes any generated columns row values)
+	rowValues := make([]any, 0, len(cols))
+	rowColumns := make([]string, 0, len(cols))
+	for _, c := range cols {
+		if _, found := generatedColumnMap[pglib.QuoteIdentifier(c.Name)]; found {
+			continue
+		}
+		rowColumns = append(rowColumns, pglib.QuoteIdentifier(c.Name))
+		rowValues = append(rowValues, c.Value)
+	}
+	return rowColumns, rowValues
 }
 
 func quotedTableName(schemaName, tableName string) string {

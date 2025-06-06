@@ -15,3 +15,7 @@ type mockAdapter struct {
 func (m *mockAdapter) walEventToQueries(_ context.Context, e *wal.Event) ([]*query, error) {
 	return m.walEventToQueriesFn(e)
 }
+
+func (m *mockAdapter) close() error {
+	return nil
+}

@@ -19,7 +19,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 	testSchema := "test"
 	quotedTestTable := quotedTableName(testSchema, testTable)
 	quotedColumnNames := []string{`"id"`, `"name"`}
-
+	generatedColumns := []string{}
 	columnID := func(i int) string {
 		return fmt.Sprintf("%s-%d", testTableID, i)
 	}
@@ -144,7 +144,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				schema:      testSchema,
 				table:       testTable,
 				columnNames: quotedColumnNames,
-				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") VALUES($1, $2)", quotedTestTable),
+				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2)", quotedTestTable),
 				args:        []any{1, "alice"},
 			},
 		},
@@ -168,7 +168,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				schema:      testSchema,
 				table:       testTable,
 				columnNames: quotedColumnNames,
-				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") VALUES($1, $2) ON CONFLICT DO NOTHING", quotedTestTable),
+				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2) ON CONFLICT DO NOTHING", quotedTestTable),
 				args:        []any{1, "alice"},
 			},
 		},
@@ -192,7 +192,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				schema:      testSchema,
 				table:       testTable,
 				columnNames: quotedColumnNames,
-				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") VALUES($1, $2) ON CONFLICT (\"id\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"name\" = EXCLUDED.\"name\"", quotedTestTable),
+				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2) ON CONFLICT (\"id\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"name\" = EXCLUDED.\"name\"", quotedTestTable),
 				args:        []any{1, "alice"},
 			},
 		},
@@ -213,7 +213,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				schema:      testSchema,
 				table:       testTable,
 				columnNames: quotedColumnNames,
-				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") VALUES($1, $2)", quotedTestTable),
+				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2)", quotedTestTable),
 				args:        []any{1, "alice"},
 			},
 		},
@@ -329,7 +329,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			a := &dmlAdapter{
 				onConflictAction: tc.action,
 			}
-			query, err := a.walDataToQuery(tc.walData)
+			query, err := a.walDataToQuery(tc.walData, generatedColumns)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantQuery, query)
 		})
@@ -372,6 +372,65 @@ func Test_newDMLAdapter(t *testing.T) {
 
 			_, err := newDMLAdapter(tc.action)
 			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestDMLAdapter_filterRowColumns(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		generatedColumns []string
+		columns          []wal.Column
+
+		wantColumns []string
+		wantValues  []any
+	}{
+		{
+			name:             "no generated columns",
+			generatedColumns: []string{},
+			columns: []wal.Column{
+				{Name: "id", Value: 1},
+				{Name: "name", Value: "alice"},
+			},
+
+			wantColumns: []string{`"id"`, `"name"`},
+			wantValues:  []any{1, "alice"},
+		},
+		{
+			name:             "with generated column",
+			generatedColumns: []string{"id"},
+			columns: []wal.Column{
+				{Name: "id", Value: 1},
+				{Name: "name", Value: "alice"},
+				{Name: "age", Value: 30},
+			},
+
+			wantColumns: []string{`"name"`, `"age"`},
+			wantValues:  []any{"alice", 30},
+		},
+		{
+			name:             "unknown generated columns",
+			generatedColumns: []string{"age"},
+			columns: []wal.Column{
+				{Name: "id", Value: 1},
+				{Name: "name", Value: "alice"},
+			},
+
+			wantColumns: []string{`"id"`, `"name"`},
+			wantValues:  []any{1, "alice"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			a := dmlAdapter{}
+			rowColumns, rowValues := a.filterRowColumns(tc.columns, tc.generatedColumns)
+			require.Equal(t, tc.wantColumns, rowColumns)
+			require.Equal(t, tc.wantValues, rowValues)
 		})
 	}
 }

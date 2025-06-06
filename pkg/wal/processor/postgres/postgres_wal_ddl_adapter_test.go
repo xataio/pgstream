@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -12,54 +13,40 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	schemalogmocks "github.com/xataio/pgstream/pkg/schemalog/mocks"
-	"github.com/xataio/pgstream/pkg/wal"
-	"github.com/xataio/pgstream/pkg/wal/processor"
 )
 
 func TestDDLAdapter_walDataToQueries(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().UTC().Round(time.Second)
-	nowStr := now.Format("2006-01-02 15:04:05")
 	id := xid.New()
-	testWalData := &wal.Data{
-		Action: "I",
-		Schema: schemalog.SchemaName,
-		Table:  schemalog.TableName,
-		Columns: []wal.Column{
-			{ID: "id", Name: "id", Type: "text", Value: id.String()},
-			{ID: "version", Name: "version", Type: "integer", Value: 1},
-			{ID: "schema_name", Name: "schema_name", Type: "text", Value: testSchema},
-			{ID: "created_at", Name: "created_at", Type: "timestamp", Value: nowStr},
-		},
-	}
 
 	table1 := "table1"
 	table2 := "table2"
 
-	testLogEntry := &schemalog.LogEntry{
-		ID:         id,
-		Version:    0,
-		SchemaName: testSchema,
-		CreatedAt:  schemalog.NewSchemaCreatedAtTimestamp(now),
+	testLogEntry := func(version int64) *schemalog.LogEntry {
+		return &schemalog.LogEntry{
+			ID:         id,
+			Version:    version,
+			SchemaName: testSchema,
+			CreatedAt:  schemalog.NewSchemaCreatedAtTimestamp(now),
+		}
 	}
 
 	tests := []struct {
-		name            string
-		querier         schemalogQuerier
-		schemaDiffer    schemaDiffer
-		logEntryAdapter logEntryAdapter
+		name         string
+		querier      schemalogQuerier
+		schemaDiffer schemaDiffer
+		logEntry     *schemalog.LogEntry
 
 		wantQueries []*query
 		wantErr     error
 	}{
 		{
-			name: "ok",
+			name: "ok - initial schema",
 			querier: &schemalogmocks.Store{
 				FetchFn: func(ctx context.Context, schemaName string, version int) (*schemalog.LogEntry, error) {
-					require.Equal(t, testSchema, schemaName)
-					require.Equal(t, int(0), version)
-					return testLogEntry, nil
+					return nil, errors.New("unexpected call to FetchFn")
 				},
 			},
 			schemaDiffer: func(old, new *schemalog.LogEntry) *schemalog.Diff {
@@ -75,7 +62,7 @@ func TestDDLAdapter_walDataToQueries(t *testing.T) {
 					},
 				}
 			},
-			logEntryAdapter: processor.WalDataToLogEntry,
+			logEntry: testLogEntry(0),
 
 			wantQueries: []*query{
 				{
@@ -88,11 +75,38 @@ func TestDDLAdapter_walDataToQueries(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:            "error - converting event to log entry",
-			logEntryAdapter: func(d *wal.Data) (*schemalog.LogEntry, error) { return nil, errTest },
+			name: "ok - fetching existing schema",
+			querier: &schemalogmocks.Store{
+				FetchFn: func(ctx context.Context, schemaName string, version int) (*schemalog.LogEntry, error) {
+					require.Equal(t, testSchema, schemaName)
+					require.Equal(t, int(0), version)
+					return testLogEntry(0), nil
+				},
+			},
+			schemaDiffer: func(old, new *schemalog.LogEntry) *schemalog.Diff {
+				return &schemalog.Diff{
+					TablesChanged: []schemalog.TableDiff{
+						{
+							TableName: table2,
+							TableNameChange: &schemalog.ValueChange[string]{
+								Old: table1,
+								New: table2,
+							},
+						},
+					},
+				}
+			},
+			logEntry: testLogEntry(1),
 
-			wantQueries: nil,
-			wantErr:     errTest,
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  table2,
+					sql:    fmt.Sprintf("ALTER TABLE %s RENAME TO %s", quotedTableName(testSchema, table1), table2),
+					isDDL:  true,
+				},
+			},
+			wantErr: nil,
 		},
 		{
 			name: "error - fetching schema log",
@@ -101,7 +115,7 @@ func TestDDLAdapter_walDataToQueries(t *testing.T) {
 					return nil, errTest
 				},
 			},
-			logEntryAdapter: processor.WalDataToLogEntry,
+			logEntry: testLogEntry(1),
 
 			wantQueries: nil,
 			wantErr:     errTest,
@@ -115,10 +129,9 @@ func TestDDLAdapter_walDataToQueries(t *testing.T) {
 			a := ddlAdapter{
 				schemalogQuerier: tc.querier,
 				schemaDiffer:     tc.schemaDiffer,
-				logEntryAdapter:  tc.logEntryAdapter,
 			}
 
-			queries, err := a.walDataToQueries(context.Background(), testWalData)
+			queries, err := a.schemaLogToQueries(context.Background(), tc.logEntry)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantQueries, queries)
 		})

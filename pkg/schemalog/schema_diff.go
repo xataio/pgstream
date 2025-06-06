@@ -138,12 +138,16 @@ func computeColumnDiff(old, new *Column) *ColumnDiff {
 	if old.Name != new.Name {
 		diff.NameChange = &ValueChange[string]{Old: old.Name, New: new.Name}
 	}
-	if old.DefaultValue != new.DefaultValue {
+
+	if (old.DefaultValue != nil && new.DefaultValue == nil) ||
+		(old.DefaultValue == nil && new.DefaultValue != nil) ||
+		(old.DefaultValue != nil && new.DefaultValue != nil && *old.DefaultValue != *new.DefaultValue) {
 		diff.DefaultChange = &ValueChange[*string]{Old: old.DefaultValue, New: new.DefaultValue}
 	}
 	if old.Unique != new.Unique {
 		diff.UniqueChange = &ValueChange[bool]{Old: old.Unique, New: new.Unique}
 	}
+
 	if old.Nullable != new.Nullable {
 		diff.NullChange = &ValueChange[bool]{Old: old.Nullable, New: new.Nullable}
 	}
