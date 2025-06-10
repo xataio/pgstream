@@ -8,6 +8,10 @@ type Config struct {
 	// BatchPageSize represents the size of the table page range that will be
 	// processed concurrently by the table workers. Defaults to 1000.
 	BatchPageSize uint
+	// SnapshotWorkers represents the number of snapshots the generator will
+	// process concurrently. This doesn't affect the parallelism of the tables
+	// within each individual snapshot request. It defaults to 1.
+	SnapshotWorkers uint
 	// SchemaWorkers represents the number of tables the snapshot generator will
 	// process concurrently per schema. Defaults to 4.
 	SchemaWorkers uint
@@ -17,9 +21,10 @@ type Config struct {
 }
 
 const (
-	defaultBatchPageSize = 1000
-	defaultTableWorkers  = 4
-	defaultSchemaWorkers = 4
+	defaultBatchPageSize   = 1000
+	defaultTableWorkers    = 4
+	defaultSchemaWorkers   = 4
+	defaultSnapshotWorkers = 1
 )
 
 func (c *Config) batchPageSize() uint {
@@ -41,4 +46,11 @@ func (c *Config) tableWorkers() uint {
 		return c.TableWorkers
 	}
 	return defaultTableWorkers
+}
+
+func (c *Config) snapshotWorkers() uint {
+	if c.SnapshotWorkers > 0 {
+		return c.SnapshotWorkers
+	}
+	return defaultSnapshotWorkers
 }

@@ -45,8 +45,9 @@ func Test_PostgresSnapshotGenerator(t *testing.T) {
 
 	go func() {
 		err = generator.CreateSnapshot(ctx, &snapshot.Snapshot{
-			SchemaName: "public",
-			TableNames: []string{testTable},
+			SchemaTables: map[string][]string{
+				"public": {testTable},
+			},
 		})
 		require.NoError(t, err)
 		mockProcessor.Close()

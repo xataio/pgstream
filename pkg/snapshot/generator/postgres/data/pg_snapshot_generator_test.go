@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -28,9 +27,11 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 
 	testTable1 := "test-table-1"
 	testTable2 := "test-table-2"
+	testSchema := "test-schema"
 	testSnapshot := &snapshot.Snapshot{
-		SchemaName: "test-schema",
-		TableNames: []string{testTable1},
+		SchemaTables: map[string][]string{
+			testSchema: {testTable1},
+		},
 	}
 
 	txOptions := pglib.TxOptions{
@@ -48,7 +49,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 
 	testRow := func(tableName string, columns []snapshot.Column) *snapshot.Row {
 		return &snapshot.Row{
-			Schema:  testSnapshot.SchemaName,
+			Schema:  testSchema,
 			Table:   tableName,
 			Columns: columns,
 		}
@@ -96,7 +97,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							},
 							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 								require.Equal(t, "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2", query)
-								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
+								require.Equal(t, []any{testTable1, testSchema}, args)
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										require.Len(t, args, 1)
@@ -117,7 +118,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf("SELECT * FROM %q.%q WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'", testSnapshot.SchemaName, testTable1, 0, 10), query)
+								require.Equal(t, fmt.Sprintf("SELECT * FROM %q.%q WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'", testSchema, testTable1, 0, 10), query)
 								require.Len(t, args, 0)
 								return &pgmocks.Rows{
 									CloseFn: func() {},
@@ -204,8 +205,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSnapshot.SchemaName,
-				TableNames: []string{testTable1, testTable2},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable1, testTable2},
+				},
 			},
 			schemaWorkers: 2,
 
@@ -248,7 +250,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							},
 							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 								require.Equal(t, "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2", query)
-								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
+								require.Equal(t, []any{testTable1, testSchema}, args)
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										require.Len(t, args, 1)
@@ -269,7 +271,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf("SELECT * FROM %q.%q WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'", testSnapshot.SchemaName, testTable1, 0, 10), query)
+								require.Equal(t, fmt.Sprintf("SELECT * FROM %q.%q WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'", testSchema, testTable1, 0, 10), query)
 								require.Len(t, args, 0)
 								return &pgmocks.Rows{
 									CloseFn: func() {},
@@ -329,7 +331,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							},
 							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 								require.Equal(t, "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2", query)
-								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
+								require.Equal(t, []any{testTable1, testSchema}, args)
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										require.Len(t, args, 1)
@@ -350,7 +352,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf("SELECT * FROM %q.%q WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'", testSnapshot.SchemaName, testTable1, 0, 10), query)
+								require.Equal(t, fmt.Sprintf("SELECT * FROM %q.%q WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'", testSchema, testTable1, 0, 10), query)
 								require.Len(t, args, 0)
 								return &pgmocks.Rows{
 									CloseFn:             func() {},
@@ -395,7 +397,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr:  snapshot.NewErrors(fmt.Errorf("exporting snapshot: %w", errTest)),
+			wantErr:  snapshot.NewErrors(testSchema, fmt.Errorf("exporting snapshot: %w", errTest)),
 			wantRows: []*snapshot.Row{},
 		},
 		{
@@ -435,11 +437,11 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr: &snapshot.Errors{
-				Tables: []snapshot.TableError{
-					{
-						Table:    testTable1,
-						ErrorMsg: fmt.Sprintf("setting transaction snapshot: %v", errTest),
+			wantErr: snapshot.Errors{
+				testSchema: &snapshot.SchemaErrors{
+					Schema: testSchema,
+					TableErrors: map[string]string{
+						testTable1: fmt.Sprintf("setting transaction snapshot: %v", errTest),
 					},
 				},
 			},
@@ -476,7 +478,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							},
 							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 								require.Equal(t, "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2", query)
-								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
+								require.Equal(t, []any{testTable1, testSchema}, args)
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										return errTest
@@ -491,11 +493,11 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr: &snapshot.Errors{
-				Tables: []snapshot.TableError{
-					{
-						Table:    testTable1,
-						ErrorMsg: fmt.Sprintf("getting page count for table test-schema.test-table-1: %v", errTest),
+			wantErr: snapshot.Errors{
+				testSchema: &snapshot.SchemaErrors{
+					Schema: testSchema,
+					TableErrors: map[string]string{
+						testTable1: fmt.Sprintf("getting page count for table test-schema.test-table-1: %v", errTest),
 					},
 				},
 			},
@@ -532,7 +534,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							},
 							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 								require.Equal(t, "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2", query)
-								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
+								require.Equal(t, []any{testTable1, testSchema}, args)
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										require.Len(t, args, 1)
@@ -560,11 +562,11 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr: &snapshot.Errors{
-				Tables: []snapshot.TableError{
-					{
-						Table:    testTable1,
-						ErrorMsg: fmt.Sprintf("setting transaction snapshot: %v", errTest),
+			wantErr: snapshot.Errors{
+				testSchema: &snapshot.SchemaErrors{
+					Schema: testSchema,
+					TableErrors: map[string]string{
+						testTable1: fmt.Sprintf("setting transaction snapshot: %v", errTest),
 					},
 				},
 			},
@@ -601,7 +603,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							},
 							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 								require.Equal(t, "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2", query)
-								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
+								require.Equal(t, []any{testTable1, testSchema}, args)
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										require.Len(t, args, 1)
@@ -622,7 +624,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf("SELECT * FROM %q.%q WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'", testSnapshot.SchemaName, testTable1, 0, 10), query)
+								require.Equal(t, fmt.Sprintf("SELECT * FROM %q.%q WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'", testSchema, testTable1, 0, 10), query)
 								require.Len(t, args, 0)
 								return nil, errTest
 							},
@@ -634,11 +636,11 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr: &snapshot.Errors{
-				Tables: []snapshot.TableError{
-					{
-						Table:    testTable1,
-						ErrorMsg: fmt.Sprintf("querying table rows: %v", errTest),
+			wantErr: snapshot.Errors{
+				testSchema: &snapshot.SchemaErrors{
+					Schema: testSchema,
+					TableErrors: map[string]string{
+						testTable1: fmt.Sprintf("querying table rows: %v", errTest),
 					},
 				},
 			},
@@ -675,7 +677,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							},
 							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 								require.Equal(t, "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2", query)
-								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
+								require.Equal(t, []any{testTable1, testSchema}, args)
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										require.Len(t, args, 1)
@@ -712,11 +714,11 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr: &snapshot.Errors{
-				Tables: []snapshot.TableError{
-					{
-						Table:    testTable1,
-						ErrorMsg: fmt.Sprintf("retrieving rows values: %v", errTest),
+			wantErr: snapshot.Errors{
+				testSchema: &snapshot.SchemaErrors{
+					Schema: testSchema,
+					TableErrors: map[string]string{
+						testTable1: fmt.Sprintf("retrieving rows values: %v", errTest),
 					},
 				},
 			},
@@ -753,7 +755,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							},
 							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
 								require.Equal(t, "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2", query)
-								require.Equal(t, []any{testTable1, testSnapshot.SchemaName}, args)
+								require.Equal(t, []any{testTable1, testSchema}, args)
 								return &pgmocks.Row{
 									ScanFn: func(args ...any) error {
 										require.Len(t, args, 1)
@@ -790,11 +792,11 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr: &snapshot.Errors{
-				Tables: []snapshot.TableError{
-					{
-						Table:    testTable1,
-						ErrorMsg: errTest.Error(),
+			wantErr: snapshot.Errors{
+				testSchema: &snapshot.SchemaErrors{
+					Schema: testSchema,
+					TableErrors: map[string]string{
+						testTable1: errTest.Error(),
 					},
 				},
 			},
@@ -839,20 +841,18 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSnapshot.SchemaName,
-				TableNames: []string{testTable1, testTable2},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable1, testTable2},
+				},
 			},
 			schemaWorkers: 2,
 
-			wantErr: &snapshot.Errors{
-				Tables: []snapshot.TableError{
-					{
-						Table:    testTable1,
-						ErrorMsg: fmt.Sprintf("getting page count for table %s.%s: %v", testSnapshot.SchemaName, testTable1, errTest),
-					},
-					{
-						Table:    testTable2,
-						ErrorMsg: fmt.Sprintf("getting page count for table %s.%s: %v", testSnapshot.SchemaName, testTable2, errTest),
+			wantErr: snapshot.Errors{
+				testSchema: &snapshot.SchemaErrors{
+					Schema: testSchema,
+					TableErrors: map[string]string{
+						testTable1: fmt.Sprintf("getting page count for table %s.%s: %v", testSchema, testTable1, errTest),
+						testTable2: fmt.Sprintf("getting page count for table %s.%s: %v", testSchema, testTable2, errTest),
 					},
 				},
 			},
@@ -877,9 +877,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return nil
 					},
 				},
-				schemaWorkers: 1,
-				tableWorkers:  1,
-				batchPageSize: 10,
+				schemaWorkers:   1,
+				tableWorkers:    1,
+				batchPageSize:   10,
+				snapshotWorkers: 1,
 			}
 			sg.tableSnapshotGenerator = sg.snapshotTable
 
@@ -893,7 +894,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			}
 
 			err := sg.CreateSnapshot(context.Background(), s)
-			require.Equal(t, tc.wantErr, sortSnapshotTableErrors(err))
+			require.Equal(t, tc.wantErr, err)
 			close(rowChan)
 
 			rows := []*snapshot.Row{}
@@ -908,13 +909,15 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	}
 }
 
-func sortSnapshotTableErrors(err error) error {
-	var snapshotErrs *snapshot.Errors
-	if errors.As(err, &snapshotErrs) {
-		sort.Slice(snapshotErrs.Tables, func(i, j int) bool {
-			return snapshotErrs.Tables[i].Table < snapshotErrs.Tables[j].Table
-		})
-		return snapshotErrs
-	}
-	return err
-}
+// func sortSnapshotTableErrors(err error) error {
+// 	var snapshotErrs snapshot.Errors
+// 	if errors.As(err, &snapshotErrs) {
+// 		for _, schemaErrs := range snapshotErrs {
+// 			sort.Slice(schemaErrs.Tables, func(i, j int) bool {
+// 				return snapshotErrs.Tables[i].Table < snapshotErrs.Tables[j].Table
+// 			})
+// 		}
+// 		return snapshotErrs
+// 	}
+// 	return err
+// }
