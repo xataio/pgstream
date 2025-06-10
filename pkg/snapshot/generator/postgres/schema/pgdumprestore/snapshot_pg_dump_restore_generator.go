@@ -449,7 +449,10 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		case strings.HasPrefix(line, "CREATE INDEX"),
 			strings.HasPrefix(line, "CREATE UNIQUE INDEX"),
 			strings.HasPrefix(line, "CREATE CONSTRAINT"),
-			strings.HasPrefix(line, "CREATE TRIGGER"):
+			strings.HasPrefix(line, "CREATE TRIGGER"),
+			strings.HasPrefix(line, "COMMENT ON CONSTRAINT"),
+			strings.HasPrefix(line, "COMMENT ON INDEX"),
+			strings.HasPrefix(line, "COMMENT ON TRIGGER"):
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
 		case strings.HasPrefix(line, "ALTER TABLE") && strings.Contains(line, "ADD CONSTRAINT"):
