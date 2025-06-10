@@ -11,9 +11,10 @@ type Snapshot struct {
 }
 
 type Request struct {
-	Snapshot Snapshot
-	Status   Status
-	Errors   *Errors
+	Schema string
+	Tables []string
+	Status Status
+	Errors *SchemaErrors
 }
 
 type Row struct {
@@ -82,9 +83,9 @@ func (s *Snapshot) HasTables() bool {
 	return false
 }
 
-func (r *Request) MarkCompleted(err error) {
+func (r *Request) MarkCompleted(schema string, err error) {
 	r.Status = StatusCompleted
-	r.Errors = NewErrors(err)
+	r.Errors = NewSchemaErrors(schema, err)
 }
 
 func (r *Request) MarkInProgress() {
