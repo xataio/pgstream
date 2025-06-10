@@ -255,6 +255,8 @@ ALTER TABLE ONLY musicbrainz.alternative_medium_track
 CREATE INDEX area_alias_idx_txt ON musicbrainz.area_alias USING gin (musicbrainz.mb_simple_tsvector((name)::text));
 
 
+COMMENT ON INDEX area_alias_idx_txt ON musicbrainz.area_alias IS 'test';
+
 --
 -- Name: area_alias_type_idx_gid; Type: INDEX; Schema: musicbrainz; Owner: postgres
 --
@@ -269,6 +271,8 @@ CREATE UNIQUE INDEX area_alias_type_idx_gid ON musicbrainz.area_alias_type USING
 CREATE TRIGGER a_del_alternative_medium_track AFTER DELETE ON musicbrainz.alternative_medium_track FOR EACH ROW EXECUTE FUNCTION musicbrainz.a_del_alternative_medium_track();
 
 
+COMMENT ON TRIGGER a_del_alternative_medium_track ON musicbrainz.alternative_medium_track IS 'test';
+
 --
 -- Name: alternative_release a_del_alternative_release; Type: TRIGGER; Schema: musicbrainz; Owner: postgres
 --
@@ -281,6 +285,8 @@ CREATE TRIGGER a_del_alternative_release AFTER DELETE ON musicbrainz.alternative
 
 CREATE CONSTRAINT TRIGGER apply_artist_release_group_pending_updates AFTER INSERT OR DELETE OR UPDATE ON musicbrainz.release DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION musicbrainz.apply_artist_release_group_pending_updates();
 
+
+COMMENT ON CONSTRAINT apply_artist_release_group_pending_updates ON musicbrainz.release IS 'test';
 
 --
 -- Name: release_group apply_artist_release_group_pending_updates; Type: TRIGGER; Schema: musicbrainz; Owner: postgres

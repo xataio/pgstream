@@ -250,6 +250,7 @@ ALTER TABLE ONLY musicbrainz.alternative_medium_track
 
 
 
+
 --
 -- Name: area_alias_type_idx_gid; Type: INDEX; Schema: musicbrainz; Owner: postgres
 --
@@ -262,6 +263,7 @@ ALTER TABLE ONLY musicbrainz.alternative_medium_track
 
 
 
+
 --
 -- Name: alternative_release a_del_alternative_release; Type: TRIGGER; Schema: musicbrainz; Owner: postgres
 --
@@ -270,6 +272,7 @@ ALTER TABLE ONLY musicbrainz.alternative_medium_track
 --
 -- Name: release apply_artist_release_group_pending_updates; Type: TRIGGER; Schema: musicbrainz; Owner: postgres
 --
+
 
 
 
