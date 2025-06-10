@@ -8,13 +8,7 @@ import (
 
 type SnapshotConfig struct {
 	Tables []string
-	// SnapshotWorkers represents the number of snapshots the generator will
-	// process concurrently. This doesn't affect the parallelism of the tables
-	// within each individual snapshot request. It defaults to 1.
-	SnapshotWorkers uint
 }
-
-const defaultSnapshotWorkers = 1
 
 const publicSchema = "public"
 
@@ -31,11 +25,4 @@ func (c *SnapshotConfig) schemaTableMap() map[string][]string {
 		schemaTableMap[schemaName] = append(schemaTableMap[schemaName], tableName)
 	}
 	return schemaTableMap
-}
-
-func (c *SnapshotConfig) snapshotWorkers() uint {
-	if c.SnapshotWorkers > 0 {
-		return c.SnapshotWorkers
-	}
-	return defaultSnapshotWorkers
 }

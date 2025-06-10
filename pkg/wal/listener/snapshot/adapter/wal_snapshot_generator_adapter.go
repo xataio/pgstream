@@ -9,25 +9,22 @@ import (
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"github.com/xataio/pgstream/pkg/snapshot/generator"
-	"golang.org/x/sync/errgroup"
 )
 
 // SnapshotGeneratorAdapter adapts a snapshot generator to work with WAL events
 type SnapshotGeneratorAdapter struct {
-	logger          loglib.Logger
-	generator       generator.SnapshotGenerator
-	schemaTables    map[string][]string
-	snapshotWorkers uint
+	logger       loglib.Logger
+	generator    generator.SnapshotGenerator
+	schemaTables map[string][]string
 }
 
 type Option func(a *SnapshotGeneratorAdapter)
 
 func NewSnapshotGeneratorAdapter(cfg *SnapshotConfig, generator generator.SnapshotGenerator, opts ...Option) *SnapshotGeneratorAdapter {
 	a := &SnapshotGeneratorAdapter{
-		generator:       generator,
-		schemaTables:    cfg.schemaTableMap(),
-		logger:          loglib.NewNoopLogger(),
-		snapshotWorkers: cfg.snapshotWorkers(),
+		generator:    generator,
+		schemaTables: cfg.schemaTableMap(),
+		logger:       loglib.NewNoopLogger(),
 	}
 
 	for _, opt := range opts {
@@ -51,29 +48,15 @@ func (s *SnapshotGeneratorAdapter) CreateSnapshot(ctx context.Context) (err erro
 		s.logger.Info("snapshot generation completed", loglib.Fields{"err": err, "duration": time.Since(startTime).String()})
 	}()
 
-	errGroup, ctx := errgroup.WithContext(ctx)
-	snapshotChan := make(chan *snapshot.Snapshot)
-	for i := uint(0); i < s.snapshotWorkers; i++ {
-		errGroup.Go(func() error {
-			for snapshot := range snapshotChan {
-				s.logger.Info("creating snapshot for schema", loglib.Fields{"schema": snapshot.SchemaName, "tables": snapshot.TableNames})
-				if err := s.generator.CreateSnapshot(ctx, snapshot); err != nil {
-					s.logger.Error(err, "creating snapshot for schema", loglib.Fields{"schema": snapshot.SchemaName, "tables": snapshot.TableNames})
-					return err
-				}
-			}
-			return nil
-		})
+	snapshot := &snapshot.Snapshot{
+		SchemaTables: s.schemaTables,
 	}
-	for schema, tables := range s.schemaTables {
-		snapshotChan <- &snapshot.Snapshot{
-			SchemaName: schema,
-			TableNames: tables,
-		}
+	if err := s.generator.CreateSnapshot(ctx, snapshot); err != nil {
+		s.logger.Error(err, "creating snapshot", loglib.Fields{"schemas": snapshot.GetSchemas(), "tables": snapshot.GetTables()})
+		return err
 	}
-	close(snapshotChan)
 
-	return errGroup.Wait()
+	return nil
 }
 
 func (s *SnapshotGeneratorAdapter) Close() error {

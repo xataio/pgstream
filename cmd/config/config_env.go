@@ -196,14 +196,14 @@ func parseSnapshotListenerConfig() *snapshotbuilder.SnapshotListenerConfig {
 func parseSnapshotConfig(pgURL string) *snapshotbuilder.SnapshotListenerConfig {
 	cfg := &snapshotbuilder.SnapshotListenerConfig{
 		Generator: pgsnapshotgenerator.Config{
-			URL:           pgURL,
-			BatchPageSize: viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE"),
-			SchemaWorkers: viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS"),
-			TableWorkers:  viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS"),
+			URL:             pgURL,
+			BatchPageSize:   viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE"),
+			SchemaWorkers:   viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS"),
+			TableWorkers:    viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS"),
+			SnapshotWorkers: viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS"),
 		},
 		Adapter: adapter.SnapshotConfig{
-			Tables:          viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES"),
-			SnapshotWorkers: viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS"),
+			Tables: viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES"),
 		},
 		Schema: parseSchemaSnapshotConfig(pgURL),
 	}
