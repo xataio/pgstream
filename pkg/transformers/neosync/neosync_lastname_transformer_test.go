@@ -31,6 +31,27 @@ func TestNewLastnameTransformer(t *testing.T) {
 			wantName: "Fournaris",
 		},
 		{
+			name:  "ok - length 1",
+			input: "Liddell",
+			params: map[string]any{
+				"max_length": 1,
+				"seed":       12,
+			},
+
+			wantName: "I",
+			wantErr:  nil,
+		},
+		{
+			name:  "error - length -1",
+			input: "alice",
+			params: map[string]any{
+				"max_length": -1,
+				"seed":       12,
+			},
+
+			wantErr: errLastNameLengthMustBeGreaterThanZero,
+		},
+		{
 			name: "error - invalid preserve_length",
 			params: transformers.ParameterValues{
 				"preserve_length": 123,

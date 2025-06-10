@@ -8,6 +8,11 @@ import (
 	"github.com/xataio/pgstream/pkg/transformers"
 )
 
+const (
+	uppercaseLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	lowercaseLetters = "abcdefghijklmnopqrstuvwxyz"
+)
+
 // transformer is a wrapper around a neosync transformer. Neosync transformers
 // return a pointer to the type, so this implementation is generic to ensure
 // different types are supported.
@@ -30,7 +35,7 @@ func New[T any](t neosyncTransformer, opts any) *transformer[T] {
 func (t *transformer[T]) Transform(_ context.Context, value transformers.Value) (any, error) {
 	retPtr, err := t.neosyncTransformer.Transform(value.TransformValue, t.opts)
 	if err != nil {
-		return nil, err
+		return nil, mapError(err)
 	}
 
 	ret, ok := retPtr.(*T)
