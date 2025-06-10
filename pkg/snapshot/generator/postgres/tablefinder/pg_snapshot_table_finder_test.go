@@ -23,8 +23,9 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 
 	newTestSnapshot := func(tables []string) *snapshot.Snapshot {
 		return &snapshot.Snapshot{
-			SchemaName: testSchema,
-			TableNames: tables,
+			SchemaTables: map[string][]string{
+				testSchema: tables,
+			},
 		}
 	}
 
@@ -70,8 +71,9 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 				},
 			},
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{wildcard},
+				SchemaTables: map[string][]string{
+					testSchema: {wildcard},
+				},
 			},
 			generator: &mocks.Generator{
 				CreateSnapshotFn: func(ctx context.Context, snapshot *snapshot.Snapshot) error {
@@ -103,8 +105,9 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 				},
 			},
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{"table-a", "table-b", wildcard},
+				SchemaTables: map[string][]string{
+					testSchema: {"table-a", "table-b", wildcard},
+				},
 			},
 			generator: &mocks.Generator{
 				CreateSnapshotFn: func(ctx context.Context, snapshot *snapshot.Snapshot) error {
@@ -125,8 +128,9 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 				},
 			},
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{"table-a", "table-b", wildcard},
+				SchemaTables: map[string][]string{
+					testSchema: {"table-a", "table-b", wildcard},
+				},
 			},
 			generator: &mocks.Generator{
 				CreateSnapshotFn: func(ctx context.Context, snapshot *snapshot.Snapshot) error {
@@ -153,8 +157,9 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 				},
 			},
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{"table-a", "table-b", wildcard},
+				SchemaTables: map[string][]string{
+					testSchema: {"table-a", "table-b", wildcard},
+				},
 			},
 			generator: &mocks.Generator{
 				CreateSnapshotFn: func(ctx context.Context, snapshot *snapshot.Snapshot) error {
@@ -178,8 +183,9 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 				},
 			},
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{"table-a", "table-b", wildcard},
+				SchemaTables: map[string][]string{
+					testSchema: {"table-a", "table-b", wildcard},
+				},
 			},
 			generator: &mocks.Generator{
 				CreateSnapshotFn: func(ctx context.Context, snapshot *snapshot.Snapshot) error {
