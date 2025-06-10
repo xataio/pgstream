@@ -42,21 +42,27 @@ func WithSnapshotGenerator(g generator.SnapshotGenerator) Option {
 }
 
 func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) error {
-	err := func() error {
-		logEntry, err := s.schemalogStore.Insert(ctx, ss.SchemaName)
-		if err != nil {
-			return err
-		}
+	snapshotErrs := make(snapshot.Errors)
+	for schema := range ss.SchemaTables {
+		err := func() error {
+			logEntry, err := s.schemalogStore.Insert(ctx, schema)
+			if err != nil {
+				return err
+			}
 
-		row, err := s.logEntryToSnapshotRow(logEntry)
-		if err != nil {
-			return err
-		}
+			row, err := s.logEntryToSnapshotRow(logEntry)
+			if err != nil {
+				return err
+			}
 
-		return s.processRow(ctx, row)
-	}()
-	if err != nil {
-		return snapshot.NewErrors(err)
+			return s.processRow(ctx, row)
+		}()
+		if err != nil {
+			snapshotErrs.AddError(schema, snapshot.NewSchemaErrors(schema, err))
+		}
+	}
+	if len(snapshotErrs) > 0 {
+		return snapshotErrs
 	}
 
 	if s.generator != nil {
