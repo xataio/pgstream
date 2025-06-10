@@ -124,15 +124,21 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 }
 
 func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) error {
-	s.logger.Info("creating schema snapshot", loglib.Fields{"schema": ss.SchemaName, "tables": ss.TableNames})
-	// when only the schema filter is provided to pg_dump, it will try to create
-	// it. If there are no tables in the snapshot request, we can skip the
-	// snapshot for public schema, since it already exists by default.
-	if ss.SchemaName == publicSchema && len(ss.TableNames) == 0 {
+	s.logger.Info("creating schema snapshot", loglib.Fields{"schemaTables": ss.SchemaTables})
+
+	// make sure any empty schemas are filtered out
+	dumpSchemas := make(map[string][]string, len(ss.SchemaTables))
+	for schema, tables := range ss.SchemaTables {
+		if len(tables) > 0 {
+			dumpSchemas[schema] = tables
+		}
+	}
+	// nothing to dump
+	if len(dumpSchemas) == 0 {
 		return nil
 	}
 
-	dump, err := s.dumpSchema(ctx, ss)
+	dump, err := s.dumpSchema(ctx, dumpSchemas)
 	if err != nil {
 		return err
 	}
@@ -149,14 +155,14 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	// if there's no further snapshotting happening, we can apply the full dump,
 	// no need to apply the constraints/indices separately.
 	if s.generator == nil {
-		return s.restoreDump(ctx, ss, append(dump.full, sequenceDump...))
+		return s.restoreDump(ctx, dumpSchemas, append(dump.full, sequenceDump...))
 	}
 
 	// otherwise, we need to apply the filtered schema dump first, then call the
 	// wrapped snapshot generator, and apply the indices and constraints last.
 	// This will make the data snapshot faster, since there will be no
 	// constraints to be updated/checked on each insert.
-	if err := s.restoreDump(ctx, ss, dump.filtered); err != nil {
+	if err := s.restoreDump(ctx, dumpSchemas, dump.filtered); err != nil {
 		return err
 	}
 
@@ -164,9 +170,9 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return err
 	}
 
-	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schema": ss.SchemaName, "tables": ss.TableNames})
+	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
 	// apply the indices and constraints when the wrapped generator has finished
-	return s.restoreDump(ctx, ss, append(dump.indicesAndConstraints, sequenceDump...))
+	return s.restoreDump(ctx, dumpSchemas, append(dump.indicesAndConstraints, sequenceDump...))
 }
 
 func (s *SnapshotGenerator) Close() error {
@@ -181,8 +187,8 @@ func (s *SnapshotGenerator) Close() error {
 	return nil
 }
 
-func (s *SnapshotGenerator) dumpSchema(ctx context.Context, ss *snapshot.Snapshot) (*dump, error) {
-	pgdumpOpts, err := s.pgdumpOptions(ctx, ss)
+func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[string][]string) (*dump, error) {
+	pgdumpOpts, err := s.pgdumpOptions(ctx, schemaTables)
 	if err != nil {
 		return nil, fmt.Errorf("preparing pg_dump options: %w", err)
 	}
@@ -210,13 +216,15 @@ func (s *SnapshotGenerator) dumpSequenceValues(ctx context.Context, sequences []
 	return s.pgDumpFn(ctx, *opts)
 }
 
-func (s *SnapshotGenerator) restoreDump(ctx context.Context, ss *snapshot.Snapshot, dump []byte) error {
+func (s *SnapshotGenerator) restoreDump(ctx context.Context, schemaTables map[string][]string, dump []byte) error {
 	// if we use table filtering in the pg_dump command, the schema creation
 	// will not be dumped, so it needs to be created explicitly (except for
 	// public schema)
-	if len(ss.TableNames) > 0 && ss.SchemaName != publicSchema {
-		if err := s.createSchemaIfNotExists(ctx, ss.SchemaName); err != nil {
-			return err
+	for schema, tables := range schemaTables {
+		if len(tables) > 0 && schema != publicSchema {
+			if err := s.createSchemaIfNotExists(ctx, schema); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -239,8 +247,10 @@ func (s *SnapshotGenerator) restoreDump(ctx context.Context, ss *snapshot.Snapsh
 	// sure the schema_log table is updated accordingly with the schema view so
 	// that replication can work as expected if configured.
 	if s.schemalogStore != nil {
-		if _, err := s.schemalogStore.Insert(ctx, ss.SchemaName); err != nil {
-			return fmt.Errorf("inserting schemalog entry after schema snapshot: %w", err)
+		for schema := range schemaTables {
+			if _, err := s.schemalogStore.Insert(ctx, schema); err != nil {
+				return fmt.Errorf("inserting schemalog entry after schema snapshot: %w", err)
+			}
 		}
 	}
 
@@ -267,12 +277,16 @@ func (s *SnapshotGenerator) pgrestoreOptions() pglib.PGRestoreOptions {
 	}
 }
 
-func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, ss *snapshot.Snapshot) (*pglib.PGDumpOptions, error) {
+func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, schemaTables map[string][]string) (*pglib.PGDumpOptions, error) {
+	schemas := make([]string, 0, len(schemaTables))
+	for schema := range schemaTables {
+		schemas = append(schemas, schema)
+	}
 	opts := &pglib.PGDumpOptions{
 		ConnectionString: s.sourceURL,
 		Format:           "p",
 		SchemaOnly:       true,
-		Schemas:          []string{ss.SchemaName},
+		Schemas:          schemas,
 		Clean:            s.cleanTargetDB,
 		Create:           s.createTargetDB,
 	}
@@ -288,25 +302,25 @@ func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, ss *snapshot.Snap
 		// created. pg_dump will not include them when using the schema filter,
 		// since they do not belong to the schema.
 		var err error
-		opts.ExcludeSchemas, err = s.pgdumpExcludedSchemas(ctx, ss.SchemaName)
+		opts.ExcludeSchemas, err = s.pgdumpExcludedSchemas(ctx, schemas)
 		if err != nil {
 			return nil, err
 		}
 		opts.Schemas = nil
 	}
 
-	// wildcard means all tables in the schema, so no table filter required
-	if slices.Contains(ss.TableNames, wildcard) {
-		return opts, nil
-	}
-
 	// we use the excluded tables flag to make sure we still dump non table
 	// objects for the schema in question. If we use the tables filter, only
 	// those tables are dumped, and any related non table objects will not be
 	// dumped, causing the restore to fail due to missing related objects.
-	if len(ss.TableNames) > 0 {
+	for schema, tables := range schemaTables {
+		if hasWildcardTable(tables) {
+			// if there's the wildcard table, we don't need to add excluded
+			// tables, since they are all included.
+			continue
+		}
 		var err error
-		opts.ExcludeTables, err = s.pgdumpExcludedTables(ctx, ss.SchemaName, ss.TableNames)
+		opts.ExcludeTables, err = s.pgdumpExcludedTables(ctx, schema, tables)
 		if err != nil {
 			return nil, err
 		}
@@ -314,6 +328,8 @@ func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, ss *snapshot.Snap
 
 	return opts, nil
 }
+
+var selectTablesQuery = "SELECT tablename FROM pg_tables WHERE schemaname = '%s' AND tablename NOT IN (%s)"
 
 func (s *SnapshotGenerator) pgdumpExcludedTables(ctx context.Context, schemaName string, includeTables []string) ([]string, error) {
 	conn, err := s.connBuilder(ctx, s.sourceURL)
@@ -330,7 +346,7 @@ func (s *SnapshotGenerator) pgdumpExcludedTables(ctx context.Context, schemaName
 	}
 
 	// get all tables in the schema that are not in the include list
-	query := fmt.Sprintf("SELECT tablename FROM pg_tables WHERE schemaname = '%s' AND tablename NOT IN (%s)", schemaName, strings.Join(paramRefs, ","))
+	query := fmt.Sprintf(selectTablesQuery, schemaName, strings.Join(paramRefs, ","))
 	rows, err := conn.Query(ctx, query, tableParams...)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving tables from schema: %w", err)
@@ -353,18 +369,27 @@ func (s *SnapshotGenerator) pgdumpExcludedTables(ctx context.Context, schemaName
 	return excludeTables, nil
 }
 
-func (s *SnapshotGenerator) pgdumpExcludedSchemas(ctx context.Context, schemaName string) ([]string, error) {
+var selectSchemasQuery = "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN (%s)"
+
+func (s *SnapshotGenerator) pgdumpExcludedSchemas(ctx context.Context, includeSchemas []string) ([]string, error) {
 	conn, err := s.connBuilder(ctx, s.sourceURL)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close(ctx)
 
+	paramRefs := make([]string, 0, len(includeSchemas))
+	schemaParams := make([]any, 0, len(includeSchemas))
+	for i, schema := range includeSchemas {
+		schemaParams = append(schemaParams, schema)
+		paramRefs = append(paramRefs, fmt.Sprintf("$%d", i+1))
+	}
+
 	// get all schemas in the database that are not in the snapshot request
-	const query = "SELECT schema_name FROM information_schema.schemata WHERE schema_name != $1"
-	rows, err := conn.Query(ctx, query, schemaName)
+	query := fmt.Sprintf(selectSchemasQuery, strings.Join(paramRefs, ","))
+	rows, err := conn.Query(ctx, query, schemaParams...)
 	if err != nil {
-		return nil, fmt.Errorf("retrieving tables from schema: %w", err)
+		return nil, fmt.Errorf("retrieving schemas: %w", err)
 	}
 	defer rows.Close()
 
@@ -398,6 +423,8 @@ func (s *SnapshotGenerator) initialiseSchemaLogStore(ctx context.Context) error 
 	return err
 }
 
+const existsTableQuery = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2)"
+
 func (s *SnapshotGenerator) schemalogExists(ctx context.Context) (bool, error) {
 	conn, err := s.connBuilder(ctx, s.sourceURL)
 	if err != nil {
@@ -407,9 +434,8 @@ func (s *SnapshotGenerator) schemalogExists(ctx context.Context) (bool, error) {
 
 	// check if the pgstream.schema_log table exists, if not, we can skip the initialisation
 	// of the schemalog store
-	existsQuery := "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2)"
 	var exists bool
-	err = conn.QueryRow(ctx, existsQuery, schemalog.SchemaName, schemalog.TableName).Scan(&exists)
+	err = conn.QueryRow(ctx, existsTableQuery, schemalog.SchemaName, schemalog.TableName).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("checking schemalog table existence: %w", err)
 	}
@@ -478,4 +504,8 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		indicesAndConstraints: []byte(indicesAndConstraints.String()),
 		sequences:             sequenceNames,
 	}
+}
+
+func hasWildcardTable(tables []string) bool {
+	return slices.Contains(tables, "*")
 }
