@@ -3,14 +3,19 @@
 package neosync
 
 import (
+	"context"
+	"errors"
 	"fmt"
 
 	neosynctransformers "github.com/nucleuscloud/neosync/worker/pkg/benthos/transformers"
+	transformer_utils "github.com/nucleuscloud/neosync/worker/pkg/benthos/transformers/utils"
+	"github.com/nucleuscloud/neosync/worker/pkg/rng"
 	"github.com/xataio/pgstream/pkg/transformers"
 )
 
 type LastNameTransformer struct {
 	*transformer[string]
+	randomizer rng.Rand
 }
 
 var (
@@ -40,6 +45,7 @@ var (
 	lastNameCompatibleTypes = []transformers.SupportedDataType{
 		transformers.StringDataType,
 	}
+	errLastNameLengthMustBeGreaterThanZero = errors.New("neosync_lastname: max_length must be greater than 0")
 )
 
 func NewLastNameTransformer(params transformers.ParameterValues) (*LastNameTransformer, error) {
@@ -53,19 +59,41 @@ func NewLastNameTransformer(params transformers.ParameterValues) (*LastNameTrans
 		return nil, fmt.Errorf("neosync_lastname: max_length must be an integer: %w", err)
 	}
 
-	seed, err := findParameter[int](params, "seed")
-	if err != nil {
-		return nil, fmt.Errorf("neosync_lastname: seed must be an integer: %w", err)
+	if maxLength != nil && *maxLength < 1 {
+		return nil, errLastNameLengthMustBeGreaterThanZero
 	}
 
-	opts, err := neosynctransformers.NewTransformLastNameOpts(toInt64Ptr(maxLength), preserveLength, toInt64Ptr(seed))
+	seedParam, err := findParameter[int](params, "seed")
+	if err != nil {
+		return nil, fmt.Errorf("neosync_firstname: seed must be an integer: %w", err)
+	}
+
+	opts, err := neosynctransformers.NewTransformLastNameOpts(toInt64Ptr(maxLength), preserveLength, toInt64Ptr(seedParam))
 	if err != nil {
 		return nil, err
 	}
 
+	seed, err := transformer_utils.GetSeedOrDefault(toInt64Ptr(seedParam))
+	if err != nil {
+		// not expected, but handle it gracefully
+		return nil, fmt.Errorf("neosync_firstname: unable to generate seed: %w", err)
+	}
+
 	return &LastNameTransformer{
 		transformer: New[string](neosynctransformers.NewTransformLastName(), opts),
+		randomizer:  rng.New(seed),
 	}, nil
+}
+
+func (t *LastNameTransformer) Transform(ctx context.Context, value transformers.Value) (any, error) {
+	transformedValue, err := t.transformer.Transform(ctx, value)
+	if err != nil {
+		var errSingleChar *errSingleCharName
+		if errors.As(err, &errSingleChar) {
+			return string(uppercaseLetters[t.randomizer.Intn(len(uppercaseLetters))]), nil
+		}
+	}
+	return transformedValue, err
 }
 
 func (t *LastNameTransformer) CompatibleTypes() []transformers.SupportedDataType {
