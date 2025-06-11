@@ -5,9 +5,9 @@ package postgres
 type Config struct {
 	// Postgres connection URL. Required.
 	URL string
-	// BatchPageSize represents the size of the table page range that will be
-	// processed concurrently by the table workers. Defaults to 1000.
-	BatchPageSize uint
+	// BatchBytes represents the size of the batch of table pages in bytes.
+	// Defaults to 80MiB.
+	BatchBytes uint64
 	// SnapshotWorkers represents the number of snapshots the generator will
 	// process concurrently. This doesn't affect the parallelism of the tables
 	// within each individual snapshot request. It defaults to 1.
@@ -21,17 +21,17 @@ type Config struct {
 }
 
 const (
-	defaultBatchPageSize   = 1000
 	defaultTableWorkers    = 4
 	defaultSchemaWorkers   = 4
 	defaultSnapshotWorkers = 1
+	defaultBatchBytes      = 80 * 1024 * 1024 // 80 MiB
 )
 
-func (c *Config) batchPageSize() uint {
-	if c.BatchPageSize > 0 {
-		return c.BatchPageSize
+func (c *Config) batchBytes() uint64 {
+	if c.BatchBytes > 0 {
+		return c.BatchBytes
 	}
-	return defaultBatchPageSize
+	return defaultBatchBytes
 }
 
 func (c *Config) schemaWorkers() uint {

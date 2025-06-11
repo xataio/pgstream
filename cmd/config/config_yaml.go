@@ -86,9 +86,9 @@ type SnapshotRecorderConfig struct {
 }
 
 type SnapshotDataConfig struct {
-	SchemaWorkers int `mapstructure:"schema_workers" yaml:"schema_workers"`
-	TableWorkers  int `mapstructure:"table_workers" yaml:"table_workers"`
-	BatchPageSize int `mapstructure:"batch_page_size" yaml:"batch_page_size"`
+	SchemaWorkers int    `mapstructure:"schema_workers" yaml:"schema_workers"`
+	TableWorkers  int    `mapstructure:"table_workers" yaml:"table_workers"`
+	BatchBytes    uint64 `mapstructure:"batch_bytes" yaml:"batch_bytes"`
 }
 
 type SnapshotSchemaConfig struct {
@@ -456,7 +456,7 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 	if snapshotConfig.Mode == fullSnapshotMode || snapshotConfig.Mode == dataSnapshotMode {
 		streamCfg.Generator = pgsnapshotgenerator.Config{
 			URL:             c.Source.Postgres.URL,
-			BatchPageSize:   uint(snapshotConfig.Data.BatchPageSize),
+			BatchBytes:      snapshotConfig.Data.BatchBytes,
 			SchemaWorkers:   uint(snapshotConfig.Data.SchemaWorkers),
 			TableWorkers:    uint(snapshotConfig.Data.TableWorkers),
 			SnapshotWorkers: uint(snapshotConfig.SnapshotWorkers),
