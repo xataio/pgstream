@@ -71,8 +71,8 @@ Further configuration can be provided to optimize the performance of the snapsho
 PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS=4
 # Number of concurrent workers that will be used per table by the snapshotting process. Defaults to 4.
 PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS=4
-# Size of the table page range which will be processed concurrently by the table workers from PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS. Defaults to 1000.
-PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE=1000
+# Size of the batches the table workers from PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS will read concurrently. Defaults to 80MiB.
+PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES=83886080
 # Number of schemas that will be processed in parallel by the snapshotting process. Defaults to 1.
 PGSTREAM_POSTGRES_SNAPSHOT_WORKERS=1
 ```
@@ -124,7 +124,7 @@ PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL="postgres://postgres:postgres@localhost:
 PGSTREAM_POSTGRES_SNAPSHOT_TABLES="*"
 PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS=4
 PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS=4
-PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE=1000
+PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES=83886080
 PGSTREAM_POSTGRES_SNAPSHOT_WORKERS=1
 PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 
@@ -151,7 +151,7 @@ source:
       data: # when mode is full or data
         schema_workers: 4 # number of schema tables to be snapshotted in parallel
         table_workers: 4 # number of workers to snapshot a table in parallel
-        batch_page_size: 1000 # number of pages to read per batch
+        batch_bytes: 83886080 # bytes to read per batch (defaults to 80MiB)
       schema: # when mode is full or schema
         mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
         pgdump_pgrestore:
