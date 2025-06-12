@@ -34,6 +34,27 @@ func TestFirstnameTransformer_Transform(t *testing.T) {
 			wantErr:  nil,
 		},
 		{
+			name:  "ok - length 1",
+			value: "alice",
+			params: map[string]any{
+				"max_length": 1,
+				"seed":       12,
+			},
+
+			wantName: "I",
+			wantErr:  nil,
+		},
+		{
+			name:  "error - length -1",
+			value: "alice",
+			params: map[string]any{
+				"max_length": -1,
+				"seed":       12,
+			},
+
+			wantErr: errFirstNameLengthMustBeGreaterThanZero,
+		},
+		{
 			name:  "error - invalid preserve length",
 			value: "alice",
 			params: map[string]any{
