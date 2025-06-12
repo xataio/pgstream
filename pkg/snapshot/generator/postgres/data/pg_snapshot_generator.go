@@ -439,7 +439,7 @@ func (t *tablePageInfo) getBatchPageSize(bytes uint64) uint {
 	}
 
 	batchPageSize := bytes / uint64(t.avgPageBytes)
-	// at least one page is needed to process the tabl
+	// at least one page is needed to process the table
 	if batchPageSize == 0 {
 		batchPageSize = 1
 	}
