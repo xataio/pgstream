@@ -908,16 +908,3 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		})
 	}
 }
-
-// func sortSnapshotTableErrors(err error) error {
-// 	var snapshotErrs snapshot.Errors
-// 	if errors.As(err, &snapshotErrs) {
-// 		for _, schemaErrs := range snapshotErrs {
-// 			sort.Slice(schemaErrs.Tables, func(i, j int) bool {
-// 				return snapshotErrs.Tables[i].Table < snapshotErrs.Tables[j].Table
-// 			})
-// 		}
-// 		return snapshotErrs
-// 	}
-// 	return err
-// }
