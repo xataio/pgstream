@@ -22,11 +22,11 @@ func newInstrumentedTableSnapshotGenerator(fn snapshotTableFn, i *otel.Instrumen
 	}
 }
 
-func (i *instrumentedTableSnapshotGenerator) snapshotTable(ctx context.Context, snapshotID string, schema, table string) (err error) {
+func (i *instrumentedTableSnapshotGenerator) snapshotTable(ctx context.Context, snapshotID string, table *table) (err error) {
 	ctx, span := otel.StartSpan(ctx, i.tracer, "tableSnapshotGenerator.SnapshotTable", trace.WithAttributes([]attribute.KeyValue{
-		{Key: "schema", Value: attribute.StringValue(schema)},
-		{Key: "table", Value: attribute.StringValue(table)},
+		{Key: "schema", Value: attribute.StringValue(table.schema)},
+		{Key: "table", Value: attribute.StringValue(table.name)},
 	}...))
 	defer otel.CloseSpan(span, err)
-	return i.snapshotTableFn(ctx, snapshotID, schema, table)
+	return i.snapshotTableFn(ctx, snapshotID, table)
 }

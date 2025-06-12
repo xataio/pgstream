@@ -57,6 +57,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 	// postgres data snapshot generator layer
 	opts := []pgsnapshotgenerator.Option{
 		pgsnapshotgenerator.WithLogger(logger),
+		pgsnapshotgenerator.WithProgressTracking(),
 	}
 	if instrumentation.IsEnabled() {
 		opts = append(opts, pgsnapshotgenerator.WithInstrumentation(instrumentation))
