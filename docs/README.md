@@ -1057,6 +1057,8 @@ transformations:
 | max_length      | int  | 100     | No       |
 | seed            | int  | Rand    | No       |
 
+max_length must be greater than 2. If preserve_length is set to true, generated value can might be longer than max_length, depending on the input length.
+
 **Example Configuration:**
 
 ```yaml
