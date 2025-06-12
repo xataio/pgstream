@@ -23,11 +23,13 @@ var errTest = errors.New("oh noes")
 func Test_NewErrors(t *testing.T) {
 	t.Parallel()
 
+	testSchema := "test-schema"
+
 	tests := []struct {
 		name string
 		err  error
 
-		wantErr *Errors
+		wantErr Errors
 	}{
 		{
 			name: "nil error",
@@ -39,18 +41,27 @@ func Test_NewErrors(t *testing.T) {
 			name: "normal error",
 			err:  errTest,
 
-			wantErr: &Errors{
-				SnapshotErrMsgs: []string{errTest.Error()},
+			wantErr: Errors{
+				testSchema: &SchemaErrors{
+					Schema:       testSchema,
+					GlobalErrors: []string{errTest.Error()},
+				},
 			},
 		},
 		{
-			name: "snapshot error",
-			err: &Errors{
-				SnapshotErrMsgs: []string{"test"},
+			name: "global error",
+			err: Errors{
+				testSchema: &SchemaErrors{
+					Schema:       testSchema,
+					GlobalErrors: []string{errTest.Error()},
+				},
 			},
 
-			wantErr: &Errors{
-				SnapshotErrMsgs: []string{"test"},
+			wantErr: Errors{
+				testSchema: &SchemaErrors{
+					Schema:       testSchema,
+					GlobalErrors: []string{errTest.Error()},
+				},
 			},
 		},
 	}
@@ -59,7 +70,7 @@ func Test_NewErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotErr := NewErrors(tc.err)
+			gotErr := NewErrors(testSchema, tc.err)
 			require.Equal(t, gotErr, tc.wantErr)
 		})
 	}
@@ -67,6 +78,8 @@ func Test_NewErrors(t *testing.T) {
 
 func TestErrors_Error(t *testing.T) {
 	t.Parallel()
+
+	testSchema := "test-schema"
 
 	tests := []struct {
 		name string
@@ -76,64 +89,79 @@ func TestErrors_Error(t *testing.T) {
 	}{
 		{
 			name: "nil error",
-			err:  (*Errors)(nil),
+			err:  (Errors)(nil),
 
 			wantStr: "",
 		},
 		{
 			name: "empty error",
-			err:  &Errors{},
+			err:  Errors{},
 
 			wantStr: "",
 		},
 		{
 			name: "with one snapshot error",
-			err: &Errors{
-				SnapshotErrMsgs: []string{err1},
+			err: Errors{
+				testSchema: &SchemaErrors{
+					Schema:       testSchema,
+					GlobalErrors: []string{err1},
+				},
 			},
 
-			wantStr: err1,
+			wantStr: testSchema + ": " + err1,
 		},
 		{
 			name: "with multiple snapshot errors",
-			err: &Errors{
-				SnapshotErrMsgs: []string{err1, err2},
+			err: Errors{
+				testSchema: &SchemaErrors{
+					Schema:       testSchema,
+					GlobalErrors: []string{err1, err2},
+				},
 			},
 
-			wantStr: fmt.Sprintf("%s;%s", err1, err2),
+			wantStr: fmt.Sprintf("%s: %s;%s", testSchema, err1, err2),
 		},
 		{
 			name: "with one table error",
-			err: &Errors{
-				Tables: []TableError{
-					{ErrorMsg: err1, Table: table1},
+			err: Errors{
+				testSchema: &SchemaErrors{
+					Schema: testSchema,
+					TableErrors: map[string]string{
+						table1: err1,
+					},
 				},
 			},
 
-			wantStr: fmt.Sprintf("%s: %s", table1, err1),
+			wantStr: fmt.Sprintf("%s: %s: %s", testSchema, table1, err1),
 		},
 		{
 			name: "with multiple table errors",
-			err: &Errors{
-				Tables: []TableError{
-					{ErrorMsg: err1, Table: table1},
-					{ErrorMsg: err2, Table: table2},
+			err: Errors{
+				testSchema: &SchemaErrors{
+					Schema: testSchema,
+					TableErrors: map[string]string{
+						table1: err1,
+						table2: err2,
+					},
 				},
 			},
 
-			wantStr: fmt.Sprintf("%s: %s;%s: %s", table1, err1, table2, err2),
+			wantStr: fmt.Sprintf("%s: %s: %s;%s: %s", testSchema, table1, err1, table2, err2),
 		},
 		{
 			name: "with snapshot and table errors",
-			err: &Errors{
-				SnapshotErrMsgs: []string{err1, err2},
-				Tables: []TableError{
-					NewTableError(table1, errors.New(err1)),
-					NewTableError(table2, errors.New(err2)),
+			err: Errors{
+				testSchema: &SchemaErrors{
+					Schema:       testSchema,
+					GlobalErrors: []string{err1, err2},
+					TableErrors: map[string]string{
+						table1: err1,
+						table2: err2,
+					},
 				},
 			},
 
-			wantStr: fmt.Sprintf("%s;%s;%s: %s;%s: %s", err1, err2, table1, err1, table2, err2),
+			wantStr: fmt.Sprintf("%s: %s;%s;%s: %s;%s: %s", testSchema, err1, err2, table1, err1, table2, err2),
 		},
 	}
 
@@ -147,12 +175,65 @@ func TestErrors_Error(t *testing.T) {
 	}
 }
 
-func TestErrors_AddSnapshotErrors(t *testing.T) {
+func TestErrors_GetSchemaErrors(t *testing.T) {
 	t.Parallel()
+
+	testSchema := "test-schema"
+
+	tests := []struct {
+		name string
+		err  Errors
+
+		wantErrs *SchemaErrors
+	}{
+		{
+			name: "ok",
+			err: Errors{
+				testSchema: &SchemaErrors{
+					Schema:       testSchema,
+					GlobalErrors: []string{err1, err2},
+				},
+			},
+			wantErrs: &SchemaErrors{
+				Schema:       testSchema,
+				GlobalErrors: []string{err1, err2},
+			},
+		},
+		{
+			name: "ok - no schema errors",
+			err: Errors{
+				"another-schema": &SchemaErrors{
+					Schema:       testSchema,
+					GlobalErrors: []string{err1, err2},
+				},
+			},
+			wantErrs: nil,
+		},
+		{
+			name:     "ok - nil errors",
+			err:      nil,
+			wantErrs: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			schemaErrs := tc.err.GetSchemaErrors(testSchema)
+			require.Equal(t, tc.wantErrs, schemaErrs)
+		})
+	}
+}
+
+func TestErrors_AddError(t *testing.T) {
+	t.Parallel()
+
+	testSchema := "test-schema"
 
 	tests := []struct {
 		name   string
-		err    *Errors
+		err    Errors
 		addErr error
 
 		wantErr error
@@ -162,26 +243,35 @@ func TestErrors_AddSnapshotErrors(t *testing.T) {
 			err:    nil,
 			addErr: errTest,
 
-			wantErr: (*Errors)(nil),
+			wantErr: (Errors)(nil),
 		},
 		{
 			name:   "error",
-			err:    &Errors{},
+			err:    Errors{},
 			addErr: errTest,
 
-			wantErr: &Errors{
-				SnapshotErrMsgs: []string{errTest.Error()},
+			wantErr: Errors{
+				testSchema: &SchemaErrors{
+					Schema:       testSchema,
+					GlobalErrors: []string{errTest.Error()},
+				},
 			},
 		},
 		{
-			name: "with snapshot errors",
-			err: &Errors{
-				SnapshotErrMsgs: []string{err1, err2},
+			name: "with global errors",
+			err: Errors{
+				testSchema: &SchemaErrors{
+					Schema:       testSchema,
+					GlobalErrors: []string{err1, err2},
+				},
 			},
 			addErr: errTest,
 
-			wantErr: &Errors{
-				SnapshotErrMsgs: []string{err1, err2, errTest.Error()},
+			wantErr: Errors{
+				testSchema: &SchemaErrors{
+					Schema:       testSchema,
+					GlobalErrors: []string{err1, err2, errTest.Error()},
+				},
 			},
 		},
 	}
@@ -190,19 +280,72 @@ func TestErrors_AddSnapshotErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			tc.err.AddSnapshotError(tc.addErr)
+			tc.err.AddError(testSchema, tc.addErr)
 			require.Equal(t, tc.wantErr, tc.err)
 		})
 	}
 }
 
-func TestErrors_IsTableError(t *testing.T) {
+func Test_NewSchemaErrors(t *testing.T) {
 	t.Parallel()
+
+	testSchema := "test-schema"
+	otherSchema := "other-schema"
+
+	tests := []struct {
+		name     string
+		schema   string
+		err      error
+		wantErrs *SchemaErrors
+	}{
+		{
+			name:     "nil error",
+			schema:   testSchema,
+			err:      nil,
+			wantErrs: nil,
+		},
+		{
+			name:   "normal error",
+			schema: testSchema,
+			err:    errTest,
+			wantErrs: &SchemaErrors{
+				Schema:       testSchema,
+				GlobalErrors: []string{errTest.Error()},
+			},
+		},
+		{
+			name:   "error is already SchemaErrors",
+			schema: testSchema,
+			err: &SchemaErrors{
+				Schema:       otherSchema,
+				GlobalErrors: []string{"err1", "err2"},
+			},
+			wantErrs: &SchemaErrors{
+				Schema:       otherSchema,
+				GlobalErrors: []string{"err1", "err2"},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := NewSchemaErrors(tc.schema, tc.err)
+			require.Equal(t, tc.wantErrs, got)
+		})
+	}
+}
+
+func TestSchemaErrors_IsTableError(t *testing.T) {
+	t.Parallel()
+
+	testSchema := "test-schema"
 
 	tests := []struct {
 		name  string
 		table string
-		err   *Errors
+		err   *SchemaErrors
 
 		wantTableErr bool
 	}{
@@ -215,15 +358,16 @@ func TestErrors_IsTableError(t *testing.T) {
 		},
 		{
 			name:  "no errors",
-			err:   &Errors{},
+			err:   &SchemaErrors{},
 			table: table1,
 
 			wantTableErr: false,
 		},
 		{
 			name: "with snapshto errors",
-			err: &Errors{
-				SnapshotErrMsgs: []string{err1},
+			err: &SchemaErrors{
+				Schema:       testSchema,
+				GlobalErrors: []string{err1},
 			},
 			table: table1,
 
@@ -231,9 +375,10 @@ func TestErrors_IsTableError(t *testing.T) {
 		},
 		{
 			name: "with table errors",
-			err: &Errors{
-				Tables: []TableError{
-					{Table: table1, ErrorMsg: err1},
+			err: &SchemaErrors{
+				Schema: testSchema,
+				TableErrors: map[string]string{
+					table1: err1,
 				},
 			},
 			table: table1,
@@ -242,9 +387,10 @@ func TestErrors_IsTableError(t *testing.T) {
 		},
 		{
 			name: "wildcard table",
-			err: &Errors{
-				Tables: []TableError{
-					{Table: table1, ErrorMsg: err1},
+			err: &SchemaErrors{
+				Schema: testSchema,
+				TableErrors: map[string]string{
+					table1: err1,
 				},
 			},
 			table: "*",
@@ -263,12 +409,14 @@ func TestErrors_IsTableError(t *testing.T) {
 	}
 }
 
-func TestErrors_GetFailedTables(t *testing.T) {
+func TestSchemaErrors_GetFailedTables(t *testing.T) {
 	t.Parallel()
+
+	testSchema := "test-schema"
 
 	tests := []struct {
 		name string
-		err  *Errors
+		err  *SchemaErrors
 
 		wantTables []string
 	}{
@@ -280,16 +428,17 @@ func TestErrors_GetFailedTables(t *testing.T) {
 		},
 		{
 			name: "no failed tables",
-			err:  &Errors{},
+			err:  &SchemaErrors{},
 
 			wantTables: []string{},
 		},
 		{
 			name: "with failed tables",
-			err: &Errors{
-				Tables: []TableError{
-					{Table: table1, ErrorMsg: err1},
-					{Table: table2, ErrorMsg: err2},
+			err: &SchemaErrors{
+				Schema: testSchema,
+				TableErrors: map[string]string{
+					table1: err1,
+					table2: err2,
 				},
 			},
 
@@ -302,43 +451,73 @@ func TestErrors_GetFailedTables(t *testing.T) {
 			t.Parallel()
 
 			tables := tc.err.GetFailedTables()
-			require.Equal(t, tc.wantTables, tables)
+			require.ElementsMatch(t, tc.wantTables, tables)
 		})
 	}
 }
 
-func TestErrors_IsSnapshotError(t *testing.T) {
+func TestSchemaErrors_AddTableError(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-		err  *Errors
+	testSchema := "test-schema"
 
-		wantIsSnapshotErr bool
+	tests := []struct {
+		name   string
+		err    *SchemaErrors
+		table  string
+		addErr error
+
+		wantErrs *SchemaErrors
 	}{
 		{
-			name: "nil error",
-			err:  nil,
+			name:   "nil schema errors",
+			err:    nil,
+			table:  table1,
+			addErr: errTest,
 
-			wantIsSnapshotErr: false,
+			wantErrs: nil,
 		},
 		{
-			name: "with snapshot error",
-			err: &Errors{
-				SnapshotErrMsgs: []string{err1, err2},
+			name:   "nil add error",
+			err:    &SchemaErrors{},
+			table:  table1,
+			addErr: nil,
+
+			wantErrs: &SchemaErrors{},
+		},
+		{
+			name: "new table error",
+			err: &SchemaErrors{
+				Schema: testSchema,
 			},
+			table:  table1,
+			addErr: errTest,
 
-			wantIsSnapshotErr: true,
-		},
-		{
-			name: "with table error",
-			err: &Errors{
-				Tables: []TableError{
-					NewTableError(table1, errTest),
+			wantErrs: &SchemaErrors{
+				Schema: testSchema,
+				TableErrors: map[string]string{
+					table1: errTest.Error(),
 				},
 			},
+		},
+		{
+			name: "existing table errors",
+			err: &SchemaErrors{
+				Schema: testSchema,
+				TableErrors: map[string]string{
+					table1: errTest.Error(),
+				},
+			},
+			table:  table2,
+			addErr: errTest,
 
-			wantIsSnapshotErr: false,
+			wantErrs: &SchemaErrors{
+				Schema: testSchema,
+				TableErrors: map[string]string{
+					table1: errTest.Error(),
+					table2: errTest.Error(),
+				},
+			},
 		},
 	}
 
@@ -346,8 +525,57 @@ func TestErrors_IsSnapshotError(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tc.err.IsSnapshotError()
-			require.Equal(t, tc.wantIsSnapshotErr, got)
+			tc.err.AddTableError(tc.table, tc.addErr)
+			require.Equal(t, tc.wantErrs, tc.err)
+		})
+	}
+}
+
+func TestSchemaErrors_IsGlobalError(t *testing.T) {
+	t.Parallel()
+
+	testSchema := "test-schema"
+
+	tests := []struct {
+		name string
+		err  *SchemaErrors
+
+		wantIsGlobalErr bool
+	}{
+		{
+			name: "nil error",
+			err:  nil,
+
+			wantIsGlobalErr: false,
+		},
+		{
+			name: "with snapshot error",
+			err: &SchemaErrors{
+				Schema:       testSchema,
+				GlobalErrors: []string{err1, err2},
+			},
+
+			wantIsGlobalErr: true,
+		},
+		{
+			name: "with table error",
+			err: &SchemaErrors{
+				Schema: testSchema,
+				TableErrors: map[string]string{
+					table1: err1,
+				},
+			},
+
+			wantIsGlobalErr: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := tc.err.IsGlobalError()
+			require.Equal(t, tc.wantIsGlobalErr, got)
 		})
 	}
 }

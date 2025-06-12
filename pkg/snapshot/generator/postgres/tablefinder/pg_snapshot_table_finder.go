@@ -64,11 +64,13 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 }
 
 func (s *SnapshotTableFinder) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) error {
-	if slices.Contains(ss.TableNames, wildcard) {
-		var err error
-		ss.TableNames, err = s.discoveryFn(ctx, s.conn, ss.SchemaName)
-		if err != nil {
-			return err
+	for schema, tables := range ss.SchemaTables {
+		if slices.Contains(tables, wildcard) {
+			var err error
+			ss.SchemaTables[schema], err = s.discoveryFn(ctx, s.conn, schema)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return s.wrapped.CreateSnapshot(ctx, ss)

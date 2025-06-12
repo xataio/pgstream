@@ -17,9 +17,12 @@ import (
 func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 	t.Parallel()
 
+	testSchema := "test-schema"
+	testTables := []string{"table1", "table2"}
 	testSnapshot := snapshot.Snapshot{
-		SchemaName: "test-schema",
-		TableNames: []string{"table1", "table2"},
+		SchemaTables: map[string][]string{
+			testSchema: testTables,
+		},
 	}
 
 	newTestSnapshot := func() *snapshot.Snapshot {
@@ -45,7 +48,8 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 				},
 				CreateSnapshotRequestFn: func(ctx context.Context, r *snapshot.Request) error {
 					require.Equal(t, &snapshot.Request{
-						Snapshot: testSnapshot,
+						Schema: testSchema,
+						Tables: testTables,
 					}, r)
 					return nil
 				},
@@ -53,14 +57,16 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						require.Equal(t, &snapshot.Request{
-							Snapshot: testSnapshot,
-							Status:   snapshot.StatusInProgress,
+							Schema: testSchema,
+							Tables: testTables,
+							Status: snapshot.StatusInProgress,
 						}, r)
 						return nil
 					case 2:
 						require.Equal(t, &snapshot.Request{
-							Snapshot: testSnapshot,
-							Status:   snapshot.StatusCompleted,
+							Schema: testSchema,
+							Tables: testTables,
+							Status: snapshot.StatusCompleted,
 						}, r)
 						return nil
 					default:
@@ -83,7 +89,11 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 			store: &snapshotstoremocks.Store{
 				GetSnapshotRequestsBySchemaFn: func(ctx context.Context, s string) ([]*snapshot.Request, error) {
 					return []*snapshot.Request{
-						{Snapshot: testSnapshot, Status: snapshot.StatusCompleted},
+						{
+							Schema: testSchema,
+							Tables: testTables,
+							Status: snapshot.StatusCompleted,
+						},
 					}, nil
 				},
 			},
@@ -100,7 +110,7 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 			},
 			generator: &mockGenerator{},
 
-			wantErr: snapshot.NewErrors(fmt.Errorf("retrieving existing snapshots for schema: %w", errTest)),
+			wantErr: errTest,
 		},
 		{
 			name: "error - snapshot error on wrapped generator",
@@ -110,7 +120,8 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 				},
 				CreateSnapshotRequestFn: func(ctx context.Context, r *snapshot.Request) error {
 					require.Equal(t, &snapshot.Request{
-						Snapshot: testSnapshot,
+						Schema: testSchema,
+						Tables: testTables,
 					}, r)
 					return nil
 				},
@@ -118,15 +129,17 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						require.Equal(t, &snapshot.Request{
-							Snapshot: testSnapshot,
-							Status:   snapshot.StatusInProgress,
+							Schema: testSchema,
+							Tables: testTables,
+							Status: snapshot.StatusInProgress,
 						}, r)
 						return nil
 					case 2:
 						require.Equal(t, &snapshot.Request{
-							Snapshot: testSnapshot,
-							Status:   snapshot.StatusCompleted,
-							Errors:   snapshot.NewErrors(errTest),
+							Schema: testSchema,
+							Tables: testTables,
+							Status: snapshot.StatusCompleted,
+							Errors: snapshot.NewSchemaErrors(testSchema, errTest),
 						}, r)
 						return nil
 					default:
@@ -137,11 +150,11 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 			},
 			generator: &mockGenerator{
 				createSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
-					return snapshot.NewErrors(errTest)
+					return errTest
 				},
 			},
 
-			wantErr: snapshot.NewErrors(errTest),
+			wantErr: errTest,
 		},
 		{
 			name: "error - recording snapshot request",
@@ -159,7 +172,7 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr: snapshot.NewErrors(errTest),
+			wantErr: errTest,
 		},
 		{
 			name: "error - updating snapshot request in progress",
@@ -174,8 +187,9 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						require.Equal(t, &snapshot.Request{
-							Snapshot: testSnapshot,
-							Status:   snapshot.StatusInProgress,
+							Schema: testSchema,
+							Tables: testTables,
+							Status: snapshot.StatusInProgress,
 						}, r)
 						return errTest
 					default:
@@ -186,7 +200,7 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 			},
 			generator: &mockGenerator{},
 
-			wantErr: snapshot.NewErrors(errTest),
+			wantErr: errTest,
 		},
 		{
 			name: "error - updating snapshot request completed without errors",
@@ -196,7 +210,8 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 				},
 				CreateSnapshotRequestFn: func(ctx context.Context, r *snapshot.Request) error {
 					require.Equal(t, &snapshot.Request{
-						Snapshot: testSnapshot,
+						Schema: testSchema,
+						Tables: testTables,
 					}, r)
 					return nil
 				},
@@ -204,14 +219,16 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						require.Equal(t, &snapshot.Request{
-							Snapshot: testSnapshot,
-							Status:   snapshot.StatusInProgress,
+							Schema: testSchema,
+							Tables: testTables,
+							Status: snapshot.StatusInProgress,
 						}, r)
 						return nil
 					case 2:
 						require.Equal(t, &snapshot.Request{
-							Snapshot: testSnapshot,
-							Status:   snapshot.StatusCompleted,
+							Schema: testSchema,
+							Tables: testTables,
+							Status: snapshot.StatusCompleted,
 						}, r)
 						return errTest
 					default:
@@ -227,7 +244,7 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr: snapshot.NewErrors(errTest),
+			wantErr: errTest,
 		},
 		{
 			name: "error - updating snapshot request completed with snapshot and table errors",
@@ -237,7 +254,8 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 				},
 				CreateSnapshotRequestFn: func(ctx context.Context, r *snapshot.Request) error {
 					require.Equal(t, &snapshot.Request{
-						Snapshot: testSnapshot,
+						Schema: testSchema,
+						Tables: testTables,
 					}, r)
 					return nil
 				},
@@ -245,18 +263,21 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						require.Equal(t, &snapshot.Request{
-							Snapshot: testSnapshot,
-							Status:   snapshot.StatusInProgress,
+							Schema: testSchema,
+							Tables: testTables,
+							Status: snapshot.StatusInProgress,
 						}, r)
 						return nil
 					case 2:
 						require.Equal(t, &snapshot.Request{
-							Snapshot: testSnapshot,
-							Status:   snapshot.StatusCompleted,
-							Errors: &snapshot.Errors{
-								SnapshotErrMsgs: []string{errTest.Error()},
-								Tables: []snapshot.TableError{
-									{Table: "table1", ErrorMsg: errTest.Error()},
+							Schema: testSchema,
+							Tables: testTables,
+							Status: snapshot.StatusCompleted,
+							Errors: &snapshot.SchemaErrors{
+								Schema:       testSchema,
+								GlobalErrors: []string{errTest.Error()},
+								TableErrors: map[string]string{
+									"table1": errTest.Error(),
 								},
 							},
 						}, r)
@@ -271,18 +292,24 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 				createSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
 					require.Equal(t, newTestSnapshot(), ss)
 					return &snapshot.Errors{
-						SnapshotErrMsgs: []string{errTest.Error()},
-						Tables: []snapshot.TableError{
-							{Table: "table1", ErrorMsg: errTest.Error()},
+						testSchema: &snapshot.SchemaErrors{
+							Schema:       testSchema,
+							GlobalErrors: []string{errTest.Error()},
+							TableErrors: map[string]string{
+								"table1": errTest.Error(),
+							},
 						},
 					}
 				},
 			},
 
 			wantErr: &snapshot.Errors{
-				SnapshotErrMsgs: []string{errTest.Error(), updateErr.Error()},
-				Tables: []snapshot.TableError{
-					{Table: "table1", ErrorMsg: errTest.Error()},
+				testSchema: &snapshot.SchemaErrors{
+					Schema:       testSchema,
+					GlobalErrors: []string{errTest.Error(), updateErr.Error()},
+					TableErrors: map[string]string{
+						"table1": errTest.Error(),
+					},
 				},
 			},
 		},
@@ -294,7 +321,8 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 				},
 				CreateSnapshotRequestFn: func(ctx context.Context, r *snapshot.Request) error {
 					require.Equal(t, &snapshot.Request{
-						Snapshot: testSnapshot,
+						Schema: testSchema,
+						Tables: testTables,
 					}, r)
 					return nil
 				},
@@ -302,17 +330,20 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						require.Equal(t, &snapshot.Request{
-							Snapshot: testSnapshot,
-							Status:   snapshot.StatusInProgress,
+							Schema: testSchema,
+							Tables: testTables,
+							Status: snapshot.StatusInProgress,
 						}, r)
 						return nil
 					case 2:
 						require.Equal(t, &snapshot.Request{
-							Snapshot: testSnapshot,
-							Status:   snapshot.StatusCompleted,
-							Errors: &snapshot.Errors{
-								Tables: []snapshot.TableError{
-									{Table: "table1", ErrorMsg: errTest.Error()},
+							Schema: testSchema,
+							Tables: testTables,
+							Status: snapshot.StatusCompleted,
+							Errors: &snapshot.SchemaErrors{
+								Schema: testSchema,
+								TableErrors: map[string]string{
+									"table1": errTest.Error(),
 								},
 							},
 						}, r)
@@ -327,17 +358,23 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 				createSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
 					require.Equal(t, newTestSnapshot(), ss)
 					return &snapshot.Errors{
-						Tables: []snapshot.TableError{
-							{Table: "table1", ErrorMsg: errTest.Error()},
+						testSchema: &snapshot.SchemaErrors{
+							Schema: testSchema,
+							TableErrors: map[string]string{
+								"table1": errTest.Error(),
+							},
 						},
 					}
 				},
 			},
 
 			wantErr: &snapshot.Errors{
-				SnapshotErrMsgs: []string{updateErr.Error()},
-				Tables: []snapshot.TableError{
-					{Table: "table1", ErrorMsg: errTest.Error()},
+				testSchema: &snapshot.SchemaErrors{
+					Schema:       testSchema,
+					GlobalErrors: []string{updateErr.Error()},
+					TableErrors: map[string]string{
+						"table1": errTest.Error(),
+					},
 				},
 			},
 		},
@@ -351,7 +388,9 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 			defer sr.Close()
 
 			err := sr.CreateSnapshot(context.Background(), newTestSnapshot())
-			require.Equal(t, tc.wantErr, err)
+			if !errors.Is(err, tc.wantErr) {
+				require.Equal(t, tc.wantErr, err)
+			}
 		})
 	}
 }
@@ -369,7 +408,7 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 		tables              []string
 		repeatableSnapshots bool
 
-		wantTables []string
+		wantTables map[string][]string
 		wantErr    error
 	}{
 		{
@@ -379,7 +418,9 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 					return []*snapshot.Request{}, nil
 				},
 			},
-			wantTables: testTables,
+			wantTables: map[string][]string{
+				testSchema: testTables,
+			},
 		},
 		{
 			name: "ok - no existing snapshots with wildcard",
@@ -387,17 +428,17 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 				GetSnapshotRequestsBySchemaFn: func(ctx context.Context, s string) ([]*snapshot.Request, error) {
 					return []*snapshot.Request{
 						{
-							Snapshot: snapshot.Snapshot{
-								SchemaName: testSchema,
-								TableNames: []string{"table2"},
-							},
+							Schema: testSchema,
+							Tables: []string{"table2"},
 							Status: snapshot.StatusCompleted,
 						},
 					}, nil
 				},
 			},
-			tables:     []string{"*"},
-			wantTables: []string{"*"},
+			tables: []string{"*"},
+			wantTables: map[string][]string{
+				testSchema: {"*"},
+			},
 		},
 		{
 			name: "ok - existing snapshots",
@@ -405,16 +446,16 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 				GetSnapshotRequestsBySchemaFn: func(ctx context.Context, s string) ([]*snapshot.Request, error) {
 					return []*snapshot.Request{
 						{
-							Snapshot: snapshot.Snapshot{
-								SchemaName: testSchema,
-								TableNames: []string{"table2"},
-							},
+							Schema: testSchema,
+							Tables: []string{"table2"},
 							Status: snapshot.StatusCompleted,
 						},
 					}, nil
 				},
 			},
-			wantTables: []string{"table1"},
+			wantTables: map[string][]string{
+				testSchema: {"table1"},
+			},
 		},
 		{
 			name: "ok - existing snapshots with repeatable snapshots",
@@ -424,7 +465,9 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 				},
 			},
 			repeatableSnapshots: true,
-			wantTables:          []string{"table1", "table2"},
+			wantTables: map[string][]string{
+				testSchema: {"table1", "table2"},
+			},
 		},
 		{
 			name: "ok - existing wildcard snapshot with wildcard table",
@@ -432,17 +475,15 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 				GetSnapshotRequestsBySchemaFn: func(ctx context.Context, s string) ([]*snapshot.Request, error) {
 					return []*snapshot.Request{
 						{
-							Snapshot: snapshot.Snapshot{
-								SchemaName: testSchema,
-								TableNames: []string{"*"},
-							},
+							Schema: testSchema,
+							Tables: []string{"*"},
 							Status: snapshot.StatusCompleted,
 						},
 					}, nil
 				},
 			},
 			tables:     []string{"*"},
-			wantTables: []string{},
+			wantTables: map[string][]string{},
 		},
 		{
 			name: "ok - existing wildcard snapshot",
@@ -450,16 +491,14 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 				GetSnapshotRequestsBySchemaFn: func(ctx context.Context, s string) ([]*snapshot.Request, error) {
 					return []*snapshot.Request{
 						{
-							Snapshot: snapshot.Snapshot{
-								SchemaName: testSchema,
-								TableNames: []string{"*"},
-							},
+							Schema: testSchema,
+							Tables: []string{"*"},
 							Status: snapshot.StatusCompleted,
 						},
 					}, nil
 				},
 			},
-			wantTables: []string{},
+			wantTables: map[string][]string{},
 		},
 		{
 			name: "ok - existing failed snapshots",
@@ -467,17 +506,17 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 				GetSnapshotRequestsBySchemaFn: func(ctx context.Context, s string) ([]*snapshot.Request, error) {
 					return []*snapshot.Request{
 						{
-							Snapshot: snapshot.Snapshot{
-								SchemaName: testSchema,
-								TableNames: []string{"table2"},
-							},
-							Errors: snapshot.NewErrors(errTest),
+							Schema: testSchema,
+							Tables: []string{"table2"},
+							Errors: snapshot.NewSchemaErrors(testSchema, errTest),
 							Status: snapshot.StatusCompleted,
 						},
 					}, nil
 				},
 			},
-			wantTables: []string{"table1", "table2"},
+			wantTables: map[string][]string{
+				testSchema: {"table1", "table2"},
+			},
 		},
 		{
 			name: "ok - existing failed wildcard snapshot",
@@ -485,18 +524,23 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 				GetSnapshotRequestsBySchemaFn: func(ctx context.Context, s string) ([]*snapshot.Request, error) {
 					return []*snapshot.Request{
 						{
-							Snapshot: snapshot.Snapshot{
-								SchemaName: testSchema,
-								TableNames: []string{"*"},
+							Schema: testSchema,
+							Tables: []string{"*"},
+							Errors: &snapshot.SchemaErrors{
+								Schema: testSchema,
+								TableErrors: map[string]string{
+									"table2": errTest.Error(),
+								},
 							},
-							Errors: &snapshot.Errors{Tables: []snapshot.TableError{{Table: "table2", ErrorMsg: errTest.Error()}}},
 							Status: snapshot.StatusCompleted,
 						},
 					}, nil
 				},
 			},
-			tables:     []string{"*"},
-			wantTables: []string{"table2"},
+			tables: []string{"*"},
+			wantTables: map[string][]string{
+				testSchema: {"table2"},
+			},
 		},
 		{
 			name: "ok - existing failed table on wildcard snapshot",
@@ -504,17 +548,22 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 				GetSnapshotRequestsBySchemaFn: func(ctx context.Context, s string) ([]*snapshot.Request, error) {
 					return []*snapshot.Request{
 						{
-							Snapshot: snapshot.Snapshot{
-								SchemaName: testSchema,
-								TableNames: []string{"*"},
+							Schema: testSchema,
+							Tables: []string{"*"},
+							Errors: &snapshot.SchemaErrors{
+								Schema: testSchema,
+								TableErrors: map[string]string{
+									"table2": errTest.Error(),
+								},
 							},
-							Errors: &snapshot.Errors{Tables: []snapshot.TableError{{Table: "table2", ErrorMsg: errTest.Error()}}},
 							Status: snapshot.StatusCompleted,
 						},
 					}, nil
 				},
 			},
-			wantTables: []string{"table2"},
+			wantTables: map[string][]string{
+				testSchema: {"table2"},
+			},
 		},
 		{
 			name: "error - retrieving existing snapshots",
@@ -542,7 +591,7 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 				tables = tc.tables
 			}
 
-			filteredTables, err := sr.filterOutExistingSnapshots(context.Background(), testSchema, tables)
+			filteredTables, err := sr.filterOutExistingSnapshots(context.Background(), map[string][]string{testSchema: tables})
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantTables, filteredTables)
 		})

@@ -31,8 +31,9 @@ func TestSnapshotGeneratorAdapter_CreateSnapshot(t *testing.T) {
 			generator: &generatormocks.Generator{
 				CreateSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
 					require.Equal(t, &snapshot.Snapshot{
-						SchemaName: publicSchema,
-						TableNames: []string{"*"},
+						SchemaTables: map[string][]string{
+							publicSchema: {"*"},
+						},
 					}, ss)
 					return nil
 				},
@@ -63,10 +64,9 @@ func TestSnapshotGeneratorAdapter_CreateSnapshot(t *testing.T) {
 			t.Parallel()
 
 			ga := SnapshotGeneratorAdapter{
-				logger:          log.NewNoopLogger(),
-				generator:       tc.generator,
-				schemaTables:    tc.schemaTables,
-				snapshotWorkers: 1,
+				logger:       log.NewNoopLogger(),
+				generator:    tc.generator,
+				schemaTables: tc.schemaTables,
 			}
 			defer ga.Close()
 

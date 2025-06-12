@@ -7,14 +7,14 @@ import (
 )
 
 type Snapshot struct {
-	SchemaName string
-	TableNames []string
+	SchemaTables map[string][]string
 }
 
 type Request struct {
-	Snapshot Snapshot
-	Status   Status
-	Errors   *Errors
+	Schema string
+	Tables []string
+	Status Status
+	Errors *SchemaErrors
 }
 
 type Row struct {
@@ -44,13 +44,48 @@ const (
 	StatusCompleted  = Status("completed")
 )
 
-func (s *Snapshot) IsValid() bool {
-	return s != nil && s.SchemaName != "" && len(s.TableNames) > 0
+func (s *Snapshot) GetSchemas() []string {
+	if s == nil {
+		return nil
+	}
+
+	schemas := make([]string, 0, len(s.SchemaTables))
+	for schema := range s.SchemaTables {
+		schemas = append(schemas, schema)
+	}
+	return schemas
 }
 
-func (r *Request) MarkCompleted(err error) {
+func (s *Snapshot) GetTables() []string {
+	if s == nil {
+		return nil
+	}
+
+	tables := []string{}
+	for schema, tables := range s.SchemaTables {
+		for _, table := range tables {
+			tables = append(tables, schema+"."+table)
+		}
+	}
+	return tables
+}
+
+func (s *Snapshot) HasTables() bool {
+	if s == nil {
+		return false
+	}
+
+	for _, tables := range s.SchemaTables {
+		if len(tables) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Request) MarkCompleted(schema string, err error) {
 	r.Status = StatusCompleted
-	r.Errors = NewErrors(err)
+	r.Errors = NewSchemaErrors(schema, err)
 }
 
 func (r *Request) MarkInProgress() {

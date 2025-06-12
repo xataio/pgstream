@@ -65,8 +65,8 @@ func (i *Store) Close() error {
 
 func (i *Store) requestAttributes(req *snapshot.Request) []attribute.KeyValue {
 	return []attribute.KeyValue{
-		{Key: "schema", Value: attribute.StringValue(req.Snapshot.SchemaName)},
-		{Key: "tables", Value: attribute.StringSliceValue(req.Snapshot.TableNames)},
+		{Key: "schema", Value: attribute.StringValue(req.Schema)},
+		{Key: "tables", Value: attribute.StringSliceValue(req.Tables)},
 		{Key: "status", Value: attribute.StringValue(string(req.Status))},
 	}
 }

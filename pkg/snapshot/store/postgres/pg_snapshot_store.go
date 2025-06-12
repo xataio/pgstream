@@ -43,20 +43,22 @@ func (s *Store) Close() error {
 func (s *Store) CreateSnapshotRequest(ctx context.Context, req *snapshot.Request) error {
 	query := fmt.Sprintf(`INSERT INTO %s (schema_name, table_names, created_at, updated_at, status)
 	VALUES($1, $2, now(), now(),'requested')`, snapshotsTable())
-	_, err := s.conn.Exec(ctx, query, req.Snapshot.SchemaName, pq.StringArray(req.Snapshot.TableNames))
+	_, err := s.conn.Exec(ctx, query, req.Schema, pq.StringArray(req.Tables))
 	if err != nil {
 		return fmt.Errorf("error creating snapshot request: %w", err)
 	}
+
 	return nil
 }
 
 func (s *Store) UpdateSnapshotRequest(ctx context.Context, req *snapshot.Request) error {
 	query := fmt.Sprintf(`UPDATE %s SET status = $1, errors = $2, updated_at = now()
 	WHERE schema_name = $3 and table_names = $4 and status != 'completed'`, snapshotsTable())
-	_, err := s.conn.Exec(ctx, query, req.Status, req.Errors, req.Snapshot.SchemaName, pq.StringArray(req.Snapshot.TableNames))
+	_, err := s.conn.Exec(ctx, query, req.Status, req.Errors, req.Schema, pq.StringArray(req.Tables))
 	if err != nil {
 		return fmt.Errorf("error updating snapshot request: %w", err)
 	}
+
 	return nil
 }
 
@@ -72,7 +74,7 @@ func (s *Store) GetSnapshotRequestsByStatus(ctx context.Context, status snapshot
 	snapshotRequests := []*snapshot.Request{}
 	for rows.Next() {
 		req := &snapshot.Request{}
-		if err := rows.Scan(&req.Snapshot.SchemaName, &req.Snapshot.TableNames, &req.Status, &req.Errors); err != nil {
+		if err := rows.Scan(&req.Schema, &req.Tables, &req.Status, &req.Errors); err != nil {
 			return nil, fmt.Errorf("scanning snapshot row: %w", err)
 		}
 
@@ -94,7 +96,7 @@ func (s *Store) GetSnapshotRequestsBySchema(ctx context.Context, schema string) 
 	snapshotRequests := []*snapshot.Request{}
 	for rows.Next() {
 		req := &snapshot.Request{}
-		if err := rows.Scan(&req.Snapshot.SchemaName, &req.Snapshot.TableNames, &req.Status, &req.Errors); err != nil {
+		if err := rows.Scan(&req.Schema, &req.Tables, &req.Status, &req.Errors); err != nil {
 			return nil, fmt.Errorf("scanning snapshot request row: %w", err)
 		}
 

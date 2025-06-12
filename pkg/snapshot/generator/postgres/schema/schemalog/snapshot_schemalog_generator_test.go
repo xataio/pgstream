@@ -24,8 +24,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	testSchemaName := "test-schema"
 	testTable := "test-table"
 	testSnapshot := &snapshot.Snapshot{
-		SchemaName: testSchemaName,
-		TableNames: []string{testTable},
+		SchemaTables: map[string][]string{
+			testSchemaName: {testTable},
+		},
 	}
 
 	now := schemalog.NewSchemaCreatedAtTimestamp(time.Now())
@@ -123,7 +124,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				return errors.New("processRow: should not be called")
 			},
 
-			wantErr: snapshot.NewErrors(errTest),
+			wantErr: snapshot.NewErrors(testSchemaName, errTest),
 		},
 		{
 			name: "error - processing schema row",
@@ -137,7 +138,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				return errTest
 			},
 
-			wantErr: snapshot.NewErrors(errTest),
+			wantErr: snapshot.NewErrors(testSchemaName, errTest),
 		},
 		{
 			name: "error - converting log entry to row",
@@ -151,7 +152,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			},
 			marshaler: func(a any) ([]byte, error) { return nil, errTest },
 
-			wantErr: snapshot.NewErrors(fmt.Errorf("marshaling log entry schema into json: %w", errTest)),
+			wantErr: snapshot.NewErrors(testSchemaName, fmt.Errorf("marshaling log entry schema into json: %w", errTest)),
 		},
 	}
 
@@ -172,7 +173,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			}
 
 			err := g.CreateSnapshot(context.Background(), testSnapshot)
-			require.Equal(t, err, tc.wantErr)
+			require.Equal(t, tc.wantErr, err)
 
 			if tc.generator != nil {
 				require.Equal(t, tc.wantGeneratorCalls, tc.generator.CreateSnapshotCalls())

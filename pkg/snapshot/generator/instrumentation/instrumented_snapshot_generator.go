@@ -87,11 +87,11 @@ func (i *SnapshotGenerator) snapshotAttributes(s *snapshot.Snapshot) []attribute
 	return []attribute.KeyValue{
 		{
 			Key:   snapshotSchemaAttributeKey,
-			Value: attribute.StringValue(s.SchemaName),
+			Value: attribute.StringSliceValue(s.GetSchemas()),
 		},
 		{
 			Key:   snapshotTablesAttributeKey,
-			Value: attribute.StringSliceValue(s.TableNames),
+			Value: attribute.StringSliceValue(s.GetTables()),
 		},
 	}
 }

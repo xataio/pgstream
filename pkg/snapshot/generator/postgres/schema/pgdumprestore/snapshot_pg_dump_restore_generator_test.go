@@ -34,6 +34,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	excludedSchema := "excluded_test_schema"
 	errTest := errors.New("oh noes")
 	testSequence := "test_sequence"
+	testRole := "test_role"
 
 	validQuerier := func() *mocks.Querier {
 		return &mocks.Querier{
@@ -43,7 +44,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			},
 			QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
 				switch query {
-				case "SELECT schema_name FROM information_schema.schemata WHERE schema_name != $1":
+				case fmt.Sprintf(selectSchemasQuery, "$1"):
 					require.Equal(t, []any{testSchema}, args)
 					return &mocks.Rows{
 						CloseFn: func() {},
@@ -57,7 +58,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						},
 						ErrFn: func() error { return nil },
 					}, nil
-				case "SELECT tablename FROM pg_tables WHERE schemaname = 'test_schema' AND tablename NOT IN ($1)":
+				case fmt.Sprintf(selectTablesQuery, testSchema, "$1"):
 					require.Equal(t, []any{testTable}, args)
 					return &mocks.Rows{
 						CloseFn: func() {},
@@ -87,14 +88,16 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		pgrestoreFn    pglib.PGRestoreFn
 		schemalogStore schemalog.Store
 		generator      generator.SnapshotGenerator
+		role           string
 
 		wantErr error
 	}{
 		{
 			name: "ok",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{testTable},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
 			},
 			conn: validQuerier(),
 			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
@@ -106,6 +109,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						SchemaOnly:       true,
 						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
 						ExcludeTables:    []string{pglib.QuoteIdentifier(excludedTable)},
+						Role:             testRole,
+						NoOwner:          true,
 					}, po)
 					return schemaDump, nil
 
@@ -129,14 +134,16 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				require.Equal(t, append(schemaDump, sequenceDump...), dump)
 				return "", nil
 			},
+			role: testRole,
 
 			wantErr: nil,
 		},
 		{
 			name: "ok - no sequence dump",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{testTable},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
 			},
 			conn: validQuerier(),
 			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
@@ -168,8 +175,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "ok - with generator",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{testTable},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
 			},
 			conn: validQuerier(),
 			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
@@ -213,8 +221,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			generator: &generatormocks.Generator{
 				CreateSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
 					require.Equal(t, &snapshot.Snapshot{
-						SchemaName: testSchema,
-						TableNames: []string{testTable},
+						SchemaTables: map[string][]string{
+							testSchema: {testTable},
+						},
 					}, ss)
 					return nil
 				},
@@ -225,8 +234,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "ok - wildcard",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{"*"},
+				SchemaTables: map[string][]string{
+					testSchema: {"*"},
+				},
 			},
 			conn: validQuerier(),
 			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
@@ -265,10 +275,14 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "ok - no tables in public schema",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: publicSchema,
-				TableNames: []string{},
+				SchemaTables: map[string][]string{
+					publicSchema: {},
+				},
 			},
 			conn: &mocks.Querier{
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					return nil, fmt.Errorf("unexpected query: %s", query)
+				},
 				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
 					return pglib.CommandTag{}, errors.New("ExecFn: should not be called")
 				},
@@ -285,8 +299,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - querying excluded schemas",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{testTable},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
 			},
 			conn: &mocks.Querier{
 				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
@@ -305,13 +320,14 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - scanning excluded tables",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{testTable},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
 			},
 			conn: &mocks.Querier{
 				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
 					switch query {
-					case "SELECT schema_name FROM information_schema.schemata WHERE schema_name != $1":
+					case fmt.Sprintf(selectSchemasQuery, "$1"):
 						require.Equal(t, []any{testSchema}, args)
 						return &mocks.Rows{
 							CloseFn: func() {},
@@ -325,7 +341,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							},
 							ErrFn: func() error { return nil },
 						}, nil
-					case "SELECT tablename FROM pg_tables WHERE schemaname = 'test_schema' AND tablename NOT IN ($1)":
+					case fmt.Sprintf(selectTablesQuery, testSchema, "$1"):
 						require.Equal(t, []any{testTable}, args)
 						return &mocks.Rows{
 							CloseFn: func() {},
@@ -352,8 +368,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - excluded tables rows",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{testTable},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
 			},
 			conn: &mocks.Querier{
 				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
@@ -362,7 +379,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
 					switch query {
-					case "SELECT schema_name FROM information_schema.schemata WHERE schema_name != $1":
+					case fmt.Sprintf(selectSchemasQuery, "$1"):
 						require.Equal(t, []any{testSchema}, args)
 						return &mocks.Rows{
 							CloseFn: func() {},
@@ -376,7 +393,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							},
 							ErrFn: func() error { return nil },
 						}, nil
-					case "SELECT tablename FROM pg_tables WHERE schemaname = 'test_schema' AND tablename NOT IN ($1)":
+					case fmt.Sprintf(selectTablesQuery, testSchema, "$1"):
 						require.Equal(t, []any{testTable}, args)
 						return &mocks.Rows{
 							CloseFn: func() {},
@@ -407,8 +424,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - dumping schema",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{testTable},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
 			},
 			conn: validQuerier(),
 			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
@@ -428,8 +446,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - dumping sequence values",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{testTable},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
 			},
 			conn: validQuerier(),
 			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
@@ -451,8 +470,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - restoring schema dump",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{testTable},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
 			},
 			conn: validQuerier(),
 			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
@@ -467,8 +487,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - restoring filtered dump",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{testTable},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
 			},
 			conn: validQuerier(),
 			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
@@ -509,8 +530,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			generator: &generatormocks.Generator{
 				CreateSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
 					require.Equal(t, &snapshot.Snapshot{
-						SchemaName: testSchema,
-						TableNames: []string{testTable},
+						SchemaTables: map[string][]string{
+							testSchema: {testTable},
+						},
 					}, ss)
 					return errors.New("CreateSnapshotFn: should not be called")
 				},
@@ -521,8 +543,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - calling internal generator CreateSnapshot",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{testTable},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
 			},
 			conn: validQuerier(),
 			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
@@ -571,8 +594,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - performing pgrestore output critical error",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{testTable},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
 			},
 			conn: validQuerier(),
 			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
@@ -587,8 +611,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - performing pgrestore output ignored errors",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{testTable},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
 			},
 			conn: validQuerier(),
 			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
@@ -603,8 +628,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - getting target conn",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{testTable},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
 			},
 			connBuilder: func(ctx context.Context, s string) (pglib.Querier, error) {
 				if s == "target-url" {
@@ -624,8 +650,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - creating schema",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{testTable},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
 			},
 			conn: func() *mocks.Querier {
 				c := validQuerier()
@@ -646,8 +673,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - schemalog insertion fails",
 			snapshot: &snapshot.Snapshot{
-				SchemaName: testSchema,
-				TableNames: []string{testTable},
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
 			},
 			conn: validQuerier(),
 			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
@@ -688,6 +716,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				logger:                 log.NewNoopLogger(),
 				includeGlobalDBObjects: true,
 				generator:              tc.generator,
+				role:                   tc.role,
 			}
 
 			if tc.connBuilder != nil {

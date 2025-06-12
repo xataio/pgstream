@@ -22,7 +22,11 @@ type SnapshotGenerator struct {
 	conn   pglib.Querier
 	mapper mapper
 
+	// workers per snapshot, parallelise the snapshot creation for each schema
+	snapshotWorkers uint
+	// workers per schema, parallelise the snapshot creation for each table
 	schemaWorkers uint
+	// workers per table, parallelise the snapshot creation for each page range
 	tableWorkers  uint
 	batchPageSize uint
 
@@ -40,6 +44,11 @@ type pageRange struct {
 	end   uint
 }
 
+type schemaTables struct {
+	schema string
+	tables []string
+}
+
 type snapshotTableFn func(ctx context.Context, snapshotID string, schema, table string) error
 
 type Option func(sg *SnapshotGenerator)
@@ -51,13 +60,14 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, rowsProcessor snapsh
 	}
 
 	sg := &SnapshotGenerator{
-		logger:        loglib.NewNoopLogger(),
-		mapper:        pglib.NewMapper(conn),
-		conn:          conn,
-		rowsProcessor: rowsProcessor,
-		batchPageSize: cfg.batchPageSize(),
-		tableWorkers:  cfg.tableWorkers(),
-		schemaWorkers: cfg.schemaWorkers(),
+		logger:          loglib.NewNoopLogger(),
+		mapper:          pglib.NewMapper(conn),
+		conn:            conn,
+		rowsProcessor:   rowsProcessor,
+		batchPageSize:   cfg.batchPageSize(),
+		tableWorkers:    cfg.tableWorkers(),
+		schemaWorkers:   cfg.schemaWorkers(),
+		snapshotWorkers: cfg.snapshotWorkers(),
 	}
 
 	sg.tableSnapshotGenerator = sg.snapshotTable
@@ -97,6 +107,48 @@ func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sn
 		// It will wait until all rows are processed before returning.
 		sg.rowsProcessor.Close()
 	}()
+
+	// parallelise the snapshot creation for each schema as configured by the snapshot workers.
+	errGroup, ctx := errgroup.WithContext(ctx)
+	schemaTablesChan := make(chan *schemaTables)
+	schemaErrs := make(map[string]error, len(ss.SchemaTables))
+	for i := uint(0); i < sg.snapshotWorkers; i++ {
+		errGroup.Go(func() error {
+			for schemaTables := range schemaTablesChan {
+				sg.logger.Info("creating snapshot for schema", loglib.Fields{"schema": schemaTables.schema, "tables": schemaTables.tables})
+				if err := sg.createSchemaSnapshot(ctx, schemaTables); err != nil {
+					sg.logger.Error(err, "creating snapshot for schema", loglib.Fields{"schema": schemaTables.schema, "tables": schemaTables.tables, "error": err.Error()})
+					schemaErrs[schemaTables.schema] = err
+				}
+			}
+			return nil
+		})
+	}
+	for schema, tables := range ss.SchemaTables {
+		if len(tables) == 0 {
+			sg.logger.Debug("skipping empty schema", loglib.Fields{"schema": schema})
+			continue
+		}
+		schemaTablesChan <- &schemaTables{
+			schema: schema,
+			tables: tables,
+		}
+	}
+	close(schemaTablesChan)
+
+	if err := errGroup.Wait(); err != nil {
+		return err
+	}
+
+	// collect all schema errors and return them as a single error
+	return sg.collectSchemaErrors(schemaErrs)
+}
+
+func (sg *SnapshotGenerator) Close() error {
+	return sg.conn.Close(context.Background())
+}
+
+func (sg *SnapshotGenerator) createSchemaSnapshot(ctx context.Context, schemaTables *schemaTables) error {
 	// use a transaction snapshot to ensure the table rows can be parallelised.
 	// The transaction snapshot is available for use only until the end of the
 	// transaction that exported it.
@@ -104,42 +156,38 @@ func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sn
 	return sg.conn.ExecInTxWithOptions(ctx, func(tx pglib.Tx) error {
 		snapshotID, err := sg.exportSnapshot(ctx, tx)
 		if err != nil {
-			return &snapshot.Errors{SnapshotErrMsgs: []string{err.Error()}}
+			return snapshot.NewSchemaErrors(schemaTables.schema, err)
 		}
 
-		tableChan := make(chan string, len(ss.TableNames))
+		tableChan := make(chan string, len(schemaTables.tables))
 		// a map of table errors per worker to avoid race conditions
 		workerTableErrs := make([]map[string]error, sg.schemaWorkers)
 		wg := &sync.WaitGroup{}
 		// start as many go routines as configured concurrent workers per schema
 		for i := uint(0); i < sg.schemaWorkers; i++ {
 			wg.Add(1)
-			workerTableErrs[i] = make(map[string]error, len(ss.TableNames))
-			go sg.createSnapshotWorker(ctx, wg, ss, snapshotID, tableChan, workerTableErrs[i])
+			workerTableErrs[i] = make(map[string]error, len(schemaTables.tables))
+			go sg.createSnapshotWorker(ctx, wg, schemaTables.schema, snapshotID, tableChan, workerTableErrs[i])
 		}
 
-		for _, table := range ss.TableNames {
+		for _, table := range schemaTables.tables {
 			tableChan <- table
 		}
 
 		close(tableChan)
 		wg.Wait()
 
-		return sg.collectSnapshotTableErrors(workerTableErrs)
+		return sg.collectTableErrors(schemaTables.schema, workerTableErrs)
 	}, snapshotTxOptions())
 }
 
-func (sg *SnapshotGenerator) Close() error {
-	return sg.conn.Close(context.Background())
-}
-
-func (sg *SnapshotGenerator) createSnapshotWorker(ctx context.Context, wg *sync.WaitGroup, ss *snapshot.Snapshot, snapshotID string, tableChan <-chan string, tableErrMap map[string]error) {
+func (sg *SnapshotGenerator) createSnapshotWorker(ctx context.Context, wg *sync.WaitGroup, schema, snapshotID string, tableChan <-chan string, tableErrMap map[string]error) {
 	defer wg.Done()
 	for table := range tableChan {
-		logFields := loglib.Fields{"schema": ss.SchemaName, "table": table, "snapshotID": snapshotID}
+		logFields := loglib.Fields{"schema": schema, "table": table, "snapshotID": snapshotID}
 		sg.logger.Info("snapshotting table", logFields)
 
-		if err := sg.tableSnapshotGenerator(ctx, snapshotID, ss.SchemaName, table); err != nil {
+		if err := sg.tableSnapshotGenerator(ctx, snapshotID, schema, table); err != nil {
 			sg.logger.Error(err, "snapshotting table", logFields)
 			// errors will get notified unless the table doesn't exist
 			if !errors.Is(err, pglib.ErrNoRows) {
@@ -150,16 +198,38 @@ func (sg *SnapshotGenerator) createSnapshotWorker(ctx context.Context, wg *sync.
 	}
 }
 
-func (sg *SnapshotGenerator) collectSnapshotTableErrors(workerTableErrs []map[string]error) error {
-	var tableErrs []snapshot.TableError
+func (sg *SnapshotGenerator) collectTableErrors(schema string, workerTableErrs []map[string]error) error {
+	var schemaErrs *snapshot.SchemaErrors
 	for _, worker := range workerTableErrs {
 		for table, err := range worker {
-			tableErrs = append(tableErrs, snapshot.NewTableError(table, err))
+			if err == nil {
+				continue
+			}
+			if schemaErrs == nil {
+				schemaErrs = &snapshot.SchemaErrors{
+					Schema: schema,
+				}
+			}
+			schemaErrs.AddTableError(table, err)
 		}
 	}
+	if schemaErrs != nil {
+		return schemaErrs
+	}
 
-	if len(tableErrs) > 0 {
-		return &snapshot.Errors{Tables: tableErrs}
+	return nil
+}
+
+func (sg *SnapshotGenerator) collectSchemaErrors(workerSchemaErrs map[string]error) error {
+	snapshotErrs := make(snapshot.Errors, len(workerSchemaErrs))
+	for schema, err := range workerSchemaErrs {
+		if err == nil {
+			continue
+		}
+		snapshotErrs.AddError(schema, snapshot.NewSchemaErrors(schema, err))
+	}
+	if len(snapshotErrs) > 0 {
+		return snapshotErrs
 	}
 
 	return nil

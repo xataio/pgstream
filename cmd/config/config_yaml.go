@@ -433,8 +433,7 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 
 	streamCfg := &snapshotbuilder.SnapshotListenerConfig{
 		Adapter: adapter.SnapshotConfig{
-			Tables:          snapshotConfig.Tables,
-			SnapshotWorkers: uint(snapshotConfig.SnapshotWorkers),
+			Tables: snapshotConfig.Tables,
 		},
 	}
 
@@ -456,10 +455,11 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 
 	if snapshotConfig.Mode == fullSnapshotMode || snapshotConfig.Mode == dataSnapshotMode {
 		streamCfg.Generator = pgsnapshotgenerator.Config{
-			URL:           c.Source.Postgres.URL,
-			BatchPageSize: uint(snapshotConfig.Data.BatchPageSize),
-			SchemaWorkers: uint(snapshotConfig.Data.SchemaWorkers),
-			TableWorkers:  uint(snapshotConfig.Data.TableWorkers),
+			URL:             c.Source.Postgres.URL,
+			BatchPageSize:   uint(snapshotConfig.Data.BatchPageSize),
+			SchemaWorkers:   uint(snapshotConfig.Data.SchemaWorkers),
+			TableWorkers:    uint(snapshotConfig.Data.TableWorkers),
+			SnapshotWorkers: uint(snapshotConfig.SnapshotWorkers),
 		}
 	}
 
