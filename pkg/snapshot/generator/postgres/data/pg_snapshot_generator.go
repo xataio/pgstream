@@ -360,9 +360,11 @@ func (sg *SnapshotGenerator) toSnapshotColumns(ctx context.Context, fieldDescrip
 	return columns
 }
 
+// use pg_table_size instead of pg_total_relation_size since we only care about the size of the table itself and toast tables, not indices.
+// pg_relation_size will return only the size of the table itself, without toast tables.
 const tablePageInfoQuery = `SELECT
   c.relpages AS page_count,
-  (pg_total_relation_size(c.oid) / COALESCE(NULLIF(c.relpages, 0),1)) AS avg_page_size_bytes
+  (pg_table_size(c.oid) / COALESCE(NULLIF(c.relpages, 0),1)) AS avg_page_size_bytes
 FROM
   pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace
