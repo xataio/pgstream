@@ -462,7 +462,7 @@ func (sg *SnapshotGenerator) getTableInfo(ctx context.Context, schemaName, table
 	return tableInfo, nil
 }
 
-const tablesBytesQuery = `SELECT SUM(pg_relation_size(c.oid)) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = '%s' AND c.relname IN (%s) AND c.relkind = 'r';`
+const tablesBytesQuery = `SELECT SUM(pg_table_size(c.oid)) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = '%s' AND c.relname IN (%s) AND c.relkind = 'r';`
 
 func (sg *SnapshotGenerator) getSnapshotSchemaTotalBytes(ctx context.Context, snapshotID, schema string, tables []string) (int64, error) {
 	paramRefs := make([]string, 0, len(tables))
