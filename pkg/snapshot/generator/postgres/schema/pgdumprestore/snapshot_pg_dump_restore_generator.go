@@ -237,7 +237,7 @@ func (s *SnapshotGenerator) restoreDump(ctx context.Context, schemaTables map[st
 				return err
 			}
 			ignoredErrors := pgrestoreErr.GetIgnoredErrors()
-			s.logger.Warn(nil, fmt.Sprintf("pg_restore: %d errors ignored", len(ignoredErrors)), loglib.Fields{"errors_ignored": ignoredErrors})
+			s.logger.Warn(nil, fmt.Sprintf("restore: %d errors ignored", len(ignoredErrors)), loglib.Fields{"errors_ignored": ignoredErrors})
 		default:
 			return err
 		}
