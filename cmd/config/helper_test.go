@@ -23,7 +23,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 	assert.Equal(t, uint(4), streamConfig.Listener.Postgres.Snapshot.Generator.SnapshotWorkers)
 	assert.Equal(t, uint(4), streamConfig.Listener.Postgres.Snapshot.Generator.SchemaWorkers)
 	assert.Equal(t, uint(4), streamConfig.Listener.Postgres.Snapshot.Generator.TableWorkers)
-	assert.Equal(t, uint(1000), streamConfig.Listener.Postgres.Snapshot.Generator.BatchPageSize)
+	assert.Equal(t, uint64(83886080), streamConfig.Listener.Postgres.Snapshot.Generator.BatchBytes)
 	assert.NotNil(t, streamConfig.Listener.Postgres.Snapshot.Schema.DumpRestore)
 	assert.True(t, streamConfig.Listener.Postgres.Snapshot.Schema.DumpRestore.CleanTargetDB)
 	assert.True(t, streamConfig.Listener.Postgres.Snapshot.Schema.DumpRestore.CreateTargetDB)

@@ -107,7 +107,7 @@ source:
       data: # when mode is full or data
         schema_workers: 4 # number of schema tables to be snapshotted in parallel. Defaults to 4
         table_workers: 4 # number of workers to snapshot a table in parallel. Defaults to 4
-        batch_page_size: 1000 # number of pages to read per batch. Defaults to 1000
+        batch_bytes: 83886080 # bytes to read per batch (defaults to 80MiB)
       schema: # when mode is full or schema
         mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
         pgdump_pgrestore:
@@ -239,7 +239,7 @@ Here's a list of all the environment variables that can be used to configure the
 | PGSTREAM_POSTGRES_SNAPSHOT_TABLES           | ""                           | No       | Tables for which there will be an initial snapshot generated. The syntax supports wildcards. Tables without a schema defined will be applied the public schema. Example: for `public.test_table` and all tables in the `test_schema` schema, the value would be the following: `"test_table test_schema.\*"` |
 | PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS   | 4                            | No       | Number of tables per schema that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                  |
 | PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS    | 4                            | No       | Number of concurrent workers that will be used per table by the snapshotting process.                                                                                                                                                                                                                        |
-| PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE  | 1000                         | No       | Size of the table page range which will be processed concurrently by the table workers from `PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS`.                                                                                                                                                                      |
+| PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES      | 83886080 (80MiB)             | No       | Max batch size in bytes to be read and processed by each table worker at a time. The number of pages in the select queries will be based on this value.                                                                                                                                                      |
 | PGSTREAM_POSTGRES_SNAPSHOT_WORKERS          | 1                            | No       | Number of schemas that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                            |
 | PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG    | False                        | No       | Forces the use of the `pgstream.schema_log` for the schema snapshot instead of using `pg_dump`/`pg_restore` for Postgres targets.                                                                                                                                                                            |
 | PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL        | ""                           | No       | Postgres URL for the database where the snapshot requests and their status will be tracked. A table `snapshot_requests` will be created under a `pgstream` schema.                                                                                                                                           |
@@ -250,19 +250,19 @@ Here's a list of all the environment variables that can be used to configure the
 <details>
   <summary>Postgres Snapshoter</summary>
 
-| Environment Variable                                 | Default | Required | Description                                                                                                                                                                                                                                                                                                  |
-| ---------------------------------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL              | N/A     | Yes      | URL of the Postgres database to snapshot.                                                                                                                                                                                                                                                                    |
-| PGSTREAM_POSTGRES_SNAPSHOT_TABLES                    | ""      | No       | Tables for which there will be an initial snapshot generated. The syntax supports wildcards. Tables without a schema defined will be applied the public schema. Example: for `public.test_table` and all tables in the `test_schema` schema, the value would be the following: `"test_table test_schema.\*"` |
-| PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS            | 4       | No       | Number of tables per schema that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                  |
-| PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS             | 4       | No       | Number of concurrent workers that will be used per table by the snapshotting process.                                                                                                                                                                                                                        |
-| PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE           | 1000    | No       | Size of the table page range which will be processed concurrently by the table workers from `PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS`.                                                                                                                                                                      |
-| PGSTREAM_POSTGRES_SNAPSHOT_WORKERS                   | 1       | No       | Number of schemas that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                            |
-| PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG             | False   | No       | Forces the use of the `pgstream.schema_log` for the schema snapshot instead of using `pg_dump`/`pg_restore` for Postgres targets.                                                                                                                                                                            |
-| PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB           | False   | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to issue commands to DROP all the objects that will be restored.                                                                                                                                                           |
-| PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS | False   | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to snapshot all global database objects outside of the selected schema (such as extensions, triggers, etc).                                                                                                                |
-| PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB          | False   | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to create the database being restored.                                                                                                                                                                                     |
-| PGSTREAM_POSTGRES_SNAPSHOT_ROLE                      | ""      | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, role name to be used to create the dump.                                                                                                                                                                                          |
+| Environment Variable                                 | Default          | Required | Description                                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------- | ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL              | N/A              | Yes      | URL of the Postgres database to snapshot.                                                                                                                                                                                                                                                                    |
+| PGSTREAM_POSTGRES_SNAPSHOT_TABLES                    | ""               | No       | Tables for which there will be an initial snapshot generated. The syntax supports wildcards. Tables without a schema defined will be applied the public schema. Example: for `public.test_table` and all tables in the `test_schema` schema, the value would be the following: `"test_table test_schema.\*"` |
+| PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS            | 4                | No       | Number of tables per schema that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                  |
+| PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS             | 4                | No       | Number of concurrent workers that will be used per table by the snapshotting process.                                                                                                                                                                                                                        |
+| PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES               | 83886080 (80MiB) | No       | Max batch size in bytes to be read and processed by each table worker at a time. The number of pages in the select queries will be based on this value.                                                                                                                                                      |
+| PGSTREAM_POSTGRES_SNAPSHOT_WORKERS                   | 1                | No       | Number of schemas that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                            |
+| PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG             | False            | No       | Forces the use of the `pgstream.schema_log` for the schema snapshot instead of using `pg_dump`/`pg_restore` for Postgres targets.                                                                                                                                                                            |
+| PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB           | False            | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to issue commands to DROP all the objects that will be restored.                                                                                                                                                           |
+| PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS | False            | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to snapshot all global database objects outside of the selected schema (such as extensions, triggers, etc).                                                                                                                |
+| PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB          | False            | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to create the database being restored.                                                                                                                                                                                     |
+| PGSTREAM_POSTGRES_SNAPSHOT_ROLE                      | ""               | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, role name to be used to create the dump.                                                                                                                                                                                          |
 
 </details>
 
@@ -1118,22 +1118,22 @@ transformations:
 | -------------------------- |
 | json, jsonb                |
 
-| Parameter   | Type   | Default | Required |
-| ----------- | ------ | ------- | -------- |
-| operations  | array  | N/A     | Yes      |
+| Parameter  | Type  | Default | Required |
+| ---------- | ----- | ------- | -------- |
+| operations | array | N/A     | Yes      |
 
 Parameter for each operation:
-| Parameter       | Type    | Default | Required | Values                         |
+| Parameter | Type | Default | Required | Values |
 | --------------- | ------- | ------- | -------- | ------------------------------ |
-| operation       | string  | N/A     | Yes      | set, delete                    |
-| path            | string  | N/A     | Yes      | *sjson syntax                  |
-| error_not_exist | boolean | false   | No       | true, false                    |
-| value           | string  | N\A     | **Yes    | Any valid JSON representation  |
-| value_template  | string  | N\A     | **Yes    | Any template with valid syntax |
+| operation | string | N/A | Yes | set, delete |
+| path | string | N/A | Yes | \*sjson syntax |
+| error_not_exist | boolean | false | No | true, false |
+| value | string | N\A | **Yes | Any valid JSON representation |
+| value_template | string | N\A | **Yes | Any template with valid syntax |
 
-*Paths should follow [sjson syntax](https://github.com/tidwall/sjson#path-syntax)
+\*Paths should follow [sjson syntax](https://github.com/tidwall/sjson#path-syntax)
 
-**Either `value` or `value_template` must be provided if the operation is `set`. If both are provided, `value_template` takes precedence.
+\*\*Either `value` or `value_template` must be provided if the operation is `set`. If both are provided, `value_template` takes precedence.
 
 JSON transformer can be used for Postgres types json and jsonb. This transformer executes a list of given operations on the json data to be transformed.
 
@@ -1145,6 +1145,7 @@ Execution of an operation errors out if the given path does not exists and the p
 JSON transformer uses [sjson](https://github.com/tidwall/sjson) library for executing the operations. Operation paths should follow the [synxtax rules of sjson](https://github.com/tidwall/sjson#path-syntax)
 
 With the below config `pgstream` transforms the json values in the column `user_info_json` of the table `users` by:
+
 - First, traversing all the items in the array named `purchases`, and for each element, setting value to "-" for key "item".
 - Then, deleting the object named "country" under the top-level object "address".
 - Completely masking the "city" value under object "address", using `go-masker`'s default masking function supported by `pgstream`'s templating.
@@ -1172,13 +1173,14 @@ transformations:
                 path: "address.country"
               - operation: set
                 path: "address.city"
-                value_template:  "\"{{ masking \"default\" .GetValue }}\""
+                value_template: '"{{ masking "default" .GetValue }}"'
               - operation: set
                 path: "user.lastname"
-                value_template:  "\"{{ .GetDynamicValue \"lastname\" }}\""
+                value_template: '"{{ .GetDynamicValue "lastname" }}"'
 ```
 
 For input JSON value,
+
 ```json
 {
   "user": {
@@ -1203,6 +1205,7 @@ For input JSON value,
 ```
 
 the JSON transformer with above config produces output:
+
 ```json
 {
   "user": {
@@ -1226,7 +1229,6 @@ the JSON transformer with above config produces output:
 ```
 
 </details>
-
 
  <details>
   <summary>literal_string</summary>

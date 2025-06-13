@@ -27,8 +27,8 @@ type SnapshotGenerator struct {
 	// workers per schema, parallelise the snapshot creation for each table
 	schemaWorkers uint
 	// workers per table, parallelise the snapshot creation for each page range
-	tableWorkers  uint
-	batchPageSize uint
+	tableWorkers uint
+	batchBytes   uint64
 
 	// Function called for processing produced rows.
 	rowsProcessor          snapshot.RowsProcessor
@@ -37,6 +37,11 @@ type SnapshotGenerator struct {
 
 type mapper interface {
 	TypeForOID(context.Context, uint32) (string, error)
+}
+
+type tablePageInfo struct {
+	pageCount    int
+	avgPageBytes int64
 }
 
 type pageRange struct {
@@ -64,7 +69,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, rowsProcessor snapsh
 		mapper:          pglib.NewMapper(conn),
 		conn:            conn,
 		rowsProcessor:   rowsProcessor,
-		batchPageSize:   cfg.batchPageSize(),
+		batchBytes:      cfg.batchBytes(),
 		tableWorkers:    cfg.tableWorkers(),
 		schemaWorkers:   cfg.schemaWorkers(),
 		snapshotWorkers: cfg.snapshotWorkers(),
@@ -236,12 +241,12 @@ func (sg *SnapshotGenerator) collectSchemaErrors(workerSchemaErrs map[string]err
 }
 
 func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID string, schema, table string) error {
-	tablePageCount, err := sg.getTablePageCount(ctx, schema, table, snapshotID)
+	tablePageInfo, err := sg.getTablePageInfo(ctx, schema, table, snapshotID)
 	if err != nil {
 		return err
 	}
 	// the table is empty
-	if tablePageCount < 0 {
+	if tablePageInfo.pageCount < 0 {
 		return nil
 	}
 
@@ -249,7 +254,7 @@ func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID strin
 	// snapshot relies on the transaction snapshot id to ensure all workers
 	// have the same table view, which allows us to use the ctid to
 	// parallelise the work.
-	rangeChan := make(chan pageRange, tablePageCount)
+	rangeChan := make(chan pageRange, tablePageInfo.pageCount)
 	errGroup, ctx := errgroup.WithContext(ctx)
 	for i := uint(0); i < sg.tableWorkers; i++ {
 		errGroup.Go(func() error {
@@ -257,12 +262,19 @@ func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID strin
 		})
 	}
 
+	// automatically determine the batch page size based on the average page
+	// size and the configured batch bytes limit.
+	batchPageSize := tablePageInfo.getBatchPageSize(sg.batchBytes)
+	sg.logger.Debug("batch page size for table", loglib.Fields{
+		"schema": schema, "table": table, "batch_page_size": batchPageSize,
+		"page_count": tablePageInfo.pageCount, "avg_page_bytes": tablePageInfo.avgPageBytes,
+	})
 	// page count returned by postgres starts at 0, so we need to include it
 	// when creating the page ranges.
-	for start := uint(0); start <= uint(tablePageCount); start += sg.batchPageSize {
+	for start := uint(0); start <= uint(tablePageInfo.pageCount); start += batchPageSize {
 		rangeChan <- pageRange{
 			start: start,
-			end:   start + sg.batchPageSize,
+			end:   start + batchPageSize,
 		}
 	}
 
@@ -280,14 +292,15 @@ func (sg *SnapshotGenerator) snapshotTableRangeWorker(ctx context.Context, snaps
 	return nil
 }
 
+var pageRangeQuery = "SELECT * FROM %s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'"
+
 func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID, schema, table string, pageRange pageRange) error {
 	return sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
 		sg.logger.Debug(fmt.Sprintf("querying table page range %d-%d", pageRange.start, pageRange.end), loglib.Fields{
 			"schema": schema, "table": table, "snapshotID": snapshotID,
 		})
 
-		query := fmt.Sprintf("SELECT * FROM %s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'",
-			pglib.QuoteQualifiedIdentifier(schema, table), pageRange.start, pageRange.end)
+		query := fmt.Sprintf(pageRangeQuery, pglib.QuoteQualifiedIdentifier(schema, table), pageRange.start, pageRange.end)
 		rows, err := tx.Query(ctx, query)
 		if err != nil {
 			return fmt.Errorf("querying table rows: %w", err)
@@ -347,29 +360,43 @@ func (sg *SnapshotGenerator) toSnapshotColumns(ctx context.Context, fieldDescrip
 	return columns
 }
 
-func (sg *SnapshotGenerator) getTablePageCount(ctx context.Context, schemaName, tableName, snapshotID string) (int, error) {
-	pageCount := int(0)
+// use pg_table_size instead of pg_total_relation_size since we only care about the size of the table itself and toast tables, not indices.
+// pg_relation_size will return only the size of the table itself, without toast tables.
+const tablePageInfoQuery = `SELECT
+  c.relpages AS page_count,
+  (pg_table_size(c.oid) / COALESCE(NULLIF(c.relpages, 0),1)) AS avg_page_size_bytes
+FROM
+  pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE
+  c.relname = $1
+  AND n.nspname = $2
+  AND c.relkind = 'r';`
+
+func (sg *SnapshotGenerator) getTablePageInfo(ctx context.Context, schemaName, tableName, snapshotID string) (*tablePageInfo, error) {
+	tablePageInfo := &tablePageInfo{}
 	err := sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
-		const query = "SELECT c.relpages FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2"
-		if err := tx.QueryRow(ctx, query, tableName, schemaName).Scan(&pageCount); err != nil {
-			return fmt.Errorf("getting page count for table %s.%s: %w", schemaName, tableName, err)
+		if err := tx.QueryRow(ctx, tablePageInfoQuery, tableName, schemaName).Scan(&tablePageInfo.pageCount, &tablePageInfo.avgPageBytes); err != nil {
+			return fmt.Errorf("getting page information for table %s.%s: %w", schemaName, tableName, err)
 		}
 
-		sg.logger.Debug(fmt.Sprintf("table page count: %d", pageCount), loglib.Fields{
+		sg.logger.Debug(fmt.Sprintf("table page count: %d, page avg bytes: %d", tablePageInfo.pageCount, tablePageInfo.avgPageBytes), loglib.Fields{
 			"schema": schemaName, "table": tableName, "snapshotID": snapshotID,
 		})
 		return nil
 	})
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	return pageCount, nil
+	return tablePageInfo, nil
 }
+
+const exportSnapshotQuery = `SELECT pg_export_snapshot()`
 
 func (sg *SnapshotGenerator) exportSnapshot(ctx context.Context, tx pglib.Tx) (string, error) {
 	var snapshotID string
-	if err := tx.QueryRow(ctx, "SELECT pg_export_snapshot()").Scan(&snapshotID); err != nil {
+	if err := tx.QueryRow(ctx, exportSnapshotQuery).Scan(&snapshotID); err != nil {
 		return "", fmt.Errorf("exporting snapshot: %w", err)
 	}
 	return snapshotID, nil
@@ -398,4 +425,29 @@ func snapshotTxOptions() pglib.TxOptions {
 		IsolationLevel: pglib.RepeatableRead,
 		AccessMode:     pglib.ReadOnly,
 	}
+}
+
+func (t *tablePageInfo) getBatchPageSize(bytes uint64) uint {
+	// at least one page is needed to process the table
+	if t.pageCount == 0 {
+		return 1
+	}
+
+	// no limit on bytes, return all pages
+	if bytes == 0 || t.avgPageBytes == 0 {
+		return uint(t.pageCount)
+	}
+
+	batchPageSize := bytes / uint64(t.avgPageBytes)
+	// at least one page is needed to process the table
+	if batchPageSize == 0 {
+		batchPageSize = 1
+	}
+
+	// don't exceed the total page count
+	if batchPageSize > uint64(t.pageCount) {
+		batchPageSize = uint64(t.pageCount)
+	}
+
+	return uint(batchPageSize)
 }

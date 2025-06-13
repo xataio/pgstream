@@ -12,7 +12,7 @@ source:
       data: # when mode is full or data
         schema_workers: 4 # number of schema tables to be snapshotted in parallel
         table_workers: 4 # number of workers to snapshot a table in parallel
-        batch_page_size: 1000 # number of pages to read per batch
+        batch_bytes: 83886080 # bytes to read per batch (defaults to 80MiB)
       schema: # when mode is full or schema
         mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
         pgdump_pgrestore:

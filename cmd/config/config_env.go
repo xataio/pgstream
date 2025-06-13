@@ -42,7 +42,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME")
 
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL")
-	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_TABLES")
@@ -197,7 +197,7 @@ func parseSnapshotConfig(pgURL string) *snapshotbuilder.SnapshotListenerConfig {
 	cfg := &snapshotbuilder.SnapshotListenerConfig{
 		Generator: pgsnapshotgenerator.Config{
 			URL:             pgURL,
-			BatchPageSize:   viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_PAGE_SIZE"),
+			BatchBytes:      viper.GetUint64("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES"),
 			SchemaWorkers:   viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS"),
 			TableWorkers:    viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS"),
 			SnapshotWorkers: viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS"),
