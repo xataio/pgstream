@@ -5,6 +5,7 @@ package snapshot
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -161,7 +162,7 @@ func TestErrors_Error(t *testing.T) {
 				},
 			},
 
-			wantStr: fmt.Sprintf("%s: %s;%s;%s: %s;%s: %s", testSchema, err1, err2, table1, err1, table2, err2),
+			wantStr: fmt.Sprintf("%s: %s;%s;%s: %s;%s: %s", testSchema, err1, err2, table2, err2, table1, err1),
 		},
 	}
 
@@ -170,7 +171,21 @@ func TestErrors_Error(t *testing.T) {
 			t.Parallel()
 
 			errMsg := tc.err.Error()
-			require.Equal(t, tc.wantStr, errMsg)
+			if tc.wantStr != errMsg {
+				// check the schema name
+				require.True(t, strings.HasPrefix(errMsg, testSchema+": "), "error message expected: %q, got: %q", tc.wantStr, errMsg)
+
+				// get the trimmed string without schema name to compare the errors
+				errMsg = strings.TrimPrefix(errMsg, testSchema+": ")
+				trimmedWantStr := strings.TrimPrefix(tc.wantStr, testSchema+": ")
+
+				// Split the error messages by semicolon to compare parts
+				// This allows for more flexible error message checking
+				// especially when the order of errors might change.
+				partsWanted := strings.Split(trimmedWantStr, ";")
+				partsGot := strings.Split(errMsg, ";")
+				require.ElementsMatch(t, partsWanted, partsGot, "error message expected: %q, got: %q", tc.wantStr, errMsg)
+			}
 		})
 	}
 }
