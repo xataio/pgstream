@@ -19,15 +19,15 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 	testSchema := "test"
 	quotedTestTable := quotedTableName(testSchema, testTable)
 	quotedColumnNames := []string{`"id"`, `"name"`}
-	generatedColumns := []string{}
 	columnID := func(i int) string {
 		return fmt.Sprintf("%s-%d", testTableID, i)
 	}
 
 	tests := []struct {
-		name    string
-		walData *wal.Data
-		action  onConflictAction
+		name             string
+		walData          *wal.Data
+		action           onConflictAction
+		generatedColumns []string
 
 		wantQuery *query
 		wantErr   error
@@ -287,6 +287,31 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 		},
 		{
+			name: "update - with generated column",
+			walData: &wal.Data{
+				Action: "U",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(3), Name: "generated_col", Value: "gen_value"},
+				},
+				Identity: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+				},
+				Metadata: wal.Metadata{},
+			},
+			generatedColumns: []string{"generated_col"},
+
+			wantQuery: &query{
+				schema: testSchema,
+				table:  testTable,
+				sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3", quotedTestTable),
+				args:   []any{1, "alice", 1},
+			},
+		},
+		{
 			name: "error - update",
 			walData: &wal.Data{
 				Action: "U",
@@ -329,7 +354,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			a := &dmlAdapter{
 				onConflictAction: tc.action,
 			}
-			query, err := a.walDataToQuery(tc.walData, generatedColumns)
+			query, err := a.walDataToQuery(tc.walData, tc.generatedColumns)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantQuery, query)
 		})

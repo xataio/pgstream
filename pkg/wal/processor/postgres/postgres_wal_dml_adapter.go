@@ -111,7 +111,7 @@ func (a *dmlAdapter) buildUpdateQuery(d *wal.Data, generatedColumns []string) (*
 	if setQuery == "" {
 		return &query{}, nil
 	}
-	whereQuery, whereValues, err := a.buildWhereQuery(d, len(d.Columns))
+	whereQuery, whereValues, err := a.buildWhereQuery(d, len(rowColumns))
 	if err != nil {
 		return nil, fmt.Errorf("building update query: %w", err)
 	}
