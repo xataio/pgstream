@@ -37,7 +37,7 @@ func Test_SnapshotToPostgres(t *testing.T) {
 		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf("insert into %s(name) values('a'),('b')", testTable))
 
 		cfg := &stream.Config{
-			Listener:  testSnapshotListenerCfg(snapshotPGURL, targetPGURL, []string{testTable}),
+			Listener:  testSnapshotListenerCfg(snapshotPGURL, targetPGURL, []string{"*.*"}),
 			Processor: testPostgresProcessorCfg(snapshotPGURL, bulkIngestion),
 		}
 		initStream(t, ctx, snapshotPGURL)

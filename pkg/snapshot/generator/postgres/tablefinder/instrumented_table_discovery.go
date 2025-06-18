@@ -11,24 +11,32 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-type tableDiscoverer struct {
-	fn     tableDiscoveryFn
-	tracer trace.Tracer
+type schemaTableDiscoverer struct {
+	tableDiscoveryFn  tableDiscoveryFn
+	schemaDiscoveryFn schemaDiscoveryFn
+	tracer            trace.Tracer
 }
 
-func newInstrumentedTableDiscoveryFn(fn tableDiscoveryFn, i *otel.Instrumentation) tableDiscoveryFn {
-	td := tableDiscoverer{
-		fn:     fn,
-		tracer: i.Tracer,
+func newInstrumentedSchemaTableDiscoveryFns(schemaFn schemaDiscoveryFn, tableFn tableDiscoveryFn, i *otel.Instrumentation) (schemaDiscoveryFn, tableDiscoveryFn) {
+	td := schemaTableDiscoverer{
+		schemaDiscoveryFn: schemaFn,
+		tableDiscoveryFn:  tableFn,
+		tracer:            i.Tracer,
 	}
-	return td.discoverTables
+	return td.discoverSchemas, td.discoverTables
 }
 
-func (i *tableDiscoverer) discoverTables(ctx context.Context, conn pglib.Querier, schema string) (tables []string, err error) {
+func (i *schemaTableDiscoverer) discoverSchemas(ctx context.Context, conn pglib.Querier) (tables []string, err error) {
+	ctx, span := otel.StartSpan(ctx, i.tracer, "tableFinder.discoverSchemas")
+	defer otel.CloseSpan(span, err)
+	return i.schemaDiscoveryFn(ctx, conn)
+}
+
+func (i *schemaTableDiscoverer) discoverTables(ctx context.Context, conn pglib.Querier, schema string) (tables []string, err error) {
 	ctx, span := otel.StartSpan(ctx, i.tracer, "tableFinder.discoverTables", trace.WithAttributes(attribute.KeyValue{
 		Key: "schema", Value: attribute.StringValue(schema),
 	}))
 	defer otel.CloseSpan(span, err)
 
-	return i.fn(ctx, conn, schema)
+	return i.tableDiscoveryFn(ctx, conn, schema)
 }
