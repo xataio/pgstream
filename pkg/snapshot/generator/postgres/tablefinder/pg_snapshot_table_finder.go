@@ -69,8 +69,12 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 }
 
 func (s *SnapshotSchemaTableFinder) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) error {
-	_, wildcardSchemaFound := ss.SchemaTables[wildcard]
+	tablenames, wildcardSchemaFound := ss.SchemaTables[wildcard]
 	if wildcardSchemaFound {
+		if len(tablenames) != 1 || tablenames[0] != wildcard {
+			return fmt.Errorf("wildcard schema must be used with wildcard table, got %q", tablenames)
+		}
+
 		schemas, err := s.schemaDiscoveryFn(ctx, s.conn)
 		if err != nil {
 			return err
