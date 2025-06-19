@@ -174,6 +174,22 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "error - schema wildcard with table name",
+			conn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					t.Fatalf("unexpected query: %s", query)
+					return nil, nil // should not be called
+				},
+			},
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					wildcard: {"table-1"},
+				},
+			},
+
+			wantErr: errors.New("wildcard schema must be used with wildcard table, got [\"table-1\"]"),
+		},
+		{
 			name: "error - querying schema tables",
 			conn: &pgmocks.Querier{
 				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
@@ -263,7 +279,14 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 				tableDiscoveryFn:  discoverAllSchemaTables,
 			}
 			err := tableFinder.CreateSnapshot(context.Background(), tc.snapshot)
-			require.ErrorIs(t, err, tc.wantErr)
+			if tc.wantErr != nil {
+				require.Error(t, err)
+				if !errors.Is(err, tc.wantErr) {
+					require.Contains(t, err.Error(), tc.wantErr.Error())
+				}
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }
