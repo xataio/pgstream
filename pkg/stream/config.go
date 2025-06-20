@@ -158,7 +158,12 @@ func (c *Config) PostgresReplicationSlot() string {
 func (c *Config) RequiredTables() []string {
 	requiredTables := []string{}
 	if c.Listener.Snapshot != nil {
-		requiredTables = c.Listener.Snapshot.Adapter.Tables
+		requiredTables = append(requiredTables, c.Listener.Snapshot.Adapter.Tables...)
+	}
+	if c.Listener.Postgres != nil {
+		if c.Listener.Postgres.Snapshot != nil {
+			requiredTables = append(requiredTables, c.Listener.Postgres.Snapshot.Adapter.Tables...)
+		}
 	}
 	// TODO: add included tables for the replication case as well
 	return requiredTables
