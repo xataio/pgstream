@@ -134,7 +134,8 @@ func (v *PostgresTransformerParser) validateAllRequiredTables(ctx context.Contex
 
 func (v *PostgresTransformerParser) getRequiredTablesList(ctx context.Context) ([]string, error) {
 	schemaTablesList := []string{}
-	for _, table := range v.requiredTables {
+	for i := 0; i < len(v.requiredTables); i++ {
+		table := v.requiredTables[i]
 		schemaName, tableName, err := parseTableName(table)
 		if err != nil {
 			return nil, err
