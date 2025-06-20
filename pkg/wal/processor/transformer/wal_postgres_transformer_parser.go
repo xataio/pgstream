@@ -140,7 +140,19 @@ func (v *PostgresTransformerParser) getRequiredTablesList(ctx context.Context) (
 			return nil, err
 		}
 		if schemaName == wildcard {
-			return nil, fmt.Errorf("wildcard schema name is not supported: %s", table)
+			if tableName != wildcard {
+				return nil, fmt.Errorf("wildcard schema must be used with wildcard table, got: %q", tableName)
+			}
+
+			// if schemaName is wildcard, fetch all schemas
+			allSchemas, err := v.getAllSchemaNames(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("fetching all schemas for wildcard: %w", err)
+			}
+			for _, schema := range allSchemas {
+				v.requiredTables = append(v.requiredTables, schema+"."+wildcard)
+			}
+			continue
 		}
 
 		if tableName != wildcard {
@@ -193,6 +205,30 @@ func (v *PostgresTransformerParser) getAllSchemaTables(ctx context.Context, sche
 	}
 
 	return tableNames, nil
+}
+
+func (v *PostgresTransformerParser) getAllSchemaNames(ctx context.Context) ([]string, error) {
+	const query = "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')"
+	rows, err := v.conn.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("discovering all schemas for wildcard: %w", err)
+	}
+	defer rows.Close()
+
+	schemas := []string{}
+	for rows.Next() {
+		var schemaName string
+		if err := rows.Scan(&schemaName); err != nil {
+			return nil, fmt.Errorf("scanning schema name: %w", err)
+		}
+		schemas = append(schemas, schemaName)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return schemas, nil
 }
 
 func parseTableName(qualifiedTableName string) (string, string, error) {

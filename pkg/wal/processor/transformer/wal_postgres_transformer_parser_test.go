@@ -52,6 +52,19 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 					},
 					ErrFn: func() error { return nil },
 				}, nil
+			case "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')":
+				return &pgmocks.Rows{
+					CloseFn: func() {},
+					NextFn:  func(i uint) bool { return i == 1 },
+					ScanFn: func(dest ...any) error {
+						require.Len(t, dest, 1)
+						schemaName, ok := dest[0].(*string)
+						require.True(t, ok)
+						*schemaName = "public"
+						return nil
+					},
+					ErrFn: func() error { return nil },
+				}, nil
 			default:
 				return nil, fmt.Errorf("unexpected query: %s", query)
 			}
@@ -112,6 +125,60 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			validator: testPGValidator,
 
 			wantTransformersFor: []string{"name"},
+			wantErr:             nil,
+		},
+		{
+			name: "ok - with wildcard table",
+			transformerRules: []TableRules{
+				{
+					Schema:         "public",
+					Table:          "test",
+					ValidationMode: "strict",
+					ColumnRules: map[string]TransformerRules{
+						"id": {
+							Name: "greenmask_integer",
+						},
+						"name": {
+							Name: "string",
+						},
+					},
+				},
+			},
+			validator: PostgresTransformerParser{
+				conn:           testQuerier,
+				builder:        builder.NewTransformerBuilder(),
+				pgtypeMap:      pgtype.NewMap(),
+				requiredTables: []string{"*"},
+			},
+
+			wantTransformersFor: []string{"id", "name"},
+			wantErr:             nil,
+		},
+		{
+			name: "ok - with wildcard schema and table",
+			transformerRules: []TableRules{
+				{
+					Schema:         "public",
+					Table:          "test",
+					ValidationMode: "strict",
+					ColumnRules: map[string]TransformerRules{
+						"id": {
+							Name: "greenmask_integer",
+						},
+						"name": {
+							Name: "string",
+						},
+					},
+				},
+			},
+			validator: PostgresTransformerParser{
+				conn:           testQuerier,
+				builder:        builder.NewTransformerBuilder(),
+				pgtypeMap:      pgtype.NewMap(),
+				requiredTables: []string{"*.*"},
+			},
+
+			wantTransformersFor: []string{"id", "name"},
 			wantErr:             nil,
 		},
 		{
@@ -229,7 +296,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			wantErr: errInvalidTableName,
 		},
 		{
-			name:             "error - wildcard schema name",
+			name:             "error - wildcard schema name with non-wildcard table name",
 			transformerRules: []TableRules{},
 			validator: PostgresTransformerParser{
 				conn:           testQuerier,
@@ -237,7 +304,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				pgtypeMap:      pgtype.NewMap(),
 				requiredTables: []string{"*.test"},
 			},
-			wantErr: fmt.Errorf("wildcard schema name is not supported: *.test"),
+			wantErr: fmt.Errorf("wildcard schema must be used with wildcard table, got: \"test\""),
 		},
 	}
 	for _, tc := range tests {
