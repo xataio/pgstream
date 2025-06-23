@@ -465,7 +465,7 @@ func (sg *SnapshotGenerator) getTableInfo(ctx context.Context, schemaName, table
 var pageRangeQueryCount = "SELECT COUNT(*) FROM %s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'"
 
 // getMissedPages makes sure the page count is accurate, and we don't miss any
-// pages due to innacurate estimates from the relpages. This is likely to happen
+// pages due to inaccurate estimates from the relpages. This is likely to happen
 // with small tables, tables with active inserts or databases that have not been
 // vacuumed/analyzed recently.
 func (sg *SnapshotGenerator) getMissedPages(ctx context.Context, tx pglib.Tx, schemaName, tableName string, tableInfo *tableInfo) (int, error) {
