@@ -46,9 +46,10 @@ type mapper interface {
 }
 
 type tableInfo struct {
-	pageCount    int
-	avgPageBytes int64
-	avgRowBytes  int64
+	pageCount     int
+	avgPageBytes  int64
+	avgRowBytes   int64
+	batchPageSize uint
 }
 
 type pageRange struct {
@@ -299,19 +300,12 @@ func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID strin
 		})
 	}
 
-	// automatically determine the batch page size based on the average page
-	// size and the configured batch bytes limit.
-	batchPageSize := tableInfo.getBatchPageSize(sg.batchBytes)
-	sg.logger.Debug("batch page size for table", loglib.Fields{
-		"schema": table.schema, "table": table.name, "batch_page_size": batchPageSize,
-		"page_count": tableInfo.pageCount, "avg_page_bytes": tableInfo.avgPageBytes,
-	})
 	// page count returned by postgres starts at 0, so we need to include it
 	// when creating the page ranges.
-	for start := uint(0); start <= uint(tableInfo.pageCount); start += batchPageSize {
+	for start := uint(0); start <= uint(tableInfo.pageCount); start += tableInfo.batchPageSize {
 		rangeChan <- pageRange{
 			start: start,
-			end:   start + batchPageSize,
+			end:   start + tableInfo.batchPageSize,
 		}
 	}
 
@@ -373,7 +367,6 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID 
 		}
 
 		if sg.progressTracking {
-			sg.logger.Debug(fmt.Sprintf("adding %d rows to progress bar", rowCount))
 			sg.progressBars[table.schema].Add64(int64(rowCount) * table.rowSize)
 		}
 
@@ -450,7 +443,14 @@ func (sg *SnapshotGenerator) getTableInfo(ctx context.Context, schemaName, table
 			return fmt.Errorf("getting page information for table %s.%s: %w", schemaName, tableName, err)
 		}
 
-		sg.logger.Debug(fmt.Sprintf("table page count: %d, page avg bytes: %d", tableInfo.pageCount, tableInfo.avgPageBytes), loglib.Fields{
+		tableInfo.calculateBatchPageSize(sg.batchBytes)
+
+		missedPages, err := sg.getMissedPages(ctx, tx, schemaName, tableName, tableInfo)
+		if err != nil {
+			return err
+		}
+		tableInfo.pageCount += missedPages
+		sg.logger.Debug(fmt.Sprintf("table page count: %d, missed pages: %d, batch page size: %d", tableInfo.pageCount, missedPages, tableInfo.batchPageSize), loglib.Fields{
 			"schema": schemaName, "table": tableName, "snapshotID": snapshotID,
 		})
 		return nil
@@ -460,6 +460,36 @@ func (sg *SnapshotGenerator) getTableInfo(ctx context.Context, schemaName, table
 	}
 
 	return tableInfo, nil
+}
+
+var pageRangeQueryCount = "SELECT COUNT(*) FROM %s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'"
+
+// getMissedPages makes sure the page count is accurate, and we don't miss any
+// pages due to inaccurate estimates from the relpages. This is likely to happen
+// with small tables, tables with active inserts or databases that have not been
+// vacuumed/analyzed recently.
+func (sg *SnapshotGenerator) getMissedPages(ctx context.Context, tx pglib.Tx, schemaName, tableName string, tableInfo *tableInfo) (int, error) {
+	missedPages := 0
+	start := tableInfo.pageCount
+	if start == 0 {
+		start = 1
+	}
+	end := start + int(tableInfo.batchPageSize)
+	for {
+		pageRows := 0
+		err := tx.QueryRow(ctx, fmt.Sprintf(pageRangeQueryCount, pglib.QuoteQualifiedIdentifier(schemaName, tableName), start, end)).Scan(&pageRows)
+		if err != nil {
+			return 0, fmt.Errorf("getting missed pages for table %s.%s: %w", schemaName, tableName, err)
+		}
+
+		if pageRows == 0 {
+			return missedPages, nil
+		}
+
+		missedPages += int(tableInfo.batchPageSize)
+		start = end
+		end += int(tableInfo.batchPageSize)
+	}
 }
 
 const tablesBytesQuery = `SELECT SUM(pg_table_size(c.oid)) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = '%s' AND c.relname IN (%s) AND c.relkind = 'r';`
@@ -523,15 +553,19 @@ func snapshotTxOptions() pglib.TxOptions {
 	}
 }
 
-func (t *tableInfo) getBatchPageSize(bytes uint64) uint {
+// calculateBatchPageSize will automatically determine the batch page size based
+// on the average page size and the configured batch bytes limit.
+func (t *tableInfo) calculateBatchPageSize(bytes uint64) {
 	// at least one page is needed to process the table
 	if t.pageCount == 0 {
-		return 1
+		t.batchPageSize = 1
+		return
 	}
 
 	// no limit on bytes, return all pages
 	if bytes == 0 || t.avgPageBytes == 0 {
-		return uint(t.pageCount)
+		t.batchPageSize = uint(t.pageCount)
+		return
 	}
 
 	batchPageSize := bytes / uint64(t.avgPageBytes)
@@ -545,7 +579,7 @@ func (t *tableInfo) getBatchPageSize(bytes uint64) uint {
 		batchPageSize = uint64(t.pageCount)
 	}
 
-	return uint(batchPageSize)
+	t.batchPageSize = uint(batchPageSize)
 }
 
 func (t *tableInfo) isEmpty() bool {
