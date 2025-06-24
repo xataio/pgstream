@@ -124,7 +124,8 @@ func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, 
 		return schemalogsnapshotgenerator.NewSnapshotGenerator(
 			schemaLogStore,
 			processRow,
-			schemalogsnapshotgenerator.WithSnapshotGenerator(g)), nil
+			schemalogsnapshotgenerator.WithSnapshotGenerator(g),
+			schemalogsnapshotgenerator.WithLogger(logger)), nil
 	case cfg.DumpRestore != nil:
 		// postgres pgdump/pgrestore schema snapshot generator
 		opts := []pgdumprestoregenerator.Option{
