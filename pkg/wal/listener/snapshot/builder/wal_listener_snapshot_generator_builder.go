@@ -67,6 +67,17 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 		return nil, err
 	}
 
+	// snapshot table finder layer
+	finderOpts := []pgtablefinder.Option{}
+	if instrumentation.IsEnabled() {
+		finderOpts = append(finderOpts, pgtablefinder.WithInstrumentation(instrumentation))
+	}
+
+	g, err = pgtablefinder.NewSnapshotSchemaTableFinder(ctx, cfg.Generator.URL, g, finderOpts...)
+	if err != nil {
+		return nil, err
+	}
+
 	// postgres schema snapshot generator layer
 	g, err = newSchemaSnapshotGenerator(ctx, &cfg.Schema, g, rowsProcessor.ProcessRow, logger, instrumentation)
 	if err != nil {
@@ -84,17 +95,6 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 			snapshotStore = snapshotstoreinstrumentation.NewStore(snapshotStore, instrumentation)
 		}
 		g = generator.NewSnapshotRecorder(snapshotStore, g, cfg.Recorder.RepeatableSnapshots)
-	}
-
-	// snapshot table finder layer
-	finderOpts := []pgtablefinder.Option{}
-	if instrumentation.IsEnabled() {
-		finderOpts = append(finderOpts, pgtablefinder.WithInstrumentation(instrumentation))
-	}
-
-	g, err = pgtablefinder.NewSnapshotSchemaTableFinder(ctx, cfg.Generator.URL, g, finderOpts...)
-	if err != nil {
-		return nil, err
 	}
 
 	if instrumentation.IsEnabled() {

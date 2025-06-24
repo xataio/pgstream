@@ -58,7 +58,21 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						},
 						ErrFn: func() error { return nil },
 					}, nil
-				case fmt.Sprintf(selectTablesQuery, testSchema, "$1"):
+				case fmt.Sprintf(selectSchemaTablesQuery, testSchema, "$1"):
+					require.Equal(t, []any{testTable}, args)
+					return &mocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(dest ...any) error {
+							require.Len(t, dest, 1)
+							tableName, ok := dest[0].(*string)
+							require.True(t, ok)
+							*tableName = excludedTable
+							return nil
+						},
+						ErrFn: func() error { return nil },
+					}, nil
+				case fmt.Sprintf(selectTablesQuery, "$1"):
 					require.Equal(t, []any{testTable}, args)
 					return &mocks.Rows{
 						CloseFn: func() {},
@@ -232,10 +246,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "ok - wildcard",
+			name: "ok - wildcard table",
 			snapshot: &snapshot.Snapshot{
 				SchemaTables: map[string][]string{
-					testSchema: {"*"},
+					testSchema: {wildcard},
 				},
 			},
 			conn: validQuerier(),
@@ -247,6 +261,87 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						Format:           "p",
 						SchemaOnly:       true,
 						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
+					}, po)
+					return schemaDump, nil
+				case 2:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						DataOnly:         true,
+						Tables:           []string{testSequence},
+					}, po)
+					return sequenceDump, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
+				}
+			}),
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
+				require.Equal(t, pglib.PGRestoreOptions{
+					ConnectionString: "target-url",
+					Format:           "p",
+				}, po)
+				require.Equal(t, append(schemaDump, sequenceDump...), dump)
+				return "", nil
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - wildcard schema",
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					wildcard: {testTable},
+				},
+			},
+			conn: validQuerier(),
+			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						SchemaOnly:       true,
+						ExcludeTables:    []string{pglib.QuoteIdentifier(excludedTable)},
+					}, po)
+					return schemaDump, nil
+				case 2:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						DataOnly:         true,
+						Tables:           []string{testSequence},
+					}, po)
+					return sequenceDump, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
+				}
+			}),
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
+				require.Equal(t, pglib.PGRestoreOptions{
+					ConnectionString: "target-url",
+					Format:           "p",
+				}, po)
+				require.Equal(t, append(schemaDump, sequenceDump...), dump)
+				return "", nil
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - wildcard schema and table",
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					wildcard: {wildcard},
+				},
+			},
+			conn: validQuerier(),
+			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						SchemaOnly:       true,
 					}, po)
 					return schemaDump, nil
 				case 2:
@@ -341,7 +436,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							},
 							ErrFn: func() error { return nil },
 						}, nil
-					case fmt.Sprintf(selectTablesQuery, testSchema, "$1"):
+					case fmt.Sprintf(selectSchemaTablesQuery, testSchema, "$1"):
 						require.Equal(t, []any{testTable}, args)
 						return &mocks.Rows{
 							CloseFn: func() {},
@@ -393,7 +488,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							},
 							ErrFn: func() error { return nil },
 						}, nil
-					case fmt.Sprintf(selectTablesQuery, testSchema, "$1"):
+					case fmt.Sprintf(selectSchemaTablesQuery, testSchema, "$1"):
 						require.Equal(t, []any{testTable}, args)
 						return &mocks.Rows{
 							CloseFn: func() {},

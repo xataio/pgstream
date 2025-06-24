@@ -221,7 +221,7 @@ func (s *SnapshotGenerator) restoreDump(ctx context.Context, schemaTables map[st
 	// will not be dumped, so it needs to be created explicitly (except for
 	// public schema)
 	for schema, tables := range schemaTables {
-		if len(tables) > 0 && schema != publicSchema {
+		if len(tables) > 0 && schema != publicSchema && schema != wildcard {
 			if err := s.createSchemaIfNotExists(ctx, schema); err != nil {
 				return err
 			}
@@ -296,7 +296,11 @@ func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, schemaTables map[
 		opts.NoOwner = true
 	}
 
-	if s.includeGlobalDBObjects {
+	switch {
+	case hasWildcardSchema(schemaTables):
+		// no need to filter schemas, since we are including all of them
+		opts.Schemas = nil
+	case s.includeGlobalDBObjects:
 		// instead of using the schema filter, we use the exclude schemas filter
 		// to make sure extensions and other database global objects are
 		// created. pg_dump will not include them when using the schema filter,
@@ -329,7 +333,10 @@ func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, schemaTables map[
 	return opts, nil
 }
 
-var selectTablesQuery = "SELECT tablename FROM pg_tables WHERE schemaname = '%s' AND tablename NOT IN (%s)"
+const (
+	selectTablesQuery       = "SELECT tablename FROM pg_tables WHERE tablename NOT IN (%s)"
+	selectSchemaTablesQuery = "SELECT tablename FROM pg_tables WHERE schemaname = '%s' AND tablename NOT IN (%s)"
+)
 
 func (s *SnapshotGenerator) pgdumpExcludedTables(ctx context.Context, schemaName string, includeTables []string) ([]string, error) {
 	conn, err := s.connBuilder(ctx, s.sourceURL)
@@ -345,8 +352,16 @@ func (s *SnapshotGenerator) pgdumpExcludedTables(ctx context.Context, schemaName
 		paramRefs = append(paramRefs, fmt.Sprintf("$%d", i+1))
 	}
 
+	var query string
+	switch schemaName {
+	case wildcard:
+		query = fmt.Sprintf(selectTablesQuery, strings.Join(paramRefs, ","))
+	default:
+		// if the schema is not wildcard, we need to filter by schema name
+		query = fmt.Sprintf(selectSchemaTablesQuery, schemaName, strings.Join(paramRefs, ","))
+	}
+
 	// get all tables in the schema that are not in the include list
-	query := fmt.Sprintf(selectTablesQuery, schemaName, strings.Join(paramRefs, ","))
 	rows, err := conn.Query(ctx, query, tableParams...)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving tables from schema: %w", err)
@@ -369,7 +384,7 @@ func (s *SnapshotGenerator) pgdumpExcludedTables(ctx context.Context, schemaName
 	return excludeTables, nil
 }
 
-var selectSchemasQuery = "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN (%s)"
+const selectSchemasQuery = "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN (%s)"
 
 func (s *SnapshotGenerator) pgdumpExcludedSchemas(ctx context.Context, includeSchemas []string) ([]string, error) {
 	conn, err := s.connBuilder(ctx, s.sourceURL)
@@ -507,5 +522,9 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 }
 
 func hasWildcardTable(tables []string) bool {
-	return slices.Contains(tables, "*")
+	return slices.Contains(tables, wildcard)
+}
+
+func hasWildcardSchema(schemaTables map[string][]string) bool {
+	return schemaTables[wildcard] != nil
 }
