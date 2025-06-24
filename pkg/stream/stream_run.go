@@ -18,6 +18,7 @@ import (
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
 	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
+	"github.com/xataio/pgstream/pkg/wal/processor"
 	"github.com/xataio/pgstream/pkg/wal/replication"
 	replicationinstrumentation "github.com/xataio/pgstream/pkg/wal/replication/instrumentation"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
@@ -94,18 +95,11 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 
 	// Processor
 
-	processor, err := buildProcessor(ctx, logger, &config.Processor, checkpoint, instrumentation)
-	if err != nil {
-		return err
-	}
-	defer processor.Close()
-
-	var closer closerFn
-	processor, closer, err = addProcessorModifiers(ctx, config, logger, processor, instrumentation)
-	if err != nil {
-		return err
-	}
+	processor, closer, err := newProcessor(ctx, logger, config, checkpoint, instrumentation)
 	defer closer()
+	if err != nil {
+		return err
+	}
 
 	// Listener
 
@@ -118,10 +112,19 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 		}
 		if config.Listener.Postgres.Snapshot != nil {
 			logger.Info("initial snapshot enabled")
+			// use a dedicated processor for the snapshot phase, to be able to
+			// close it and make sure the snapshot is complete before starting
+			// to process the WAL replication events.
+			snapshotProcessor, snapshotCloser, err := newProcessor(ctx, logger, config, checkpoint, instrumentation)
+			defer snapshotCloser()
+			if err != nil {
+				return fmt.Errorf("error creating snapshot processor: %w", err)
+			}
+
 			snapshotGenerator, err := snapshotbuilder.NewSnapshotGenerator(
 				ctx,
 				config.Listener.Postgres.Snapshot,
-				processor,
+				snapshotProcessor,
 				logger,
 				instrumentation)
 			if err != nil {
@@ -162,4 +165,26 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 	}
 
 	return nil
+}
+
+var noopCloser func() error = func() error {
+	return nil
+}
+
+func newProcessor(ctx context.Context, logger loglib.Logger, config *Config, checkpoint checkpointer.Checkpoint, instrumentation *otel.Instrumentation) (processor.Processor, closerFn, error) {
+	processor, err := buildProcessor(ctx, logger, &config.Processor, checkpoint, instrumentation)
+	if err != nil {
+		return nil, noopCloser, err
+	}
+	var closerAgg closerAggregator
+	var closer closerFn
+	processor, closer, err = addProcessorModifiers(ctx, config, logger, processor, instrumentation)
+	if err != nil {
+		return nil, processor.Close, err
+	}
+
+	closerAgg.addCloserFn(closer)
+	closerAgg.addCloserFn(processor.Close)
+
+	return processor, closerAgg.close, nil
 }
