@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	schemalogmocks "github.com/xataio/pgstream/pkg/schemalog/mocks"
 )
@@ -67,6 +68,11 @@ func TestDDLAdapter_walDataToQueries(t *testing.T) {
 			wantQueries: []*query{
 				{
 					schema: testSchema,
+					sql:    fmt.Sprintf(createSchemaIfNotExistsQuery, pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
 					table:  table2,
 					sql:    fmt.Sprintf("ALTER TABLE %s RENAME TO %s", quotedTableName(testSchema, table1), table2),
 					isDDL:  true,
@@ -99,6 +105,11 @@ func TestDDLAdapter_walDataToQueries(t *testing.T) {
 			logEntry: testLogEntry(1),
 
 			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf(createSchemaIfNotExistsQuery, pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
 				{
 					schema: testSchema,
 					table:  table2,

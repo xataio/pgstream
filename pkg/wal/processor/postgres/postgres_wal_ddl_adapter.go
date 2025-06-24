@@ -46,7 +46,23 @@ func (a *ddlAdapter) schemaLogToQueries(ctx context.Context, schemaLog *schemalo
 
 	diff := a.schemaDiffer(previousSchemaLog, schemaLog)
 
-	return a.schemaDiffToQueries(schemaLog.SchemaName, diff)
+	queries := []*query{
+		a.createSchemaIfNotExists(schemaLog.SchemaName),
+	}
+
+	schemaQueries, err := a.schemaDiffToQueries(schemaLog.SchemaName, diff)
+	if err != nil {
+		return nil, err
+	}
+
+	return append(queries, schemaQueries...), nil
+}
+
+const createSchemaIfNotExistsQuery = "CREATE SCHEMA IF NOT EXISTS %s"
+
+func (a *ddlAdapter) createSchemaIfNotExists(schemaName string) *query {
+	createSchemaQuery := fmt.Sprintf(createSchemaIfNotExistsQuery, pglib.QuoteIdentifier(schemaName))
+	return a.newDDLQuery(schemaName, "", createSchemaQuery)
 }
 
 func (a *ddlAdapter) schemaDiffToQueries(schemaName string, diff *schemalog.Diff) ([]*query, error) {
@@ -108,9 +124,10 @@ func (a *ddlAdapter) buildColumnDefinition(column *schemalog.Column) string {
 	if !column.Nullable {
 		colDefinition = fmt.Sprintf("%s NOT NULL", colDefinition)
 	}
-	// do not set default values with sequences since they will differ between
-	// source/target. Keep source database as source of truth.
-	if column.DefaultValue != nil && (!strings.Contains(*column.DefaultValue, "seq") || column.Generated) {
+	// do not set default values with sequences and generated columns since they
+	// must be aligned between source/target. Keep source database as source of
+	// truth.
+	if column.DefaultValue != nil && !strings.Contains(*column.DefaultValue, "seq") && !column.Generated {
 		colDefinition = fmt.Sprintf("%s DEFAULT %s", colDefinition, *column.DefaultValue)
 	}
 
