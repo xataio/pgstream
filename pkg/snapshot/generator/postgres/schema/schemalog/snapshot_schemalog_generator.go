@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/xataio/pgstream/internal/json"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"github.com/xataio/pgstream/pkg/snapshot/generator"
@@ -17,6 +18,7 @@ type SnapshotGenerator struct {
 	marshaler      func(any) ([]byte, error)
 	processRow     snapshot.RowProcessor
 	generator      generator.SnapshotGenerator
+	logger         loglib.Logger
 }
 
 type Option func(*SnapshotGenerator)
@@ -26,6 +28,7 @@ func NewSnapshotGenerator(schemalogStore schemalog.Store, processRow snapshot.Ro
 		schemalogStore: schemalogStore,
 		processRow:     processRow,
 		marshaler:      json.Marshal,
+		logger:         loglib.NewNoopLogger(),
 	}
 
 	for _, opt := range opts {
@@ -41,14 +44,31 @@ func WithSnapshotGenerator(g generator.SnapshotGenerator) Option {
 	}
 }
 
+func WithLogger(logger loglib.Logger) Option {
+	return func(sg *SnapshotGenerator) {
+		sg.logger = loglib.NewLogger(logger).WithFields(loglib.Fields{
+			loglib.ModuleField: "postgres_schemalog_snapshot_generator",
+		})
+	}
+}
+
 func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) error {
 	snapshotErrs := make(snapshot.Errors)
 	for schema := range ss.SchemaTables {
+		s.logger.Info("creating schema snapshot", loglib.Fields{"schema": schema, "tables": ss.SchemaTables[schema]})
 		err := func() error {
 			logEntry, err := s.schemalogStore.Insert(ctx, schema)
 			if err != nil {
 				return err
 			}
+
+			s.logger.Debug("created schema log entry", loglib.Fields{
+				"schema":     schema,
+				"log_entry":  logEntry.ID,
+				"version":    logEntry.Version,
+				"created_at": logEntry.CreatedAt,
+				"acked":      logEntry.Acked,
+			})
 
 			row, err := s.logEntryToSnapshotRow(logEntry)
 			if err != nil {
