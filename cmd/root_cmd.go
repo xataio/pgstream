@@ -61,6 +61,7 @@ func Prepare() *cobra.Command {
 	snapshotCmd.Flags().StringSlice("tables", nil, "List of tables to snapshot, in the format <schema>.<table>. If not specified, the schema `public` will be assumed. Wildcards are supported")
 	snapshotCmd.Flags().Bool("reset", false, "Whether to reset the target before snapshotting (only for postgres target)")
 	snapshotCmd.Flags().Bool("profile", false, "Whether to produce CPU and memory profile files, as well as exposing a /debug/pprof endpoint on localhost:6060")
+	snapshotCmd.Flags().String("dump-file", "", "File where the pg_dump output will be written")
 
 	// run cmd
 	runCmd.Flags().String("source", "", "Source type. One of postgres, kafka")

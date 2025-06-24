@@ -20,6 +20,7 @@ source:
           create_target_db: true # whether to create the database on the target postgres
           include_global_db_objects: true # whether to include database global objects, such as extensions or triggers, on the schema snapshot
           role: test-role # role name to be used to create the dump
+          dump_file: "pg_dump.sql"
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
   kafka:

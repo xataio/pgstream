@@ -101,6 +101,7 @@ type PgDumpPgRestoreConfig struct {
 	CreateTargetDB         bool   `mapstructure:"create_target_db" yaml:"create_target_db"`
 	IncludeGlobalDBObjects bool   `mapstructure:"include_global_db_objects" yaml:"include_global_db_objects"`
 	Role                   string `mapstructure:"role" yaml:"role"`
+	DumpFile               string `mapstructure:"dump_file" yaml:"dump_file"`
 }
 
 type ReplicationConfig struct {
@@ -503,6 +504,7 @@ func (c *YAMLConfig) parseSchemaSnapshotConfig() (snapshotbuilder.SchemaSnapshot
 			streamSchemaCfg.DumpRestore.IncludeGlobalDBObjects = schemaSnapshotCfg.PgDumpPgRestore.IncludeGlobalDBObjects
 			streamSchemaCfg.DumpRestore.CreateTargetDB = schemaSnapshotCfg.PgDumpPgRestore.CreateTargetDB
 			streamSchemaCfg.DumpRestore.Role = schemaSnapshotCfg.PgDumpPgRestore.Role
+			streamSchemaCfg.DumpRestore.DumpDebugFile = schemaSnapshotCfg.PgDumpPgRestore.DumpFile
 		}
 
 		return streamSchemaCfg, nil
