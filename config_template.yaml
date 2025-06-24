@@ -1,22 +1,34 @@
+instrumentation:
+  metrics:
+    endpoint: "0.0.0.0:4317"
+    collection_interval: 60 # collection interval for metrics in seconds. Defaults to 60s
+  traces:
+    endpoint: "0.0.0.0:4317"
+    sample_ratio: 0.5 # ratio of traces that will be sampled. Must be between 0.0-1.0, where 0 is no traces sampled, and 1 is all traces sampled.
+
 source:
   postgres:
     url: "postgresql://user:password@localhost:5432/mydatabase"
     mode: snapshot_and_replication # options are replication, snapshot or snapshot_and_replication
     snapshot: # when mode is snapshot or snapshot_and_replication
       mode: full # options are data_and, schema or data
-      tables: ["test", "test_schema.test", "another_schema.*"] # tables to snapshot, can be a list of table names or a pattern
+      tables: ["test", "test_schema.Test", "another_schema.*"] # tables to snapshot, can be a list of table names or a pattern
       recorder:
-        repeatable_snapshots: true # whether to repeat snapshots that have already been taken
-        postgres_url: "postgresql://user:password@localhost:5432/mydatabase" # URL of the database where the snapshot status is recorded
-      snapshot_workers: 4 # number of schemas to be snapshotted in parallel
+        repeatable_snapshots: true # whether to repeat snapshots that have already been taken. Defaults to false
+        postgres_url: "postgresql://user:password@localhost:5432/mytargetdatabase" # URL of the database where the snapshot status is recorded
+      snapshot_workers: 4 # number of schemas to be snapshotted in parallel. Defaults to 1
       data: # when mode is full or data
-        schema_workers: 4 # number of schema tables to be snapshotted in parallel
-        table_workers: 4 # number of workers to snapshot a table in parallel
+        schema_workers: 4 # number of schema tables to be snapshotted in parallel. Defaults to 4
+        table_workers: 4 # number of workers to snapshot a table in parallel. Defaults to 4
         batch_bytes: 83886080 # bytes to read per batch (defaults to 80MiB)
       schema: # when mode is full or schema
         mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
         pgdump_pgrestore:
-          clean_target_db: true # whether to clean the target database before restoring
+          clean_target_db: true # whether to clean the target database before restoring. Defaults to false
+          create_target_db: true # whether to create the database on the target postgres. Defaults to false
+          include_global_db_objects: true # whether to include database global objects, such as extensions or triggers, on the schema snapshot. Defaults to false
+          role: postgres # role name to be used to create the dump
+          dump_file: pg_dump.sql # name of the file where the contents of the schema pg_dump command and output will be written for debugging purposes.
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
   kafka:
@@ -24,8 +36,8 @@ source:
     topic:
       name: "mytopic"
     consumer_group:
-      id: "mygroup"
-      start_offset: "earliest" # options are earliest or latest
+      id: "mygroup" # id for the kafka consumer group. Defaults to pgstream-consumer-group
+      start_offset: "earliest" # options are earliest or latest. Defaults to earliest.
     tls:
       ca_cert: "/path/to/ca.crt" # path to CA certificate
       client_cert: "/path/to/client.crt" # path to client certificate
@@ -43,37 +55,40 @@ target:
   postgres:
     url: "postgresql://user:password@localhost:5432/mytargetdatabase"
     batch:
-      timeout: 1000 # batch timeout in milliseconds
-      size: 100 # number of messages in a batch
-      max_bytes: 1572864 # max size of batch in bytes (1.5MiB)
-      max_queue_bytes: 204800 # max size of memory guard queue in bytes (100MiB)
-    disable_triggers: false # whether to disable triggers on the target database
-    on_conflict_action: "nothing" # options are update, nothing or error
+      timeout: 1000 # batch timeout in milliseconds. Defaults to 30s
+      size: 100 # number of messages in a batch. Defaults to 20000
+      max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB without bulk enabled, 80MiB with bulk ingest.
+      max_queue_bytes: 104857600 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
+    schema_log_store_url: "postgresql://user:password@localhost:5432/mydatabase" # url to the postgres database where the schema log is stored to be used when performing schema change diffs
+    disable_triggers: false # whether to disable triggers on the target database. Defaults to false
+    on_conflict_action: "nothing" # options are update, nothing or error. Defaults to error
+    bulk_ingest:
+      enabled: true # whether to enable bulk ingest on the target postgres, using COPY FROM (supported for insert only workloads)
   kafka:
     servers: ["localhost:9092"]
     topic:
       name: "mytopic" # name of the Kafka topic
-      partitions: 1 # number of partitions for the topic
-      replication_factor: 1 # replication factor for the topic
-      auto_create: true # whether to automatically create the topic if it doesn't exist
+      partitions: 1 # number of partitions for the topic. Defaults to 1
+      replication_factor: 1 # replication factor for the topic. Defaults to 1
+      auto_create: true # whether to automatically create the topic if it doesn't exist. Defaults to false
     tls:
       ca_cert: "/path/to/ca.crt" # path to CA certificate
       client_cert: "/path/to/client.crt" # path to client certificate
       client_key: "/path/to/client.key" # path to client key
     batch:
-      timeout: 1000 # batch timeout in milliseconds
-      size: 100 # number of messages in a batch
-      max_bytes: 1572864 # max size of batch in bytes (1.5MiB)
-      max_queue_bytes: 204800 # max size of memory guard queue in bytes (100MiB)
+      timeout: 1000 # batch timeout in milliseconds. Defaults to 1s
+      size: 100 # number of messages in a batch. Defaults to 100
+      max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB
+      max_queue_bytes: 104857600 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
   search:
     engine: "elasticsearch" # options are elasticsearch or opensearch
     url: "http://localhost:9200" # URL of the search engine
     batch:
-      timeout: 1000 # batch timeout in milliseconds
-      size: 100 # number of messages in a batch
-      max_bytes: 1572864 # max size of batch in bytes (1.5MiB)
-      max_queue_bytes: 204800 # max size of memory guard queue in bytes (100MiB)
-    backoff: # one of exponential or constant
+      timeout: 1000 # batch timeout in milliseconds. Defaults to 1s
+      size: 100 # number of messages in a batch. Defaults to 100
+      max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB
+      max_queue_bytes: 104857600 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
+    backoff:
       exponential:
         max_retries: 5 # maximum number of retries
         initial_interval: 1000 # initial interval in milliseconds
@@ -86,26 +101,29 @@ target:
       store:
         url: "postgresql://user:password@localhost:5432/mydatabase" # URL of the database where the webhook subscriptions are stored
         cache:
-          enabled: true # whether to enable caching for the subscription store
+          enabled: true # whether to enable caching for the subscription store. Defaults to false
           refresh_interval: 60 # interval in seconds to refresh the cache
       server:
         address: "localhost:9090" # address of the subscription server
-        read_timeout: 60 # read timeout in seconds
-        write_timeout: 60 # write timeout in seconds
+        read_timeout: 60 # read timeout in seconds. Defaults to 5s
+        write_timeout: 60 # write timeout in seconds. Defaults to 10s
     notifier:
-      worker_count: 4 # number of notifications to be processed in parallel
-      client_timeout: 1000 # timeout for the webhook client in milliseconds
-
+      worker_count: 4 # number of notifications to be processed in parallel. Defaults to 10
+      client_timeout: 1000 # timeout for the webhook client in milliseconds. Defaults to 10s
 
 modifiers:
   injector:
-    enabled: true # whether to inject pgstream metadata into the WAL events
-    schemalog_url: "postgresql://user:password@localhost:5432/mydatabase" # URL of the schemalog database, if different from the source database
+    enabled: true # whether to inject pgstream metadata into the WAL events. Defaults to false
+    schemalog_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the schemalog database, if different from the source database
   filter: # one of include_tables or exclude_tables
     include_tables: # list of tables for which events should be allowed. Tables should be schema qualified. If no schema is provided, the public schema will be assumed. Wildcards "*" are supported.
       - "test"
+      - "test_schema.test"
+      - "another_schema.*"
     exclude_tables: # list of tables for which events should be skipped. Tables should be schema qualified. If no schema is provided, the public schema will be assumed. Wildcards "*" are supported.
-      - "another_test"
+      - "excluded_test"
+      - "excluded_schema.test"
+      - "another_excluded_schema.*"
   transformations:
     validation_mode: relaxed
     table_transformers:
