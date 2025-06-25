@@ -50,6 +50,7 @@ func snapshotFlagBinding(cmd *cobra.Command, args []string) error {
 	viper.BindPFlag("source.postgres.url", cmd.Flags().Lookup("postgres-url"))
 	viper.BindPFlag("source.postgres.snapshot.tables", cmd.Flags().Lookup("tables"))
 	viper.BindPFlag("source.postgres.snapshot.schema.pgdump_pgrestore.clean_target_db", cmd.Flags().Lookup("reset"))
+	viper.BindPFlag("source.postgres.snapshot.schema.pgdump_pgrestore.dump_file", cmd.Flags().Lookup("dump-file"))
 	// if not explicitly set, default to repeatable for snapshot command
 	if viper.GetString("source.postgres.snapshot.recorder.repeatable_snapshots") == "" {
 		viper.Set("source.postgres.snapshot.recorder.repeatable_snapshots", true)
@@ -65,6 +66,7 @@ func snapshotFlagBinding(cmd *cobra.Command, args []string) error {
 	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL", cmd.Flags().Lookup("postgres-url"))
 	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_TABLES", cmd.Flags().Lookup("tables"))
 	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB", cmd.Flags().Lookup("reset"))
+	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE", cmd.Flags().Lookup("dump-file"))
 	// if not explicitly set, default to repeatable for snapshot command
 	if viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE") == "" {
 		viper.Set("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE", true)

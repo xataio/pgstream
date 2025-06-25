@@ -32,6 +32,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 	assert.NotNil(t, streamConfig.Listener.Postgres.Snapshot.Recorder)
 	assert.Equal(t, "postgresql://user:password@localhost:5432/mytargetdatabase", streamConfig.Listener.Postgres.Snapshot.Recorder.SnapshotStoreURL)
 	assert.True(t, streamConfig.Listener.Postgres.Snapshot.Recorder.RepeatableSnapshots)
+	assert.Equal(t, "pg_dump.sql", streamConfig.Listener.Postgres.Snapshot.Schema.DumpRestore.DumpDebugFile)
 
 	assert.NotNil(t, streamConfig.Listener.Kafka)
 	assert.Equal(t, []string{"localhost:9092"}, streamConfig.Listener.Kafka.Reader.Conn.Servers)

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -37,6 +38,7 @@ type SnapshotGenerator struct {
 	role                   string
 	logger                 loglib.Logger
 	generator              generator.SnapshotGenerator
+	dumpDebugFile          string // if set, the dump will be written to this file for debugging purposes
 }
 
 type Config struct {
@@ -49,6 +51,8 @@ type Config struct {
 	IncludeGlobalDBObjects bool
 	// Role name to be used to create the dump
 	Role string
+	// if set, the dump will be written to this file for debugging purposes
+	DumpDebugFile string
 }
 
 type Option func(s *SnapshotGenerator)
@@ -79,6 +83,7 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		includeGlobalDBObjects: c.IncludeGlobalDBObjects,
 		role:                   c.Role,
 		logger:                 loglib.NewNoopLogger(),
+		dumpDebugFile:          c.DumpDebugFile,
 	}
 
 	if err := sg.initialiseSchemaLogStore(ctx); err != nil {
@@ -196,6 +201,13 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 	d, err := s.pgDumpFn(ctx, *pgdumpOpts)
 	if err != nil {
 		return nil, err
+	}
+
+	if s.dumpDebugFile != "" {
+		b := bytes.NewBufferString(fmt.Sprintf("pg_dump options: %v\n\n%s", pgdumpOpts.ToArgs(), string(d)))
+		if err := os.WriteFile(s.dumpDebugFile, b.Bytes(), 0o644); err != nil { //nolint:gosec
+			return nil, fmt.Errorf("writing dump to debug file %s: %w", s.dumpDebugFile, err)
+		}
 	}
 
 	return s.parseDump(d), nil

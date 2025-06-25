@@ -78,6 +78,11 @@
       "example": "\n\tpgstream snapshot --postgres-url <postgres-url> --target postgres --target-url <target-url> --tables <schema.table> --reset\n\tpgstream snapshot --config config.yaml --log-level info\n\tpgstream snapshot --config config.env",
       "flags": [
         {
+          "name": "dump-file",
+          "description": "File where the pg_dump output will be written",
+          "default": ""
+        },
+        {
           "name": "postgres-url",
           "description": "Source postgres database to perform the snapshot from",
           "default": ""

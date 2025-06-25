@@ -44,6 +44,7 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB", "true")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS", "true")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_ROLE", "test-role")
+	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE", "pg_dump.sql")
 
 	os.Setenv("PGSTREAM_KAFKA_READER_SERVERS", "localhost:9092")
 	os.Setenv("PGSTREAM_KAFKA_TOPIC_NAME", "mytopic")
@@ -65,6 +66,7 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL", "postgresql://user:password@localhost:5432/mydatabase")
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS", "false")
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION", "nothing")
+	os.Setenv("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED", "true")
 
 	os.Setenv("PGSTREAM_KAFKA_WRITER_SERVERS", "localhost:9092")
 	os.Setenv("PGSTREAM_KAFKA_TOPIC_PARTITIONS", "1")
