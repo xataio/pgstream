@@ -174,7 +174,7 @@ target:
     batch:
       timeout: 5000 # batch timeout in milliseconds
       size: 25 # number of messages in a batch
-      schema_log_store_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # url to the postgres database where the schema log is stored to be used when performing schema change diffs
+    schema_log_store_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # url to the postgres database where the schema log is stored to be used when performing schema change diffs
     disable_triggers: false # whether to disable triggers on the target database
     on_conflict_action: "nothing" # options are update, nothing or error
 ```
