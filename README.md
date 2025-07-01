@@ -37,6 +37,7 @@
 - [Usage](#usage)
 - [Tutorials](#tutorials)
 - [Documentation](#documentation)
+- [Benchmarks](#benchmarks)
 - [Limitations](#limitations)
 - [Contributing](#contributing)
 - [License](#license)
@@ -228,6 +229,18 @@ Pgstream will parse the configuration provided, and initialise the relevant modu
 ## Documentation
 
 For more advanced usage, implementation details, and detailed configuration settings, please refer to the full [Documentation](docs/README.md).
+
+## Benchmarks
+
+### Snapshots
+
+![pgstream snapshot benchmarks](img/pgstream_snapshot_benchmarks.png)
+
+Datasets used: [IMDB database](https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/2QYZBT), [MusicBrainz database](https://musicbrainz.org/doc/MusicBrainz_Database), [Firenibble database](https://github.com/PeerDB-io/ab-scale-testing/tree/main).
+
+All benchmarks were run using the same setup, with pgstream `v0.7.2` and pg_dump/pg_restore (PostgreSQL) 17.4, using identical resources to ensure a fair comparison.
+
+For more details into performance benchmarking for snapshots to PostgreSQL with `pgstream`, check out this [blogpost](https://xata.io/blog/behind-the-scenes-speeding-up-pgstream-snapshots-for-postgresql).
 
 ## Limitations
 
