@@ -446,7 +446,7 @@ The snapshot implementation is different for schema and data.
 
 ![snapshots sequence](img/pgstream_snapshot_sequence.svg)
 
-For details on how to use and configure the snapshot mode, check the [snapshot tutorial](tutorials/postgres_snapshot.md).
+For more details into the snapshot implementation and performance benchmarking, check out this [blogpost](https://xata.io/blog/behind-the-scenes-speeding-up-pgstream-snapshots-for-postgresql). For details on how to use and configure the snapshot mode, check the [snapshot tutorial](tutorials/postgres_snapshot.md).
 
 ## Transformers
 
