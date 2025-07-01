@@ -234,7 +234,9 @@ For more advanced usage, implementation details, and detailed configuration sett
 
 ### Snapshots
 
-![pgstream snapshot benchmarks](img/pgstream_snapshot_benchmarks.png)
+<p align="left">
+    <img src="docs/img/pgstream_snapshot_benchmarks.png" alt="pgstream snapshot benchmarks" width="700">
+</p>
 
 Datasets used: [IMDB database](https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/2QYZBT), [MusicBrainz database](https://musicbrainz.org/doc/MusicBrainz_Database), [Firenibble database](https://github.com/PeerDB-io/ab-scale-testing/tree/main).
 
