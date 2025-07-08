@@ -88,10 +88,26 @@ func initialSnapshotFlagBinding(cmd *cobra.Command) {
 		}
 	}
 
+	// if the source and target are postgres, and snapshot and replication mode
+	// is enabled, default to using bulk ingest if not set
+	if viper.GetString("source.postgres.url") != "" && viper.GetString("target.postgres.url") != "" &&
+		viper.GetString("source.postgres.mode") == "snapshot_and_replication" &&
+		!viper.IsSet("target.postgres.bulk_ingest.enabled") {
+		viper.Set("target.postgres.bulk_ingest.enabled", true)
+	}
+
 	// to be able to overwrite configuration with flags when env config file is
 	// provided or when no configuration is provided
 	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_TABLES", cmd.Flags().Lookup("snapshot-tables"))
 	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB", cmd.Flags().Lookup("reset"))
+
+	// if the source and target are postgres, with replication + initial snapshot
+	// enabled, default to using bulk ingest if not set
+	if viper.GetString("PGSTREAM_POSTGRES_LISTENER_URL") != "" && viper.GetString("PGSTREAM_POSTGRES_WRITER_TARGET_URL") != "" &&
+		viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_TABLES") != "" &&
+		viper.GetString("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED") == "" {
+		viper.Set("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED", true)
+	}
 }
 
 func sourceFlagBinding(cmd *cobra.Command) error {

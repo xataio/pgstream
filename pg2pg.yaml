@@ -25,6 +25,7 @@ target:
       size: 100 # number of messages in a batch
     disable_triggers: false # whether to disable triggers on the target database
     on_conflict_action: "nothing" # options are update, nothing or error
+    schema_log_store_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the schemalog database, if different from the source database
 
 modifiers:
   injector:

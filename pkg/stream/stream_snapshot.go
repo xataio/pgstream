@@ -27,7 +27,7 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 
 	// Processor
 
-	processor, err := buildProcessor(ctx, logger, &config.Processor, nil, instrumentation)
+	processor, err := buildProcessor(ctx, logger, &config.Processor, nil, processorTypeSnapshot, instrumentation)
 	if err != nil {
 		return err
 	}
