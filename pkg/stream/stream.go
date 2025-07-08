@@ -32,7 +32,14 @@ import (
 
 type closerFn func() error
 
-func buildProcessor(ctx context.Context, logger loglib.Logger, config *ProcessorConfig, checkpoint checkpointer.Checkpoint, instrumentation *otel.Instrumentation) (processor.Processor, error) {
+type processorType int
+
+const (
+	processorTypeReplication processorType = iota
+	processorTypeSnapshot
+)
+
+func buildProcessor(ctx context.Context, logger loglib.Logger, config *ProcessorConfig, checkpoint checkpointer.Checkpoint, processorType processorType, instrumentation *otel.Instrumentation) (processor.Processor, error) {
 	var processor processor.Processor
 	switch {
 	case config.Kafka != nil:
@@ -142,7 +149,7 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 			opts = append(opts, pgwriter.WithInstrumentation(instrumentation))
 		}
 
-		if config.Postgres.BatchWriter.BulkIngestEnabled {
+		if processorType == processorTypeSnapshot && config.Postgres.BatchWriter.BulkIngestEnabled {
 			logger.Info("postgres bulk ingest writer enabled")
 			bulkIngestWriter, err := pgwriter.NewBulkIngestWriter(ctx, &config.Postgres.BatchWriter, opts...)
 			if err != nil {

@@ -95,7 +95,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 
 	// Processor
 
-	processor, closer, err := newProcessor(ctx, logger, config, checkpoint, instrumentation)
+	processor, closer, err := newProcessor(ctx, logger, config, checkpoint, processorTypeReplication, instrumentation)
 	defer closer()
 	if err != nil {
 		return err
@@ -115,7 +115,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentat
 			// use a dedicated processor for the snapshot phase, to be able to
 			// close it and make sure the snapshot is complete before starting
 			// to process the WAL replication events.
-			snapshotProcessor, snapshotCloser, err := newProcessor(ctx, logger, config, checkpoint, instrumentation)
+			snapshotProcessor, snapshotCloser, err := newProcessor(ctx, logger, config, checkpoint, processorTypeSnapshot, instrumentation)
 			defer snapshotCloser()
 			if err != nil {
 				return fmt.Errorf("error creating snapshot processor: %w", err)
@@ -171,8 +171,8 @@ var noopCloser func() error = func() error {
 	return nil
 }
 
-func newProcessor(ctx context.Context, logger loglib.Logger, config *Config, checkpoint checkpointer.Checkpoint, instrumentation *otel.Instrumentation) (processor.Processor, closerFn, error) {
-	processor, err := buildProcessor(ctx, logger, &config.Processor, checkpoint, instrumentation)
+func newProcessor(ctx context.Context, logger loglib.Logger, config *Config, checkpoint checkpointer.Checkpoint, processorType processorType, instrumentation *otel.Instrumentation) (processor.Processor, closerFn, error) {
+	processor, err := buildProcessor(ctx, logger, &config.Processor, checkpoint, processorType, instrumentation)
 	if err != nil {
 		return nil, noopCloser, err
 	}
