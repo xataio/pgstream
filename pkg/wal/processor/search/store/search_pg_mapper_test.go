@@ -268,6 +268,22 @@ func TestMapper_MapColumnValue(t *testing.T) {
 			wantErr:   nil,
 		},
 		{
+			name:   "uuid",
+			column: schemalog.Column{DataType: "uuid"},
+			value:  [16]uint8{0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0},
+
+			wantValue: "12345678-9abc-def0-1234-56789abcdef0",
+			wantErr:   nil,
+		},
+		{
+			name:   "string array",
+			column: schemalog.Column{DataType: "text[]"},
+			value:  "{value1,value2}",
+
+			wantValue: []string{"value1", "value2"},
+			wantErr:   nil,
+		},
+		{
 			name:   "unknonwn column type",
 			column: schemalog.Column{DataType: "custom_type"},
 			value:  "value",

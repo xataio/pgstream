@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/xataio/pgstream/internal/json"
@@ -89,9 +90,24 @@ func (m *PgMapper) MapColumnValue(column schemalog.Column, value any) (any, erro
 			return nil, fmt.Errorf("vector value is not array: %w", err)
 		}
 		return array, nil
+	case searchstore.StringType:
+		if column.DataType == "uuid" {
+			// handle uuid type for cases when the uuid is represented as a
+			// [16]uint8, we need to convert it to a string
+			if uuidBytes, ok := value.([16]uint8); ok {
+				return uuid.UUID(uuidBytes).String(), nil
+			}
+		}
+		if searchField.IsArray {
+			// handle arrays of strings
+			var a pgtype.FlatArray[string]
+			err := m.pgTypeMap.SQLScanner(&a).Scan(value)
+			return []string(a), err
+		}
+		return value, nil
 	default:
-		if searchField.IsArray { // catches all other array types
-			// handle arrays
+		if searchField.IsArray {
+			// catches all other array types
 			switch searchField.SearchType {
 			case searchstore.IntegerType:
 				var a pgtype.FlatArray[int64]
@@ -105,10 +121,6 @@ func (m *PgMapper) MapColumnValue(column schemalog.Column, value any) (any, erro
 				var a pgtype.FlatArray[bool]
 				err := m.pgTypeMap.SQLScanner(&a).Scan(value)
 				return []bool(a), err
-			case searchstore.StringType:
-				var a pgtype.FlatArray[string]
-				err := m.pgTypeMap.SQLScanner(&a).Scan(value)
-				return []string(a), err
 			case searchstore.JSONType:
 				// nothing to do for json array types
 			default:

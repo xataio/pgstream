@@ -624,6 +624,7 @@ func TestAdapter_parseIDColumns(t *testing.T) {
 			Data: make(map[string]any),
 		}
 	}
+	testUUID := "99d4f38c-770a-460e-b0ac-419fbc3d5636"
 
 	testTable := "test-table"
 	tests := []struct {
@@ -663,6 +664,14 @@ func TestAdapter_parseIDColumns(t *testing.T) {
 				{Name: "id-1", Value: float64(1.0)},
 			},
 			wantDoc: newDoc(fmt.Sprintf("%s_1", testTable)),
+			wantErr: nil,
+		},
+		{
+			name: "ok - [16]uint8 (UUID)",
+			idColumns: []wal.Column{
+				{Name: "id-1", Value: [16]uint8{153, 212, 243, 140, 119, 10, 70, 14, 176, 172, 65, 159, 188, 61, 86, 54}},
+			},
+			wantDoc: newDoc(fmt.Sprintf("%s_%s", testTable, testUUID)),
 			wantErr: nil,
 		},
 		{
