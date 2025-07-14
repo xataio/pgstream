@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/google/uuid"
 	"github.com/xataio/pgstream/internal/json"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -256,6 +257,8 @@ func (a *adapter) parseIDColumns(tableName string, idColumns []wal.Column, doc *
 			addToID(strconv.FormatInt(v, 10))
 		case float64:
 			addToID(strconv.FormatFloat(v, 'f', -1, 64))
+		case [16]uint8: // UUID
+			addToID(uuid.UUID(v).String())
 		case nil:
 			return errNilIDValue
 		default:
