@@ -284,7 +284,7 @@ func TestMapper_MapColumnValue(t *testing.T) {
 			wantErr:   nil,
 		},
 		{
-			name:   "unknonwn column type",
+			name:   "unknown column type",
 			column: schemalog.Column{DataType: "custom_type"},
 			value:  "value",
 
