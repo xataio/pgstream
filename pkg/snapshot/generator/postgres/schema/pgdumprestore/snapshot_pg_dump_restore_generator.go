@@ -346,8 +346,8 @@ func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, schemaTables map[
 }
 
 const (
-	selectTablesQuery       = "SELECT tablename FROM pg_tables WHERE tablename NOT IN (%s)"
-	selectSchemaTablesQuery = "SELECT tablename FROM pg_tables WHERE schemaname = '%s' AND tablename NOT IN (%s)"
+	selectTablesQuery       = "SELECT schemaname,tablename FROM pg_tables WHERE tablename NOT IN (%s)"
+	selectSchemaTablesQuery = "SELECT schemaname,tablename FROM pg_tables WHERE schemaname = '%s' AND tablename NOT IN (%s)"
 )
 
 func (s *SnapshotGenerator) pgdumpExcludedTables(ctx context.Context, schemaName string, includeTables []string) ([]string, error) {
@@ -382,11 +382,11 @@ func (s *SnapshotGenerator) pgdumpExcludedTables(ctx context.Context, schemaName
 
 	excludeTables := []string{}
 	for rows.Next() {
-		tableName := ""
-		if err := rows.Scan(&tableName); err != nil {
+		schemaName, tableName := "", ""
+		if err := rows.Scan(&schemaName, &tableName); err != nil {
 			return nil, fmt.Errorf("scanning table name: %w", err)
 		}
-		excludeTables = append(excludeTables, pglib.QuoteIdentifier(tableName))
+		excludeTables = append(excludeTables, pglib.QuoteQualifiedIdentifier(schemaName, tableName))
 	}
 
 	if err := rows.Err(); err != nil {
@@ -516,7 +516,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		case strings.HasPrefix(line, "CREATE SEQUENCE"):
 			qualifiedName, err := pglib.NewQualifiedName(strings.TrimPrefix(line, "CREATE SEQUENCE "))
 			if err == nil {
-				sequenceNames = append(sequenceNames, qualifiedName.Name())
+				sequenceNames = append(sequenceNames, qualifiedName.String())
 			}
 			fallthrough
 		default:
