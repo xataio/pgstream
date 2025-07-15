@@ -229,7 +229,7 @@ func (s *SnapshotGenerator) dumpSequenceValues(ctx context.Context, sequences []
 		s.logger.Error(err, "pg_dump for sequences failed", loglib.Fields{"pgdumpOptions": opts.ToArgs()})
 		return nil, fmt.Errorf("dumping sequence values: %w", err)
 	}
-	return d, err
+	return d, nil
 }
 
 func (s *SnapshotGenerator) restoreDump(ctx context.Context, schemaTables map[string][]string, dump []byte) error {
