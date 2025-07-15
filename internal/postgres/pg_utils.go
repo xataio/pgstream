@@ -36,6 +36,13 @@ func NewQualifiedName(s string) (*QualifiedName, error) {
 	}
 }
 
+func (qn *QualifiedName) String() string {
+	if qn.schema == "" {
+		return qn.name
+	}
+	return QuoteQualifiedIdentifier(qn.schema, qn.name)
+}
+
 func (qn *QualifiedName) Schema() string {
 	return qn.schema
 }

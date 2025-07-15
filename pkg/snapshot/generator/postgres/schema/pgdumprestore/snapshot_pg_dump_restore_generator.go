@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -198,16 +199,12 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 		return nil, fmt.Errorf("preparing pg_dump options: %w", err)
 	}
 
+	s.logger.Debug("dumping schema", loglib.Fields{"pg_dump_options": pgdumpOpts.ToArgs(), "schema_tables": schemaTables})
 	d, err := s.pgDumpFn(ctx, *pgdumpOpts)
+	defer s.dumpToFile(s.dumpDebugFile, pgdumpOpts, d)
 	if err != nil {
-		return nil, err
-	}
-
-	if s.dumpDebugFile != "" {
-		b := bytes.NewBufferString(fmt.Sprintf("pg_dump options: %v\n\n%s", pgdumpOpts.ToArgs(), string(d)))
-		if err := os.WriteFile(s.dumpDebugFile, b.Bytes(), 0o644); err != nil { //nolint:gosec
-			return nil, fmt.Errorf("writing dump to debug file %s: %w", s.dumpDebugFile, err)
-		}
+		s.logger.Error(err, "pg_dump for schema failed", loglib.Fields{"pgdumpOptions": pgdumpOpts.ToArgs()})
+		return nil, fmt.Errorf("dumping schema: %w", err)
 	}
 
 	return s.parseDump(d), nil
@@ -225,7 +222,14 @@ func (s *SnapshotGenerator) dumpSequenceValues(ctx context.Context, sequences []
 		Tables:           sequences,
 	}
 
-	return s.pgDumpFn(ctx, *opts)
+	s.logger.Debug("dumping sequence data", loglib.Fields{"pg_dump_options": opts.ToArgs(), "sequences": sequences})
+	d, err := s.pgDumpFn(ctx, *opts)
+	defer s.dumpToFile(s.sequenceDumpFile(), opts, d)
+	if err != nil {
+		s.logger.Error(err, "pg_dump for sequences failed", loglib.Fields{"pgdumpOptions": opts.ToArgs()})
+		return nil, fmt.Errorf("dumping sequence values: %w", err)
+	}
+	return d, nil
 }
 
 func (s *SnapshotGenerator) restoreDump(ctx context.Context, schemaTables map[string][]string, dump []byte) error {
@@ -346,8 +350,8 @@ func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, schemaTables map[
 }
 
 const (
-	selectTablesQuery       = "SELECT tablename FROM pg_tables WHERE tablename NOT IN (%s)"
-	selectSchemaTablesQuery = "SELECT tablename FROM pg_tables WHERE schemaname = '%s' AND tablename NOT IN (%s)"
+	selectTablesQuery       = "SELECT schemaname,tablename FROM pg_tables WHERE tablename NOT IN (%s)"
+	selectSchemaTablesQuery = "SELECT schemaname,tablename FROM pg_tables WHERE schemaname = '%s' AND tablename NOT IN (%s)"
 )
 
 func (s *SnapshotGenerator) pgdumpExcludedTables(ctx context.Context, schemaName string, includeTables []string) ([]string, error) {
@@ -382,11 +386,11 @@ func (s *SnapshotGenerator) pgdumpExcludedTables(ctx context.Context, schemaName
 
 	excludeTables := []string{}
 	for rows.Next() {
-		tableName := ""
-		if err := rows.Scan(&tableName); err != nil {
+		schemaName, tableName := "", ""
+		if err := rows.Scan(&schemaName, &tableName); err != nil {
 			return nil, fmt.Errorf("scanning table name: %w", err)
 		}
-		excludeTables = append(excludeTables, pglib.QuoteIdentifier(tableName))
+		excludeTables = append(excludeTables, pglib.QuoteQualifiedIdentifier(schemaName, tableName))
 	}
 
 	if err := rows.Err(); err != nil {
@@ -516,7 +520,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		case strings.HasPrefix(line, "CREATE SEQUENCE"):
 			qualifiedName, err := pglib.NewQualifiedName(strings.TrimPrefix(line, "CREATE SEQUENCE "))
 			if err == nil {
-				sequenceNames = append(sequenceNames, qualifiedName.Name())
+				sequenceNames = append(sequenceNames, qualifiedName.String())
 			}
 			fallthrough
 		default:
@@ -531,6 +535,31 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		indicesAndConstraints: []byte(indicesAndConstraints.String()),
 		sequences:             sequenceNames,
 	}
+}
+
+func (s *SnapshotGenerator) dumpToFile(file string, opts *pglib.PGDumpOptions, d []byte) {
+	if s.dumpDebugFile != "" {
+		b := bytes.NewBufferString(fmt.Sprintf("pg_dump options: %v\n\n%s", opts.ToArgs(), string(d)))
+		if err := os.WriteFile(file, b.Bytes(), 0o644); err != nil { //nolint:gosec
+			s.logger.Error(err, fmt.Sprintf("writing dump to debug file %s", file))
+		}
+	}
+}
+
+func (s *SnapshotGenerator) sequenceDumpFile() string {
+	if s.dumpDebugFile == "" {
+		return ""
+	}
+
+	fileExtension := filepath.Ext(s.dumpDebugFile)
+	if fileExtension == "" {
+		// if there's no extension, we assume it's a plain text file
+		return s.dumpDebugFile + "-sequences"
+	}
+
+	// if there's an extension, we append "-sequences" before the extension
+	baseName := strings.TrimSuffix(s.dumpDebugFile, fileExtension)
+	return baseName + "-sequences" + fileExtension
 }
 
 func hasWildcardTable(tables []string) bool {
