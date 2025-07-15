@@ -33,7 +33,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	excludedTable := "excluded_test_table"
 	excludedSchema := "excluded_test_schema"
 	errTest := errors.New("oh noes")
-	testSequence := "test_sequence"
+	testSequence := pglib.QuoteQualifiedIdentifier("test", "test_sequence")
 	testRole := "test_role"
 
 	validQuerier := func() *mocks.Querier {
@@ -64,8 +64,11 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
 						ScanFn: func(dest ...any) error {
-							require.Len(t, dest, 1)
-							tableName, ok := dest[0].(*string)
+							require.Len(t, dest, 2)
+							schemaName, ok := dest[0].(*string)
+							require.True(t, ok)
+							*schemaName = excludedSchema
+							tableName, ok := dest[1].(*string)
 							require.True(t, ok)
 							*tableName = excludedTable
 							return nil
@@ -78,8 +81,11 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
 						ScanFn: func(dest ...any) error {
-							require.Len(t, dest, 1)
-							tableName, ok := dest[0].(*string)
+							require.Len(t, dest, 2)
+							schemaName, ok := dest[0].(*string)
+							require.True(t, ok)
+							*schemaName = excludedSchema
+							tableName, ok := dest[1].(*string)
 							require.True(t, ok)
 							*tableName = excludedTable
 							return nil
@@ -122,7 +128,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						Format:           "p",
 						SchemaOnly:       true,
 						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
-						ExcludeTables:    []string{pglib.QuoteIdentifier(excludedTable)},
+						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
 						Role:             testRole,
 						NoOwner:          true,
 					}, po)
@@ -168,7 +174,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						Format:           "p",
 						SchemaOnly:       true,
 						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
-						ExcludeTables:    []string{pglib.QuoteIdentifier(excludedTable)},
+						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
 					}, po)
 					return schemaDumpNoSequences, nil
 				default:
@@ -202,7 +208,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						Format:           "p",
 						SchemaOnly:       true,
 						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
-						ExcludeTables:    []string{pglib.QuoteIdentifier(excludedTable)},
+						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
 					}, po)
 					return schemaDump, nil
 				case 2:
@@ -301,7 +307,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						SchemaOnly:       true,
-						ExcludeTables:    []string{pglib.QuoteIdentifier(excludedTable)},
+						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
 					}, po)
 					return schemaDump, nil
 				case 2:
@@ -494,8 +500,11 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							CloseFn: func() {},
 							NextFn:  func(i uint) bool { return i == 1 },
 							ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 1)
-								tableName, ok := dest[0].(*string)
+								require.Len(t, dest, 2)
+								schemaName, ok := dest[0].(*string)
+								require.True(t, ok)
+								*schemaName = excludedSchema
+								tableName, ok := dest[1].(*string)
 								require.True(t, ok)
 								*tableName = excludedTable
 								return nil
@@ -595,7 +604,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						Format:           "p",
 						SchemaOnly:       true,
 						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
-						ExcludeTables:    []string{pglib.QuoteIdentifier(excludedTable)},
+						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
 					}, po)
 					return schemaDump, nil
 				case 2:
@@ -651,7 +660,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						Format:           "p",
 						SchemaOnly:       true,
 						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
-						ExcludeTables:    []string{pglib.QuoteIdentifier(excludedTable)},
+						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
 					}, po)
 					return schemaDump, nil
 				case 2:
@@ -949,7 +958,7 @@ func TestSnapshotGenerator_parseDump(t *testing.T) {
 	wantFilteredStr := strings.Trim(string(wantFilteredDumpBytes), "\n")
 	constraintsStr := strings.Trim(string(dump.indicesAndConstraints), "\n")
 	wantConstraintsStr := strings.Trim(string(wantConstraintsBytes), "\n")
-	wantSequences := []string{"alternative_medium_id_seq"}
+	wantSequences := []string{`"musicbrainz"."alternative_medium_id_seq"`}
 
 	require.Equal(t, wantFilteredStr, filteredStr)
 	require.Equal(t, wantConstraintsStr, constraintsStr)
