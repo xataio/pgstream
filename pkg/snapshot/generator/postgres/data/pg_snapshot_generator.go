@@ -13,6 +13,7 @@ import (
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
 	"github.com/xataio/pgstream/internal/progress"
+	synclib "github.com/xataio/pgstream/internal/sync"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/snapshot"
@@ -37,7 +38,7 @@ type SnapshotGenerator struct {
 	tableSnapshotGenerator snapshotTableFn
 
 	progressTracking   bool
-	progressBars       map[string]progress.Bar
+	progressBars       *synclib.StringMap[progress.Bar]
 	progressBarBuilder func(totalBytes int64, description string) progress.Bar
 }
 
@@ -123,7 +124,7 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 func WithProgressTracking() Option {
 	return func(sg *SnapshotGenerator) {
 		sg.progressTracking = true
-		sg.progressBars = make(map[string]progress.Bar)
+		sg.progressBars = synclib.NewStringMap[progress.Bar]()
 		sg.progressBarBuilder = func(totalBytes int64, description string) progress.Bar {
 			return progress.NewBytesBar(totalBytes, description)
 		}
@@ -367,7 +368,10 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID 
 		}
 
 		if sg.progressTracking {
-			sg.progressBars[table.schema].Add64(int64(rowCount) * table.rowSize)
+			bar, found := sg.progressBars.Get(table.schema)
+			if found {
+				bar.Add64(int64(rowCount) * table.rowSize)
+			}
 		}
 
 		sg.logger.Debug(fmt.Sprintf("%d rows processed", rowCount), loglib.Fields{
@@ -403,18 +407,17 @@ func (sg *SnapshotGenerator) addProgressBar(ctx context.Context, snapshotID stri
 		return err
 	}
 
-	sg.progressBars[schemaTables.schema] = sg.progressBarBuilder(totalBytes, fmt.Sprintf("[cyan][%s][reset] Snapshotting data...", schemaTables.schema))
+	bar := sg.progressBarBuilder(totalBytes, fmt.Sprintf("[cyan][%s][reset] Snapshotting data...", schemaTables.schema))
+	sg.progressBars.Set(schemaTables.schema, bar)
 	return nil
 }
 
 func (sg *SnapshotGenerator) markProgressBarCompleted(schema string) {
-	bar, found := sg.progressBars[schema]
-	if !found {
-		return
+	bar, found := sg.progressBars.Get(schema)
+	if found {
+		bar.Close()
 	}
-
-	bar.Close()
-	delete(sg.progressBars, schema)
+	sg.progressBars.Delete(schema)
 }
 
 // use pg_table_size instead of pg_total_relation_size since we only care about the size of the table itself and toast tables, not indices.

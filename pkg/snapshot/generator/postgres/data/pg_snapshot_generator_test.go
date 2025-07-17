@@ -19,6 +19,7 @@ import (
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 	"github.com/xataio/pgstream/internal/progress"
 	progressmocks "github.com/xataio/pgstream/internal/progress/mocks"
+	synclib "github.com/xataio/pgstream/internal/sync"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"github.com/xataio/pgstream/pkg/snapshot/generator/mocks"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -1139,7 +1140,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				batchBytes:       1024 * 1024, // 1MB
 				snapshotWorkers:  1,
 				progressTracking: tc.progressBar != nil,
-				progressBars:     make(map[string]progress.Bar),
+				progressBars:     synclib.NewStringMap[progress.Bar](),
 				progressBarBuilder: func(totalBytes int64, description string) progress.Bar {
 					return tc.progressBar
 				},
