@@ -5,9 +5,9 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	synclib "github.com/xataio/pgstream/internal/sync"
 	"github.com/xataio/pgstream/pkg/schemalog"
 )
 
@@ -15,9 +15,8 @@ import (
 // reduce the number of calls to postgres, and it updates the state whenever a
 // DDL event is received through the WAL.
 type pgColumnObserver struct {
-	pgConn                     pglib.Querier
-	generatedTableColumns      map[string][]string
-	generatedTableColumnsMutex *sync.RWMutex
+	pgConn                pglib.Querier
+	generatedTableColumns *synclib.StringMap[[]string]
 }
 
 // newPGColumnObserver returns a postgres that checks column names for tables.
@@ -29,9 +28,8 @@ func newPGColumnObserver(ctx context.Context, pgURL string) (*pgColumnObserver, 
 		return nil, err
 	}
 	return &pgColumnObserver{
-		pgConn:                     pgConn,
-		generatedTableColumns:      map[string][]string{},
-		generatedTableColumnsMutex: &sync.RWMutex{},
+		pgConn:                pgConn,
+		generatedTableColumns: synclib.NewStringMap[[]string](),
 	}, nil
 }
 
@@ -40,9 +38,8 @@ func newPGColumnObserver(ctx context.Context, pgURL string) (*pgColumnObserver, 
 // query postgres.
 func (o *pgColumnObserver) getGeneratedColumnNames(ctx context.Context, schema, table string) ([]string, error) {
 	key := pglib.QuoteQualifiedIdentifier(schema, table)
-	o.generatedTableColumnsMutex.RLock()
-	columns, found := o.generatedTableColumns[key]
-	o.generatedTableColumnsMutex.RUnlock()
+
+	columns, found := o.generatedTableColumns.Get(key)
 	if found {
 		return columns, nil
 	}
@@ -53,9 +50,7 @@ func (o *pgColumnObserver) getGeneratedColumnNames(ctx context.Context, schema, 
 		return nil, err
 	}
 
-	o.generatedTableColumnsMutex.Lock()
-	o.generatedTableColumns[key] = colNames
-	o.generatedTableColumnsMutex.Unlock()
+	o.generatedTableColumns.Set(key, colNames)
 	return colNames, nil
 }
 
@@ -71,9 +66,7 @@ func (o *pgColumnObserver) updateGeneratedColumnNames(logEntry *schemalog.LogEnt
 			}
 		}
 
-		o.generatedTableColumnsMutex.Lock()
-		o.generatedTableColumns[key] = generatedColumns
-		o.generatedTableColumnsMutex.Unlock()
+		o.generatedTableColumns.Set(key, generatedColumns)
 	}
 }
 

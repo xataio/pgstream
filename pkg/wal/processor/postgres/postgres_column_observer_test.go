@@ -6,12 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
+	synclib "github.com/xataio/pgstream/internal/sync"
 )
 
 func TestPGColumnObserver_getGeneratedColumnNames(t *testing.T) {
@@ -138,15 +138,14 @@ func TestPGColumnObserver_getGeneratedColumnNames(t *testing.T) {
 			t.Parallel()
 
 			o := &pgColumnObserver{
-				pgConn:                     tc.pgConn,
-				generatedTableColumns:      tc.tableColumns,
-				generatedTableColumnsMutex: &sync.RWMutex{},
+				pgConn:                tc.pgConn,
+				generatedTableColumns: synclib.NewStringMapFromMap(tc.tableColumns),
 			}
 
 			colNames, err := o.getGeneratedColumnNames(context.TODO(), "test_schema", "test_table")
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantColumns, colNames)
-			require.Equal(t, tc.wantTableColumns, o.generatedTableColumns)
+			require.Equal(t, tc.wantTableColumns, o.generatedTableColumns.GetMap())
 		})
 	}
 }
