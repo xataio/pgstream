@@ -6,11 +6,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"runtime/debug"
-	"sync"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	synclib "github.com/xataio/pgstream/internal/sync"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -23,7 +22,7 @@ import (
 type BulkIngestWriter struct {
 	*Writer
 
-	batchSenderMap     *batchSenderMap
+	batchSenderMap     *synclib.StringMap[queryBatchSender]
 	batchSenderBuilder func(ctx context.Context) (queryBatchSender, error)
 }
 
@@ -51,7 +50,7 @@ func NewBulkIngestWriter(ctx context.Context, config *Config, opts ...WriterOpti
 
 	biw := &BulkIngestWriter{
 		Writer:         w,
-		batchSenderMap: newBatchSenderMap(),
+		batchSenderMap: synclib.NewStringMap[queryBatchSender](),
 	}
 
 	biw.batchSenderBuilder = func(ctx context.Context) (queryBatchSender, error) {
@@ -119,7 +118,7 @@ func (w *BulkIngestWriter) Close() error {
 	w.logger.Debug("closing bulk ingest writer")
 
 	eg := errgroup.Group{}
-	for _, sender := range w.batchSenderMap.getMap() {
+	for _, sender := range w.batchSenderMap.GetMap() {
 		eg.Go(func() error {
 			sender.Close()
 			return nil
@@ -135,8 +134,8 @@ func (w *BulkIngestWriter) Close() error {
 func (w *BulkIngestWriter) getBatchSender(ctx context.Context, schema, table string) (queryBatchSender, error) {
 	key := pglib.QuoteQualifiedIdentifier(schema, table)
 
-	batchSender := w.batchSenderMap.get(key)
-	if batchSender != nil {
+	batchSender, found := w.batchSenderMap.Get(key)
+	if found {
 		return batchSender, nil
 	}
 
@@ -146,7 +145,7 @@ func (w *BulkIngestWriter) getBatchSender(ctx context.Context, schema, table str
 		return nil, err
 	}
 
-	w.batchSenderMap.add(key, sender)
+	w.batchSenderMap.Set(key, sender)
 	return sender, nil
 }
 
@@ -194,36 +193,4 @@ func (w *BulkIngestWriter) copyFromInsertQueries(ctx context.Context, inserts []
 		return fmt.Errorf("copy from: %w", err)
 	}
 	return nil
-}
-
-type batchSenderMap struct {
-	batchSenderMap map[string]queryBatchSender
-	mutex          *sync.RWMutex
-}
-
-func newBatchSenderMap() *batchSenderMap {
-	return &batchSenderMap{
-		batchSenderMap: make(map[string]queryBatchSender),
-		mutex:          &sync.RWMutex{},
-	}
-}
-
-func (m *batchSenderMap) getMap() map[string]queryBatchSender {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	sendersMap := make(map[string]queryBatchSender, len(m.batchSenderMap))
-	maps.Copy(sendersMap, m.batchSenderMap)
-	return sendersMap
-}
-
-func (m *batchSenderMap) get(key string) queryBatchSender {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	return m.batchSenderMap[key]
-}
-
-func (m *batchSenderMap) add(key string, sender queryBatchSender) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-	m.batchSenderMap[key] = sender
 }

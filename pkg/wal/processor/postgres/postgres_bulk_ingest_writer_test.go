@@ -6,13 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
+	synclib "github.com/xataio/pgstream/internal/sync"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -190,10 +190,7 @@ func TestBulkIngestWriter_ProcessWALEvent(t *testing.T) {
 					logger:  loglib.NewNoopLogger(),
 					adapter: tc.adapter,
 				},
-				batchSenderMap: &batchSenderMap{
-					batchSenderMap: tc.batchSenderMap,
-					mutex:          &sync.RWMutex{},
-				},
+				batchSenderMap:     synclib.NewStringMapFromMap(tc.batchSenderMap),
 				batchSenderBuilder: tc.batchSenderBuilder,
 			}
 
@@ -202,7 +199,7 @@ func TestBulkIngestWriter_ProcessWALEvent(t *testing.T) {
 
 			go func() {
 				defer func() {
-					for _, sender := range writer.batchSenderMap.getMap() {
+					for _, sender := range writer.batchSenderMap.GetMap() {
 						sender.Close()
 					}
 				}()
@@ -213,7 +210,7 @@ func TestBulkIngestWriter_ProcessWALEvent(t *testing.T) {
 			}()
 
 			eg := errgroup.Group{}
-			for key, sender := range writer.batchSenderMap.getMap() {
+			for key, sender := range writer.batchSenderMap.GetMap() {
 				eg.Go(func() error {
 					s, ok := sender.(*batchmocks.BatchSender[*query])
 					require.True(t, ok)
