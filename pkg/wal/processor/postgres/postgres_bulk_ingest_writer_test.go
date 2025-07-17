@@ -190,9 +190,11 @@ func TestBulkIngestWriter_ProcessWALEvent(t *testing.T) {
 					logger:  loglib.NewNoopLogger(),
 					adapter: tc.adapter,
 				},
-				batchSenderMap:      tc.batchSenderMap,
-				batchSenderMapMutex: &sync.RWMutex{},
-				batchSenderBuilder:  tc.batchSenderBuilder,
+				batchSenderMap: &batchSenderMap{
+					batchSenderMap: tc.batchSenderMap,
+					mutex:          &sync.RWMutex{},
+				},
+				batchSenderBuilder: tc.batchSenderBuilder,
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -200,7 +202,7 @@ func TestBulkIngestWriter_ProcessWALEvent(t *testing.T) {
 
 			go func() {
 				defer func() {
-					for _, sender := range writer.batchSenderMap {
+					for _, sender := range writer.batchSenderMap.getMap() {
 						sender.Close()
 					}
 				}()
@@ -211,7 +213,7 @@ func TestBulkIngestWriter_ProcessWALEvent(t *testing.T) {
 			}()
 
 			eg := errgroup.Group{}
-			for key, sender := range writer.batchSenderMap {
+			for key, sender := range writer.batchSenderMap.getMap() {
 				eg.Go(func() error {
 					s, ok := sender.(*batchmocks.BatchSender[*query])
 					require.True(t, ok)
