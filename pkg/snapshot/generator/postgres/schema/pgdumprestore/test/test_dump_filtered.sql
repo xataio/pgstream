@@ -199,6 +199,15 @@ CREATE TABLE musicbrainz.alternative_medium (
 
 ALTER TABLE musicbrainz.alternative_medium OWNER TO postgres;
 
+
+CREATE TABLE musicbrainz."Alternative_medium" (
+    id integer NOT NULL,
+    medium integer NOT NULL,
+    alternative_release integer NOT NULL,
+    name character varying,
+    CONSTRAINT alternative_medium_name_check CHECK (((name)::text <> ''::text))
+);
+
 --
 -- Name: alternative_medium_id_seq; Type: SEQUENCE; Schema: musicbrainz; Owner: postgres
 --
@@ -210,6 +219,15 @@ CREATE SEQUENCE musicbrainz.alternative_medium_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+CREATE SEQUENCE musicbrainz."Alternative_medium_id_seq"
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
 
 
 ALTER SEQUENCE musicbrainz.alternative_medium_id_seq OWNER TO postgres;
