@@ -77,6 +77,11 @@ func Test_QualifiedName_String(t *testing.T) {
 			qn:       QualifiedName{schema: "schema", name: ""},
 			expected: `"schema".""`,
 		},
+		{
+			name:     "qualified name",
+			qn:       QualifiedName{schema: "schema", name: `"Table"`},
+			expected: `"schema"."Table"`,
+		},
 	}
 
 	for _, tc := range tests {
@@ -103,12 +108,18 @@ func Test_QuoteIdentifier(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, `"table"`, QuoteIdentifier("table"))
 	require.Equal(t, `"schema"`, QuoteIdentifier("schema"))
+
+	// Test with already quoted identifier
+	require.Equal(t, `"quoted"`, QuoteIdentifier(`"quoted"`))
 }
 
 func Test_QuoteQualifiedIdentifier(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, `"schema"."table"`, QuoteQualifiedIdentifier("schema", "table"))
 	require.Equal(t, `"a"."b"`, QuoteQualifiedIdentifier("a", "b"))
+
+	// Test with already quoted identifiers
+	require.Equal(t, `"schema"."Table"`, QuoteQualifiedIdentifier(`"schema"`, `"Table"`))
 }
 
 func Test_newIdentifier(t *testing.T) {
