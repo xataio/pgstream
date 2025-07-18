@@ -52,11 +52,18 @@ func (qn *QualifiedName) Name() string {
 }
 
 func QuoteIdentifier(s string) string {
+	if IsQuotedIdentifier(s) {
+		return s
+	}
 	return pq.QuoteIdentifier(s)
 }
 
 func QuoteQualifiedIdentifier(schema, table string) string {
-	return pq.QuoteIdentifier(schema) + "." + pq.QuoteIdentifier(table)
+	return QuoteIdentifier(schema) + "." + QuoteIdentifier(table)
+}
+
+func IsQuotedIdentifier(s string) bool {
+	return len(s) > 2 && strings.HasPrefix(s, `"`) && strings.HasSuffix(s, `"`)
 }
 
 type (
