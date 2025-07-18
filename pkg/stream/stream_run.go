@@ -180,7 +180,7 @@ func newProcessor(ctx context.Context, logger loglib.Logger, config *Config, che
 	var closer closerFn
 	processor, closer, err = addProcessorModifiers(ctx, config, logger, processor, instrumentation)
 	if err != nil {
-		return nil, processor.Close, err
+		return nil, noopCloser, err
 	}
 
 	closerAgg.addCloserFn(closer)
