@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
-	"sync"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	synclib "github.com/xataio/pgstream/internal/sync"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -22,9 +22,8 @@ import (
 type BulkIngestWriter struct {
 	*Writer
 
-	batchSenderMapMutex *sync.RWMutex
-	batchSenderMap      map[string]queryBatchSender
-	batchSenderBuilder  func(ctx context.Context) (queryBatchSender, error)
+	batchSenderMap     *synclib.StringMap[queryBatchSender]
+	batchSenderBuilder func(ctx context.Context) (queryBatchSender, error)
 }
 
 const bulkIngestWriter = "postgres_bulk_ingest_writer"
@@ -50,9 +49,8 @@ func NewBulkIngestWriter(ctx context.Context, config *Config, opts ...WriterOpti
 	}
 
 	biw := &BulkIngestWriter{
-		Writer:              w,
-		batchSenderMapMutex: &sync.RWMutex{},
-		batchSenderMap:      make(map[string]queryBatchSender),
+		Writer:         w,
+		batchSenderMap: synclib.NewStringMap[queryBatchSender](),
 	}
 
 	biw.batchSenderBuilder = func(ctx context.Context) (queryBatchSender, error) {
@@ -120,7 +118,7 @@ func (w *BulkIngestWriter) Close() error {
 	w.logger.Debug("closing bulk ingest writer")
 
 	eg := errgroup.Group{}
-	for _, sender := range w.batchSenderMap {
+	for _, sender := range w.batchSenderMap.GetMap() {
 		eg.Go(func() error {
 			sender.Close()
 			return nil
@@ -136,11 +134,9 @@ func (w *BulkIngestWriter) Close() error {
 func (w *BulkIngestWriter) getBatchSender(ctx context.Context, schema, table string) (queryBatchSender, error) {
 	key := pglib.QuoteQualifiedIdentifier(schema, table)
 
-	w.batchSenderMapMutex.RLock()
-	sender, found := w.batchSenderMap[key]
-	w.batchSenderMapMutex.RUnlock()
+	batchSender, found := w.batchSenderMap.Get(key)
 	if found {
-		return sender, nil
+		return batchSender, nil
 	}
 
 	w.logger.Debug("creating new batch sender", loglib.Fields{"schema": schema, "table": table})
@@ -149,10 +145,7 @@ func (w *BulkIngestWriter) getBatchSender(ctx context.Context, schema, table str
 		return nil, err
 	}
 
-	w.batchSenderMapMutex.Lock()
-	w.batchSenderMap[key] = sender
-	w.batchSenderMapMutex.Unlock()
-
+	w.batchSenderMap.Set(key, sender)
 	return sender, nil
 }
 
