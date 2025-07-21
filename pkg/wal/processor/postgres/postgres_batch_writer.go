@@ -62,7 +62,7 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...WriterOption) (
 	return bw, nil
 }
 
-// ProcessWalEvent is called on every new message from the wal. It can be called
+// ProcessWALEvent is called on every new message from the wal. It can be called
 // concurrently.
 func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (err error) {
 	defer func() {

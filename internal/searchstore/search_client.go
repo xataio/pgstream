@@ -36,7 +36,7 @@ type Client interface {
 
 func Ptr[T any](i T) *T { return &i }
 
-// createReader returns a reader on the JSON representation of the given value.
+// CreateReader returns a reader on the JSON representation of the given value.
 func CreateReader(value any) (*bytes.Reader, error) {
 	bytesValue, err := json.Marshal(value)
 	if err != nil {

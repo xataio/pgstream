@@ -109,7 +109,7 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 	}
 }
 
-// ProcessWalEvent is called on every new message from the wal. It can be called
+// ProcessWALEvent is called on every new message from the wal. It can be called
 // concurrently.
 func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (retErr error) {
 	defer func() {
