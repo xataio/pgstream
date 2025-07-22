@@ -56,7 +56,7 @@ func NewStdLogger(l *zerolog.Logger) loglib.Logger {
 	return zerologlib.NewLogger(l)
 }
 
-// newLogger creates a new logger writing to out.
+// NewLogger creates a new logger writing to out.
 // The logger will emit a timestamp, the caller's filename, and optionally
 // emit the stacktrace for errors that carry a stack trace.
 //
