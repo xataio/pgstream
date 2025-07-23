@@ -18,6 +18,8 @@ type Config struct {
 	// TableWorkers represents the number of concurrent workers per table. Each
 	// worker will process a different page range in parallel. Defaults to 4.
 	TableWorkers uint
+	// ExcludedTables is a list of table names to exclude from the snapshot.
+	ExcludedTables []string
 }
 
 const (
