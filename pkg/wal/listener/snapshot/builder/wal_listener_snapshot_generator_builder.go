@@ -67,12 +67,6 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 		return nil, err
 	}
 
-	// postgres schema snapshot generator layer
-	g, err = newSchemaSnapshotGenerator(ctx, &cfg.Schema, g, rowsProcessor.ProcessRow, logger, instrumentation)
-	if err != nil {
-		return nil, err
-	}
-
 	// snapshot table finder layer
 	finderOpts := []pgtablefinder.Option{}
 	if instrumentation.IsEnabled() {
@@ -80,6 +74,12 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 	}
 
 	g, err = pgtablefinder.NewSnapshotSchemaTableFinder(ctx, cfg.Generator.URL, cfg.Generator.ExcludedTables, g, finderOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	// postgres schema snapshot generator layer
+	g, err = newSchemaSnapshotGenerator(ctx, &cfg.Schema, cfg.Generator.ExcludedTables, g, rowsProcessor.ProcessRow, logger, instrumentation)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 	return adapter.NewSnapshotGeneratorAdapter(&cfg.Adapter, g, adapter.WithLogger(logger)), nil
 }
 
-func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, g generator.SnapshotGenerator, processRow snapshot.RowProcessor, logger loglib.Logger, instrumentation *otel.Instrumentation) (generator.SnapshotGenerator, error) {
+func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, excludedTables []string, g generator.SnapshotGenerator, processRow snapshot.RowProcessor, logger loglib.Logger, instrumentation *otel.Instrumentation) (generator.SnapshotGenerator, error) {
 	switch {
 	case cfg.SchemaLogStore != nil:
 		// postgres schemalog schema snapshot generator
@@ -135,7 +135,7 @@ func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, 
 		if instrumentation.IsEnabled() {
 			opts = append(opts, pgdumprestoregenerator.WithInstrumentation(instrumentation))
 		}
-		return pgdumprestoregenerator.NewSnapshotGenerator(ctx, cfg.DumpRestore, opts...)
+		return pgdumprestoregenerator.NewSnapshotGenerator(ctx, cfg.DumpRestore, excludedTables, opts...)
 	default:
 		return nil, errSchemaSnapshotNotConfigured
 	}
