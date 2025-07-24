@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
@@ -23,7 +22,6 @@ type SnapshotSchemaTableFinder struct {
 	conn              pglib.Querier
 	tableDiscoveryFn  tableDiscoveryFn
 	schemaDiscoveryFn schemaDiscoveryFn
-	excludedTablesMap map[string]map[string]struct{} // schema -> table -> struct{} to mark excluded tables
 }
 
 type Option func(*SnapshotSchemaTableFinder)
@@ -41,7 +39,7 @@ const (
 // schema & table finder that will explode the wildcard references in the snapshot
 // request and translate them into all the postgres tables for the given schema,
 // or all tables of all schemas in case of '*.*'.
-func NewSnapshotSchemaTableFinder(ctx context.Context, pgurl string, excludedTables []string, generator generator.SnapshotGenerator, opts ...Option) (*SnapshotSchemaTableFinder, error) {
+func NewSnapshotSchemaTableFinder(ctx context.Context, pgurl string, generator generator.SnapshotGenerator, opts ...Option) (*SnapshotSchemaTableFinder, error) {
 	conn, err := pglib.NewConnPool(ctx, pgurl)
 	if err != nil {
 		return nil, err
@@ -52,11 +50,6 @@ func NewSnapshotSchemaTableFinder(ctx context.Context, pgurl string, excludedTab
 		conn:              conn,
 		schemaDiscoveryFn: discoverAllSchemas,
 		tableDiscoveryFn:  discoverAllSchemaTables,
-	}
-
-	stf.excludedTablesMap, err = excludedTablesMap(excludedTables)
-	if err != nil {
-		return nil, fmt.Errorf("parsing excluded tables: %w", err)
 	}
 
 	for _, opt := range opts {
@@ -105,18 +98,18 @@ func (s *SnapshotSchemaTableFinder) CreateSnapshot(ctx context.Context, ss *snap
 		}
 	}
 
-	if len(s.excludedTablesMap) == 0 {
+	if len(ss.SchemaExcludedTables) == 0 {
 		// No excluded tables, return early
 		return s.wrapped.CreateSnapshot(ctx, ss)
 	}
 
 	// Remove excluded tables from the snapshot request
 	for schema, tables := range ss.SchemaTables {
-		if excludedTables, found := s.excludedTablesMap[schema]; found {
+		if excludedTables, found := ss.SchemaExcludedTables[schema]; found {
 			// Filter out the excluded tables
 			filteredTables := []string{}
 			for _, table := range tables {
-				if _, excluded := excludedTables[table]; !excluded {
+				if !slices.Contains(excludedTables, table) {
 					filteredTables = append(filteredTables, table)
 				}
 			}
@@ -182,31 +175,4 @@ func discoverAllSchemas(ctx context.Context, conn pglib.Querier) ([]string, erro
 	}
 
 	return schemas, nil
-}
-
-func excludedTablesMap(tables []string) (map[string]map[string]struct{}, error) {
-	schemaTablesMap := make(map[string]map[string]struct{}, len(tables))
-	for _, table := range tables {
-		schemaName, tableName, err := parseTableName(table)
-		if err != nil {
-			return nil, err
-		}
-		if _, found := schemaTablesMap[schemaName]; !found {
-			schemaTablesMap[schemaName] = make(map[string]struct{})
-		}
-		schemaTablesMap[schemaName][tableName] = struct{}{}
-	}
-	return schemaTablesMap, nil
-}
-
-func parseTableName(tableName string) (string, string, error) {
-	parts := strings.Split(tableName, ".")
-	switch len(parts) {
-	case 1:
-		return publicSchema, parts[0], nil
-	case 2:
-		return parts[0], parts[1], nil
-	default:
-		return "", "", fmt.Errorf("invalid table name format: %s", tableName)
-	}
 }

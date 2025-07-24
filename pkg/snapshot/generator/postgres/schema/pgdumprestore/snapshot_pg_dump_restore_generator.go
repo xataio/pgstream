@@ -37,7 +37,6 @@ type SnapshotGenerator struct {
 	createTargetDB         bool
 	includeGlobalDBObjects bool
 	role                   string
-	excludedTables         map[string][]string
 	logger                 loglib.Logger
 	generator              generator.SnapshotGenerator
 	dumpDebugFile          string // if set, the dump will be written to this file for debugging purposes
@@ -73,7 +72,7 @@ const (
 
 // NewSnapshotGenerator will return a postgres schema snapshot generator that
 // uses pg_dump and pg_restore to sync the schema of two postgres databases
-func NewSnapshotGenerator(ctx context.Context, c *Config, excludedTables []string, opts ...Option) (*SnapshotGenerator, error) {
+func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*SnapshotGenerator, error) {
 	sg := &SnapshotGenerator{
 		sourceURL:              c.SourcePGURL,
 		targetURL:              c.TargetPGURL,
@@ -84,15 +83,8 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, excludedTables []strin
 		createTargetDB:         c.CreateTargetDB,
 		includeGlobalDBObjects: c.IncludeGlobalDBObjects,
 		role:                   c.Role,
-		excludedTables:         make(map[string][]string, len(excludedTables)),
 		logger:                 loglib.NewNoopLogger(),
 		dumpDebugFile:          c.DumpDebugFile,
-	}
-
-	var err error
-	sg.excludedTables, err = excludedTablesMap(excludedTables)
-	if err != nil {
-		return nil, fmt.Errorf("parsing excluded tables: %w", err)
 	}
 
 	if err := sg.initialiseSchemaLogStore(ctx); err != nil {
@@ -152,7 +144,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return nil
 	}
 
-	dump, err := s.dumpSchema(ctx, dumpSchemas)
+	dump, err := s.dumpSchema(ctx, dumpSchemas, ss.SchemaExcludedTables)
 	if err != nil {
 		return err
 	}
@@ -201,8 +193,8 @@ func (s *SnapshotGenerator) Close() error {
 	return nil
 }
 
-func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[string][]string) (*dump, error) {
-	pgdumpOpts, err := s.pgdumpOptions(ctx, schemaTables)
+func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[string][]string, excludedTables map[string][]string) (*dump, error) {
+	pgdumpOpts, err := s.pgdumpOptions(ctx, schemaTables, excludedTables)
 	if err != nil {
 		return nil, fmt.Errorf("preparing pg_dump options: %w", err)
 	}
@@ -301,7 +293,7 @@ func (s *SnapshotGenerator) pgrestoreOptions() pglib.PGRestoreOptions {
 	}
 }
 
-func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, schemaTables map[string][]string) (*pglib.PGDumpOptions, error) {
+func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, schemaTables map[string][]string, excludedTables map[string][]string) (*pglib.PGDumpOptions, error) {
 	schemas := make([]string, 0, len(schemaTables))
 	for schema := range schemaTables {
 		schemas = append(schemas, schema)
@@ -354,7 +346,7 @@ func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, schemaTables map[
 		}
 	}
 
-	for schema, tables := range s.excludedTables {
+	for schema, tables := range excludedTables {
 		for _, table := range tables {
 			if !slices.Contains(opts.ExcludeTables, pglib.QuoteQualifiedIdentifier(schema, table)) {
 				opts.ExcludeTables = append(opts.ExcludeTables, pglib.QuoteQualifiedIdentifier(schema, table))
@@ -584,31 +576,4 @@ func hasWildcardTable(tables []string) bool {
 
 func hasWildcardSchema(schemaTables map[string][]string) bool {
 	return schemaTables[wildcard] != nil
-}
-
-func excludedTablesMap(tables []string) (map[string][]string, error) {
-	schemaTablesMap := make(map[string][]string, len(tables))
-	for _, table := range tables {
-		schemaName, tableName, err := parseTableName(table)
-		if err != nil {
-			return nil, err
-		}
-		if _, found := schemaTablesMap[schemaName]; !found {
-			schemaTablesMap[schemaName] = make([]string, 0)
-		}
-		schemaTablesMap[schemaName] = append(schemaTablesMap[schemaName], tableName)
-	}
-	return schemaTablesMap, nil
-}
-
-func parseTableName(tableName string) (string, string, error) {
-	parts := strings.Split(tableName, ".")
-	switch len(parts) {
-	case 1:
-		return publicSchema, parts[0], nil
-	case 2:
-		return parts[0], parts[1], nil
-	default:
-		return "", "", fmt.Errorf("invalid table name format: %s", tableName)
-	}
 }

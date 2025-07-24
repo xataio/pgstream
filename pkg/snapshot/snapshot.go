@@ -7,7 +7,8 @@ import (
 )
 
 type Snapshot struct {
-	SchemaTables map[string][]string
+	SchemaTables         map[string][]string
+	SchemaExcludedTables map[string][]string
 }
 
 type Request struct {

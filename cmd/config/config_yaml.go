@@ -435,7 +435,8 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 
 	streamCfg := &snapshotbuilder.SnapshotListenerConfig{
 		Adapter: adapter.SnapshotConfig{
-			Tables: snapshotConfig.Tables,
+			Tables:         snapshotConfig.Tables,
+			ExcludedTables: snapshotConfig.ExcludedTables,
 		},
 	}
 
@@ -462,7 +463,6 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 			SchemaWorkers:   uint(snapshotConfig.Data.SchemaWorkers),
 			TableWorkers:    uint(snapshotConfig.Data.TableWorkers),
 			SnapshotWorkers: uint(snapshotConfig.SnapshotWorkers),
-			ExcludedTables:  snapshotConfig.ExcludedTables,
 		}
 	}
 

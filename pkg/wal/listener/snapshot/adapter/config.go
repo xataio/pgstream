@@ -7,14 +7,15 @@ import (
 )
 
 type SnapshotConfig struct {
-	Tables []string
+	Tables         []string
+	ExcludedTables []string
 }
 
 const publicSchema = "public"
 
-func (c *SnapshotConfig) schemaTableMap() map[string][]string {
-	schemaTableMap := make(map[string][]string, len(c.Tables))
-	for _, table := range c.Tables {
+func schemaTableMap(tables []string) map[string][]string {
+	schemaTableMap := make(map[string][]string, len(tables))
+	for _, table := range tables {
 		schemaName := publicSchema
 		tableName := table
 		tableSplit := strings.Split(table, ".")

@@ -28,16 +28,12 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 			},
 		}
 	}
-	emptySnapshot := &snapshot.Snapshot{
-		SchemaTables: map[string][]string{},
-	}
 
 	tests := []struct {
-		name           string
-		conn           *pgmocks.Querier
-		snapshot       *snapshot.Snapshot
-		generator      generator.SnapshotGenerator
-		excludedTables map[string]map[string]struct{}
+		name      string
+		conn      *pgmocks.Querier
+		snapshot  *snapshot.Snapshot
+		generator generator.SnapshotGenerator
 
 		wantErr error
 	}{
@@ -221,15 +217,15 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 				SchemaTables: map[string][]string{
 					wildcard: {wildcard},
 				},
+				SchemaExcludedTables: map[string][]string{
+					testSchema: {"table-1"},
+				},
 			},
 			generator: &mocks.Generator{
 				CreateSnapshotFn: func(ctx context.Context, snapshot *snapshot.Snapshot) error {
-					require.Equal(t, emptySnapshot, snapshot) // should be empty because the only table is excluded
+					require.Equal(t, map[string][]string{}, snapshot.SchemaTables) // should be empty because the only table is excluded
 					return nil
 				},
-			},
-			excludedTables: map[string]map[string]struct{}{
-				testSchema: {"table-1": {}},
 			},
 
 			wantErr: nil,
@@ -338,7 +334,6 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 				wrapped:           tc.generator,
 				schemaDiscoveryFn: discoverAllSchemas,
 				tableDiscoveryFn:  discoverAllSchemaTables,
-				excludedTablesMap: tc.excludedTables,
 			}
 			err := tableFinder.CreateSnapshot(context.Background(), tc.snapshot)
 			if tc.wantErr != nil {
