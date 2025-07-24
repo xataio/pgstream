@@ -180,7 +180,8 @@ func parsePostgresListenerConfig() *stream.PostgresListenerConfig {
 	}
 
 	snapshotTables := viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES")
-	if len(snapshotTables) > 0 {
+	excludedTables := viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES")
+	if len(snapshotTables) > 0 || len(excludedTables) > 0 {
 		cfg.Snapshot = parseSnapshotConfig(pgURL)
 	}
 

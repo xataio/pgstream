@@ -104,7 +104,7 @@ func initialSnapshotFlagBinding(cmd *cobra.Command) {
 	// if the source and target are postgres, with replication + initial snapshot
 	// enabled, default to using bulk ingest if not set
 	if viper.GetString("PGSTREAM_POSTGRES_LISTENER_URL") != "" && viper.GetString("PGSTREAM_POSTGRES_WRITER_TARGET_URL") != "" &&
-		viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_TABLES") != "" &&
+		(viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_TABLES") != "" || viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES") != "") &&
 		viper.GetString("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED") == "" {
 		viper.Set("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED", true)
 	}
