@@ -31,6 +31,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	testSchema := "test_schema"
 	testTable := "test_table"
 	excludedTable := "excluded_test_table"
+	excludedTable2 := "excluded_test_table_2"
 	excludedSchema := "excluded_test_schema"
 	errTest := errors.New("oh noes")
 	testSequence := pglib.QuoteQualifiedIdentifier("test", "test_sequence")
@@ -298,6 +299,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				SchemaTables: map[string][]string{
 					wildcard: {testTable},
 				},
+				SchemaExcludedTables: map[string][]string{
+					excludedSchema: {excludedTable2},
+				},
 			},
 			conn: validQuerier(),
 			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
@@ -307,7 +311,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						SchemaOnly:       true,
-						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
+						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable), pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable2)},
 					}, po)
 					return schemaDump, nil
 				case 2:

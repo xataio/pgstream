@@ -30,10 +30,7 @@ type schemaDiscoveryFn func(ctx context.Context, conn pglib.Querier) ([]string, 
 
 type tableDiscoveryFn func(ctx context.Context, conn pglib.Querier, schema string) ([]string, error)
 
-const (
-	wildcard     = "*"
-	publicSchema = "public"
-)
+const wildcard = "*"
 
 // NewSnapshotSchemaTableFinder will return the generator on input wrapped with a
 // schema & table finder that will explode the wildcard references in the snapshot
