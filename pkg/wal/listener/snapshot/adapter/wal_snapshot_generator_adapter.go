@@ -13,18 +13,20 @@ import (
 
 // SnapshotGeneratorAdapter adapts a snapshot generator to work with WAL events
 type SnapshotGeneratorAdapter struct {
-	logger       loglib.Logger
-	generator    generator.SnapshotGenerator
-	schemaTables map[string][]string
+	logger               loglib.Logger
+	generator            generator.SnapshotGenerator
+	schemaTables         map[string][]string
+	schemaExcludedTables map[string][]string
 }
 
 type Option func(a *SnapshotGeneratorAdapter)
 
 func NewSnapshotGeneratorAdapter(cfg *SnapshotConfig, generator generator.SnapshotGenerator, opts ...Option) *SnapshotGeneratorAdapter {
 	a := &SnapshotGeneratorAdapter{
-		generator:    generator,
-		schemaTables: cfg.schemaTableMap(),
-		logger:       loglib.NewNoopLogger(),
+		generator:            generator,
+		schemaTables:         schemaTableMap(cfg.Tables),
+		schemaExcludedTables: schemaTableMap(cfg.ExcludedTables),
+		logger:               loglib.NewNoopLogger(),
 	}
 
 	for _, opt := range opts {
@@ -49,7 +51,8 @@ func (s *SnapshotGeneratorAdapter) CreateSnapshot(ctx context.Context) (err erro
 	}()
 
 	snapshot := &snapshot.Snapshot{
-		SchemaTables: s.schemaTables,
+		SchemaTables:         s.schemaTables,
+		SchemaExcludedTables: s.schemaExcludedTables,
 	}
 	if err := s.generator.CreateSnapshot(ctx, snapshot); err != nil {
 		s.logger.Error(err, "creating snapshot", loglib.Fields{"schemas": snapshot.GetSchemas(), "tables": snapshot.GetTables()})

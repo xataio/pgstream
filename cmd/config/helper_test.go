@@ -20,6 +20,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 	assert.Equal(t, "pgstream_mydatabase_slot", streamConfig.Listener.Postgres.Replication.ReplicationSlotName)
 	assert.NotNil(t, streamConfig.Listener.Postgres.Snapshot)
 	assert.ElementsMatch(t, []string{"test", "test_schema.Test", "another_schema.*"}, streamConfig.Listener.Postgres.Snapshot.Adapter.Tables)
+	assert.ElementsMatch(t, []string{"test_schema.Test"}, streamConfig.Listener.Postgres.Snapshot.Adapter.ExcludedTables)
 	assert.Equal(t, uint(4), streamConfig.Listener.Postgres.Snapshot.Generator.SnapshotWorkers)
 	assert.Equal(t, uint(4), streamConfig.Listener.Postgres.Snapshot.Generator.SchemaWorkers)
 	assert.Equal(t, uint(4), streamConfig.Listener.Postgres.Snapshot.Generator.TableWorkers)

@@ -36,6 +36,7 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL", "postgresql://user:password@localhost:5432/mytargetdatabase")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE", "true")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_TABLES", "test test_schema.Test another_schema.*")
+	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES", "test_schema.Test")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS", "4")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS", "4")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS", "4")

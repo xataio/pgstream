@@ -144,7 +144,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return nil
 	}
 
-	dump, err := s.dumpSchema(ctx, dumpSchemas)
+	dump, err := s.dumpSchema(ctx, dumpSchemas, ss.SchemaExcludedTables)
 	if err != nil {
 		return err
 	}
@@ -193,8 +193,8 @@ func (s *SnapshotGenerator) Close() error {
 	return nil
 }
 
-func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[string][]string) (*dump, error) {
-	pgdumpOpts, err := s.pgdumpOptions(ctx, schemaTables)
+func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[string][]string, excludedTables map[string][]string) (*dump, error) {
+	pgdumpOpts, err := s.pgdumpOptions(ctx, schemaTables, excludedTables)
 	if err != nil {
 		return nil, fmt.Errorf("preparing pg_dump options: %w", err)
 	}
@@ -293,7 +293,7 @@ func (s *SnapshotGenerator) pgrestoreOptions() pglib.PGRestoreOptions {
 	}
 }
 
-func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, schemaTables map[string][]string) (*pglib.PGDumpOptions, error) {
+func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, schemaTables map[string][]string, excludedTables map[string][]string) (*pglib.PGDumpOptions, error) {
 	schemas := make([]string, 0, len(schemaTables))
 	for schema := range schemaTables {
 		schemas = append(schemas, schema)
@@ -343,6 +343,14 @@ func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, schemaTables map[
 		opts.ExcludeTables, err = s.pgdumpExcludedTables(ctx, schema, tables)
 		if err != nil {
 			return nil, err
+		}
+	}
+
+	for schema, tables := range excludedTables {
+		for _, table := range tables {
+			if !slices.Contains(opts.ExcludeTables, pglib.QuoteQualifiedIdentifier(schema, table)) {
+				opts.ExcludeTables = append(opts.ExcludeTables, pglib.QuoteQualifiedIdentifier(schema, table))
+			}
 		}
 	}
 

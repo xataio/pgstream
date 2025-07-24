@@ -34,7 +34,7 @@ func TestSnapshotConfig_schemaTableMap(t *testing.T) {
 			config := SnapshotConfig{
 				Tables: tc.tables,
 			}
-			got := config.schemaTableMap()
+			got := schemaTableMap(config.Tables)
 			require.Equal(t, tc.wantMap, got)
 		})
 	}

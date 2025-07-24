@@ -64,6 +64,13 @@ The snapshot listener needs to be configured to indicate the tables/schemas that
 PGSTREAM_POSTGRES_SNAPSHOT_TABLES="*"
 ```
 
+In order to exclude some tables, e.g to snapshot all the tables in the public schema except for `test_table` and `test_table_2`, `PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES` can be used.
+
+```sh
+PGSTREAM_POSTGRES_SNAPSHOT_TABLES="public.*"
+PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES="public.test_table public.test_table_2"
+```
+
 Further configuration can be provided to optimize the performance of the snapshot process, mostly focusing on the concurrency.
 
 ```sh

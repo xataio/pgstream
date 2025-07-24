@@ -74,6 +74,7 @@ type PostgresConfig struct {
 type SnapshotConfig struct {
 	Mode            string                  `mapstructure:"mode" yaml:"mode"`
 	Tables          []string                `mapstructure:"tables" yaml:"tables"`
+	ExcludedTables  []string                `mapstructure:"excluded_tables" yaml:"excluded_tables"`
 	Recorder        *SnapshotRecorderConfig `mapstructure:"recorder" yaml:"recorder"`
 	SnapshotWorkers int                     `mapstructure:"snapshot_workers" yaml:"snapshot_workers"`
 	Data            *SnapshotDataConfig     `mapstructure:"data" yaml:"data"`
@@ -434,7 +435,8 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 
 	streamCfg := &snapshotbuilder.SnapshotListenerConfig{
 		Adapter: adapter.SnapshotConfig{
-			Tables: snapshotConfig.Tables,
+			Tables:         snapshotConfig.Tables,
+			ExcludedTables: snapshotConfig.ExcludedTables,
 		},
 	}
 

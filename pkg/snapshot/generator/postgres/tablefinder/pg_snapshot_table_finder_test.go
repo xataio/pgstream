@@ -174,6 +174,63 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - schema wildcard, with excluded table",
+			conn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					switch query {
+					case "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')":
+						require.Empty(t, args)
+						return &pgmocks.Rows{
+							ScanFn: func(dest ...any) error {
+								require.Len(t, dest, 1)
+								schema, ok := dest[0].(*string)
+								require.True(t, ok)
+								*schema = testSchema
+								return nil
+							},
+							NextFn:  func(i uint) bool { return i == 1 },
+							CloseFn: func() {},
+							ErrFn:   func() error { return nil },
+						}, nil
+					case "SELECT tablename FROM pg_tables WHERE schemaname=$1":
+						require.Len(t, args, 1)
+						require.Equal(t, testSchema, args[0])
+						return &pgmocks.Rows{
+							ScanFn: func(dest ...any) error {
+								require.Len(t, dest, 1)
+								table, ok := dest[0].(*string)
+								require.True(t, ok)
+								*table = "table-1"
+								return nil
+							},
+							NextFn:  func(i uint) bool { return i == 1 },
+							CloseFn: func() {},
+							ErrFn:   func() error { return nil },
+						}, nil
+					default:
+						t.Fatalf("unexpected query: %s", query)
+					}
+					return nil, nil // unreachable
+				},
+			},
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					wildcard: {wildcard},
+				},
+				SchemaExcludedTables: map[string][]string{
+					testSchema: {"table-1"},
+				},
+			},
+			generator: &mocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, snapshot *snapshot.Snapshot) error {
+					require.Equal(t, map[string][]string{}, snapshot.SchemaTables) // should be empty because the only table is excluded
+					return nil
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
 			name: "error - schema wildcard with table name",
 			conn: &pgmocks.Querier{
 				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {

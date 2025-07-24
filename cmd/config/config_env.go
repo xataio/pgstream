@@ -46,6 +46,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_TABLES")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE")
@@ -179,7 +180,8 @@ func parsePostgresListenerConfig() *stream.PostgresListenerConfig {
 	}
 
 	snapshotTables := viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES")
-	if len(snapshotTables) > 0 {
+	excludedTables := viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES")
+	if len(snapshotTables) > 0 || len(excludedTables) > 0 {
 		cfg.Snapshot = parseSnapshotConfig(pgURL)
 	}
 
@@ -204,7 +206,8 @@ func parseSnapshotConfig(pgURL string) *snapshotbuilder.SnapshotListenerConfig {
 			SnapshotWorkers: viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS"),
 		},
 		Adapter: adapter.SnapshotConfig{
-			Tables: viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES"),
+			Tables:         viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES"),
+			ExcludedTables: viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES"),
 		},
 		Schema: parseSchemaSnapshotConfig(pgURL),
 	}

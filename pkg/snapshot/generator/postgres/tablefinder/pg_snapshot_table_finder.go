@@ -94,6 +94,31 @@ func (s *SnapshotSchemaTableFinder) CreateSnapshot(ctx context.Context, ss *snap
 			}
 		}
 	}
+
+	if len(ss.SchemaExcludedTables) == 0 {
+		// No excluded tables, return early
+		return s.wrapped.CreateSnapshot(ctx, ss)
+	}
+
+	// Remove excluded tables from the snapshot request
+	for schema, tables := range ss.SchemaTables {
+		if excludedTables, found := ss.SchemaExcludedTables[schema]; found {
+			// Filter out the excluded tables
+			filteredTables := []string{}
+			for _, table := range tables {
+				if !slices.Contains(excludedTables, table) {
+					filteredTables = append(filteredTables, table)
+				}
+			}
+			if len(filteredTables) == 0 {
+				// If no tables left after filtering, remove the schema from the snapshot
+				delete(ss.SchemaTables, schema)
+			} else {
+				ss.SchemaTables[schema] = filteredTables
+			}
+		}
+	}
+
 	return s.wrapped.CreateSnapshot(ctx, ss)
 }
 
