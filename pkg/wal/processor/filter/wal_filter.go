@@ -7,7 +7,9 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/xataio/pgstream/internal/json"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 )
@@ -50,7 +52,9 @@ const (
 // New will return a filter processor wrapper that will skip WAL events as per
 // the configuration provided. Only one of include or exclude table list can be
 // provided (not both).
-func New(processor processor.Processor, cfg *Config, opts ...Option) (*Filter, error) {
+func New(
+	processor processor.Processor, cfg *Config, opts ...Option,
+) (*Filter, error) {
 	if len(cfg.ExcludeTables) > 0 && len(cfg.IncludeTables) > 0 {
 		return nil, errIncludeExcludeList
 	}
@@ -114,9 +118,18 @@ func WithDefaultIncludeTables(tables []string) Option {
 }
 
 func (f *Filter) ProcessWALEvent(ctx context.Context, event *wal.Event) error {
-	if f.skipEvent(event) {
-		f.logger.Trace("skipping event", loglib.Fields{"schema": event.Data.Schema, "table": event.Data.Table})
-		return nil
+	switch {
+	case event == nil || event.Data == nil:
+		// nothing to do, pass it along to the internal processor
+	case processor.IsSchemaLogEvent(event.Data):
+		// remove filtered tables from schema log events
+		f.updateSchemaEvent(event)
+	default:
+		// data events
+		if f.skipEvent(event) {
+			f.logger.Trace("skipping event", loglib.Fields{"schema": event.Data.Schema, "table": event.Data.Table})
+			return nil
+		}
 	}
 
 	return f.processor.ProcessWALEvent(ctx, event)
@@ -132,10 +145,6 @@ func (f *Filter) Close() error {
 
 // skip event for table if it's not in the include table list or if it's in the exclude one
 func (f *Filter) skipEvent(event *wal.Event) bool {
-	if event == nil || event.Data == nil {
-		return false
-	}
-
 	if len(f.includeTableMap) > 0 {
 		return !f.includeTableMap.containsSchemaTable(event.Data.Schema, event.Data.Table)
 	}
@@ -144,6 +153,69 @@ func (f *Filter) skipEvent(event *wal.Event) bool {
 	}
 
 	return false
+}
+
+func (f *Filter) updateSchemaEvent(event *wal.Event) {
+	if !event.Data.IsInsert() {
+		// we only care about insert actions for schema log events
+		return
+	}
+
+	logEntry, err := processor.WalDataToLogEntry(event.Data)
+	if err != nil {
+		f.logger.Error(err, "failed to convert WAL data to log entry", loglib.Fields{"data": event.Data})
+		return
+	}
+
+	f.filterTablesFromSchema(logEntry.SchemaName, &logEntry.Schema)
+
+	f.logger.Debug("filtered schema", loglib.Fields{
+		"schema_name": logEntry.SchemaName,
+		"tables":      logEntry.Schema.Tables,
+	})
+
+	for i, c := range event.Data.Columns {
+		if c.Name == "schema" {
+			// Marshal the filtered schema to JSON
+			schemaBytes, err := json.Marshal(&logEntry.Schema)
+			if err != nil {
+				f.logger.Error(err, "failed to marshal schema", loglib.Fields{"schema": logEntry.SchemaName})
+				return
+			}
+
+			var schemaStr string
+			err = json.Unmarshal(schemaBytes, &schemaStr)
+			if err != nil {
+				f.logger.Error(err, "failed to unmarshal schema bytes to string", loglib.Fields{"schema": logEntry.SchemaName})
+				return
+			}
+
+			// Store the double-encoded value
+			event.Data.Columns[i].Value = string(schemaStr)
+			return
+		}
+	}
+}
+
+func (f *Filter) filterTablesFromSchema(schemaName string, schema *schemalog.Schema) {
+	if len(f.includeTableMap) == 0 && len(f.excludeTableMap) == 0 {
+		return // no filtering applied, keep all tables
+	}
+	filteredTables := make([]schemalog.Table, 0, len(schema.Tables))
+	for _, table := range schema.Tables {
+		switch {
+		case len(f.includeTableMap) != 0:
+			if f.includeTableMap.containsSchemaTable(schemaName, table.Name) {
+				filteredTables = append(filteredTables, table)
+			}
+		case len(f.excludeTableMap) != 0:
+			if !f.excludeTableMap.containsSchemaTable(schemaName, table.Name) {
+				filteredTables = append(filteredTables, table)
+			}
+		}
+	}
+
+	schema.Tables = filteredTables
 }
 
 func (t schemaTableMap) containsSchemaTable(schema, table string) bool {
