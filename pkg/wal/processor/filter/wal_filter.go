@@ -190,7 +190,10 @@ func (f *Filter) updateSchemaEvent(event *wal.Event) {
 				return
 			}
 
-			// Store the double-encoded value
+			// Store the double-encoded value to ensure compatibility with downstream consumers
+			// who expect the schema to be a JSON-encoded string. This process ensures that the
+			// schema is serialized into a JSON string format that can be safely transmitted
+			// and interpreted by downstream systems.
 			event.Data.Columns[i].Value = string(schemaStr)
 			return
 		}
