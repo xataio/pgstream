@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/wal"
 )
@@ -27,15 +28,17 @@ var (
 
 type dmlAdapter struct {
 	onConflictAction onConflictAction
+	forCopy          bool
 }
 
-func newDMLAdapter(action string) (*dmlAdapter, error) {
+func newDMLAdapter(action string, forCopy bool) (*dmlAdapter, error) {
 	oca, err := parseOnConflictAction(action)
 	if err != nil {
 		return nil, err
 	}
 	return &dmlAdapter{
 		onConflictAction: oca,
+		forCopy:          forCopy,
 	}, nil
 }
 
@@ -226,7 +229,11 @@ func (a *dmlAdapter) filterRowColumns(cols []wal.Column, generatedColumns []stri
 			continue
 		}
 		rowColumns = append(rowColumns, pglib.QuoteIdentifier(c.Name))
-		rowValues = append(rowValues, c.Value)
+		val := c.Value
+		if a.forCopy {
+			val = updateValueForCopy(val, c.Type)
+		}
+		rowValues = append(rowValues, val)
 	}
 	return rowColumns, rowValues
 }
@@ -246,4 +253,32 @@ func parseOnConflictAction(action string) (onConflictAction, error) {
 	default:
 		return 0, errUnsupportedOnConflictAction
 	}
+}
+
+func updateValueForCopy(value any, colType string) any {
+	// For COPY, we might need to update the value for some data types,
+	// so that it will be able to be encoded into binary format correctly.
+	switch colType {
+	case "date", "timestamp", "timestamptz":
+		return getInfinityValueForDateTime(value, colType)
+	}
+	return value
+}
+
+func getInfinityValueForDateTime(value any, colType string) any {
+	v, ok := value.(pgtype.InfinityModifier)
+	if !ok {
+		// If not infinity, just return the value as is
+		return value
+	}
+
+	switch colType {
+	case "date":
+		return pgtype.Date{Valid: true, InfinityModifier: v}
+	case "timestamp":
+		return pgtype.Timestamp{Valid: true, InfinityModifier: v}
+	case "timestamptz":
+		return pgtype.Timestamptz{Valid: true, InfinityModifier: v}
+	}
+	return value
 }

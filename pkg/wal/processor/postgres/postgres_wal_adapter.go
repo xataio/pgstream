@@ -29,13 +29,13 @@ type adapter struct {
 	columnObserver columnObserver
 }
 
-func newAdapter(ctx context.Context, schemaQuerier schemalogQuerier, pgURL string, onConflictAction string) (*adapter, error) {
+func newAdapter(ctx context.Context, schemaQuerier schemalogQuerier, pgURL string, onConflictAction string, forCopy bool) (*adapter, error) {
 	columnObserver, err := newPGColumnObserver(ctx, pgURL)
 	if err != nil {
 		return nil, err
 	}
 
-	dmlAdapter, err := newDMLAdapter(onConflictAction)
+	dmlAdapter, err := newDMLAdapter(onConflictAction, forCopy)
 	if err != nil {
 		return nil, err
 	}
