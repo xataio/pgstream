@@ -5,9 +5,9 @@ package filter
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/xataio/pgstream/internal/json"
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -18,8 +18,8 @@ import (
 // configured table include/exclude lists.
 type Filter struct {
 	processor       processor.Processor
-	includeTableMap schemaTableMap
-	excludeTableMap schemaTableMap
+	includeTableMap pglib.SchemaTableMap
+	excludeTableMap pglib.SchemaTableMap
 	logger          loglib.Logger
 }
 
@@ -34,19 +34,11 @@ type Config struct {
 	ExcludeTables []string
 }
 
-type schemaTableMap map[string]map[string]struct{}
-
 type Option func(*Filter)
 
 var (
 	errIncludeExcludeList     = errors.New("cannot use both include and exclude lists for table filtering")
 	errMissingFilteringConfig = errors.New("missing filtering configuration")
-	errInvalidTableName       = errors.New("invalid table name format")
-)
-
-const (
-	wildcard     = "*"
-	publicSchema = "public"
 )
 
 // New will return a filter processor wrapper that will skip WAL events as per
@@ -69,14 +61,14 @@ func New(
 
 	var err error
 	if len(cfg.IncludeTables) > 0 {
-		f.includeTableMap, err = parseTables(cfg.IncludeTables)
+		f.includeTableMap, err = pglib.NewSchemaTableMap(cfg.IncludeTables)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	if len(cfg.ExcludeTables) > 0 {
-		f.excludeTableMap, err = parseTables(cfg.ExcludeTables)
+		f.excludeTableMap, err = pglib.NewSchemaTableMap(cfg.ExcludeTables)
 		if err != nil {
 			return nil, err
 		}
@@ -107,12 +99,10 @@ func WithDefaultIncludeTables(tables []string) Option {
 			return
 		}
 		for _, table := range tables {
-			schema, table, err := parseTableName(table)
-			// should never happen
-			if err != nil {
+			if err := f.includeTableMap.Add(table); err != nil {
+				// should never happen
 				panic(err)
 			}
-			f.includeTableMap.add(schema, table)
 		}
 	}
 }
@@ -146,10 +136,10 @@ func (f *Filter) Close() error {
 // skip event for table if it's not in the include table list or if it's in the exclude one
 func (f *Filter) skipEvent(event *wal.Event) bool {
 	if len(f.includeTableMap) > 0 {
-		return !f.includeTableMap.containsSchemaTable(event.Data.Schema, event.Data.Table)
+		return !f.includeTableMap.ContainsSchemaTable(event.Data.Schema, event.Data.Table)
 	}
 	if len(f.excludeTableMap) > 0 {
-		return f.excludeTableMap.containsSchemaTable(event.Data.Schema, event.Data.Table)
+		return f.excludeTableMap.ContainsSchemaTable(event.Data.Schema, event.Data.Table)
 	}
 
 	return false
@@ -208,79 +198,15 @@ func (f *Filter) filterTablesFromSchema(schemaName string, schema *schemalog.Sch
 	for _, table := range schema.Tables {
 		switch {
 		case len(f.includeTableMap) != 0:
-			if f.includeTableMap.containsSchemaTable(schemaName, table.Name) {
+			if f.includeTableMap.ContainsSchemaTable(schemaName, table.Name) {
 				filteredTables = append(filteredTables, table)
 			}
 		case len(f.excludeTableMap) != 0:
-			if !f.excludeTableMap.containsSchemaTable(schemaName, table.Name) {
+			if !f.excludeTableMap.ContainsSchemaTable(schemaName, table.Name) {
 				filteredTables = append(filteredTables, table)
 			}
 		}
 	}
 
 	schema.Tables = filteredTables
-}
-
-func (t schemaTableMap) containsSchemaTable(schema, table string) bool {
-	if len(t) == 0 {
-		return false
-	}
-
-	tables := t.getSchemaTables(schema)
-	if len(tables) == 0 {
-		return false
-	}
-
-	_, found := tables[table]
-	_, wildcardFound := tables[wildcard]
-	return found || wildcardFound
-}
-
-func (t schemaTableMap) getSchemaTables(schema string) map[string]struct{} {
-	tables, found := t[schema]
-	if !found {
-		return t[wildcard]
-	}
-
-	// make sure it's merged with the wildcard schema tables if any
-	for table := range t[wildcard] {
-		tables[table] = struct{}{}
-	}
-
-	return tables
-}
-
-func (t schemaTableMap) add(schema, table string) {
-	_, found := t[schema]
-	if !found {
-		t[schema] = map[string]struct{}{}
-	}
-	t[schema][table] = struct{}{}
-}
-
-func parseTables(tables []string) (schemaTableMap, error) {
-	schemaTablesMap := make(schemaTableMap, len(tables))
-	for _, table := range tables {
-		schemaName, tableName, err := parseTableName(table)
-		if err != nil {
-			return nil, err
-		}
-		if _, found := schemaTablesMap[schemaName]; !found {
-			schemaTablesMap[schemaName] = make(map[string]struct{})
-		}
-		schemaTablesMap[schemaName][tableName] = struct{}{}
-	}
-	return schemaTablesMap, nil
-}
-
-func parseTableName(qualifiedTableName string) (string, string, error) {
-	parts := strings.Split(qualifiedTableName, ".")
-	switch len(parts) {
-	case 1:
-		return publicSchema, parts[0], nil
-	case 2:
-		return parts[0], parts[1], nil
-	default:
-		return "", "", errInvalidTableName
-	}
 }
