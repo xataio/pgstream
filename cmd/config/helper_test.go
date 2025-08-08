@@ -7,113 +7,213 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/xataio/pgstream/pkg/backoff"
+	"github.com/xataio/pgstream/pkg/kafka"
 	"github.com/xataio/pgstream/pkg/otel"
+	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
+	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
+	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/stream"
+	"github.com/xataio/pgstream/pkg/tls"
+	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
+	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/adapter"
+	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
+	"github.com/xataio/pgstream/pkg/wal/processor/batch"
+	"github.com/xataio/pgstream/pkg/wal/processor/filter"
+	"github.com/xataio/pgstream/pkg/wal/processor/injector"
+	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
+	"github.com/xataio/pgstream/pkg/wal/processor/postgres"
+	"github.com/xataio/pgstream/pkg/wal/processor/search"
+	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
+	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
+	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
 // this function validates the stream configuration produced from the test
 // configuration in the test directory.
 func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
-	assert.NotNil(t, streamConfig.Listener)
-	assert.NotNil(t, streamConfig.Listener.Postgres)
-	assert.Equal(t, "postgresql://user:password@localhost:5432/mydatabase", streamConfig.Listener.Postgres.Replication.PostgresURL)
-	assert.Equal(t, "pgstream_mydatabase_slot", streamConfig.Listener.Postgres.Replication.ReplicationSlotName)
-	assert.NotNil(t, streamConfig.Listener.Postgres.Snapshot)
-	assert.ElementsMatch(t, []string{"test", "test_schema.Test", "another_schema.*"}, streamConfig.Listener.Postgres.Snapshot.Adapter.Tables)
-	assert.ElementsMatch(t, []string{"test_schema.Test"}, streamConfig.Listener.Postgres.Snapshot.Adapter.ExcludedTables)
-	assert.Equal(t, uint(4), streamConfig.Listener.Postgres.Snapshot.Generator.SnapshotWorkers)
-	assert.Equal(t, uint(4), streamConfig.Listener.Postgres.Snapshot.Generator.SchemaWorkers)
-	assert.Equal(t, uint(4), streamConfig.Listener.Postgres.Snapshot.Generator.TableWorkers)
-	assert.Equal(t, uint64(83886080), streamConfig.Listener.Postgres.Snapshot.Generator.BatchBytes)
-	assert.NotNil(t, streamConfig.Listener.Postgres.Snapshot.Schema.DumpRestore)
-	assert.True(t, streamConfig.Listener.Postgres.Snapshot.Schema.DumpRestore.CleanTargetDB)
-	assert.True(t, streamConfig.Listener.Postgres.Snapshot.Schema.DumpRestore.CreateTargetDB)
-	assert.True(t, streamConfig.Listener.Postgres.Snapshot.Schema.DumpRestore.IncludeGlobalDBObjects)
-	assert.Equal(t, "test-role", streamConfig.Listener.Postgres.Snapshot.Schema.DumpRestore.Role)
-	assert.NotNil(t, streamConfig.Listener.Postgres.Snapshot.Recorder)
-	assert.Equal(t, "postgresql://user:password@localhost:5432/mytargetdatabase", streamConfig.Listener.Postgres.Snapshot.Recorder.SnapshotStoreURL)
-	assert.True(t, streamConfig.Listener.Postgres.Snapshot.Recorder.RepeatableSnapshots)
-	assert.Equal(t, "pg_dump.sql", streamConfig.Listener.Postgres.Snapshot.Schema.DumpRestore.DumpDebugFile)
+	expectedConfig := &stream.Config{
+		Listener: stream.ListenerConfig{
+			Postgres: &stream.PostgresListenerConfig{
+				Replication: pgreplication.Config{
+					PostgresURL:         "postgresql://user:password@localhost:5432/mydatabase",
+					ReplicationSlotName: "pgstream_mydatabase_slot",
+					IncludeTables:       []string{"test", "test_schema.test", "another_schema.*"},
+					ExcludeTables:       []string{"excluded_test", "excluded_schema.test", "another_excluded_schema.*"},
+				},
+				Snapshot: &builder.SnapshotListenerConfig{
+					Adapter: adapter.SnapshotConfig{
+						Tables:         []string{"test", "test_schema.Test", "another_schema.*"},
+						ExcludedTables: []string{"test_schema.Test"},
+					},
+					Generator: pgsnapshotgenerator.Config{
+						URL:             "postgresql://user:password@localhost:5432/mydatabase",
+						SnapshotWorkers: 4,
+						SchemaWorkers:   4,
+						TableWorkers:    4,
+						BatchBytes:      83886080,
+					},
+					Schema: builder.SchemaSnapshotConfig{
+						DumpRestore: &pgdumprestore.Config{
+							SourcePGURL:            "postgresql://user:password@localhost:5432/mydatabase",
+							TargetPGURL:            "postgresql://user:password@localhost:5432/mytargetdatabase",
+							CleanTargetDB:          true,
+							CreateTargetDB:         true,
+							IncludeGlobalDBObjects: true,
+							Role:                   "test-role",
+							DumpDebugFile:          "pg_dump.sql",
+						},
+					},
+					Recorder: &builder.SnapshotRecorderConfig{
+						SnapshotStoreURL:    "postgresql://user:password@localhost:5432/mytargetdatabase",
+						RepeatableSnapshots: true,
+					},
+				},
+			},
+			Kafka: &stream.KafkaListenerConfig{
+				Reader: kafka.ReaderConfig{
+					Conn: kafka.ConnConfig{
+						Servers: []string{"localhost:9092"},
+						Topic: kafka.TopicConfig{
+							Name: "mytopic",
+						},
+						TLS: tls.Config{
+							Enabled:        true,
+							CaCertFile:     "/path/to/ca.crt",
+							ClientCertFile: "/path/to/client.crt",
+							ClientKeyFile:  "/path/to/client.key",
+						},
+					},
+					ConsumerGroupID:          "mygroup",
+					ConsumerGroupStartOffset: "earliest",
+				},
+				Checkpointer: kafkacheckpoint.Config{
+					CommitBackoff: backoff.Config{
+						Exponential: &backoff.ExponentialConfig{
+							MaxRetries:      5,
+							InitialInterval: time.Second,
+							MaxInterval:     60 * time.Second,
+						},
+					},
+				},
+			},
+		},
+		Processor: stream.ProcessorConfig{
+			Postgres: &stream.PostgresProcessorConfig{
+				BatchWriter: postgres.Config{
+					URL: "postgresql://user:password@localhost:5432/mytargetdatabase",
+					BatchConfig: batch.Config{
+						MaxBatchSize:  100,
+						BatchTimeout:  time.Second,
+						MaxBatchBytes: 1572864,
+						MaxQueueBytes: 204800,
+					},
+					DisableTriggers:   false,
+					OnConflictAction:  "nothing",
+					BulkIngestEnabled: true,
+					SchemaLogStore: schemalogpg.Config{
+						URL: "postgresql://user:password@localhost:5432/mydatabase",
+					},
+				},
+			},
+			Kafka: &stream.KafkaProcessorConfig{
+				Writer: &kafkaprocessor.Config{
+					Kafka: kafka.ConnConfig{
+						Topic: kafka.TopicConfig{
+							Name:              "mytopic",
+							NumPartitions:     1,
+							ReplicationFactor: 1,
+							AutoCreate:        true,
+						},
+						Servers: []string{"localhost:9092"},
+						TLS: tls.Config{
+							Enabled:        true,
+							CaCertFile:     "/path/to/ca.crt",
+							ClientCertFile: "/path/to/client.crt",
+							ClientKeyFile:  "/path/to/client.key",
+						},
+					},
+					Batch: batch.Config{
+						MaxBatchSize:  100,
+						BatchTimeout:  time.Second,
+						MaxBatchBytes: 1572864,
+						MaxQueueBytes: 204800,
+					},
+				},
+			},
+			Search: &stream.SearchProcessorConfig{
+				Store: store.Config{
+					ElasticsearchURL: "http://localhost:9200",
+				},
+				Indexer: search.IndexerConfig{
+					Batch: batch.Config{
+						MaxBatchSize:  100,
+						BatchTimeout:  time.Second,
+						MaxBatchBytes: 1572864,
+						MaxQueueBytes: 204800,
+					},
+				},
+				Retrier: search.StoreRetryConfig{
+					Backoff: backoff.Config{
+						Exponential: &backoff.ExponentialConfig{
+							MaxRetries:      5,
+							InitialInterval: time.Second,
+							MaxInterval:     60 * time.Second,
+						},
+					},
+				},
+			},
+			Webhook: &stream.WebhookProcessorConfig{
+				SubscriptionServer: server.Config{
+					Address:      "localhost:9090",
+					ReadTimeout:  time.Minute,
+					WriteTimeout: time.Minute,
+				},
+				Notifier: notifier.Config{
+					URLWorkerCount: 4,
+					ClientTimeout:  time.Second,
+				},
+				SubscriptionStore: stream.WebhookSubscriptionStoreConfig{
+					URL:                  "postgresql://user:password@localhost:5432/mydatabase",
+					CacheEnabled:         true,
+					CacheRefreshInterval: 60 * time.Second,
+				},
+			},
+			Injector: &injector.Config{
+				Store: schemalogpg.Config{
+					URL: "postgresql://user:password@localhost:5432/mydatabase",
+				},
+			},
+			Transformer: &transformer.Config{
+				ValidationMode: "relaxed",
+				TransformerRules: []transformer.TableRules{
+					{
+						Schema:         "public",
+						Table:          "test",
+						ValidationMode: "relaxed",
+						ColumnRules: map[string]transformer.TransformerRules{
+							"name": {
+								Name: "greenmask_firstname",
+								DynamicParameters: map[string]any{
+									"gender": map[string]any{
+										"column": "sex",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			Filter: &filter.Config{
+				IncludeTables: []string{"test", "test_schema.test", "another_schema.*"},
+				ExcludeTables: []string{"excluded_test", "excluded_schema.test", "another_excluded_schema.*"},
+			},
+		},
+	}
 
-	assert.NotNil(t, streamConfig.Listener.Kafka)
-	assert.Equal(t, []string{"localhost:9092"}, streamConfig.Listener.Kafka.Reader.Conn.Servers)
-	assert.Equal(t, "mytopic", streamConfig.Listener.Kafka.Reader.Conn.Topic.Name)
-	assert.Equal(t, "mygroup", streamConfig.Listener.Kafka.Reader.ConsumerGroupID)
-	assert.Equal(t, "earliest", streamConfig.Listener.Kafka.Reader.ConsumerGroupStartOffset)
-	assert.True(t, streamConfig.Listener.Kafka.Reader.Conn.TLS.Enabled)
-	assert.Equal(t, "/path/to/ca.crt", streamConfig.Listener.Kafka.Reader.Conn.TLS.CaCertFile)
-	assert.Equal(t, "/path/to/client.crt", streamConfig.Listener.Kafka.Reader.Conn.TLS.ClientCertFile)
-	assert.Equal(t, "/path/to/client.key", streamConfig.Listener.Kafka.Reader.Conn.TLS.ClientKeyFile)
-	assert.Equal(t, uint(5), streamConfig.Listener.Kafka.Checkpointer.CommitBackoff.Exponential.MaxRetries)
-	assert.Equal(t, time.Second, streamConfig.Listener.Kafka.Checkpointer.CommitBackoff.Exponential.InitialInterval)
-	assert.Equal(t, 60*time.Second, streamConfig.Listener.Kafka.Checkpointer.CommitBackoff.Exponential.MaxInterval)
-
-	assert.NotNil(t, streamConfig.Processor.Postgres)
-	assert.Equal(t, "postgresql://user:password@localhost:5432/mytargetdatabase", streamConfig.Processor.Postgres.BatchWriter.URL)
-	assert.Equal(t, int64(100), streamConfig.Processor.Postgres.BatchWriter.BatchConfig.MaxBatchSize)
-	assert.Equal(t, time.Second, streamConfig.Processor.Postgres.BatchWriter.BatchConfig.BatchTimeout)
-	assert.Equal(t, int64(1572864), streamConfig.Processor.Postgres.BatchWriter.BatchConfig.MaxBatchBytes)
-	assert.Equal(t, int64(204800), streamConfig.Processor.Postgres.BatchWriter.BatchConfig.MaxQueueBytes)
-	assert.False(t, streamConfig.Processor.Postgres.BatchWriter.DisableTriggers)
-	assert.Equal(t, "nothing", streamConfig.Processor.Postgres.BatchWriter.OnConflictAction)
-	assert.Equal(t, true, streamConfig.Processor.Postgres.BatchWriter.BulkIngestEnabled)
-
-	assert.NotNil(t, streamConfig.Processor.Kafka)
-	assert.Equal(t, "mytopic", streamConfig.Processor.Kafka.Writer.Kafka.Topic.Name)
-	assert.Equal(t, 1, streamConfig.Processor.Kafka.Writer.Kafka.Topic.NumPartitions)
-	assert.Equal(t, 1, streamConfig.Processor.Kafka.Writer.Kafka.Topic.ReplicationFactor)
-	assert.True(t, streamConfig.Processor.Kafka.Writer.Kafka.Topic.AutoCreate)
-	assert.Equal(t, []string{"localhost:9092"}, streamConfig.Processor.Kafka.Writer.Kafka.Servers)
-	assert.Equal(t, int64(100), streamConfig.Processor.Kafka.Writer.Batch.MaxBatchSize)
-	assert.Equal(t, time.Second, streamConfig.Processor.Kafka.Writer.Batch.BatchTimeout)
-	assert.Equal(t, int64(1572864), streamConfig.Processor.Kafka.Writer.Batch.MaxBatchBytes)
-	assert.Equal(t, int64(204800), streamConfig.Processor.Kafka.Writer.Batch.MaxQueueBytes)
-	assert.True(t, streamConfig.Processor.Kafka.Writer.Kafka.TLS.Enabled)
-	assert.Equal(t, "/path/to/ca.crt", streamConfig.Processor.Kafka.Writer.Kafka.TLS.CaCertFile)
-	assert.Equal(t, "/path/to/client.crt", streamConfig.Processor.Kafka.Writer.Kafka.TLS.ClientCertFile)
-	assert.Equal(t, "/path/to/client.key", streamConfig.Processor.Kafka.Writer.Kafka.TLS.ClientKeyFile)
-
-	assert.NotNil(t, streamConfig.Processor.Search)
-	assert.Equal(t, "http://localhost:9200", streamConfig.Processor.Search.Store.ElasticsearchURL)
-	assert.Equal(t, int64(100), streamConfig.Processor.Search.Indexer.Batch.MaxBatchSize)
-	assert.Equal(t, time.Second, streamConfig.Processor.Search.Indexer.Batch.BatchTimeout)
-	assert.Equal(t, int64(1572864), streamConfig.Processor.Search.Indexer.Batch.MaxBatchBytes)
-	assert.Equal(t, int64(204800), streamConfig.Processor.Search.Indexer.Batch.MaxQueueBytes)
-	assert.Equal(t, uint(5), streamConfig.Processor.Search.Retrier.Backoff.Exponential.MaxRetries)
-	assert.Equal(t, time.Second, streamConfig.Processor.Search.Retrier.Backoff.Exponential.InitialInterval)
-	assert.Equal(t, 60*time.Second, streamConfig.Processor.Search.Retrier.Backoff.Exponential.MaxInterval)
-
-	assert.NotNil(t, streamConfig.Processor.Webhook)
-	assert.Equal(t, "localhost:9090", streamConfig.Processor.Webhook.SubscriptionServer.Address)
-	assert.Equal(t, uint(4), streamConfig.Processor.Webhook.Notifier.URLWorkerCount)
-	assert.Equal(t, "postgresql://user:password@localhost:5432/mydatabase", streamConfig.Processor.Webhook.SubscriptionStore.URL)
-	assert.True(t, streamConfig.Processor.Webhook.SubscriptionStore.CacheEnabled)
-	assert.Equal(t, 60*time.Second, streamConfig.Processor.Webhook.SubscriptionStore.CacheRefreshInterval)
-	assert.Equal(t, time.Minute, streamConfig.Processor.Webhook.SubscriptionServer.ReadTimeout)
-	assert.Equal(t, time.Minute, streamConfig.Processor.Webhook.SubscriptionServer.WriteTimeout)
-	assert.Equal(t, time.Second, streamConfig.Processor.Webhook.Notifier.ClientTimeout)
-
-	assert.NotNil(t, streamConfig.Processor.Injector)
-	assert.Equal(t, "postgresql://user:password@localhost:5432/mydatabase", streamConfig.Processor.Injector.Store.URL)
-
-	assert.NotNil(t, streamConfig.Processor.Transformer)
-	assert.Len(t, streamConfig.Processor.Transformer.TransformerRules, 1)
-	assert.Equal(t, "public", streamConfig.Processor.Transformer.TransformerRules[0].Schema)
-	assert.Equal(t, "test", streamConfig.Processor.Transformer.TransformerRules[0].Table)
-	assert.NotNil(t, streamConfig.Processor.Transformer.TransformerRules[0].ColumnRules)
-	assert.NotNil(t, streamConfig.Processor.Transformer.TransformerRules[0].ColumnRules["name"])
-	assert.Equal(t, "greenmask_firstname", streamConfig.Processor.Transformer.TransformerRules[0].ColumnRules["name"].Name)
-	assert.NotNil(t, streamConfig.Processor.Transformer.TransformerRules[0].ColumnRules["name"].DynamicParameters)
-	assert.NotNil(t, streamConfig.Processor.Transformer.TransformerRules[0].ColumnRules["name"].DynamicParameters["gender"])
-	dynParamGender, ok := streamConfig.Processor.Transformer.TransformerRules[0].ColumnRules["name"].DynamicParameters["gender"].(map[string]any)
-	assert.True(t, ok)
-	column, ok := dynParamGender["column"].(string)
-	assert.True(t, ok)
-	assert.Equal(t, "sex", column)
-
-	assert.NotNil(t, streamConfig.Processor.Filter)
-	assert.ElementsMatch(t, []string{"test", "test_schema.test", "another_schema.*"}, streamConfig.Processor.Filter.IncludeTables)
-	assert.ElementsMatch(t, []string{"excluded_test", "excluded_schema.test", "another_excluded_schema.*"}, streamConfig.Processor.Filter.ExcludeTables)
+	assert.Equal(t, expectedConfig, streamConfig)
 }
 
 // this function validates the otel configuration produced from the test

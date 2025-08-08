@@ -179,6 +179,11 @@ func parsePostgresListenerConfig() *stream.PostgresListenerConfig {
 		},
 	}
 
+	if filterConfig := parseFilterConfig(); filterConfig != nil {
+		cfg.Replication.ExcludeTables = filterConfig.ExcludeTables
+		cfg.Replication.IncludeTables = filterConfig.IncludeTables
+	}
+
 	snapshotTables := viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES")
 	excludedTables := viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES")
 	if len(snapshotTables) > 0 || len(excludedTables) > 0 {

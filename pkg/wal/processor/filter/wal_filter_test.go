@@ -10,6 +10,7 @@ import (
 
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -28,8 +29,8 @@ func Test_New(t *testing.T) {
 	tests := []struct {
 		name         string
 		config       *Config
-		wantIncluded schemaTableMap
-		wantExcluded schemaTableMap
+		wantIncluded pglib.SchemaTableMap
+		wantExcluded pglib.SchemaTableMap
 		wantErr      error
 	}{
 		{
@@ -37,15 +38,15 @@ func Test_New(t *testing.T) {
 			config: &Config{
 				IncludeTables: []string{"users", "public.orders", "public.*", "*.*"},
 			},
-			wantIncluded: schemaTableMap{
+			wantIncluded: pglib.SchemaTableMap{
 				"public": map[string]struct{}{
 					"*":       {},
 					"orders":  {},
 					"users":   {},
 					"default": {},
 				},
-				wildcard: map[string]struct{}{
-					wildcard: {},
+				"*": map[string]struct{}{
+					"*": {},
 				},
 			},
 			wantErr: nil,
@@ -55,7 +56,7 @@ func Test_New(t *testing.T) {
 			config: &Config{
 				ExcludeTables: []string{"public.users", "public.orders"},
 			},
-			wantExcluded: schemaTableMap{
+			wantExcluded: pglib.SchemaTableMap{
 				"public": map[string]struct{}{
 					"orders": {},
 					"users":  {},
@@ -76,14 +77,14 @@ func Test_New(t *testing.T) {
 			config: &Config{
 				IncludeTables: []string{"invalid.table.name"},
 			},
-			wantErr: errInvalidTableName,
+			wantErr: pglib.ErrInvalidTableName,
 		},
 		{
 			name: "invalid table name in excluded",
 			config: &Config{
 				ExcludeTables: []string{"invalid.table.name"},
 			},
-			wantErr: errInvalidTableName,
+			wantErr: pglib.ErrInvalidTableName,
 		},
 		{
 			name:    "empty configuration",
@@ -131,8 +132,8 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 	tests := []struct {
 		name      string
 		processor *mocks.Processor
-		included  schemaTableMap
-		excluded  schemaTableMap
+		included  pglib.SchemaTableMap
+		excluded  pglib.SchemaTableMap
 		event     *wal.Event
 
 		wantProcessCalls uint
@@ -223,7 +224,7 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			included: schemaTableMap{
+			included: pglib.SchemaTableMap{
 				testSchema: {
 					testTable: {},
 				},
@@ -264,7 +265,7 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 				},
 			},
 			included: nil,
-			excluded: schemaTableMap{
+			excluded: pglib.SchemaTableMap{
 				testSchema: {
 					"another_test_table": {},
 				},
@@ -282,7 +283,7 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			included: schemaTableMap{
+			included: pglib.SchemaTableMap{
 				testSchema: {
 					testTable: struct{}{},
 				},
@@ -301,12 +302,12 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			included: schemaTableMap{
+			included: pglib.SchemaTableMap{
 				testSchema: {
 					"blah": {},
 				},
-				wildcard: {
-					wildcard: {},
+				"*": {
+					"*": {},
 				},
 			},
 			excluded: nil,
@@ -323,11 +324,11 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			included: schemaTableMap{
+			included: pglib.SchemaTableMap{
 				testSchema: {
 					"blah": {},
 				},
-				wildcard: {
+				"*": {
 					testTable: {},
 				},
 			},
@@ -344,7 +345,7 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 					return errors.New("ProcessWALEventFn: should not be called")
 				},
 			},
-			included: schemaTableMap{
+			included: pglib.SchemaTableMap{
 				"public": {
 					"orders": struct{}{},
 				},
@@ -363,7 +364,7 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 				},
 			},
 			included: nil,
-			excluded: schemaTableMap{
+			excluded: pglib.SchemaTableMap{
 				testSchema: {
 					testTable: struct{}{},
 				},
@@ -382,7 +383,7 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 				},
 			},
 			included: nil,
-			excluded: schemaTableMap{
+			excluded: pglib.SchemaTableMap{
 				"public": {
 					"orders": struct{}{},
 				},
@@ -411,101 +412,6 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 	}
 }
 
-func TestSchemaTableMap_containsSchemaTable(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		schema       string
-		table        string
-		schemaMap    schemaTableMap
-		wantContains bool
-	}{
-		{
-			name:   "table exists in schema",
-			schema: "public",
-			table:  "users",
-			schemaMap: schemaTableMap{
-				"public": {
-					"users": struct{}{},
-				},
-			},
-			wantContains: true,
-		},
-		{
-			name:   "table does not exist in schema",
-			schema: "public",
-			table:  "orders",
-			schemaMap: schemaTableMap{
-				"public": {
-					"users": struct{}{},
-				},
-			},
-			wantContains: false,
-		},
-		{
-			name:   "wildcard matches any table in schema",
-			schema: "public",
-			table:  "orders",
-			schemaMap: schemaTableMap{
-				"public": {
-					"*": struct{}{},
-				},
-			},
-			wantContains: true,
-		},
-		{
-			name:   "schema does not exist",
-			schema: "private",
-			table:  "users",
-			schemaMap: schemaTableMap{
-				"public": {
-					"users": struct{}{},
-				},
-			},
-			wantContains: false,
-		},
-		{
-			name:   "wildcard schema matches any schema",
-			schema: "private",
-			table:  "users",
-			schemaMap: schemaTableMap{
-				"*": {
-					"users": struct{}{},
-				},
-			},
-			wantContains: true,
-		},
-		{
-			name:   "wildcard schema and table match",
-			schema: "private",
-			table:  "orders",
-			schemaMap: schemaTableMap{
-				"*": {
-					"*": struct{}{},
-				},
-			},
-			wantContains: true,
-		},
-		{
-			name:         "empty schemaTableMap",
-			schema:       "public",
-			table:        "users",
-			schemaMap:    schemaTableMap{},
-			wantContains: false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			contains := tc.schemaMap.containsSchemaTable(tc.schema, tc.table)
-			require.Equal(t, tc.wantContains, contains)
-		})
-	}
-}
-
 func TestFilter_filterTablesFromSchema(t *testing.T) {
 	t.Parallel()
 
@@ -519,8 +425,8 @@ func TestFilter_filterTablesFromSchema(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		included    schemaTableMap
-		excluded    schemaTableMap
+		included    pglib.SchemaTableMap
+		excluded    pglib.SchemaTableMap
 		inputTables []string
 		wantTables  []string
 	}{
@@ -533,21 +439,21 @@ func TestFilter_filterTablesFromSchema(t *testing.T) {
 		},
 		{
 			name:        "include only users",
-			included:    schemaTableMap{"public": {"users": {}}},
+			included:    pglib.SchemaTableMap{"public": {"users": {}}},
 			excluded:    nil,
 			inputTables: []string{"users", "orders", "products"},
 			wantTables:  []string{"users"},
 		},
 		{
 			name:        "include wildcard table",
-			included:    schemaTableMap{"public": {"*": {}}},
+			included:    pglib.SchemaTableMap{"public": {"*": {}}},
 			excluded:    nil,
 			inputTables: []string{"users", "orders", "products"},
 			wantTables:  []string{"users", "orders", "products"},
 		},
 		{
 			name:        "include wildcard schema and table",
-			included:    schemaTableMap{"*": {"*": {}}},
+			included:    pglib.SchemaTableMap{"*": {"*": {}}},
 			excluded:    nil,
 			inputTables: []string{"users", "orders"},
 			wantTables:  []string{"users", "orders"},
@@ -555,28 +461,28 @@ func TestFilter_filterTablesFromSchema(t *testing.T) {
 		{
 			name:        "exclude orders",
 			included:    nil,
-			excluded:    schemaTableMap{"public": {"orders": {}}},
+			excluded:    pglib.SchemaTableMap{"public": {"orders": {}}},
 			inputTables: []string{"users", "orders", "products"},
 			wantTables:  []string{"users", "products"},
 		},
 		{
 			name:        "exclude wildcard table",
 			included:    nil,
-			excluded:    schemaTableMap{"public": {"*": {}}},
+			excluded:    pglib.SchemaTableMap{"public": {"*": {}}},
 			inputTables: []string{"users", "orders", "products"},
 			wantTables:  []string{},
 		},
 		{
 			name:        "exclude wildcard schema and table",
 			included:    nil,
-			excluded:    schemaTableMap{"*": {"*": {}}},
+			excluded:    pglib.SchemaTableMap{"*": {"*": {}}},
 			inputTables: []string{"users", "orders"},
 			wantTables:  []string{},
 		},
 		{
 			name:        "include users, exclude orders (should only use include)",
-			included:    schemaTableMap{"public": {"users": {}}},
-			excluded:    schemaTableMap{"public": {"orders": {}}},
+			included:    pglib.SchemaTableMap{"public": {"users": {}}},
+			excluded:    pglib.SchemaTableMap{"public": {"orders": {}}},
 			inputTables: []string{"users", "orders", "products"},
 			wantTables:  []string{"users"}, // only include is used
 		},
