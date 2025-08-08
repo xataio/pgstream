@@ -4,7 +4,7 @@ go 1.24.1
 
 require (
 	github.com/Masterminds/sprig/v3 v3.3.0
-	github.com/bytedance/sonic v1.13.3
+	github.com/bytedance/sonic v1.14.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/elastic/go-elasticsearch/v8 v8.19.0
 	github.com/eminano/greenmask v0.0.0-20250718112128-2fb5fa726c02
@@ -28,7 +28,7 @@ require (
 	github.com/schollz/progressbar/v3 v3.18.0
 	github.com/segmentio/kafka-go v0.4.48
 	github.com/spf13/cobra v1.9.1
-	github.com/spf13/pflag v1.0.6
+	github.com/spf13/pflag v1.0.7
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.10.0
 	github.com/testcontainers/testcontainers-go v0.38.0
@@ -64,7 +64,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/OneOfOne/xxhash v1.2.8 // indirect
-	github.com/bytedance/sonic/loader v0.2.4 // indirect
+	github.com/bytedance/sonic/loader v0.3.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.2 // indirect
 	github.com/cloudwego/base64x v0.1.5 // indirect
 	github.com/containerd/console v1.0.5 // indirect

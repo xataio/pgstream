@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -146,6 +147,30 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				columnNames: quotedColumnNames,
 				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2)", quotedTestTable),
 				args:        []any{1, "alice"},
+			},
+		},
+		{
+			name: "insert with infinity timestamp",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(3), Name: "created_at", Value: pgtype.Infinity, Type: "timestamptz"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+
+			wantQuery: &query{
+				schema:      testSchema,
+				table:       testTable,
+				columnNames: []string{`"id"`, `"name"`, `"created_at"`},
+				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\", \"created_at\") OVERRIDING SYSTEM VALUE VALUES($1, $2, $3)", quotedTestTable),
+				args:        []any{1, "alice", pgtype.Timestamptz{Valid: true, InfinityModifier: pgtype.Infinity}},
 			},
 		},
 		{
@@ -353,6 +378,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 
 			a := &dmlAdapter{
 				onConflictAction: tc.action,
+				forCopy:          true,
 			}
 			query, err := a.walDataToQuery(tc.walData, tc.generatedColumns)
 			require.ErrorIs(t, err, tc.wantErr)
@@ -395,7 +421,7 @@ func Test_newDMLAdapter(t *testing.T) {
 		t.Run(tc.action, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := newDMLAdapter(tc.action)
+			_, err := newDMLAdapter(tc.action, false)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
