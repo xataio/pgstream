@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/replication"
 )
 
@@ -20,6 +22,9 @@ type Handler struct {
 	pgReplicationConn     pgReplicationConn
 	pgReplicationSlotName string
 	pgConnBuilder         func() (pglib.Querier, error)
+
+	excludedTables pglib.SchemaTableMap
+	includedTables pglib.SchemaTableMap
 
 	lsnParser replication.LSNParser
 }
@@ -37,6 +42,11 @@ type Config struct {
 	// Name of the replication slot to listen on. If not provided, it defaults
 	// to "pgstream_<dbname>_slot".
 	ReplicationSlotName string
+	// List of qualified tables excluded from the replication for which errors
+	// should be ignored.
+	ExcludeTables []string
+	// List of qualified tables included for replication.
+	IncludeTables []string
 }
 
 type Option func(h *Handler)
@@ -90,6 +100,21 @@ func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, erro
 			logSlotName:    replicationSlotName,
 			logLSNPosition: sysID.XLogPos,
 		},
+	}
+
+	if len(cfg.IncludeTables) > 0 {
+		h.includedTables, err = pglib.NewSchemaTableMap(cfg.IncludeTables)
+		if err != nil {
+			return nil, err
+		}
+		// make sure we never ignore the pgstream schema_log table
+		h.includedTables.Add(pglib.QuoteQualifiedIdentifier(schemalog.SchemaName, schemalog.TableName))
+	}
+	if len(cfg.ExcludeTables) > 0 {
+		h.excludedTables, err = pglib.NewSchemaTableMap(cfg.ExcludeTables)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	for _, opt := range opts {
@@ -170,8 +195,14 @@ func (h *Handler) StartReplicationFromLSN(ctx context.Context, lsn replication.L
 func (h *Handler) ReceiveMessage(ctx context.Context) (*replication.Message, error) {
 	pgMsg, err := h.pgReplicationConn.ReceiveMessage(ctx)
 	if err != nil {
-		h.logger.Error(err, "receiving message")
-		return nil, mapPostgresError(err)
+		switch {
+		case h.isExcludedTableError(err):
+			// ignore errors for excluded tables
+			return nil, nil
+		default:
+			h.logger.Error(err, "receiving message")
+			return nil, h.mapPostgresError(err)
+		}
 	}
 
 	return &replication.Message{
@@ -285,7 +316,7 @@ func (h *Handler) verifyReplicationSlotExists(ctx context.Context) error {
 	return nil
 }
 
-func mapPostgresError(err error) error {
+func (h *Handler) mapPostgresError(err error) error {
 	if errors.Is(err, pglib.ErrConnTimeout) {
 		return replication.ErrConnTimeout
 	}
@@ -297,4 +328,31 @@ func mapPostgresError(err error) error {
 	}
 
 	return err
+}
+
+// Format for no tuple error:
+// no tuple identifier for DELETE in table \"public\".\"test3\"
+// no tuple identifier for UPDATE in table \"public\".\"test3\"
+var noTupleRegex = regexp.MustCompile(`no tuple identifier for (DELETE|UPDATE) in table "(.*)"."(.*)"`)
+
+func (h *Handler) isExcludedTableError(err error) bool {
+	replErr := &pglib.Error{}
+	if errors.As(err, &replErr) && replErr.Severity == "WARNING" {
+		matches := noTupleRegex.FindStringSubmatch(replErr.Msg)
+		if len(matches) == 4 {
+			schema := matches[2]
+			table := matches[3]
+			if len(h.excludedTables) > 0 {
+				if h.excludedTables.ContainsSchemaTable(schema, table) {
+					return true
+				}
+			}
+			if len(h.includedTables) > 0 {
+				if !h.includedTables.ContainsSchemaTable(schema, table) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

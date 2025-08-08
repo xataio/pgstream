@@ -283,6 +283,8 @@ func TestHandler_ReceiveMessage(t *testing.T) {
 	tests := []struct {
 		name            string
 		replicationConn pgReplicationConn
+		includeTables   []string
+		excludeTables   []string
 
 		wantMessage *replication.Message
 		wantErr     error
@@ -320,6 +322,31 @@ func TestHandler_ReceiveMessage(t *testing.T) {
 			wantErr:     nil,
 		},
 		{
+			name: "ok - receiving message, warning notice no tuple identifier for table in excluded tables",
+			replicationConn: &pgmocks.ReplicationConn{
+				ReceiveMessageFn: func(ctx context.Context) (*pglib.ReplicationMessage, error) {
+					return nil, &pglib.Error{Severity: "WARNING", Msg: "no tuple identifier for DELETE in table \"test_schema\".\"ignore_table\""}
+				},
+			},
+			includeTables: []string{"test_schema.test_table"},
+			excludeTables: []string{"test_schema.ignore_table"},
+
+			wantMessage: nil,
+			wantErr:     nil,
+		},
+		{
+			name: "ok - receiving message, warning notice no tuple identifier for table not in included tables",
+			replicationConn: &pgmocks.ReplicationConn{
+				ReceiveMessageFn: func(ctx context.Context) (*pglib.ReplicationMessage, error) {
+					return nil, &pglib.Error{Severity: "WARNING", Msg: "no tuple identifier for DELETE in table \"test_schema\".\"ignore_table\""}
+				},
+			},
+			includeTables: []string{"test_schema.test_table"},
+
+			wantMessage: nil,
+			wantErr:     nil,
+		},
+		{
 			name: "error - receiving message - timeout",
 			replicationConn: &pgmocks.ReplicationConn{
 				ReceiveMessageFn: func(ctx context.Context) (*pglib.ReplicationMessage, error) {
@@ -336,9 +363,16 @@ func TestHandler_ReceiveMessage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
+			includeTables, err := pglib.NewSchemaTableMap(tc.includeTables)
+			require.NoError(t, err)
+			excludeTables, err := pglib.NewSchemaTableMap(tc.excludeTables)
+			require.NoError(t, err)
+
 			h := Handler{
 				logger:            log.NewNoopLogger(),
 				pgReplicationConn: tc.replicationConn,
+				includedTables:    includeTables,
+				excludedTables:    excludeTables,
 			}
 
 			msg, err := h.ReceiveMessage(context.Background())
