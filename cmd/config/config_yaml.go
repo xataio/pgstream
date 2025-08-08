@@ -408,6 +408,12 @@ func (c *YAMLConfig) parsePostgresListenerConfig() (*stream.PostgresListenerConf
 		},
 	}
 
+	// if there's a filter config, apply it to the replication config
+	if c.Modifiers.Filter != nil {
+		streamCfg.Replication.ExcludeTables = c.Modifiers.Filter.ExcludeTables
+		streamCfg.Replication.IncludeTables = c.Modifiers.Filter.IncludeTables
+	}
+
 	if c.Source.Postgres.Mode == replicationMode || c.Source.Postgres.Mode == snapshotAndReplicationMode {
 		replicationSlotName := ""
 		if c.Source.Postgres.Replication != nil {
