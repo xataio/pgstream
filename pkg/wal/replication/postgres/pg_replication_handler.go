@@ -108,7 +108,9 @@ func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, erro
 			return nil, err
 		}
 		// make sure we never ignore the pgstream schema_log table
-		h.includedTables.Add(pglib.QuoteQualifiedIdentifier(schemalog.SchemaName, schemalog.TableName))
+		if err := h.includedTables.Add(pglib.QuoteQualifiedIdentifier(schemalog.SchemaName, schemalog.TableName)); err != nil {
+			return nil, err
+		}
 	}
 	if len(cfg.ExcludeTables) > 0 {
 		h.excludedTables, err = pglib.NewSchemaTableMap(cfg.ExcludeTables)
