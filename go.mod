@@ -6,7 +6,7 @@ require (
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/bytedance/sonic v1.14.0
 	github.com/cenkalti/backoff/v4 v4.3.0
-	github.com/elastic/go-elasticsearch/v8 v8.18.1
+	github.com/elastic/go-elasticsearch/v8 v8.19.0
 	github.com/eminano/greenmask v0.0.0-20250718112128-2fb5fa726c02
 	github.com/ggwhite/go-masker v1.1.0
 	github.com/go-logr/zerologr v1.2.3
