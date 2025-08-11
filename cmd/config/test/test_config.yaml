@@ -40,9 +40,6 @@ source:
         max_retries: 5 # maximum number of retries
         initial_interval: 1000 # initial interval in milliseconds
         max_interval: 60000 # maximum interval in milliseconds
-      constant:
-        max_retries: 5 # maximum number of retries
-        interval: 1000 # interval in milliseconds
 
 target:
   postgres:
@@ -54,6 +51,7 @@ target:
       max_queue_bytes: 204800 # max size of memory guard queue in bytes (100MiB)
     disable_triggers: false # whether to disable triggers on the target database
     on_conflict_action: "nothing" # options are update, nothing or error
+    schema_log_store_url: "postgresql://user:password@localhost:5432/mydatabase"
     bulk_ingest:
       enabled: true # whether to use bulk ingest for the target database
   kafka:
@@ -85,9 +83,6 @@ target:
         max_retries: 5 # maximum number of retries
         initial_interval: 1000 # initial interval in milliseconds
         max_interval: 60000 # maximum interval in milliseconds
-      constant:
-        max_retries: 5 # maximum number of retries
-        interval: 1000 # interval in milliseconds
   webhooks:
     subscriptions:
       store:
