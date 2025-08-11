@@ -119,16 +119,14 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 		newValue, err := columnTransformer.Transform(ctx, t.getTransformValue(&col, event.Data.Columns))
 		if err != nil {
 			t.logger.Error(err, "transforming column", loglib.Fields{
-				"severity":         "DATALOSS",
-				"column_name":      col.Name,
-				"schema":           event.Data.Schema,
-				"table":            event.Data.Table,
-				"column_value":     col.Value,
-				"new_column_value": newValue,
+				"severity":    "DATALOSS",
+				"column_name": col.Name,
+				"schema":      event.Data.Schema,
+				"table":       event.Data.Table,
 			})
 			newValue = nil
 		}
-		t.logger.Trace("applying column transformation", loglib.Fields{"column_name": col.Name, "column_value": col.Value, "column_type": col.Type, "new_column_value": newValue})
+		t.logger.Trace("applying column transformation", loglib.Fields{"column_name": col.Name, "column_type": col.Type, "new_column_value": newValue})
 		columns[i].Value = newValue
 	}
 
