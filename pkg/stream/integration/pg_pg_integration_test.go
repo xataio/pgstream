@@ -238,6 +238,7 @@ func Test_PostgresToPostgres_Snapshot(t *testing.T) {
 	// ensure the snapshot captures pre-existing schema and data properly
 	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf("create table %s(id serial primary key, name text)", testTable))
 	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf("insert into %s(name) values('a'),('b')", testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, "create role test_role")
 
 	cfg := &stream.Config{
 		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
@@ -276,6 +277,12 @@ func Test_PostgresToPostgres_Snapshot(t *testing.T) {
 			{id: 2, name: "b"},
 		}
 		require.ElementsMatch(t, wantCols, columns)
+
+		roles := getRoles(t, ctx, targetConn)
+		if len(roles) != 1 {
+			return false
+		}
+		require.Equal(t, "test_role", roles[0])
 
 		return true
 	}
@@ -330,4 +337,21 @@ func getTestTableColumns(t *testing.T, ctx context.Context, conn pglib.Querier, 
 	require.NoError(t, rows.Err())
 
 	return columns
+}
+
+func getRoles(t *testing.T, ctx context.Context, conn pglib.Querier) []string {
+	rows, err := conn.Query(ctx, "select rolname from pg_roles where rolname not like 'pg_%' and rolname <> 'postgres'")
+	require.NoError(t, err)
+	defer rows.Close()
+
+	roles := []string{}
+	for rows.Next() {
+		var role string
+		err := rows.Scan(&role)
+		require.NoError(t, err)
+		roles = append(roles, role)
+	}
+	require.NoError(t, rows.Err())
+
+	return roles
 }
