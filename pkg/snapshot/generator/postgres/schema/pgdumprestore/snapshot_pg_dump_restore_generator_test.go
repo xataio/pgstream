@@ -28,6 +28,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	schemaDumpNoSequences := []byte("schema dump")
 	filteredDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence\n")
 	sequenceDump := []byte("sequence dump")
+	rolesDumpOriginal := []byte("roles dump\nCREATE ROLE postgres\nCREATE ROLE test_role\nCREATE ROLE test_role2\n")
+	rolesDumpFiltered := []byte("roles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\n")
 	testSchema := "test_schema"
 	testTable := "test_table"
 	excludedTable := "excluded_test_table"
@@ -106,6 +108,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		conn           pglib.Querier
 		connBuilder    pglib.QuerierBuilder
 		pgdumpFn       pglib.PGDumpFn
+		pgdumpallFn    pglib.PGDumpAllFn
 		pgrestoreFn    pglib.PGRestoreFn
 		schemalogStore schemalog.Store
 		generator      generator.SnapshotGenerator
@@ -147,12 +150,24 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
 				}
 			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpAllOptions{
+						ConnectionString: "source-url",
+						RolesOnly:        true,
+					}, po)
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
+				}
+			}),
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				require.Equal(t, pglib.PGRestoreOptions{
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(schemaDump, sequenceDump...), dump)
+				require.Equal(t, append(append(schemaDump, sequenceDump...), rolesDumpFiltered...), dump)
 				return "", nil
 			},
 			role: testRole,
@@ -182,12 +197,24 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
 				}
 			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpAllOptions{
+						ConnectionString: "source-url",
+						RolesOnly:        true,
+					}, po)
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
+				}
+			}),
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				require.Equal(t, pglib.PGRestoreOptions{
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, schemaDumpNoSequences, dump)
+				require.Equal(t, append(schemaDumpNoSequences, rolesDumpFiltered...), dump)
 				return "", nil
 			},
 
@@ -224,6 +251,18 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
 				}
 			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpAllOptions{
+						ConnectionString: "source-url",
+						RolesOnly:        true,
+					}, po)
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
+				}
+			}),
 			pgrestoreFn: newMockPgrestore(func(_ context.Context, i uint, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				require.Equal(t, pglib.PGRestoreOptions{
 					ConnectionString: "target-url",
@@ -233,7 +272,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				case 1:
 					require.Equal(t, string(filteredDump), string(dump))
 				case 2:
-					require.Equal(t, sequenceDump, dump)
+					require.Equal(t, append(sequenceDump, rolesDumpFiltered...), dump)
 				default:
 					return "", fmt.Errorf("unexpected call to pgrestoreFn: %d", i)
 				}
@@ -282,12 +321,24 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
 				}
 			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpAllOptions{
+						ConnectionString: "source-url",
+						RolesOnly:        true,
+					}, po)
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
+				}
+			}),
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				require.Equal(t, pglib.PGRestoreOptions{
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(schemaDump, sequenceDump...), dump)
+				require.Equal(t, append(append(schemaDump, sequenceDump...), rolesDumpFiltered...), dump)
 				return "", nil
 			},
 
@@ -326,12 +377,24 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
 				}
 			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpAllOptions{
+						ConnectionString: "source-url",
+						RolesOnly:        true,
+					}, po)
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
+				}
+			}),
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				require.Equal(t, pglib.PGRestoreOptions{
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(schemaDump, sequenceDump...), dump)
+				require.Equal(t, append(append(schemaDump, sequenceDump...), rolesDumpFiltered...), dump)
 				return "", nil
 			},
 
@@ -366,12 +429,24 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
 				}
 			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpAllOptions{
+						ConnectionString: "source-url",
+						RolesOnly:        true,
+					}, po)
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
+				}
+			}),
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				require.Equal(t, pglib.PGRestoreOptions{
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(schemaDump, sequenceDump...), dump)
+				require.Equal(t, append(append(schemaDump, sequenceDump...), rolesDumpFiltered...), dump)
 				return "", nil
 			},
 
@@ -395,6 +470,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return nil, errors.New("pgdumpFn: should not be called")
 			},
+			pgdumpallFn: func(_ context.Context, po pglib.PGDumpAllOptions) ([]byte, error) {
+				return nil, errors.New("pgdumpallFn: should not be called")
+			},
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errors.New("pgrestoreFn: should not be called")
 			},
@@ -415,6 +493,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			},
 			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return nil, errors.New("pgdumpFn: should not be called")
+			},
+			pgdumpallFn: func(_ context.Context, po pglib.PGDumpAllOptions) ([]byte, error) {
+				return nil, errors.New("pgdumpallFn: should not be called")
 			},
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errors.New("pgrestoreFn: should not be called")
@@ -463,6 +544,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			},
 			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return nil, errors.New("pgdumpFn: should not be called")
+			},
+			pgdumpallFn: func(_ context.Context, po pglib.PGDumpAllOptions) ([]byte, error) {
+				return nil, errors.New("pgdumpallFn: should not be called")
 			},
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errors.New("pgrestoreFn: should not be called")
@@ -523,6 +607,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return nil, errors.New("pgdumpFn: should not be called")
 			},
+			pgdumpallFn: func(_ context.Context, po pglib.PGDumpAllOptions) ([]byte, error) {
+				return nil, errors.New("pgdumpallFn: should not be called")
+			},
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errors.New("pgrestoreFn: should not be called")
 			},
@@ -545,6 +632,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
 				}
 			}),
+			pgdumpallFn: func(_ context.Context, po pglib.PGDumpAllOptions) ([]byte, error) {
+				return nil, errors.New("pgdumpallFn: should not be called")
+			},
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errors.New("pgrestoreFn: should not be called")
 			},
@@ -569,6 +659,29 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
 				}
 			}),
+			pgdumpallFn: func(_ context.Context, po pglib.PGDumpAllOptions) ([]byte, error) {
+				return nil, errors.New("pgdumpallFn: should not be called")
+			},
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
+				return "", errors.New("pgrestoreFn: should not be called")
+			},
+
+			wantErr: errTest,
+		},
+		{
+			name: "error - dumping roles",
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
+			},
+			conn: validQuerier(),
+			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
+				return schemaDump, nil
+			},
+			pgdumpallFn: func(_ context.Context, po pglib.PGDumpAllOptions) ([]byte, error) {
+				return nil, errTest
+			},
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errors.New("pgrestoreFn: should not be called")
 			},
@@ -585,6 +698,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			conn: validQuerier(),
 			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return schemaDump, nil
+			},
+			pgdumpallFn: func(_ context.Context, po pglib.PGDumpAllOptions) ([]byte, error) {
+				return rolesDumpOriginal, nil
 			},
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errTest
@@ -621,6 +737,18 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return sequenceDump, nil
 				default:
 					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
+				}
+			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpAllOptions{
+						ConnectionString: "source-url",
+						RolesOnly:        true,
+					}, po)
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
 				}
 			}),
 			pgrestoreFn: newMockPgrestore(func(_ context.Context, i uint, po pglib.PGRestoreOptions, dump []byte) (string, error) {
@@ -679,6 +807,18 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
 				}
 			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpAllOptions{
+						ConnectionString: "source-url",
+						RolesOnly:        true,
+					}, po)
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
+				}
+			}),
 			pgrestoreFn: newMockPgrestore(func(_ context.Context, i uint, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				require.Equal(t, pglib.PGRestoreOptions{
 					ConnectionString: "target-url",
@@ -710,6 +850,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return schemaDump, nil
 			},
+			pgdumpallFn: func(_ context.Context, po pglib.PGDumpAllOptions) ([]byte, error) {
+				return rolesDumpOriginal, nil
+			},
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", pglib.NewPGRestoreErrors(errTest)
 			},
@@ -726,6 +869,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			conn: validQuerier(),
 			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return schemaDump, nil
+			},
+			pgdumpallFn: func(_ context.Context, po pglib.PGDumpAllOptions) ([]byte, error) {
+				return rolesDumpOriginal, nil
 			},
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", pglib.NewPGRestoreErrors(&pglib.ErrRelationAlreadyExists{})
@@ -749,6 +895,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return schemaDump, nil
 			},
+			pgdumpallFn: func(_ context.Context, po pglib.PGDumpAllOptions) ([]byte, error) {
+				return rolesDumpOriginal, nil
+			},
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errors.New("pgrestoreFn: should not be called")
 			},
@@ -771,6 +920,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			}(),
 			pgdumpFn: func(_ context.Context, po pglib.PGDumpOptions) ([]byte, error) {
 				return schemaDump, nil
+			},
+			pgdumpallFn: func(_ context.Context, po pglib.PGDumpAllOptions) ([]byte, error) {
+				return rolesDumpOriginal, nil
 			},
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				return "", errors.New("pgrestoreFn: should not be called")
@@ -796,8 +948,16 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
 				}
 			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
+				}
+			}),
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
-				require.Equal(t, append(schemaDump, sequenceDump...), dump)
+				require.Equal(t, append(append(schemaDump, sequenceDump...), rolesDumpFiltered...), dump)
 				return "", nil
 			},
 			schemalogStore: &schemalogmocks.Store{
@@ -819,6 +979,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				targetURL:              "target-url",
 				connBuilder:            func(ctx context.Context, s string) (pglib.Querier, error) { return tc.conn, nil },
 				pgDumpFn:               tc.pgdumpFn,
+				pgDumpAllFn:            tc.pgdumpallFn,
 				pgRestoreFn:            tc.pgrestoreFn,
 				schemalogStore:         tc.schemalogStore,
 				logger:                 log.NewNoopLogger(),

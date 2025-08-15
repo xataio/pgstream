@@ -68,6 +68,7 @@ func IsQuotedIdentifier(s string) bool {
 
 type (
 	PGDumpFn    func(context.Context, PGDumpOptions) ([]byte, error)
+	PGDumpAllFn func(context.Context, PGDumpAllOptions) ([]byte, error)
 	PGRestoreFn func(context.Context, PGRestoreOptions, []byte) (string, error)
 )
 

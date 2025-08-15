@@ -30,6 +30,7 @@ type SnapshotGenerator struct {
 	sourceURL              string
 	targetURL              string
 	pgDumpFn               pglib.PGDumpFn
+	pgDumpAllFn            pglib.PGDumpAllFn
 	pgRestoreFn            pglib.PGRestoreFn
 	schemalogStore         schemalog.Store
 	connBuilder            pglib.QuerierBuilder
@@ -77,6 +78,7 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		sourceURL:              c.SourcePGURL,
 		targetURL:              c.TargetPGURL,
 		pgDumpFn:               pglib.RunPGDump,
+		pgDumpAllFn:            pglib.RunPGDumpAll,
 		pgRestoreFn:            pglib.RunPGRestore,
 		connBuilder:            pglib.ConnBuilder,
 		cleanTargetDB:          c.CleanTargetDB,
@@ -122,6 +124,7 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 		}
 
 		sg.pgDumpFn = pglibinstrumentation.NewPGDumpFn(sg.pgDumpFn, i)
+		sg.pgDumpAllFn = pglibinstrumentation.NewPGDumpAllFn(sg.pgDumpAllFn, i)
 		sg.pgRestoreFn = pglibinstrumentation.NewPGRestoreFn(sg.pgRestoreFn, i)
 		if sg.schemalogStore != nil {
 			sg.schemalogStore = schemaloginstrumentation.NewStore(sg.schemalogStore, i)
@@ -158,10 +161,20 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return err
 	}
 
+	// the schema dump will not include the roles, so we need to dump them
+	// separately and restore them as well.
+	rolesDump, err := s.dumpRoles(ctx)
+	if err != nil {
+		return err
+	}
+
 	// if there's no further snapshotting happening, we can apply the full dump,
 	// no need to apply the constraints/indices separately.
 	if s.generator == nil {
-		return s.restoreDump(ctx, dumpSchemas, append(dump.full, sequenceDump...))
+		dumpsToRestore := dump.full
+		dumpsToRestore = append(dumpsToRestore, sequenceDump...)
+		dumpsToRestore = append(dumpsToRestore, rolesDump...)
+		return s.restoreDump(ctx, dumpSchemas, dumpsToRestore)
 	}
 
 	// otherwise, we need to apply the filtered schema dump first, then call the
@@ -177,8 +190,11 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	}
 
 	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
-	// apply the indices and constraints when the wrapped generator has finished
-	return s.restoreDump(ctx, dumpSchemas, append(dump.indicesAndConstraints, sequenceDump...))
+	// apply the indices, constraints and roles when the wrapped generator has finished
+	dumpsToRestore := dump.indicesAndConstraints
+	dumpsToRestore = append(dumpsToRestore, sequenceDump...)
+	dumpsToRestore = append(dumpsToRestore, rolesDump...)
+	return s.restoreDump(ctx, dumpSchemas, dumpsToRestore)
 }
 
 func (s *SnapshotGenerator) Close() error {
@@ -230,6 +246,21 @@ func (s *SnapshotGenerator) dumpSequenceValues(ctx context.Context, sequences []
 		return nil, fmt.Errorf("dumping sequence values: %w", err)
 	}
 	return d, nil
+}
+
+func (s *SnapshotGenerator) dumpRoles(ctx context.Context) ([]byte, error) {
+	opts := &pglib.PGDumpAllOptions{
+		ConnectionString: s.sourceURL,
+		RolesOnly:        true,
+	}
+
+	s.logger.Debug("dumping roles", loglib.Fields{"pg_dump_options": opts.ToArgs()})
+	d, err := s.pgDumpAllFn(ctx, *opts)
+	if err != nil {
+		s.logger.Error(err, "pg_dumpall for roles failed", loglib.Fields{"pgdumpallOptions": opts.ToArgs()})
+		return nil, fmt.Errorf("dumping roles: %w", err)
+	}
+	return removePostgresRole(d), nil
 }
 
 func (s *SnapshotGenerator) restoreDump(ctx context.Context, schemaTables map[string][]string, dump []byte) error {
@@ -543,6 +574,23 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		indicesAndConstraints: []byte(indicesAndConstraints.String()),
 		sequences:             sequenceNames,
 	}
+}
+
+func removePostgresRole(rolesDump []byte) []byte {
+	// remove the postgres role from the dump, since it is not needed and can cause issues
+	scanner := bufio.NewScanner(bytes.NewReader(rolesDump))
+	scanner.Split(bufio.ScanLines)
+	var filteredDump strings.Builder
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "CREATE ROLE postgres") || strings.HasPrefix(line, "ALTER ROLE postgres") || strings.HasPrefix(line, "DROP ROLE postgres") {
+			// skip the postgres role drop line, since it is not needed and can cause issues
+			continue
+		}
+		filteredDump.WriteString(line)
+		filteredDump.WriteString("\n")
+	}
+	return []byte(filteredDump.String())
 }
 
 func (s *SnapshotGenerator) dumpToFile(file string, opts *pglib.PGDumpOptions, d []byte) {
