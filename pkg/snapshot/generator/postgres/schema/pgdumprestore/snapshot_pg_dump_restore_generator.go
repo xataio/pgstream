@@ -253,6 +253,7 @@ func (s *SnapshotGenerator) dumpRoles(ctx context.Context) ([]byte, error) {
 	opts := &pglib.PGDumpAllOptions{
 		ConnectionString: s.sourceURL,
 		RolesOnly:        true,
+		Role:             s.role,
 	}
 
 	s.logger.Debug("dumping roles", loglib.Fields{"pg_dumpall_options": opts.ToArgs()})

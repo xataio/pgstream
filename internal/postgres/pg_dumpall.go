@@ -16,6 +16,8 @@ type PGDumpAllOptions struct {
 	ConnectionString string
 	// RolesOnly if true, only roles will be exported (no schema)
 	RolesOnly bool
+	// Role specifies the role to be used for the dump
+	Role string
 	// Options to pass to pg_dumpall
 	Options []string
 }
@@ -24,6 +26,10 @@ func (opts *PGDumpAllOptions) ToArgs() []string {
 	options := []string{"-d", opts.ConnectionString}
 	if opts.RolesOnly {
 		options = append(options, "--roles-only")
+	}
+
+	if opts.Role != "" {
+		options = append(options, fmt.Sprintf("--role=%v", opts.Role))
 	}
 
 	options = append(options, opts.Options...)
