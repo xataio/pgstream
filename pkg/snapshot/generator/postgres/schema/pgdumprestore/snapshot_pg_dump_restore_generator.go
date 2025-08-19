@@ -172,9 +172,9 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	// if there's no further snapshotting happening, we can apply the full dump,
 	// no need to apply the constraints/indices separately.
 	if s.generator == nil {
-		dumpsToRestore := dump.full
+		dumpsToRestore := rolesDump
+		dumpsToRestore = append(dumpsToRestore, dump.full...)
 		dumpsToRestore = append(dumpsToRestore, sequenceDump...)
-		dumpsToRestore = append(dumpsToRestore, rolesDump...)
 		return s.restoreDump(ctx, dumpSchemas, dumpsToRestore)
 	}
 
@@ -192,9 +192,9 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 
 	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
 	// apply the indices, constraints and roles when the wrapped generator has finished
-	dumpsToRestore := dump.indicesAndConstraints
+	dumpsToRestore := rolesDump
+	dumpsToRestore = append(dumpsToRestore, dump.indicesAndConstraints...)
 	dumpsToRestore = append(dumpsToRestore, sequenceDump...)
-	dumpsToRestore = append(dumpsToRestore, rolesDump...)
 	return s.restoreDump(ctx, dumpSchemas, dumpsToRestore)
 }
 
