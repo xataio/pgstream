@@ -156,6 +156,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					require.Equal(t, pglib.PGDumpAllOptions{
 						ConnectionString: "source-url",
 						RolesOnly:        true,
+						Role:             testRole,
 					}, po)
 					return rolesDumpOriginal, nil
 				default:
@@ -167,7 +168,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(append(schemaDump, sequenceDump...), rolesDumpFiltered...), dump)
+				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
 				return "", nil
 			},
 			role: testRole,
@@ -214,7 +215,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(schemaDumpNoSequences, rolesDumpFiltered...), dump)
+				require.Equal(t, append(rolesDumpFiltered, schemaDumpNoSequences...), dump)
 				return "", nil
 			},
 
@@ -272,7 +273,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				case 1:
 					require.Equal(t, string(filteredDump), string(dump))
 				case 2:
-					require.Equal(t, append(sequenceDump, rolesDumpFiltered...), dump)
+					require.Equal(t, append(rolesDumpFiltered, sequenceDump...), dump)
 				default:
 					return "", fmt.Errorf("unexpected call to pgrestoreFn: %d", i)
 				}
@@ -338,7 +339,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(append(schemaDump, sequenceDump...), rolesDumpFiltered...), dump)
+				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
 				return "", nil
 			},
 
@@ -394,7 +395,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(append(schemaDump, sequenceDump...), rolesDumpFiltered...), dump)
+				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
 				return "", nil
 			},
 
@@ -446,7 +447,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(append(schemaDump, sequenceDump...), rolesDumpFiltered...), dump)
+				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
 				return "", nil
 			},
 
@@ -957,7 +958,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				}
 			}),
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
-				require.Equal(t, append(append(schemaDump, sequenceDump...), rolesDumpFiltered...), dump)
+				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
 				return "", nil
 			},
 			schemalogStore: &schemalogmocks.Store{
