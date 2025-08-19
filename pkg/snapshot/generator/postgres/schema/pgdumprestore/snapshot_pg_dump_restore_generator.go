@@ -182,7 +182,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	// wrapped snapshot generator, and apply the indices and constraints last.
 	// This will make the data snapshot faster, since there will be no
 	// constraints to be updated/checked on each insert.
-	if err := s.restoreDump(ctx, dumpSchemas, dump.filtered); err != nil {
+	if err := s.restoreDump(ctx, dumpSchemas, append(rolesDump, dump.filtered...)); err != nil {
 		return err
 	}
 
@@ -192,10 +192,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 
 	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
 	// apply the indices, constraints and roles when the wrapped generator has finished
-	dumpsToRestore := rolesDump
-	dumpsToRestore = append(dumpsToRestore, dump.indicesAndConstraints...)
-	dumpsToRestore = append(dumpsToRestore, sequenceDump...)
-	return s.restoreDump(ctx, dumpSchemas, dumpsToRestore)
+	return s.restoreDump(ctx, dumpSchemas, append(dump.indicesAndConstraints, sequenceDump...))
 }
 
 func (s *SnapshotGenerator) Close() error {

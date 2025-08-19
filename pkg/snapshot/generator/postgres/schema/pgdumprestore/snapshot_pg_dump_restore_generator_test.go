@@ -271,9 +271,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				}, po)
 				switch i {
 				case 1:
-					require.Equal(t, string(filteredDump), string(dump))
+					require.Equal(t, string(append(rolesDumpFiltered, filteredDump...)), string(dump))
 				case 2:
-					require.Equal(t, append(rolesDumpFiltered, sequenceDump...), dump)
+					require.Equal(t, sequenceDump, dump)
 				default:
 					return "", fmt.Errorf("unexpected call to pgrestoreFn: %d", i)
 				}
