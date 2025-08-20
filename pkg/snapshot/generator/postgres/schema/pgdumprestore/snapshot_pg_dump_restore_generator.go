@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -65,6 +64,7 @@ type dump struct {
 	filtered              []byte
 	indicesAndConstraints []byte
 	sequences             []string
+	roles                 map[string]struct{}
 }
 
 const (
@@ -164,7 +164,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 
 	// the schema dump will not include the roles, so we need to dump them
 	// separately and restore them as well.
-	rolesDump, err := s.dumpRoles(ctx)
+	rolesDump, err := s.dumpRoles(ctx, dump.roles)
 	if err != nil {
 		return err
 	}
@@ -246,7 +246,7 @@ func (s *SnapshotGenerator) dumpSequenceValues(ctx context.Context, sequences []
 	return d, nil
 }
 
-func (s *SnapshotGenerator) dumpRoles(ctx context.Context) ([]byte, error) {
+func (s *SnapshotGenerator) dumpRoles(ctx context.Context, roles map[string]struct{}) ([]byte, error) {
 	opts := &pglib.PGDumpAllOptions{
 		ConnectionString: s.sourceURL,
 		RolesOnly:        true,
@@ -259,7 +259,7 @@ func (s *SnapshotGenerator) dumpRoles(ctx context.Context) ([]byte, error) {
 		s.logger.Error(err, "pg_dumpall for roles failed", loglib.Fields{"pgdumpallOptions": opts.ToArgs()})
 		return nil, fmt.Errorf("dumping roles: %w", err)
 	}
-	return removePostgresRole(d), nil
+	return filterRolesDump(d, roles), nil
 }
 
 func (s *SnapshotGenerator) restoreDump(ctx context.Context, schemaTables map[string][]string, dump []byte) error {
@@ -518,6 +518,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	indicesAndConstraints := strings.Builder{}
 	filteredDump := strings.Builder{}
 	sequenceNames := []string{}
+	roleNames := make(map[string]struct{})
 	alterTable := ""
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -555,6 +556,22 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		case strings.HasPrefix(line, "ALTER TABLE") && !strings.HasSuffix(line, ";"):
 			// keep it in case the alter table is provided in two lines (pg_dump format)
 			alterTable = line
+		case strings.HasPrefix(line, "ALTER") && strings.Contains(line, "OWNER TO"):
+			roleNames[getRoleNameAfterClause(line, " OWNER TO ")] = struct{}{}
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
+		case strings.HasPrefix(line, "GRANT "):
+			roleNames[getRoleNameAfterClause(line, " TO ")] = struct{}{}
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
+		case strings.HasPrefix(line, "REVOKE "):
+			roleNames[getRoleNameAfterClause(line, " FROM ")] = struct{}{}
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
+		case strings.HasPrefix(line, "SET ROLE ") || strings.HasPrefix(line, "SET SESSION ROLE ") || strings.HasPrefix(line, "SET LOCAL ROLE "):
+			roleNames[getRoleNameAfterClause(line, " ROLE ")] = struct{}{}
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
 		case strings.HasPrefix(line, "CREATE SEQUENCE"):
 			qualifiedName, err := pglib.NewQualifiedName(strings.TrimPrefix(line, "CREATE SEQUENCE "))
 			if err == nil {
@@ -567,30 +584,50 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		}
 	}
 
+	delete(roleNames, "postgres") // remove the postgres role from the list, since it is not needed and can cause issues
 	return &dump{
 		full:                  d,
 		filtered:              []byte(filteredDump.String()),
 		indicesAndConstraints: []byte(indicesAndConstraints.String()),
 		sequences:             sequenceNames,
+		roles:                 roleNames,
 	}
 }
 
-func removePostgresRole(rolesDump []byte) []byte {
-	// Match lines like CREATE ROLE postgres, ALTER ROLE postgres, DROP ROLE postgres (case-insensitive, allow extra whitespace)
-	roleRegexp := regexp.MustCompile(`(?i)^\s*(CREATE|ALTER|DROP)\s+ROLE\s+postgres\b`)
+func filterRolesDump(rolesDump []byte, roles map[string]struct{}) []byte {
 	scanner := bufio.NewScanner(bytes.NewReader(rolesDump))
 	scanner.Split(bufio.ScanLines)
 	var filteredDump strings.Builder
 	for scanner.Scan() {
 		line := scanner.Text()
-		if roleRegexp.MatchString(line) {
-			// skip the postgres role line, since it is not needed and can cause issues
-			continue
+		if strings.HasPrefix(line, "CREATE ROLE ") || strings.HasPrefix(line, "ALTER ROLE ") {
+			roleName := getRoleNameAfterClause(line, " ROLE ")
+			if _, ok := roles[roleName]; !ok {
+				// skip the role if it is not in the roles map
+				continue
+			}
 		}
 		filteredDump.WriteString(line)
 		filteredDump.WriteString("\n")
 	}
 	return []byte(filteredDump.String())
+}
+
+func getRoleNameAfterClause(line string, clause string) string {
+	_, roleName, _ := strings.Cut(line, clause)
+	if strings.HasPrefix(roleName, "\"") {
+		endIndexRelative := strings.Index(roleName[1:], "\"")
+		if endIndexRelative != -1 {
+			endIndexAbsolute := endIndexRelative + 1 // +1 to account for the leading quote
+			roleName = roleName[:endIndexAbsolute+1]
+		}
+	} else {
+		endIndex := strings.Index(roleName, " ")
+		if endIndex != -1 {
+			roleName = roleName[:endIndex]
+		}
+	}
+	return strings.TrimSuffix(roleName, ";")
 }
 
 func (s *SnapshotGenerator) dumpToFile(file string, opts *pglib.PGDumpOptions, d []byte) {
