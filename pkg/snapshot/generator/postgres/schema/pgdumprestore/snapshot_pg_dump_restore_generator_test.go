@@ -24,12 +24,14 @@ import (
 func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	t.Parallel()
 
-	schemaDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence")
-	schemaDumpNoSequences := []byte("schema dump")
-	filteredDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence\n")
-	sequenceDump := []byte("sequence dump")
-	rolesDumpOriginal := []byte("roles dump\nCREATE ROLE postgres\nCREATE ROLE test_role\nCREATE ROLE test_role2\n")
+	schemaDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence\nALTER TABLE test_table OWNER TO test_role;\nGRANT ALL ON TABLE test_table TO test_role2;\nCREATE INDEX a;\n")
+	schemaDumpNoSequences := []byte("schema dump\n")
+	filteredDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence\nALTER TABLE test_table OWNER TO test_role;\nGRANT ALL ON TABLE test_table TO test_role2;\n")
+	sequenceDump := []byte("sequence dump\n")
+	indexDump := []byte("CREATE INDEX a;\n\n")
+	rolesDumpOriginal := []byte("roles dump\nCREATE ROLE postgres\nCREATE ROLE test_role\nCREATE ROLE test_role2\nALTER ROLE test_role3 INHERIT FROM test_role;\n")
 	rolesDumpFiltered := []byte("roles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\n")
+	roleDumpEmpty := []byte("roles dump\n")
 	testSchema := "test_schema"
 	testTable := "test_table"
 	excludedTable := "excluded_test_table"
@@ -215,7 +217,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(rolesDumpFiltered, schemaDumpNoSequences...), dump)
+				require.Equal(t, append(roleDumpEmpty, schemaDumpNoSequences...), dump)
 				return "", nil
 			},
 
@@ -273,7 +275,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				case 1:
 					require.Equal(t, string(append(rolesDumpFiltered, filteredDump...)), string(dump))
 				case 2:
-					require.Equal(t, sequenceDump, dump)
+					require.Equal(t, string(append(indexDump, sequenceDump...)), string(dump))
 				default:
 					return "", fmt.Errorf("unexpected call to pgrestoreFn: %d", i)
 				}

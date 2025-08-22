@@ -259,6 +259,10 @@ func (s *SnapshotGenerator) dumpRoles(ctx context.Context, roles map[string]stru
 		s.logger.Error(err, "pg_dumpall for roles failed", loglib.Fields{"pgdumpallOptions": opts.ToArgs()})
 		return nil, fmt.Errorf("dumping roles: %w", err)
 	}
+	rolesToAdd := s.parseDump(d).roles
+	for role := range rolesToAdd {
+		roles[role] = struct{}{}
+	}
 	return filterRolesDump(d, roles), nil
 }
 
@@ -530,16 +534,14 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 				indicesAndConstraints.WriteString("\n")
 				indicesAndConstraints.WriteString(line)
 				indicesAndConstraints.WriteString("\n\n")
+				alterTable = ""
+				continue // skip, do not add it to the filtered dump
 			} else {
 				filteredDump.WriteString(alterTable)
 				filteredDump.WriteString("\n")
-				filteredDump.WriteString(line)
-				filteredDump.WriteString("\n")
+				alterTable = ""
 			}
-			alterTable = ""
 		case strings.Contains(line, `\connect`):
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
 		case strings.HasPrefix(line, "CREATE INDEX"),
@@ -551,37 +553,61 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			strings.HasPrefix(line, "COMMENT ON TRIGGER"):
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
+			continue // skip, do not add it to the filtered dump
 		case strings.HasPrefix(line, "ALTER TABLE") && strings.Contains(line, "ADD CONSTRAINT"):
 			indicesAndConstraints.WriteString(line)
+			continue // skip, do not add it to the filtered dump
 		case strings.HasPrefix(line, "ALTER TABLE") && !strings.HasSuffix(line, ";"):
 			// keep it in case the alter table is provided in two lines (pg_dump format)
 			alterTable = line
+			continue // skip, do not add it to the filtered dump
 		case strings.HasPrefix(line, "ALTER") && strings.Contains(line, "OWNER TO"):
 			roleNames[getRoleNameAfterClause(line, " OWNER TO ")] = struct{}{}
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
 		case strings.HasPrefix(line, "GRANT "):
-			roleNames[getRoleNameAfterClause(line, " TO ")] = struct{}{}
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
+			roleName := getRoleNameAfterClause(line, "GRANT ")
+			_, secondPart, _ := strings.Cut(line, roleName)
+			if strings.HasPrefix(secondPart, " TO ") {
+				// GRANT <rolename> TO <rolename2>;
+				roleName2 := getRoleNameAfterClause(secondPart, " TO ")
+				roleNames[roleName] = struct{}{}
+				roleNames[roleName2] = struct{}{}
+			} else if strings.Contains(line, " ON ") {
+				// GRANT <privileges> ON <object> TO <rolename>;
+				roleNames[getRoleNameAfterClause(line, " TO ")] = struct{}{}
+			}
 		case strings.HasPrefix(line, "REVOKE "):
 			roleNames[getRoleNameAfterClause(line, " FROM ")] = struct{}{}
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
 		case strings.HasPrefix(line, "SET ROLE ") || strings.HasPrefix(line, "SET SESSION ROLE ") || strings.HasPrefix(line, "SET LOCAL ROLE "):
 			roleNames[getRoleNameAfterClause(line, " ROLE ")] = struct{}{}
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
+		case strings.HasPrefix(line, "SET ") && strings.Contains(line, " SESSION AUTHORIZATION "):
+			roleName := getRoleNameAfterClause(line, " SESSION AUTHORIZATION ")
+			if roleName != "DEFAULT" {
+				roleNames[roleName] = struct{}{}
+			}
+		case strings.HasPrefix(line, "ALTER DEFAULT PRIVILEGES FOR ROLE "):
+			roleName := getRoleNameAfterClause(line, "ALTER DEFAULT PRIVILEGES FOR ROLE ")
+			roleNames[roleName] = struct{}{}
+			_, afterRole, _ := strings.Cut(line, roleName)
+			_, afterRevoke, isRevokeStmt := strings.Cut(afterRole, " REVOKE ")
+			if isRevokeStmt {
+				// ALTER DEFAULT PRIVILEGES FOR ROLE <rolename> [IN SCHEMA <schemaname>] REVOKE <privileges> ON <objecttype> FROM <rolename2>;
+				_, afterOn, _ := strings.Cut(afterRevoke, " ON ")
+				roleNames[getRoleNameAfterClause(afterOn, " FROM ")] = struct{}{}
+			} else {
+				// ALTER DEFAULT PRIVILEGES FOR ROLE <rolename> [IN SCHEMA <schemaname>] GRANT <privileges> ON <objecttype> TO <rolename2>;
+				_, afterGrant, _ := strings.Cut(afterRole, " GRANT ")
+				_, afterOn, _ := strings.Cut(afterGrant, " ON ")
+				roleNames[getRoleNameAfterClause(afterOn, " TO ")] = struct{}{}
+			}
 		case strings.HasPrefix(line, "CREATE SEQUENCE"):
 			qualifiedName, err := pglib.NewQualifiedName(strings.TrimPrefix(line, "CREATE SEQUENCE "))
 			if err == nil {
 				sequenceNames = append(sequenceNames, qualifiedName.String())
 			}
-			fallthrough
-		default:
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
 		}
+
+		filteredDump.WriteString(line)
+		filteredDump.WriteString("\n")
 	}
 
 	delete(roleNames, "postgres") // remove the postgres role from the list, since it is not needed and can cause issues
@@ -600,7 +626,7 @@ func filterRolesDump(rolesDump []byte, roles map[string]struct{}) []byte {
 	var filteredDump strings.Builder
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "CREATE ROLE ") || strings.HasPrefix(line, "ALTER ROLE ") {
+		if strings.HasPrefix(line, "CREATE ROLE ") || strings.HasPrefix(line, "ALTER ROLE ") || strings.HasPrefix(line, "COMMENT ON ROLE ") {
 			roleName := getRoleNameAfterClause(line, " ROLE ")
 			if _, ok := roles[roleName]; !ok {
 				// skip the role if it is not in the roles map
@@ -614,7 +640,11 @@ func filterRolesDump(rolesDump []byte, roles map[string]struct{}) []byte {
 }
 
 func getRoleNameAfterClause(line string, clause string) string {
-	_, roleName, _ := strings.Cut(line, clause)
+	_, roleName, found := strings.Cut(line, clause)
+	if !found {
+		return ""
+	}
+
 	if strings.HasPrefix(roleName, "\"") {
 		endIndexRelative := strings.Index(roleName[1:], "\"")
 		if endIndexRelative != -1 {
