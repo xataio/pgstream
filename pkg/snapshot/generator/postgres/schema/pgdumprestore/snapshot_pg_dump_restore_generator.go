@@ -535,15 +535,18 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 				indicesAndConstraints.WriteString(line)
 				indicesAndConstraints.WriteString("\n\n")
 				alterTable = ""
-				continue // skip, do not add it to the filtered dump
 			} else {
 				filteredDump.WriteString(alterTable)
+				filteredDump.WriteString("\n")
+				filteredDump.WriteString(line)
 				filteredDump.WriteString("\n")
 				alterTable = ""
 			}
 		case strings.Contains(line, `\connect`):
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
 		case strings.HasPrefix(line, "CREATE INDEX"),
 			strings.HasPrefix(line, "CREATE UNIQUE INDEX"),
 			strings.HasPrefix(line, "CREATE CONSTRAINT"),
@@ -553,16 +556,15 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			strings.HasPrefix(line, "COMMENT ON TRIGGER"):
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
-			continue // skip, do not add it to the filtered dump
 		case strings.HasPrefix(line, "ALTER TABLE") && strings.Contains(line, "ADD CONSTRAINT"):
 			indicesAndConstraints.WriteString(line)
-			continue // skip, do not add it to the filtered dump
 		case strings.HasPrefix(line, "ALTER TABLE") && !strings.HasSuffix(line, ";"):
 			// keep it in case the alter table is provided in two lines (pg_dump format)
 			alterTable = line
-			continue // skip, do not add it to the filtered dump
 		case strings.HasPrefix(line, "ALTER") && strings.Contains(line, "OWNER TO"):
 			roleNames[getRoleNameAfterClause(line, " OWNER TO ")] = struct{}{}
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
 		case strings.HasPrefix(line, "GRANT "):
 			roleName := getRoleNameAfterClause(line, "GRANT ")
 			_, secondPart, _ := strings.Cut(line, roleName)
@@ -575,15 +577,25 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 				// GRANT <privileges> ON <object> TO <rolename>;
 				roleNames[getRoleNameAfterClause(line, " TO ")] = struct{}{}
 			}
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
 		case strings.HasPrefix(line, "REVOKE "):
 			roleNames[getRoleNameAfterClause(line, " FROM ")] = struct{}{}
-		case strings.HasPrefix(line, "SET ROLE ") || strings.HasPrefix(line, "SET SESSION ROLE ") || strings.HasPrefix(line, "SET LOCAL ROLE "):
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
+		case strings.HasPrefix(line, "SET ROLE "),
+			strings.HasPrefix(line, "SET SESSION ROLE "),
+			strings.HasPrefix(line, "SET LOCAL ROLE "):
 			roleNames[getRoleNameAfterClause(line, " ROLE ")] = struct{}{}
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
 		case strings.HasPrefix(line, "SET ") && strings.Contains(line, " SESSION AUTHORIZATION "):
 			roleName := getRoleNameAfterClause(line, " SESSION AUTHORIZATION ")
 			if roleName != "DEFAULT" {
 				roleNames[roleName] = struct{}{}
 			}
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
 		case strings.HasPrefix(line, "ALTER DEFAULT PRIVILEGES FOR ROLE "):
 			roleName := getRoleNameAfterClause(line, "ALTER DEFAULT PRIVILEGES FOR ROLE ")
 			roleNames[roleName] = struct{}{}
@@ -599,15 +611,19 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 				_, afterOn, _ := strings.Cut(afterGrant, " ON ")
 				roleNames[getRoleNameAfterClause(afterOn, " TO ")] = struct{}{}
 			}
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
 		case strings.HasPrefix(line, "CREATE SEQUENCE"):
 			qualifiedName, err := pglib.NewQualifiedName(strings.TrimPrefix(line, "CREATE SEQUENCE "))
 			if err == nil {
 				sequenceNames = append(sequenceNames, qualifiedName.String())
 			}
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
+		default:
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
 		}
-
-		filteredDump.WriteString(line)
-		filteredDump.WriteString("\n")
 	}
 
 	delete(roleNames, "postgres") // remove the postgres role from the list, since it is not needed and can cause issues
