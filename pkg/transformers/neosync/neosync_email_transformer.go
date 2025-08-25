@@ -86,6 +86,7 @@ var (
 	}
 	emailCompatibleTypes = []transformers.SupportedDataType{
 		transformers.StringDataType,
+		transformers.CitextDataType,
 	}
 )
 
