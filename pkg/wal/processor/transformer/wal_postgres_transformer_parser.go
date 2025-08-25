@@ -73,13 +73,6 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 		schemaTableTransformers := make(map[string]transformers.Transformer)
 		transformerMap[tableKey] = schemaTableTransformers
 		for colName, transformerRules := range table.ColumnRules {
-			// get the data type so that we can later validate if it's compatible with the configured transformer
-			datatype, found := mappedColumnTypes[colName]
-			if !found {
-				// validate that the column in the rules is present in the table
-				return nil, fmt.Errorf("column %s not found in table %s", colName, tableKey)
-			}
-
 			cfg := transformerRulesToConfig(transformerRules)
 
 			// skip if noop transformer
@@ -93,13 +86,18 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 				return nil, err
 			}
 
+			// get the data type so that we can later validate if it's compatible with the configured transformer
+			dataTypeOID, found := mappedColumnTypes[colName]
+			if !found {
+				// validate that the column in the rules is present in the table
+				return nil, fmt.Errorf("column %s not found in table %s", colName, tableKey)
+			}
+
+			dataTypeName := v.getDataTypeName(ctx, dataTypeOID)
+
 			// validate that the transformer is compatible with the column type
-			if !pgTypeCompatibleWithTransformerType(transformer.CompatibleTypes(), datatype) {
-				typeForOid, ok := v.pgtypeMap.TypeForOID(datatype)
-				if ok {
-					return nil, fmt.Errorf("transformer '%s' specified for column '%s' in table %s does not support pg data type: %s", transformer.Type(), colName, tableKey, typeForOid.Name)
-				}
-				return nil, fmt.Errorf("transformer '%s' specified for column '%s' in table %s does not support pg data type with oid: %d", transformer.Type(), colName, tableKey, datatype)
+			if !pgTypeCompatibleWithTransformerType(transformer.CompatibleTypes(), dataTypeOID, dataTypeName) {
+				return nil, fmt.Errorf("transformer '%s' specified for column '%s' in table %s does not support pg data type: %s with OID: %d", transformer.Type(), colName, tableKey, dataTypeName, dataTypeOID)
 			}
 
 			// add the transformer to the map
@@ -232,6 +230,23 @@ func (v *PostgresTransformerParser) getAllSchemaNames(ctx context.Context) ([]st
 	return schemas, nil
 }
 
+func (v *PostgresTransformerParser) getDataTypeName(ctx context.Context, oid uint32) string {
+	typeForOid, ok := v.pgtypeMap.TypeForOID(oid)
+	if ok {
+		return typeForOid.Name
+	}
+
+	// unknown oid, get the type as it could be an extension or custom type
+	var typeName string
+	err := v.conn.QueryRow(ctx, "SELECT typname FROM pg_type WHERE oid = $1", oid).Scan(&typeName)
+	if err != nil {
+		// if we can't get the type name
+		return "unknown"
+	}
+
+	return typeName
+}
+
 func parseTableName(qualifiedTableName string) (string, string, error) {
 	parts := strings.Split(qualifiedTableName, ".")
 	switch len(parts) {
@@ -244,11 +259,11 @@ func parseTableName(qualifiedTableName string) (string, string, error) {
 	}
 }
 
-func pgTypeCompatibleWithTransformerType(compatibleTypes []transformers.SupportedDataType, pgType uint32) bool {
+func pgTypeCompatibleWithTransformerType(compatibleTypes []transformers.SupportedDataType, pgTypeOID uint32, pgTypeName string) bool {
 	if slices.Contains(compatibleTypes, transformers.AllDataTypes) {
 		return true
 	}
-	switch pgType {
+	switch pgTypeOID {
 	case pgtype.TextOID, pgtype.VarcharOID, pgtype.BPCharOID:
 		return slices.Contains(compatibleTypes, transformers.StringDataType)
 	case pgtype.Float4OID:
@@ -274,6 +289,12 @@ func pgTypeCompatibleWithTransformerType(compatibleTypes []transformers.Supporte
 	case pgtype.JSONBOID, pgtype.JSONOID:
 		return slices.Contains(compatibleTypes, transformers.JSONDataType)
 	default:
-		return false
+		// handle extension/custom supported types
+		switch pgTypeName {
+		case "citext":
+			return slices.Contains(compatibleTypes, transformers.CitextDataType)
+		default:
+			return false
+		}
 	}
 }

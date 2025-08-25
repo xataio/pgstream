@@ -460,7 +460,8 @@
     {
       "name": "neosync_email",
       "supported_types": [
-        "string"
+        "string",
+        "citext"
       ],
       "parameters": [
         {

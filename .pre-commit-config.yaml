@@ -22,3 +22,10 @@ repos:
         language: system
         entry: make license-check
         pass_filenames: false
+  - repo: local
+    hooks:
+      - id: generate-json
+        name: generate CLI json
+        language: system
+        entry: make generate
+        pass_filenames: false

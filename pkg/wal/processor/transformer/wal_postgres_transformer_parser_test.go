@@ -18,61 +18,88 @@ import (
 
 func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 	t.Parallel()
+
+	citextOID := uint32(1234)
+	citextTypeName := "citext"
 	testSchemaTable := "\"public\".\"test\""
-	testQuerier := &pgmocks.Querier{
-		QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-			switch query {
-			case "SELECT * FROM \"public\".\"test\" LIMIT 0":
-				return &pgmocks.Rows{
-					FieldDescriptionsFn: func() []pgconn.FieldDescription {
-						return []pgconn.FieldDescription{
-							{
-								Name:        "id",
-								DataTypeOID: pgtype.Int8OID,
-							},
-							{
-								Name:        "name",
-								DataTypeOID: pgtype.TextOID,
-							},
-						}
-					},
-					CloseFn: func() {},
-					ErrFn:   func() error { return nil },
-				}, nil
-			case "SELECT tablename FROM pg_tables WHERE schemaname=$1":
-				return &pgmocks.Rows{
-					CloseFn: func() {},
-					NextFn:  func(i uint) bool { return i == 1 },
-					ScanFn: func(dest ...any) error {
-						require.Len(t, dest, 1)
-						tableName, ok := dest[0].(*string)
-						require.True(t, ok)
-						*tableName = "test"
-						return nil
-					},
-					ErrFn: func() error { return nil },
-				}, nil
-			case "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')":
-				return &pgmocks.Rows{
-					CloseFn: func() {},
-					NextFn:  func(i uint) bool { return i == 1 },
-					ScanFn: func(dest ...any) error {
-						require.Len(t, dest, 1)
-						schemaName, ok := dest[0].(*string)
-						require.True(t, ok)
-						*schemaName = "public"
-						return nil
-					},
-					ErrFn: func() error { return nil },
-				}, nil
-			default:
-				return nil, fmt.Errorf("unexpected query: %s", query)
-			}
-		},
+	testQuerier := func() *pgmocks.Querier {
+		return &pgmocks.Querier{
+			QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				switch query {
+				case "SELECT * FROM \"public\".\"test\" LIMIT 0":
+					return &pgmocks.Rows{
+						FieldDescriptionsFn: func() []pgconn.FieldDescription {
+							return []pgconn.FieldDescription{
+								{
+									Name:        "id",
+									DataTypeOID: pgtype.Int8OID,
+								},
+								{
+									Name:        "name",
+									DataTypeOID: pgtype.TextOID,
+								},
+								{
+									Name:        "email",
+									DataTypeOID: 1234, // fake OID to be mapped
+								},
+							}
+						},
+						CloseFn: func() {},
+						ErrFn:   func() error { return nil },
+					}, nil
+				case "SELECT tablename FROM pg_tables WHERE schemaname=$1":
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(dest ...any) error {
+							require.Len(t, dest, 1)
+							tableName, ok := dest[0].(*string)
+							require.True(t, ok)
+							*tableName = "test"
+							return nil
+						},
+						ErrFn: func() error { return nil },
+					}, nil
+				case "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')":
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(dest ...any) error {
+							require.Len(t, dest, 1)
+							schemaName, ok := dest[0].(*string)
+							require.True(t, ok)
+							*schemaName = "public"
+							return nil
+						},
+						ErrFn: func() error { return nil },
+					}, nil
+				default:
+					return nil, fmt.Errorf("unexpected query: %s", query)
+				}
+			},
+			QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+				switch query {
+				case "SELECT typname FROM pg_type WHERE oid = $1":
+					require.Equal(t, 1, len(args))
+					require.Equal(t, citextOID, args[0])
+					return &pgmocks.Row{
+						ScanFn: func(dest ...any) error {
+							require.Len(t, dest, 1)
+							dataTypeName, ok := dest[0].(*string)
+							require.True(t, ok)
+							*dataTypeName = citextTypeName
+							return nil
+						},
+					}
+				default:
+					return nil
+				}
+			},
+		}
 	}
 
 	testPGValidator := PostgresTransformerParser{
-		conn:           testQuerier,
+		conn:           testQuerier(),
 		builder:        builder.NewTransformerBuilder(),
 		pgtypeMap:      pgtype.NewMap(),
 		requiredTables: []string{"public.test"},
@@ -141,11 +168,14 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 						"name": {
 							Name: "string",
 						},
+						"email": {
+							Name: "noop",
+						},
 					},
 				},
 			},
 			validator: PostgresTransformerParser{
-				conn:           testQuerier,
+				conn:           testQuerier(),
 				builder:        builder.NewTransformerBuilder(),
 				pgtypeMap:      pgtype.NewMap(),
 				requiredTables: []string{"*"},
@@ -168,17 +198,38 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 						"name": {
 							Name: "string",
 						},
+						"email": {
+							Name: "noop",
+						},
 					},
 				},
 			},
 			validator: PostgresTransformerParser{
-				conn:           testQuerier,
+				conn:           testQuerier(),
 				builder:        builder.NewTransformerBuilder(),
 				pgtypeMap:      pgtype.NewMap(),
 				requiredTables: []string{"*.*"},
 			},
 
 			wantTransformersFor: []string{"id", "name"},
+			wantErr:             nil,
+		},
+		{
+			name: "ok - custom type",
+			transformerRules: []TableRules{
+				{
+					Schema:         "public",
+					Table:          "test",
+					ValidationMode: "relaxed",
+					ColumnRules: map[string]TransformerRules{
+						"email": {
+							Name: "neosync_email",
+						},
+					},
+				},
+			},
+			validator:           testPGValidator,
+			wantTransformersFor: []string{"email"},
 			wantErr:             nil,
 		},
 		{
@@ -217,7 +268,42 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				},
 			},
 			validator: testPGValidator,
-			wantErr:   errors.New("transformer 'string' specified for column 'id' in table \"public\".\"test\" does not support pg data type: int8"),
+			wantErr:   errors.New("transformer 'string' specified for column 'id' in table \"public\".\"test\" does not support pg data type: int8 with OID: 20"),
+		},
+		{
+			name: "error - unknown custom column type",
+			transformerRules: []TableRules{
+				{
+					Schema:         "public",
+					Table:          "test",
+					ValidationMode: "relaxed",
+					ColumnRules: map[string]TransformerRules{
+						"email": {
+							Name: "neosync_email",
+						},
+					},
+				},
+			},
+			validator: PostgresTransformerParser{
+				conn: func() *pgmocks.Querier {
+					q := testQuerier()
+					q.QueryRowFn = func(ctx context.Context, query string, args ...any) pglib.Row {
+						return &pgmocks.Row{
+							ScanFn: func(dest ...any) error {
+								require.Equal(t, query, "SELECT typname FROM pg_type WHERE oid = $1")
+								require.Equal(t, 1, len(args))
+								require.Equal(t, citextOID, args[0])
+								return errors.New("not found")
+							},
+						}
+					}
+					return q
+				}(),
+				builder:        builder.NewTransformerBuilder(),
+				pgtypeMap:      pgtype.NewMap(),
+				requiredTables: []string{"public.test"},
+			},
+			wantErr: errors.New("transformer 'neosync_email' specified for column 'email' in table \"public\".\"test\" does not support pg data type: unknown with OID: 1234"),
 		},
 		{
 			name: "error - column not found in table",
@@ -277,7 +363,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				},
 			},
 			validator: PostgresTransformerParser{
-				conn:           testQuerier,
+				conn:           testQuerier(),
 				builder:        builder.NewTransformerBuilder(),
 				pgtypeMap:      pgtype.NewMap(),
 				requiredTables: []string{"*"},
@@ -288,7 +374,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			name:             "error - invalid table name",
 			transformerRules: []TableRules{},
 			validator: PostgresTransformerParser{
-				conn:           testQuerier,
+				conn:           testQuerier(),
 				builder:        builder.NewTransformerBuilder(),
 				pgtypeMap:      pgtype.NewMap(),
 				requiredTables: []string{"invalid.table.name"},
@@ -299,12 +385,12 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			name:             "error - wildcard schema name with non-wildcard table name",
 			transformerRules: []TableRules{},
 			validator: PostgresTransformerParser{
-				conn:           testQuerier,
+				conn:           testQuerier(),
 				builder:        builder.NewTransformerBuilder(),
 				pgtypeMap:      pgtype.NewMap(),
 				requiredTables: []string{"*.test"},
 			},
-			wantErr: fmt.Errorf("wildcard schema must be used with wildcard table, got: \"test\""),
+			wantErr: fmt.Errorf("getting required tables list: wildcard schema must be used with wildcard table, got: \"test\""),
 		},
 	}
 	for _, tc := range tests {
@@ -315,7 +401,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			if tc.wantErr != nil {
 				require.Error(t, err)
 				if !errors.Is(err, tc.wantErr) {
-					require.Contains(t, err.Error(), tc.wantErr.Error())
+					require.Equal(t, err.Error(), tc.wantErr.Error())
 				}
 				return
 			}
