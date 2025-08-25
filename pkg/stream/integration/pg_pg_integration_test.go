@@ -238,7 +238,9 @@ func Test_PostgresToPostgres_Snapshot(t *testing.T) {
 	// ensure the snapshot captures pre-existing schema and data properly
 	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf("create table %s(id serial primary key, name text)", testTable))
 	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf("insert into %s(name) values('a'),('b')", testTable))
-	execQueryWithURL(t, ctx, snapshotPGURL, "create role test_role")
+	execQueryWithURL(t, ctx, snapshotPGURL, "create role test_role;")
+	// grant some privileges to the role to ensure these are captured in the snapshot
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf("grant select on %s to test_role", testTable))
 
 	cfg := &stream.Config{
 		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
@@ -279,10 +281,10 @@ func Test_PostgresToPostgres_Snapshot(t *testing.T) {
 		require.ElementsMatch(t, wantCols, columns)
 
 		roles := getRoles(t, ctx, targetConn)
-		if len(roles) != 1 {
+		if len(roles) < 1 {
 			return false
 		}
-		require.Equal(t, "test_role", roles[0])
+		require.Contains(t, roles, "test_role")
 
 		return true
 	}
