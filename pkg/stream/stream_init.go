@@ -25,7 +25,7 @@ const (
 var errMissingPostgresURL = errors.New("postgres URL is required")
 
 // Init initialises the pgstream state in the postgres database provided, along
-// with creating the relevant replication slot.
+// with creating the relevant replication slot if it doesn't already exist.
 func Init(ctx context.Context, pgURL, replicationSlotName string) error {
 	if pgURL == "" {
 		return errMissingPostgresURL
@@ -57,6 +57,16 @@ func Init(ctx context.Context, pgURL, replicationSlotName string) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	// check if the replication slot already exists
+	exists, err := replicationSlotExists(ctx, conn, replicationSlotName)
+	if err != nil {
+		return fmt.Errorf("failed to check if replication slot exists: %w", err)
+	}
+	if exists {
+		// return early if the replication slot already exists
+		return nil
 	}
 
 	if err := createReplicationSlot(ctx, conn, replicationSlotName); err != nil {
@@ -134,6 +144,15 @@ func createReplicationSlot(ctx context.Context, conn *pgx.Conn, slotName string)
 func dropReplicationSlot(ctx context.Context, conn *pgx.Conn, slotName string) error {
 	_, err := conn.Exec(ctx, fmt.Sprintf(`SELECT pg_drop_replication_slot('%[1]s') from pg_replication_slots where slot_name = '%[1]s'`, slotName))
 	return err
+}
+
+func replicationSlotExists(ctx context.Context, conn *pgx.Conn, slotName string) (bool, error) {
+	var exists bool
+	err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = $1)`, slotName).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 func newPGConn(ctx context.Context, pgURL string) (*pgx.Conn, error) {
