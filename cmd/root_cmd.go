@@ -72,7 +72,7 @@ func Prepare() *cobra.Command {
 	runCmd.Flags().StringSlice("snapshot-tables", nil, "List of tables to snapshot if initial snapshot is required, in the format <schema>.<table>. If not specified, the schema `public` will be assumed. Wildcards are supported")
 	runCmd.Flags().Bool("reset", false, "Whether to reset the target before snapshotting (only for postgres target)")
 	runCmd.Flags().Bool("profile", false, "Whether to expose a /debug/pprof endpoint on localhost:6060")
-	runCmd.Flags().BoolVar(&initFlag, "init", false, "Whether to initialize the pgstream")
+	runCmd.Flags().BoolVar(&initFlag, "init", false, "Whether to initialize pgstream before starting replication")
 
 	// status cmd
 	statusCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream has been initialised")

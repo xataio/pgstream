@@ -33,7 +33,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 	}
 
 	if init {
-		if err := Init(context.Background(), config.SourcePostgresURL(), config.PostgresReplicationSlot()); err != nil {
+		if err := Init(ctx, config.SourcePostgresURL(), config.PostgresReplicationSlot()); err != nil {
 			return err
 		}
 	}
