@@ -62,6 +62,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 							CleanTargetDB:          true,
 							CreateTargetDB:         true,
 							IncludeGlobalDBObjects: true,
+							ExcludeRolesDump:       true,
 							Role:                   "test-role",
 							DumpDebugFile:          "pg_dump.sql",
 						},

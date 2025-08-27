@@ -38,6 +38,7 @@ type SnapshotGenerator struct {
 	createTargetDB         bool
 	includeGlobalDBObjects bool
 	role                   string
+	excludeRolesDump       bool
 	logger                 loglib.Logger
 	generator              generator.SnapshotGenerator
 	dumpDebugFile          string // if set, the dump will be written to this file for debugging purposes
@@ -53,6 +54,8 @@ type Config struct {
 	IncludeGlobalDBObjects bool
 	// Role name to be used to create the dump
 	Role string
+	// if set, the roles dump will be excluded from the snapshot
+	ExcludeRolesDump bool
 	// if set, the dump will be written to this file for debugging purposes
 	DumpDebugFile string
 }
@@ -86,6 +89,7 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		createTargetDB:         c.CreateTargetDB,
 		includeGlobalDBObjects: c.IncludeGlobalDBObjects,
 		role:                   c.Role,
+		excludeRolesDump:       c.ExcludeRolesDump,
 		logger:                 loglib.NewNoopLogger(),
 		dumpDebugFile:          c.DumpDebugFile,
 	}
@@ -247,6 +251,9 @@ func (s *SnapshotGenerator) dumpSequenceValues(ctx context.Context, sequences []
 }
 
 func (s *SnapshotGenerator) dumpRoles(ctx context.Context, roles map[string]struct{}) ([]byte, error) {
+	if s.excludeRolesDump {
+		return nil, nil
+	}
 	opts := &pglib.PGDumpAllOptions{
 		ConnectionString: s.sourceURL,
 		RolesOnly:        true,
