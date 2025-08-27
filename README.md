@@ -113,6 +113,7 @@ If you want to configure column transformations, leveraging [greenmask](https://
 ### Prepare the database
 
 This will create the `pgstream` schema in the configured Postgres database, along with the tables/functions/triggers required to keep track of the schema changes. See [Tracking schema changes](docs/README.md#tracking-schema-changes) section for more details. It will also create a replication slot for the configured database which will be used by the pgstream service. If no replication slot name is provided, it will use a default one with the format `pgstream_<database>_slot`.
+This step can be skipped and `--init` can be provided as an option to `run` command. It will do the same preparation right before starting the replication.
 
 ```sh
 # with CLI flags

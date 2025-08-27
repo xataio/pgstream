@@ -25,8 +25,13 @@
       "name": "run",
       "short": "Run starts a continuous data stream from the configured source to the configured target",
       "use": "run",
-      "example": "\n\tpgstream run --source postgres --source-url <source-postgres-url> --target postgres --target-url <target-postgres-url>\n\tpgstream run --source postgres --source-url <source-postgres-url> --target postgres --target-url <target-postgres-url> --snapshot-tables <schema.table> --reset\n\tpgstream run --source kafka --source-url <kafka-url> --target elasticsearch --target-url <elasticsearch-url>\n\tpgstream run --source postgres --source-url <postgres-url> --target kafka --target-url <kafka-url>\n\tpgstream run --config config.yaml --log-level info\n\tpgstream run --config config.env",
+      "example": "\n\tpgstream run --source postgres --source-url <source-postgres-url> --target postgres --target-url <target-postgres-url> --init\n\tpgstream run --source postgres --source-url <source-postgres-url> --target postgres --target-url <target-postgres-url> --snapshot-tables <schema.table> --reset\n\tpgstream run --source kafka --source-url <kafka-url> --target elasticsearch --target-url <elasticsearch-url>\n\tpgstream run --source postgres --source-url <postgres-url> --target kafka --target-url <kafka-url>\n\tpgstream run --config config.yaml --log-level info\n\tpgstream run --config config.env",
       "flags": [
+        {
+          "name": "init",
+          "description": "Whether to initialize pgstream before starting replication",
+          "default": "false"
+        },
         {
           "name": "profile",
           "description": "Whether to expose a /debug/pprof endpoint on localhost:6060",
