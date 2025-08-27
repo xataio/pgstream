@@ -20,7 +20,7 @@ var runCmd = &cobra.Command{
 	PreRunE: runFlagBinding,
 	RunE:    withProfiling(withSignalWatcher(run)),
 	Example: `
-	pgstream run --source postgres --source-url <source-postgres-url> --target postgres --target-url <target-postgres-url>
+	pgstream run --source postgres --source-url <source-postgres-url> --target postgres --target-url <target-postgres-url> --init
 	pgstream run --source postgres --source-url <source-postgres-url> --target postgres --target-url <target-postgres-url> --snapshot-tables <schema.table> --reset
 	pgstream run --source kafka --source-url <kafka-url> --target elasticsearch --target-url <elasticsearch-url>
 	pgstream run --source postgres --source-url <postgres-url> --target kafka --target-url <kafka-url>
@@ -29,6 +29,7 @@ var runCmd = &cobra.Command{
 }
 
 var (
+	initFlag             = false
 	errUnsupportedSource = errors.New("unsupported source")
 	errUnsupportedTarget = errors.New("unsupported target")
 )
@@ -55,7 +56,7 @@ func run(ctx context.Context) error {
 	}
 	defer provider.Close()
 
-	return stream.Run(ctx, zerolog.NewStdLogger(logger), streamConfig, provider.NewInstrumentation("run"))
+	return stream.Run(ctx, zerolog.NewStdLogger(logger), streamConfig, initFlag, provider.NewInstrumentation("run"))
 }
 
 func runFlagBinding(cmd *cobra.Command, args []string) error {

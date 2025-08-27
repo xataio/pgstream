@@ -92,7 +92,7 @@ func (m *mockWebhookServer) close() {
 func runStream(t *testing.T, ctx context.Context, cfg *stream.Config) {
 	// start the configured stream listener/processor
 	go func() {
-		err := stream.Run(ctx, testLogger(), cfg, nil)
+		err := stream.Run(ctx, testLogger(), cfg, false, nil)
 		require.NoError(t, err)
 	}()
 }
