@@ -79,7 +79,7 @@ func initialSnapshotFlagBinding(cmd *cobra.Command) {
 	if cmd.Flags().Lookup("snapshot-tables").Changed {
 		viper.BindPFlag("source.postgres.snapshot.tables", cmd.Flags().Lookup("snapshot-tables"))
 		viper.BindPFlag("source.postgres.snapshot.schema.pgdump_pgrestore.clean_target_db", cmd.Flags().Lookup("reset"))
-		viper.BindPFlag("source.postgres.snapshot.schema.pgdump_pgrestore.exclude_roles", cmd.Flags().Lookup("exclude-roles"))
+		viper.BindPFlag("source.postgres.snapshot.schema.pgdump_pgrestore.roles_snapshot_mode", cmd.Flags().Lookup("roles-snapshot-mode"))
 		if len(viper.GetStringSlice("source.postgres.snapshot.tables")) > 0 {
 			viper.Set("source.postgres.mode", "snapshot_and_replication")
 			viper.Set("source.postgres.snapshot.mode", "full")
@@ -102,7 +102,7 @@ func initialSnapshotFlagBinding(cmd *cobra.Command) {
 	// provided or when no configuration is provided
 	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_TABLES", cmd.Flags().Lookup("snapshot-tables"))
 	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB", cmd.Flags().Lookup("reset"))
-	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDE_ROLES", cmd.Flags().Lookup("exclude-roles"))
+	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE", cmd.Flags().Lookup("roles-snapshot-mode"))
 
 	// if the source and target are postgres, with replication + initial snapshot
 	// enabled, default to using bulk ingest if not set

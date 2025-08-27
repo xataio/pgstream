@@ -105,17 +105,17 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		snapshot       *snapshot.Snapshot
-		conn           pglib.Querier
-		connBuilder    pglib.QuerierBuilder
-		pgdumpFn       pglib.PGDumpFn
-		pgdumpallFn    pglib.PGDumpAllFn
-		pgrestoreFn    pglib.PGRestoreFn
-		schemalogStore schemalog.Store
-		generator      generator.SnapshotGenerator
-		role           string
-		excludeRoles   bool
+		name              string
+		snapshot          *snapshot.Snapshot
+		conn              pglib.Querier
+		connBuilder       pglib.QuerierBuilder
+		pgdumpFn          pglib.PGDumpFn
+		pgdumpallFn       pglib.PGDumpAllFn
+		pgrestoreFn       pglib.PGRestoreFn
+		schemalogStore    schemalog.Store
+		generator         generator.SnapshotGenerator
+		role              string
+		rolesSnapshotMode string
 
 		wantErr error
 	}{
@@ -457,8 +457,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:         "ok - no roles dump",
-			excludeRoles: true,
+			name:              "ok - no roles dump",
+			rolesSnapshotMode: "disabled",
 			snapshot: &snapshot.Snapshot{
 				SchemaTables: map[string][]string{
 					testSchema: {wildcard},
@@ -1044,7 +1044,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				includeGlobalDBObjects: true,
 				generator:              tc.generator,
 				role:                   tc.role,
-				excludeRolesDump:       tc.excludeRoles,
+				rolesSnapshotMode:      tc.rolesSnapshotMode,
 			}
 
 			if tc.connBuilder != nil {

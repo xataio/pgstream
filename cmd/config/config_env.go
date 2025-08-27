@@ -53,7 +53,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_ROLE")
-	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDE_ROLES")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE")
@@ -240,7 +240,7 @@ func parseSchemaSnapshotConfig(pgurl string) snapshotbuilder.SchemaSnapshotConfi
 				CreateTargetDB:         viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB"),
 				IncludeGlobalDBObjects: viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS"),
 				Role:                   viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_ROLE"),
-				ExcludeRolesDump:       viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDE_ROLES"),
+				RolesSnapshotMode:      viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE"),
 				DumpDebugFile:          viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE"),
 			},
 		}
