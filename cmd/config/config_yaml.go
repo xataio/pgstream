@@ -271,6 +271,13 @@ const (
 	schemaSnapshotMode = "schema"
 )
 
+// roles snapshot modes
+const (
+	enabledRolesSnapshotMode     = "enabled"
+	disabledRolesSnapshotMode    = "disabled"
+	noPasswordsRolesSnapshotMode = "no_passwords"
+)
+
 // schema snapshot modes
 const (
 	pgdumprestoreSchemaMode = "pgdump_pgrestore"
@@ -299,6 +306,7 @@ var (
 	errTableTransformersNotProvided            = errors.New("table_transformers must be provided when transformation config is set")
 	errInvalidTableValidationConfig            = errors.New("table level validation mode should be used when transformation validation mode is set to 'table_level'")
 	errUnsupportedSearchEngine                 = errors.New("unsupported search engine, must be one of 'opensearch' or 'elasticsearch'")
+	errUnsupportedRolesSnapshotMode            = errors.New("unsupported roles snapshot mode, must be one of 'enabled', 'disabled', or 'no_passwords'")
 	errInvalidPgdumpPgrestoreConfig            = errors.New("pgdump_pgrestore snapshot mode requires target postgres config")
 	errInvalidInjectorConfig                   = errors.New("injector config can't infer schemalog url from source postgres url, schemalog_url must be provided")
 	errInvalidSnapshotRecorderConfig           = errors.New("snapshot recorder config requires a postgres url")
@@ -513,8 +521,16 @@ func (c *YAMLConfig) parseSchemaSnapshotConfig() (snapshotbuilder.SchemaSnapshot
 			streamSchemaCfg.DumpRestore.IncludeGlobalDBObjects = schemaSnapshotCfg.PgDumpPgRestore.IncludeGlobalDBObjects
 			streamSchemaCfg.DumpRestore.CreateTargetDB = schemaSnapshotCfg.PgDumpPgRestore.CreateTargetDB
 			streamSchemaCfg.DumpRestore.Role = schemaSnapshotCfg.PgDumpPgRestore.Role
-			streamSchemaCfg.DumpRestore.RolesSnapshotMode = schemaSnapshotCfg.PgDumpPgRestore.RolesSnapshotMode
 			streamSchemaCfg.DumpRestore.DumpDebugFile = schemaSnapshotCfg.PgDumpPgRestore.DumpFile
+
+			switch schemaSnapshotCfg.PgDumpPgRestore.RolesSnapshotMode {
+			case enabledRolesSnapshotMode, disabledRolesSnapshotMode, noPasswordsRolesSnapshotMode:
+				streamSchemaCfg.DumpRestore.RolesSnapshotMode = schemaSnapshotCfg.PgDumpPgRestore.RolesSnapshotMode
+			case "":
+				streamSchemaCfg.DumpRestore.RolesSnapshotMode = enabledRolesSnapshotMode
+			default:
+				return snapshotbuilder.SchemaSnapshotConfig{}, errUnsupportedRolesSnapshotMode
+			}
 		}
 
 		return streamSchemaCfg, nil
