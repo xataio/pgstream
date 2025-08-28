@@ -18,7 +18,7 @@ import (
 var initCmd = &cobra.Command{
 	Use:    "init",
 	Short:  "Initialises pgstream, creating the replication slot and the relevant tables/functions/triggers under the configured internal pgstream schema",
-	PreRun: initTeardownFlagBinding,
+	PreRun: initDestroyFlagBinding,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sp, _ := pterm.DefaultSpinner.WithText("initialising pgstream...").Start()
 
@@ -41,19 +41,45 @@ var initCmd = &cobra.Command{
 	pgstream init -c config.env`,
 }
 
-var tearDownCmd = &cobra.Command{
-	Use:    "tear-down",
-	Short:  "It tears down any pgstream setup, removing the replication slot and all the relevant tables/functions/triggers, along with the internal pgstream schema",
-	PreRun: initTeardownFlagBinding,
+var destroyCmd = &cobra.Command{
+	Use:    "destroy",
+	Short:  "It destroys any pgstream setup, removing the replication slot and all the relevant tables/functions/triggers, along with the internal pgstream schema",
+	PreRun: initDestroyFlagBinding,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		sp, _ := pterm.DefaultSpinner.WithText("tearing down pgstream...").Start()
+		sp, _ := pterm.DefaultSpinner.WithText("destroying pgstream...").Start()
 
 		streamConfig, err := config.ParseStreamConfig()
 		if err != nil {
 			return fmt.Errorf("parsing stream config: %w", err)
 		}
 
-		if err := stream.TearDown(context.Background(), streamConfig.SourcePostgresURL(), streamConfig.PostgresReplicationSlot()); err != nil {
+		if err := stream.Destroy(context.Background(), streamConfig.SourcePostgresURL(), streamConfig.PostgresReplicationSlot()); err != nil {
+			sp.Fail(err.Error())
+			return err
+		}
+
+		sp.Success("pgstream destroy complete")
+		return nil
+	},
+	Example: `
+	pgstream destroy --postgres-url <source-postgres-url> --replication-slot <replication-slot-name>
+	pgstream destroy -c config.yaml
+	pgstream destroy -c config.env`,
+}
+
+var tearDownCmd = &cobra.Command{
+	Use:    "tear-down",
+	Short:  "tear-down is deprecated, please use destroy",
+	PreRun: initDestroyFlagBinding,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		sp, _ := pterm.DefaultSpinner.WithText("tearing down pgstream...\ntear-down is deprecated, please use destroy").Start()
+
+		streamConfig, err := config.ParseStreamConfig()
+		if err != nil {
+			return fmt.Errorf("parsing stream config: %w", err)
+		}
+
+		if err := stream.Destroy(context.Background(), streamConfig.SourcePostgresURL(), streamConfig.PostgresReplicationSlot()); err != nil {
 			sp.Fail(err.Error())
 			return err
 		}
@@ -67,7 +93,7 @@ var tearDownCmd = &cobra.Command{
 	pgstream tear-down -c config.env`,
 }
 
-func initTeardownFlagBinding(cmd *cobra.Command, _ []string) {
+func initDestroyFlagBinding(cmd *cobra.Command, _ []string) {
 	// to be able to overwrite configuration with flags when yaml config file is
 	// provided
 	viper.BindPFlag("source.postgres.url", cmd.Flags().Lookup("postgres-url"))

@@ -50,6 +50,10 @@ func Prepare() *cobra.Command {
 	initCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream setup will be run")
 	initCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be created by pgstream on the source url")
 
+	// destroy cmd
+	destroyCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream destroy will be run")
+	destroyCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be deleted by pgstream from the source url")
+
 	// tear down cmd
 	tearDownCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream tear down will be run")
 	tearDownCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be deleted by pgstream from the source url")
@@ -84,6 +88,7 @@ func Prepare() *cobra.Command {
 
 	// register subcommands
 	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(destroyCmd)
 	rootCmd.AddCommand(tearDownCmd)
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(snapshotCmd)
