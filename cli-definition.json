@@ -2,6 +2,26 @@
   "name": "pgstream",
   "commands": [
     {
+      "name": "destroy",
+      "short": "It destroys any pgstream setup, removing the replication slot and all the relevant tables/functions/triggers, along with the internal pgstream schema",
+      "use": "destroy",
+      "example": "\n\tpgstream destroy --postgres-url <source-postgres-url> --replication-slot <replication-slot-name>\n\tpgstream destroy -c config.yaml\n\tpgstream destroy -c config.env",
+      "flags": [
+        {
+          "name": "postgres-url",
+          "description": "Source postgres URL where pgstream destroy will be run",
+          "default": ""
+        },
+        {
+          "name": "replication-slot",
+          "description": "Name of the postgres replication slot to be deleted by pgstream from the source url",
+          "default": ""
+        }
+      ],
+      "subcommands": [],
+      "args": []
+    },
+    {
       "name": "init",
       "short": "Initialises pgstream, creating the replication slot and the relevant tables/functions/triggers under the configured internal pgstream schema",
       "use": "init",
@@ -148,7 +168,7 @@
     },
     {
       "name": "tear-down",
-      "short": "It tears down any pgstream setup, removing the replication slot and all the relevant tables/functions/triggers, along with the internal pgstream schema",
+      "short": "tear-down is deprecated, please use destroy",
       "use": "tear-down",
       "example": "\n\tpgstream tear-down --postgres-url <source-postgres-url> --replication-slot <replication-slot-name>\n\tpgstream tear-down -c config.yaml\n\tpgstream tear-down -c config.env",
       "flags": [

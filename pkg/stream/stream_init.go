@@ -76,9 +76,9 @@ func Init(ctx context.Context, pgURL, replicationSlotName string) error {
 	return nil
 }
 
-// TearDown removes the pgstream state from the postgres database provided,
+// Destroy removes the pgstream state from the postgres database provided,
 // as well as removing the replication slot.
-func TearDown(ctx context.Context, pgURL, replicationSlotName string) error {
+func Destroy(ctx context.Context, pgURL, replicationSlotName string) error {
 	if pgURL == "" {
 		return errMissingPostgresURL
 	}
@@ -109,7 +109,7 @@ func TearDown(ctx context.Context, pgURL, replicationSlotName string) error {
 		return fmt.Errorf("failed to run internal pgstream migrations: %w", err)
 	}
 
-	// delete the pgstream schema once the migration tear down has completed
+	// delete the pgstream schema once the migration destroy has completed
 	if err := dropPGStreamSchema(ctx, conn); err != nil {
 		return fmt.Errorf("failed to drop pgstream schema: %w", err)
 	}

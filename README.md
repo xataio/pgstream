@@ -145,14 +145,14 @@ Source status:
  - Reachable: true
 ```
 
-If there are any issues or if you want to revert the pgstream setup, you can use the `tear-down` command to clean up all pgstream state.
+If there are any issues or if you want to revert the pgstream setup, you can use the `destroy` command to clean up all pgstream state.
 
 ```sh
-pgstream tear-down --postgres-url "postgres://postgres:postgres@localhost?sslmode=disable" --replication-slot test
+pgstream destroy --postgres-url "postgres://postgres:postgres@localhost?sslmode=disable" --replication-slot test
 # with yaml configuration file
-pgstream tear-down -c pg2pg.yaml
+pgstream destroy -c pg2pg.yaml
 # with environment configuration file
-pgstream tear-down -c pg2pg.env
+pgstream destroy -c pg2pg.env
 ```
 
 ### Run `pgstream`
