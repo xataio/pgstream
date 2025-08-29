@@ -523,13 +523,10 @@ func (c *YAMLConfig) parseSchemaSnapshotConfig() (snapshotbuilder.SchemaSnapshot
 			streamSchemaCfg.DumpRestore.Role = schemaSnapshotCfg.PgDumpPgRestore.Role
 			streamSchemaCfg.DumpRestore.DumpDebugFile = schemaSnapshotCfg.PgDumpPgRestore.DumpFile
 
-			switch schemaSnapshotCfg.PgDumpPgRestore.RolesSnapshotMode {
-			case enabledRolesSnapshotMode, disabledRolesSnapshotMode, noPasswordsRolesSnapshotMode:
-				streamSchemaCfg.DumpRestore.RolesSnapshotMode = schemaSnapshotCfg.PgDumpPgRestore.RolesSnapshotMode
-			case "":
-				streamSchemaCfg.DumpRestore.RolesSnapshotMode = enabledRolesSnapshotMode
-			default:
-				return snapshotbuilder.SchemaSnapshotConfig{}, errUnsupportedRolesSnapshotMode
+			var err error
+			streamSchemaCfg.DumpRestore.RolesSnapshotMode, err = getRolesSnapshotMode(schemaSnapshotCfg.PgDumpPgRestore.RolesSnapshotMode)
+			if err != nil {
+				return snapshotbuilder.SchemaSnapshotConfig{}, err
 			}
 		}
 
