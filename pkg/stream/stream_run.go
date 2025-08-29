@@ -27,9 +27,15 @@ import (
 )
 
 // Run will run the configured pgstream processes. This call is blocking.
-func Run(ctx context.Context, logger loglib.Logger, config *Config, instrumentation *otel.Instrumentation) error {
+func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, instrumentation *otel.Instrumentation) error {
 	if err := config.IsValid(); err != nil {
 		return fmt.Errorf("incompatible configuration: %w", err)
+	}
+
+	if init {
+		if err := Init(ctx, config.SourcePostgresURL(), config.PostgresReplicationSlot()); err != nil {
+			return err
+		}
 	}
 
 	eg, ctx := errgroup.WithContext(ctx)

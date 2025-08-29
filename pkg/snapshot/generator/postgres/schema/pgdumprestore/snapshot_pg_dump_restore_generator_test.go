@@ -105,16 +105,17 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		snapshot       *snapshot.Snapshot
-		conn           pglib.Querier
-		connBuilder    pglib.QuerierBuilder
-		pgdumpFn       pglib.PGDumpFn
-		pgdumpallFn    pglib.PGDumpAllFn
-		pgrestoreFn    pglib.PGRestoreFn
-		schemalogStore schemalog.Store
-		generator      generator.SnapshotGenerator
-		role           string
+		name              string
+		snapshot          *snapshot.Snapshot
+		conn              pglib.Querier
+		connBuilder       pglib.QuerierBuilder
+		pgdumpFn          pglib.PGDumpFn
+		pgdumpallFn       pglib.PGDumpAllFn
+		pgrestoreFn       pglib.PGRestoreFn
+		schemalogStore    schemalog.Store
+		generator         generator.SnapshotGenerator
+		role              string
+		rolesSnapshotMode string
 
 		wantErr error
 	}{
@@ -438,6 +439,116 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					require.Equal(t, pglib.PGDumpAllOptions{
 						ConnectionString: "source-url",
 						RolesOnly:        true,
+					}, po)
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
+				}
+			}),
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
+				require.Equal(t, pglib.PGRestoreOptions{
+					ConnectionString: "target-url",
+					Format:           "p",
+				}, po)
+				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
+				return "", nil
+			},
+
+			wantErr: nil,
+		},
+		{
+			name:              "ok - no roles dump",
+			rolesSnapshotMode: "disabled",
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {wildcard},
+				},
+			},
+			conn: validQuerier(),
+			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						SchemaOnly:       true,
+						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
+					}, po)
+					return schemaDump, nil
+				case 2:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						DataOnly:         true,
+						Tables:           []string{testSequence},
+					}, po)
+					return sequenceDump, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
+				}
+			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpAllOptions{
+						ConnectionString: "source-url",
+						RolesOnly:        true,
+						NoPasswords:      false,
+					}, po)
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
+				}
+			}),
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
+				require.Equal(t, pglib.PGRestoreOptions{
+					ConnectionString: "target-url",
+					Format:           "p",
+				}, po)
+				require.Equal(t, append(schemaDump, sequenceDump...), dump)
+				return "", nil
+			},
+
+			wantErr: nil,
+		},
+		{
+			name:              "ok - roles dump with no passwords",
+			rolesSnapshotMode: "no_passwords",
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {wildcard},
+				},
+			},
+			conn: validQuerier(),
+			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						SchemaOnly:       true,
+						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
+					}, po)
+					return schemaDump, nil
+				case 2:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						DataOnly:         true,
+						Tables:           []string{testSequence},
+					}, po)
+					return sequenceDump, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
+				}
+			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpAllOptions{
+						ConnectionString: "source-url",
+						RolesOnly:        true,
+						NoPasswords:      true,
 					}, po)
 					return rolesDumpOriginal, nil
 				default:
@@ -989,6 +1100,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				includeGlobalDBObjects: true,
 				generator:              tc.generator,
 				role:                   tc.role,
+				rolesSnapshotMode:      tc.rolesSnapshotMode,
 			}
 
 			if tc.connBuilder != nil {

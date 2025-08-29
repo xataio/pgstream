@@ -50,6 +50,10 @@ func Prepare() *cobra.Command {
 	initCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream setup will be run")
 	initCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be created by pgstream on the source url")
 
+	// destroy cmd
+	destroyCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream destroy will be run")
+	destroyCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be deleted by pgstream from the source url")
+
 	// tear down cmd
 	tearDownCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream tear down will be run")
 	tearDownCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be deleted by pgstream from the source url")
@@ -72,6 +76,7 @@ func Prepare() *cobra.Command {
 	runCmd.Flags().StringSlice("snapshot-tables", nil, "List of tables to snapshot if initial snapshot is required, in the format <schema>.<table>. If not specified, the schema `public` will be assumed. Wildcards are supported")
 	runCmd.Flags().Bool("reset", false, "Whether to reset the target before snapshotting (only for postgres target)")
 	runCmd.Flags().Bool("profile", false, "Whether to expose a /debug/pprof endpoint on localhost:6060")
+	runCmd.Flags().BoolVar(&initFlag, "init", false, "Whether to initialize pgstream before starting replication")
 
 	// status cmd
 	statusCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream has been initialised")
@@ -83,6 +88,7 @@ func Prepare() *cobra.Command {
 
 	// register subcommands
 	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(destroyCmd)
 	rootCmd.AddCommand(tearDownCmd)
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(snapshotCmd)

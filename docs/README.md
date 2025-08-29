@@ -116,6 +116,7 @@ source:
           create_target_db: true # whether to create the database on the target postgres. Defaults to false
           include_global_db_objects: true # whether to include database global objects, such as extensions or triggers, on the schema snapshot. Defaults to false
           role: postgres # role name to be used to create the dump
+          roles_snapshot_mode: # enabled by default. Can be set to disabled to disable roles snapshotting, or can be set to no_passwords to exclude role passwords
           dump_file: pg_dump.sql # name of the file where the contents of the schema pg_dump command and output will be written for debugging purposes.
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
@@ -267,6 +268,7 @@ Here's a list of all the environment variables that can be used to configure the
 | PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS | False            | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to snapshot all global database objects outside of the selected schema (such as extensions, triggers, etc).                                                                                                                |
 | PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB          | False            | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to create the database being restored.                                                                                                                                                                                     |
 | PGSTREAM_POSTGRES_SNAPSHOT_ROLE                      | ""               | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, role name to be used to create the dump.                                                                                                                                                                                          |
+| PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE       | "enabled"        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to enable/disable snapshotting roles. Could be set to "no_passwords" to snapshot roles, without passwords.
 | PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE          | ""               | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, file where the contents of the schema pg_dump command and output will be written for debugging purposes.                                                                                                                          |
 
 </details>

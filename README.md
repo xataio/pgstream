@@ -113,6 +113,7 @@ If you want to configure column transformations, leveraging [greenmask](https://
 ### Prepare the database
 
 This will create the `pgstream` schema in the configured Postgres database, along with the tables/functions/triggers required to keep track of the schema changes. See [Tracking schema changes](docs/README.md#tracking-schema-changes) section for more details. It will also create a replication slot for the configured database which will be used by the pgstream service. If no replication slot name is provided, it will use a default one with the format `pgstream_<database>_slot`.
+This step can be skipped and `--init` can be provided as an option to `run` command. It will do the same preparation right before starting the replication.
 
 ```sh
 # with CLI flags
@@ -144,14 +145,14 @@ Source status:
  - Reachable: true
 ```
 
-If there are any issues or if you want to revert the pgstream setup, you can use the `tear-down` command to clean up all pgstream state.
+If there are any issues or if you want to revert the pgstream setup, you can use the `destroy` command to clean up all pgstream state.
 
 ```sh
-pgstream tear-down --postgres-url "postgres://postgres:postgres@localhost?sslmode=disable" --replication-slot test
+pgstream destroy --postgres-url "postgres://postgres:postgres@localhost?sslmode=disable" --replication-slot test
 # with yaml configuration file
-pgstream tear-down -c pg2pg.yaml
+pgstream destroy -c pg2pg.yaml
 # with environment configuration file
-pgstream tear-down -c pg2pg.env
+pgstream destroy -c pg2pg.env
 ```
 
 ### Run `pgstream`
