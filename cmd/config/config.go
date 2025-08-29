@@ -109,3 +109,14 @@ func applyPostgresBulkBatchDefaults(batchCfg *batch.Config) {
 		batchCfg.BatchTimeout = defaultPostgresBulkBatchTimeout
 	}
 }
+
+func getRolesSnapshotMode(mode string) (string, error) {
+	switch mode {
+	case enabledRolesSnapshotMode, disabledRolesSnapshotMode, noPasswordsRolesSnapshotMode:
+		return mode, nil
+	case "":
+		return enabledRolesSnapshotMode, nil
+	default:
+		return "", errUnsupportedRolesSnapshotMode
+	}
+}
