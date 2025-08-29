@@ -257,6 +257,7 @@ func (s *SnapshotGenerator) dumpRoles(ctx context.Context, roles map[string]stru
 	opts := &pglib.PGDumpAllOptions{
 		ConnectionString: s.sourceURL,
 		RolesOnly:        true,
+		Clean:            s.cleanTargetDB,
 		Role:             s.role,
 	}
 
