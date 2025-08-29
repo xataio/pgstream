@@ -71,10 +71,10 @@ Successful initialisation should prompt the following message:
 SUCCESS  pgstream initialisation complete
 ```
 
-If at any point the initialisation performed by pgstream needs to be reverted, all state will be removed by running the `tear-down` CLI command.
+If at any point the initialisation performed by pgstream needs to be reverted, all state will be removed by running the `destroy` CLI command.
 
 ```sh
-pgstream tear-down --postgres-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
+pgstream destroy --postgres-url "postgres://postgres:postgres@localhost:5432?sslmode=disable" --replication-slot pgstream_tutorial_slot
 ```
 
 ## Prepare `pgstream` configuration

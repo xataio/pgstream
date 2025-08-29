@@ -133,6 +133,33 @@ func TestYAMLConfig_toStreamConfig_ErrorCases(t *testing.T) {
 			wantErr: errInvalidPgdumpPgrestoreConfig,
 		},
 		{
+			name: "err - invalid roles snapshot mode",
+			config: YAMLConfig{
+				Source: SourceConfig{
+					Postgres: &PostgresConfig{
+						Mode: snapshotMode,
+						Snapshot: &SnapshotConfig{
+							Mode: schemaSnapshotMode,
+							Schema: &SnapshotSchemaConfig{
+								Mode: pgdumprestoreSchemaMode,
+								PgDumpPgRestore: &PgDumpPgRestoreConfig{
+									CleanTargetDB:     false,
+									RolesSnapshotMode: "invalid",
+								},
+							},
+						},
+					},
+				},
+				Target: TargetConfig{
+					Postgres: &PostgresTargetConfig{
+						URL: "someurl",
+					},
+				},
+			},
+
+			wantErr: errUnsupportedRolesSnapshotMode,
+		},
+		{
 			name: "err - invalid injector config",
 			config: YAMLConfig{
 				Modifiers: ModifiersConfig{

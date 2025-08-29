@@ -53,6 +53,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_ROLE")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE")
@@ -150,26 +151,42 @@ func envConfigToStreamConfig() (*stream.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	listenerCfg, err := parseListenerConfig()
+	if err != nil {
+		return nil, err
+	}
+
 	return &stream.Config{
-		Listener:  parseListenerConfig(),
+		Listener:  listenerCfg,
 		Processor: processorCfg,
 	}, nil
 }
 
 // listener parsing
 
-func parseListenerConfig() stream.ListenerConfig {
-	return stream.ListenerConfig{
-		Postgres: parsePostgresListenerConfig(),
-		Kafka:    parseKafkaListenerConfig(),
-		Snapshot: parseSnapshotListenerConfig(),
+func parseListenerConfig() (stream.ListenerConfig, error) {
+	postgresConfig, err := parsePostgresListenerConfig()
+	if err != nil {
+		return stream.ListenerConfig{}, err
 	}
+
+	snapshotConfig, err := parseSnapshotListenerConfig()
+	if err != nil {
+		return stream.ListenerConfig{}, err
+	}
+
+	return stream.ListenerConfig{
+		Postgres: postgresConfig,
+		Kafka:    parseKafkaListenerConfig(),
+		Snapshot: snapshotConfig,
+	}, nil
 }
 
-func parsePostgresListenerConfig() *stream.PostgresListenerConfig {
+func parsePostgresListenerConfig() (*stream.PostgresListenerConfig, error) {
 	pgURL := viper.GetString("PGSTREAM_POSTGRES_LISTENER_URL")
 	if pgURL == "" {
-		return nil
+		return nil, nil
 	}
 
 	cfg := &stream.PostgresListenerConfig{
@@ -187,21 +204,30 @@ func parsePostgresListenerConfig() *stream.PostgresListenerConfig {
 	snapshotTables := viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES")
 	excludedTables := viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES")
 	if len(snapshotTables) > 0 || len(excludedTables) > 0 {
-		cfg.Snapshot = parseSnapshotConfig(pgURL)
+		var err error
+		cfg.Snapshot, err = parseSnapshotConfig(pgURL)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return cfg
+	return cfg, nil
 }
 
-func parseSnapshotListenerConfig() *snapshotbuilder.SnapshotListenerConfig {
+func parseSnapshotListenerConfig() (*snapshotbuilder.SnapshotListenerConfig, error) {
 	pgsnapshotURL := viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL")
 	if pgsnapshotURL == "" {
-		return nil
+		return nil, nil
 	}
 	return parseSnapshotConfig(pgsnapshotURL)
 }
 
-func parseSnapshotConfig(pgURL string) *snapshotbuilder.SnapshotListenerConfig {
+func parseSnapshotConfig(pgURL string) (*snapshotbuilder.SnapshotListenerConfig, error) {
+	schemaSnapshotCfg, err := parseSchemaSnapshotConfig(pgURL)
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &snapshotbuilder.SnapshotListenerConfig{
 		Generator: pgsnapshotgenerator.Config{
 			URL:             pgURL,
@@ -214,7 +240,7 @@ func parseSnapshotConfig(pgURL string) *snapshotbuilder.SnapshotListenerConfig {
 			Tables:         viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES"),
 			ExcludedTables: viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES"),
 		},
-		Schema: parseSchemaSnapshotConfig(pgURL),
+		Schema: schemaSnapshotCfg,
 	}
 
 	if storeURL := viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL"); storeURL != "" {
@@ -224,13 +250,17 @@ func parseSnapshotConfig(pgURL string) *snapshotbuilder.SnapshotListenerConfig {
 		}
 	}
 
-	return cfg
+	return cfg, nil
 }
 
-func parseSchemaSnapshotConfig(pgurl string) snapshotbuilder.SchemaSnapshotConfig {
+func parseSchemaSnapshotConfig(pgurl string) (snapshotbuilder.SchemaSnapshotConfig, error) {
 	useSchemaLog := viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG")
 	pgTargetURL := viper.GetString("PGSTREAM_POSTGRES_WRITER_TARGET_URL")
 	if pgTargetURL != "" && !useSchemaLog {
+		rolesSnapshotConfig, err := getRolesSnapshotMode(viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE"))
+		if err != nil {
+			return snapshotbuilder.SchemaSnapshotConfig{}, err
+		}
 		return snapshotbuilder.SchemaSnapshotConfig{
 			DumpRestore: &pgdumprestore.Config{
 				SourcePGURL:            pgurl,
@@ -239,15 +269,16 @@ func parseSchemaSnapshotConfig(pgurl string) snapshotbuilder.SchemaSnapshotConfi
 				CreateTargetDB:         viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB"),
 				IncludeGlobalDBObjects: viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS"),
 				Role:                   viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_ROLE"),
+				RolesSnapshotMode:      rolesSnapshotConfig,
 				DumpDebugFile:          viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE"),
 			},
-		}
+		}, nil
 	}
 	return snapshotbuilder.SchemaSnapshotConfig{
 		SchemaLogStore: &pgschemalog.Config{
 			URL: pgurl,
 		},
-	}
+	}, nil
 }
 
 func parseKafkaListenerConfig() *stream.KafkaListenerConfig {
