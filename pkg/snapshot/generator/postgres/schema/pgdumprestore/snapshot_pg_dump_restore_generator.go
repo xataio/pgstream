@@ -654,7 +654,41 @@ func filterRolesDump(rolesDump []byte, roles map[string]struct{}) []byte {
 	var filteredDump strings.Builder
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "CREATE ROLE ") || strings.HasPrefix(line, "ALTER ROLE ") || strings.HasPrefix(line, "COMMENT ON ROLE ") {
+		roleName := ""
+		if strings.HasPrefix(line, "DROP ROLE ") {
+			clauseBeforeRoleName := " ROLE "
+			if strings.Contains(line, " IF EXISTS ") {
+				clauseBeforeRoleName = " IF EXISTS "
+			}
+			roleName = getRoleNameAfterClause(line, clauseBeforeRoleName)
+			if _, ok := roles[roleName]; !ok {
+				continue
+			}
+			reassignStmt := `DO $$
+DECLARE
+    schema_name text;
+BEGIN
+	IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '` + roleName + `') THEN
+        -- Revoke privileges on all schemas
+        FOR schema_name IN (
+            SELECT n.nspname
+            FROM pg_namespace n
+            WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname != 'information_schema'
+        ) LOOP
+            EXECUTE format('REVOKE ALL ON SCHEMA %I FROM ` + roleName + `', schema_name);
+        END LOOP;
+
+        -- Revoke privileges on all tables, sequences, functions
+        EXECUTE 'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM ` + roleName + `';
+        EXECUTE 'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM ` + roleName + `';
+        EXECUTE 'REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM ` + roleName + `';
+        EXECUTE 'REASSIGN OWNED BY ` + roleName + ` TO postgres';
+	END IF;
+END
+$$;`
+			filteredDump.WriteString(reassignStmt)
+			filteredDump.WriteString("\n")
+		} else if strings.HasPrefix(line, "CREATE ROLE ") || strings.HasPrefix(line, "ALTER ROLE ") || strings.HasPrefix(line, "COMMENT ON ROLE ") {
 			roleName := getRoleNameAfterClause(line, " ROLE ")
 			if _, ok := roles[roleName]; !ok {
 				// skip the role if it is not in the roles map
