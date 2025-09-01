@@ -706,9 +706,11 @@ func filterRolesDump(rolesDump []byte, roles map[string]struct{}) []byte {
 		case strings.HasPrefix(line, "CREATE ROLE "), strings.HasPrefix(line, "ALTER ROLE "), strings.HasPrefix(line, "COMMENT ON ROLE "):
 			roleName = getRoleNameAfterClause(line, " ROLE ")
 		}
-		if _, ok := roles[roleName]; !ok {
-			// skip the role if it is not in the roles map
-			continue
+		if roleName != "" {
+			if _, ok := roles[roleName]; !ok {
+				// skip the role if it is not in the roles map
+				continue
+			}
 		}
 		filteredDump.WriteString(line)
 		filteredDump.WriteString("\n")
