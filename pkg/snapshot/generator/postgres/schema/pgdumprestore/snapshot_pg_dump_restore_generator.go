@@ -65,14 +65,16 @@ type Option func(s *SnapshotGenerator)
 type dump struct {
 	full                  []byte
 	filtered              []byte
+	cleanupPart           []byte
 	indicesAndConstraints []byte
 	sequences             []string
 	roles                 map[string]struct{}
 }
 
 const (
-	publicSchema = "public"
-	wildcard     = "*"
+	publicSchema       = "public"
+	wildcard           = "*"
+	dropSchemaPgstream = "DROP SCHEMA IF EXISTS pgstream;"
 )
 
 // NewSnapshotGenerator will return a postgres schema snapshot generator that
@@ -176,7 +178,10 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	// if there's no further snapshotting happening, we can apply the full dump,
 	// no need to apply the constraints/indices separately.
 	if s.generator == nil {
-		dumpsToRestore := rolesDump
+		// the cleanup part will drop all the objects before we execute the roles dump,
+		// and this will allow us to drop the roles safely, in case `clean_target_db` is enabled.
+		dumpsToRestore := dump.cleanupPart
+		dumpsToRestore = append(dumpsToRestore, rolesDump...)
 		dumpsToRestore = append(dumpsToRestore, dump.full...)
 		dumpsToRestore = append(dumpsToRestore, sequenceDump...)
 		return s.restoreDump(ctx, dumpSchemas, dumpsToRestore)
@@ -186,7 +191,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	// then call the wrapped snapshot generator, and apply the indices and constraints last.
 	// This will make the data snapshot faster, since there will be no
 	// constraints to be updated/checked on each insert.
-	if err := s.restoreDump(ctx, dumpSchemas, append(rolesDump, dump.filtered...)); err != nil {
+	if err := s.restoreDump(ctx, dumpSchemas, append(dump.cleanupPart, append(rolesDump, dump.filtered...)...)); err != nil {
 		return err
 	}
 
@@ -536,6 +541,9 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	sequenceNames := []string{}
 	roleNames := make(map[string]struct{})
 	alterTable := ""
+	cleanupPart := strings.Builder{}
+	pgstreamDropSchemaFound := false
+	pgstreamDropSchemaBlankLineFound := false
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
@@ -636,6 +644,40 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			filteredDump.WriteString(line)
 			filteredDump.WriteString("\n")
 		}
+
+		if s.cleanTargetDB {
+			/*
+			 * With --clean option, pg_dump output looks like:
+			 * -- some comments
+			 *
+			 * SET ...
+			 * SELECT ...
+			 * SET ...
+			 *
+			 * DROP ...
+			 * ALTER TABLE .. DROP ..
+			 * DROP SCHEMA IF EXISTS pgstream;
+			 * DROP ...
+			 *
+			 * -- some comments
+			 * CREATE ...
+			 * -- the rest of the dump..
+			 *
+			 * Here we need to catch the part before CREATE statements begin.
+			 * First we look for "DROP SCHEMA IF EXISTS pgstream;" because it will always be there.
+			 * After that we look for a blank line (either empty or containing comments) that will mark the end of the cleanup part.
+			 */
+			if line == dropSchemaPgstream {
+				pgstreamDropSchemaFound = true
+			}
+			if pgstreamDropSchemaFound && isBlankLine(line) {
+				pgstreamDropSchemaBlankLineFound = true
+			}
+			if !pgstreamDropSchemaFound || !pgstreamDropSchemaBlankLineFound {
+				cleanupPart.WriteString(line)
+				cleanupPart.WriteString("\n")
+			}
+		}
 	}
 
 	delete(roleNames, "postgres") // remove the postgres role from the list, since it is not needed and can cause issues
@@ -645,6 +687,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		indicesAndConstraints: []byte(indicesAndConstraints.String()),
 		sequences:             sequenceNames,
 		roles:                 roleNames,
+		cleanupPart:           []byte(cleanupPart.String()),
 	}
 }
 
@@ -655,45 +698,17 @@ func filterRolesDump(rolesDump []byte, roles map[string]struct{}) []byte {
 	for scanner.Scan() {
 		line := scanner.Text()
 		roleName := ""
-		if strings.HasPrefix(line, "DROP ROLE ") {
-			clauseBeforeRoleName := " ROLE "
-			if strings.Contains(line, " IF EXISTS ") {
-				clauseBeforeRoleName = " IF EXISTS "
-			}
-			roleName = getRoleNameAfterClause(line, clauseBeforeRoleName)
-			if _, ok := roles[roleName]; !ok {
-				continue
-			}
-			reassignStmt := `DO $$
-DECLARE
-    schema_name text;
-BEGIN
-	IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '` + roleName + `') THEN
-        -- Revoke privileges on all schemas
-        FOR schema_name IN (
-            SELECT n.nspname
-            FROM pg_namespace n
-            WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname != 'information_schema'
-        ) LOOP
-            EXECUTE format('REVOKE ALL ON SCHEMA %I FROM ` + roleName + `', schema_name);
-        END LOOP;
-
-        -- Revoke privileges on all tables, sequences, functions
-        EXECUTE 'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM ` + roleName + `';
-        EXECUTE 'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM ` + roleName + `';
-        EXECUTE 'REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM ` + roleName + `';
-        EXECUTE 'REASSIGN OWNED BY ` + roleName + ` TO postgres';
-	END IF;
-END
-$$;`
-			filteredDump.WriteString(reassignStmt)
-			filteredDump.WriteString("\n")
-		} else if strings.HasPrefix(line, "CREATE ROLE ") || strings.HasPrefix(line, "ALTER ROLE ") || strings.HasPrefix(line, "COMMENT ON ROLE ") {
-			roleName := getRoleNameAfterClause(line, " ROLE ")
-			if _, ok := roles[roleName]; !ok {
-				// skip the role if it is not in the roles map
-				continue
-			}
+		switch {
+		case strings.HasPrefix(line, "DROP ROLE IF EXISTS "):
+			roleName = getRoleNameAfterClause(line, "DROP ROLE IF EXISTS ")
+		case strings.HasPrefix(line, "DROP ROLE "):
+			roleName = getRoleNameAfterClause(line, "DROP ROLE ")
+		case strings.HasPrefix(line, "CREATE ROLE "), strings.HasPrefix(line, "ALTER ROLE "), strings.HasPrefix(line, "COMMENT ON ROLE "):
+			roleName = getRoleNameAfterClause(line, " ROLE ")
+		}
+		if _, ok := roles[roleName]; !ok {
+			// skip the role if it is not in the roles map
+			continue
 		}
 		filteredDump.WriteString(line)
 		filteredDump.WriteString("\n")
@@ -753,4 +768,12 @@ func hasWildcardTable(tables []string) bool {
 
 func hasWildcardSchema(schemaTables map[string][]string) bool {
 	return schemaTables[wildcard] != nil
+}
+
+func isBlankLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "--") {
+		return true
+	}
+	return false
 }
