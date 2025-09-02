@@ -32,6 +32,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	rolesDumpOriginal := []byte("roles dump\nCREATE ROLE postgres\nCREATE ROLE test_role\nCREATE ROLE test_role2\nALTER ROLE test_role3 INHERIT FROM test_role;\n")
 	rolesDumpFiltered := []byte("roles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\n")
 	roleDumpEmpty := []byte("roles dump\n")
+	cleanupDump := []byte("cleanup dump\n")
 	testSchema := "test_schema"
 	testTable := "test_table"
 	excludedTable := "excluded_test_table"
@@ -116,6 +117,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		generator         generator.SnapshotGenerator
 		role              string
 		rolesSnapshotMode string
+		cleanTargetDB     bool
 
 		wantErr error
 	}{
@@ -561,6 +563,75 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					Format:           "p",
 				}, po)
 				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
+				return "", nil
+			},
+
+			wantErr: nil,
+		},
+		{
+			name:          "ok - with clean option",
+			cleanTargetDB: true,
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					wildcard: {wildcard},
+				},
+			},
+			conn: validQuerier(),
+			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						SchemaOnly:       true,
+						Clean:            true,
+					}, po)
+					return append(cleanupDump, schemaDump...), nil
+				case 2:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						SchemaOnly:       true,
+						Clean:            false,
+					}, po)
+					return schemaDump, nil
+				case 3:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						DataOnly:         true,
+						Tables:           []string{testSequence},
+					}, po)
+					return sequenceDump, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
+				}
+			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpAllOptions{
+						ConnectionString: "source-url",
+						RolesOnly:        true,
+						Clean:            true,
+					}, po)
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
+				}
+			}),
+			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
+				require.Equal(t, pglib.PGRestoreOptions{
+					ConnectionString: "target-url",
+					Format:           "p",
+					Clean:            true,
+				}, po)
+				expectedDump := cleanupDump
+				expectedDump = append(expectedDump, rolesDumpFiltered...)
+				expectedDump = append(expectedDump, cleanupDump...) // because we're not removing the duplicate cleanup dump for now
+				expectedDump = append(expectedDump, schemaDump...)
+				expectedDump = append(expectedDump, sequenceDump...)
+				require.Equal(t, string(expectedDump), string(dump))
 				return "", nil
 			},
 
@@ -1101,6 +1172,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				generator:              tc.generator,
 				role:                   tc.role,
 				rolesSnapshotMode:      tc.rolesSnapshotMode,
+				cleanTargetDB:          tc.cleanTargetDB,
 			}
 
 			if tc.connBuilder != nil {

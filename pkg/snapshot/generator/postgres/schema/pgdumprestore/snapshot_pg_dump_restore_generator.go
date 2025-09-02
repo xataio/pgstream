@@ -748,6 +748,7 @@ func hasWildcardSchema(schemaTables map[string][]string) bool {
 	return schemaTables[wildcard] != nil
 }
 
+// returns all the lines of d1 that are not in d2
 func getDumpsDiff(d1, d2 []byte) []byte {
 	var diff strings.Builder
 	lines1 := bytes.Split(d1, []byte("\n"))
