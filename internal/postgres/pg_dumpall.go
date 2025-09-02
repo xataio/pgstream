@@ -16,6 +16,8 @@ type PGDumpAllOptions struct {
 	ConnectionString string
 	// RolesOnly if true, only roles will be exported (no schema)
 	RolesOnly bool
+	// Clean if true, the target database will be cleaned before the dump is restored
+	Clean bool
 	// NoPasswords if true, no role passwords will be included in the dump
 	NoPasswords bool
 	// Role specifies the role to be used for the dump
@@ -28,6 +30,10 @@ func (opts *PGDumpAllOptions) ToArgs() []string {
 	options := []string{"-d", opts.ConnectionString}
 	if opts.RolesOnly {
 		options = append(options, "--roles-only")
+	}
+
+	if opts.Clean {
+		options = append(options, "--clean", "--if-exists")
 	}
 
 	if opts.NoPasswords {
