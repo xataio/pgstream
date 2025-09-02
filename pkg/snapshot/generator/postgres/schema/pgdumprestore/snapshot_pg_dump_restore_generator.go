@@ -72,9 +72,8 @@ type dump struct {
 }
 
 const (
-	publicSchema       = "public"
-	wildcard           = "*"
-	dropSchemaPgstream = "DROP SCHEMA IF EXISTS pgstream;"
+	publicSchema = "public"
+	wildcard     = "*"
 )
 
 // NewSnapshotGenerator will return a postgres schema snapshot generator that
@@ -230,7 +229,20 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 		return nil, fmt.Errorf("dumping schema: %w", err)
 	}
 
-	return s.parseDump(d), nil
+	parsedDump := s.parseDump(d)
+
+	if pgdumpOpts.Clean {
+		pgdumpOpts.Clean = false
+		s.logger.Debug("dumping schema again without clean", loglib.Fields{"pg_dump_options": pgdumpOpts.ToArgs(), "schema_tables": schemaTables})
+		dumpWithoutClean, err := s.pgDumpFn(ctx, *pgdumpOpts)
+		if err != nil {
+			s.logger.Error(err, "pg_dump for schema failed", loglib.Fields{"pgdumpOptions": pgdumpOpts.ToArgs()})
+			return nil, fmt.Errorf("dumping schema: %w", err)
+		}
+		parsedDump.cleanupPart = getDumpsDiff(d, dumpWithoutClean)
+	}
+
+	return parsedDump, nil
 }
 
 func (s *SnapshotGenerator) dumpSequenceValues(ctx context.Context, sequences []string) ([]byte, error) {
@@ -541,9 +553,6 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	sequenceNames := []string{}
 	roleNames := make(map[string]struct{})
 	alterTable := ""
-	cleanupPart := strings.Builder{}
-	pgstreamDropSchemaFound := false
-	pgstreamDropSchemaBlankLineFound := false
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
@@ -644,40 +653,6 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			filteredDump.WriteString(line)
 			filteredDump.WriteString("\n")
 		}
-
-		if s.cleanTargetDB {
-			/*
-			 * With --clean option, pg_dump output looks like:
-			 * -- some comments
-			 *
-			 * SET ...
-			 * SELECT ...
-			 * SET ...
-			 *
-			 * DROP ...
-			 * ALTER TABLE .. DROP ..
-			 * DROP SCHEMA IF EXISTS pgstream;
-			 * DROP ...
-			 *
-			 * -- some comments
-			 * CREATE ...
-			 * -- the rest of the dump..
-			 *
-			 * Here we need to catch the part before CREATE statements begin.
-			 * First we look for "DROP SCHEMA IF EXISTS pgstream;" because it will always be there.
-			 * After that we look for a blank line (either empty or containing comments) that will mark the end of the cleanup part.
-			 */
-			if line == dropSchemaPgstream {
-				pgstreamDropSchemaFound = true
-			}
-			if pgstreamDropSchemaFound && isBlankLine(line) {
-				pgstreamDropSchemaBlankLineFound = true
-			}
-			if !pgstreamDropSchemaFound || !pgstreamDropSchemaBlankLineFound {
-				cleanupPart.WriteString(line)
-				cleanupPart.WriteString("\n")
-			}
-		}
 	}
 
 	delete(roleNames, "postgres") // remove the postgres role from the list, since it is not needed and can cause issues
@@ -687,7 +662,6 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		indicesAndConstraints: []byte(indicesAndConstraints.String()),
 		sequences:             sequenceNames,
 		roles:                 roleNames,
-		cleanupPart:           []byte(cleanupPart.String()),
 	}
 }
 
@@ -772,10 +746,21 @@ func hasWildcardSchema(schemaTables map[string][]string) bool {
 	return schemaTables[wildcard] != nil
 }
 
-func isBlankLine(line string) bool {
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" || strings.HasPrefix(trimmed, "--") {
-		return true
+func getDumpsDiff(d1, d2 []byte) []byte {
+	var diff strings.Builder
+	lines1 := bytes.Split(d1, []byte("\n"))
+	lines2 := bytes.Split(d2, []byte("\n"))
+	lines2map := make(map[string]bool)
+	for _, line := range lines2 {
+		lines2map[string(line)] = true
 	}
-	return false
+
+	for _, line := range lines1 {
+		if !lines2map[string(line)] {
+			diff.Write(line)
+			diff.WriteString("\n")
+		}
+	}
+
+	return []byte(diff.String())
 }

@@ -1244,3 +1244,58 @@ func TestSnapshotGenerator_parseDump(t *testing.T) {
 	require.Equal(t, wantConstraintsStr, constraintsStr)
 	require.Equal(t, wantSequences, dump.sequences)
 }
+
+func TestGetDumpsDiff(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		d1   []byte
+		d2   []byte
+		want []byte
+	}{
+		{
+			name: "empty dumps",
+			d1:   []byte{},
+			d2:   []byte{},
+			want: []byte{},
+		},
+		{
+			name: "identical dumps",
+			d1:   []byte("line1\nline2\nline3"),
+			d2:   []byte("line1\nline2\nline3"),
+			want: []byte{},
+		},
+		{
+			name: "first dump has extra lines",
+			d1:   []byte("line1\nline2\nline3\nline4"),
+			d2:   []byte("line1\nline2\nline3"),
+			want: []byte("line4\n"),
+		},
+		{
+			name: "second dump has extra lines",
+			d1:   []byte("line1\nline2\nline3"),
+			d2:   []byte("line1\nline2\nline3\nline4"),
+			want: []byte{},
+		},
+		{
+			name: "completely different dumps",
+			d1:   []byte("lineA\nlineB\nlineC"),
+			d2:   []byte("line1\nline2\nline3"),
+			want: []byte("lineA\nlineB\nlineC\n"),
+		},
+		{
+			name: "partially different dumps",
+			d1:   []byte("line1\nline2\nlineC\nlineD"),
+			d2:   []byte("line1\nline2\nline3"),
+			want: []byte("lineC\nlineD\n"),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := getDumpsDiff(tc.d1, tc.d2)
+			require.Equal(t, string(tc.want), string(got))
+		})
+	}
+}
