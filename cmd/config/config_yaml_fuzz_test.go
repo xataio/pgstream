@@ -6,12 +6,14 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
-var config, _ = os.ReadFile("test/test_config.yaml")
-
 func FuzzYAMLToStreamConfig(f *testing.F) {
+	config, err := os.ReadFile("test/test_config.yaml")
+	require.NoError(f, err)
+
 	f.Add(config)
 	// Seed with edge cases
 	f.Add([]byte(`{}`))
@@ -210,6 +212,9 @@ func generateYAMLConfigFromProperties(
 
 // Benchmark to catch performance regressions
 func BenchmarkToStreamConfig(b *testing.B) {
+	config, err := os.ReadFile("test/test_config.yaml")
+	require.NoError(b, err)
+
 	var yamlConfig YAMLConfig
 	yaml.Unmarshal(config, &yamlConfig)
 
