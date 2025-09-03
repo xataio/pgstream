@@ -11,7 +11,7 @@ import (
 
 var config, _ = os.ReadFile("test/test_config.yaml")
 
-func FuzzToStreamConfig(f *testing.F) {
+func FuzzYAMLToStreamConfig(f *testing.F) {
 	f.Add(config)
 	// Seed with edge cases
 	f.Add([]byte(`{}`))
@@ -71,7 +71,7 @@ func FuzzYAMLConfigStructure(f *testing.F) {
 	})
 }
 
-func FuzzConfigProperties(f *testing.F) {
+func FuzzYAMLConfigProperties(f *testing.F) {
 	f.Fuzz(func(t *testing.T,
 		sourceMode uint8,
 		snapshotMode uint8,
