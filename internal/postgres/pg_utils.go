@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq"
 )
 
@@ -104,4 +105,18 @@ func extractDatabase(url string) (string, error) {
 		return "", err
 	}
 	return pgCfg.Database, nil
+}
+
+func registerTypesToConnMap(ctx context.Context, conn *pgx.Conn) error {
+	var hstoreOID uint32
+	err := conn.QueryRow(ctx, "SELECT oid FROM pg_type WHERE typname = 'hstore'").Scan(&hstoreOID)
+	if err == nil && hstoreOID != 0 {
+		conn.TypeMap().RegisterType(&pgtype.Type{
+			Codec: pgtype.HstoreCodec{},
+			Name:  "hstore",
+			OID:   hstoreOID,
+		})
+	}
+
+	return nil
 }

@@ -22,6 +22,7 @@ func NewConnPool(ctx context.Context, url string) (*Pool, error) {
 		return nil, fmt.Errorf("failed parsing postgres connection string: %w", mapError(err))
 	}
 	pgCfg.MaxConns = maxConns
+	pgCfg.AfterConnect = registerTypesToConnMap
 
 	pool, err := pgxpool.NewWithConfig(ctx, pgCfg)
 	if err != nil {
