@@ -24,6 +24,8 @@ func NewConn(ctx context.Context, url string) (*Conn, error) {
 		return nil, fmt.Errorf("failed to connect to postgres: %w", mapError(err))
 	}
 
+	registerTypesToConnMap(ctx, conn)
+
 	return &Conn{conn: conn}, nil
 }
 
