@@ -12,6 +12,15 @@ test:
 integration-test:
 	@PGSTREAM_INTEGRATION_TESTS=true go test -timeout 180s github.com/xataio/pgstream/pkg/stream/integration
 
+.PHONY: fuzz
+fuzz:
+	@echo "Fuzzing YAML to Stream Config"
+	@go test -fuzz=FuzzYAMLToStreamConfig --fuzztime 30s github.com/xataio/pgstream/cmd/config
+	@echo "Fuzzing YAML Config Structure"
+	@go test -fuzz=FuzzYAMLConfigStructure --fuzztime 30s github.com/xataio/pgstream/cmd/config
+	@echo "Fuzzing YAML Config Properties"
+	@go test -fuzz=FuzzYAMLConfigProperties --fuzztime 30s github.com/xataio/pgstream/cmd/config
+
 .PHONY: license-check
 license-check:
 	@curl -s https://raw.githubusercontent.com/lluissm/license-header-checker/master/install.sh | bash

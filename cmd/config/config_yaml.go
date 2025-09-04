@@ -472,13 +472,7 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 	}
 
 	if snapshotConfig.Mode == fullSnapshotMode || snapshotConfig.Mode == dataSnapshotMode {
-		streamCfg.Generator = pgsnapshotgenerator.Config{
-			URL:             c.Source.Postgres.URL,
-			BatchBytes:      snapshotConfig.Data.BatchBytes,
-			SchemaWorkers:   uint(snapshotConfig.Data.SchemaWorkers),
-			TableWorkers:    uint(snapshotConfig.Data.TableWorkers),
-			SnapshotWorkers: uint(snapshotConfig.SnapshotWorkers),
-		}
+		streamCfg.Generator = c.parseDataSnapshotConfig()
 	}
 
 	if snapshotConfig.Mode == fullSnapshotMode || snapshotConfig.Mode == schemaSnapshotMode {
@@ -490,6 +484,22 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 	}
 
 	return streamCfg, nil
+}
+
+func (c *YAMLConfig) parseDataSnapshotConfig() pgsnapshotgenerator.Config {
+	snapshotCfg := c.Source.Postgres.Snapshot
+	cfg := pgsnapshotgenerator.Config{
+		URL:             c.Source.Postgres.URL,
+		SnapshotWorkers: uint(snapshotCfg.SnapshotWorkers),
+	}
+
+	if snapshotCfg.Data != nil {
+		cfg.BatchBytes = snapshotCfg.Data.BatchBytes
+		cfg.SchemaWorkers = uint(snapshotCfg.Data.SchemaWorkers)
+		cfg.TableWorkers = uint(snapshotCfg.Data.TableWorkers)
+	}
+
+	return cfg
 }
 
 func (c *YAMLConfig) parseSchemaSnapshotConfig() (snapshotbuilder.SchemaSnapshotConfig, error) {
