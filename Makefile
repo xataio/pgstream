@@ -15,11 +15,11 @@ integration-test:
 .PHONY: fuzz
 fuzz:
 	@echo "Fuzzing YAML to Stream Config"
-	@go test -fuzz=FuzzYAMLToStreamConfig --fuzztime 5s github.com/xataio/pgstream/cmd/config
+	@go test -fuzz=FuzzYAMLToStreamConfig --fuzztime 30s github.com/xataio/pgstream/cmd/config
 	@echo "Fuzzing YAML Config Structure"
-	@go test -fuzz=FuzzYAMLConfigStructure --fuzztime 5s github.com/xataio/pgstream/cmd/config
+	@go test -fuzz=FuzzYAMLConfigStructure --fuzztime 30s github.com/xataio/pgstream/cmd/config
 	@echo "Fuzzing YAML Config Properties"
-	@go test -fuzz=FuzzYAMLConfigProperties --fuzztime 5s github.com/xataio/pgstream/cmd/config
+	@go test -fuzz=FuzzYAMLConfigProperties --fuzztime 30s github.com/xataio/pgstream/cmd/config
 
 .PHONY: license-check
 license-check:
