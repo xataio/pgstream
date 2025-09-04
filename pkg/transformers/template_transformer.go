@@ -11,6 +11,7 @@ import (
 
 	"github.com/Masterminds/sprig/v3"
 	greenmasktoolkit "github.com/eminano/greenmask/pkg/toolkit"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type TemplateTransformer struct {
@@ -22,6 +23,7 @@ var (
 	templateCompatibleTypes   = []SupportedDataType{
 		StringDataType,
 		ByteArrayDataType,
+		HstoreDataType,
 	}
 	templateParams = []Parameter{
 		{
@@ -51,6 +53,10 @@ func NewTemplateTransformer(params ParameterValues) (*TemplateTransformer, error
 }
 
 func (t *TemplateTransformer) Transform(_ context.Context, value Value) (any, error) {
+	if _, ok := value.TransformValue.(pgtype.Hstore); ok {
+		return t.transformHstore(value)
+	}
+
 	var buf strings.Builder
 	if err := t.template.Execute(&buf, &value); err != nil {
 		return nil, fmt.Errorf("template_transformer: error executing template: %w", err)
@@ -71,4 +77,22 @@ func TemplateTransformerDefinition() *Definition {
 		SupportedTypes: templateCompatibleTypes,
 		Parameters:     templateParams,
 	}
+}
+
+func (t *TemplateTransformer) transformHstore(value Value) (pgtype.Hstore, error) {
+	hstoreValue, _ := value.TransformValue.(pgtype.Hstore)
+	strValue, err := hstoreValue.Value()
+	if err != nil {
+		return nil, fmt.Errorf("template_transformer: error getting hstore value: %w", err)
+	}
+	value.TransformValue = strValue
+	var buf strings.Builder
+	if err := t.template.Execute(&buf, &value); err != nil {
+		return nil, fmt.Errorf("template_transformer: error executing template: %w", err)
+	}
+	transformedHstore, err := parseHstore(strings.TrimSpace(buf.String()))
+	if err != nil {
+		return nil, fmt.Errorf("template_transformer: error parsing hstore: %w", err)
+	}
+	return transformedHstore, nil
 }

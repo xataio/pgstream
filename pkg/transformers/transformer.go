@@ -78,6 +78,7 @@ const (
 	JSONDataType           SupportedDataType = "json"
 	AllDataTypes           SupportedDataType = "all"
 	CitextDataType         SupportedDataType = "citext"
+	HstoreDataType         SupportedDataType = "hstore"
 )
 
 const (

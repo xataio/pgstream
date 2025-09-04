@@ -702,7 +702,8 @@
       "name": "template",
       "supported_types": [
         "string",
-        "byte_array"
+        "byte_array",
+        "hstore"
       ],
       "parameters": [
         {
