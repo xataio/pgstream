@@ -65,6 +65,7 @@ type Option func(s *SnapshotGenerator)
 type dump struct {
 	full                  []byte
 	filtered              []byte
+	cleanupPart           []byte
 	indicesAndConstraints []byte
 	sequences             []string
 	roles                 map[string]struct{}
@@ -176,7 +177,10 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	// if there's no further snapshotting happening, we can apply the full dump,
 	// no need to apply the constraints/indices separately.
 	if s.generator == nil {
-		dumpsToRestore := rolesDump
+		// the cleanup part will drop all the objects before we execute the roles dump,
+		// and this will allow us to drop the roles safely, in case `clean_target_db` is enabled.
+		dumpsToRestore := dump.cleanupPart
+		dumpsToRestore = append(dumpsToRestore, rolesDump...)
 		dumpsToRestore = append(dumpsToRestore, dump.full...)
 		dumpsToRestore = append(dumpsToRestore, sequenceDump...)
 		return s.restoreDump(ctx, dumpSchemas, dumpsToRestore)
@@ -186,7 +190,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	// then call the wrapped snapshot generator, and apply the indices and constraints last.
 	// This will make the data snapshot faster, since there will be no
 	// constraints to be updated/checked on each insert.
-	if err := s.restoreDump(ctx, dumpSchemas, append(rolesDump, dump.filtered...)); err != nil {
+	if err := s.restoreDump(ctx, dumpSchemas, append(dump.cleanupPart, append(rolesDump, dump.filtered...)...)); err != nil {
 		return err
 	}
 
@@ -225,7 +229,22 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 		return nil, fmt.Errorf("dumping schema: %w", err)
 	}
 
-	return s.parseDump(d), nil
+	parsedDump := s.parseDump(d)
+
+	if pgdumpOpts.Clean {
+		// In case clean is enabled, we need the cleanup part of the dump separately, which will be restored before the roles dump.
+		// This will allow us to drop the roles safely, without getting dependency erros.
+		pgdumpOpts.Clean = false
+		s.logger.Debug("dumping schema again without clean", loglib.Fields{"pg_dump_options": pgdumpOpts.ToArgs(), "schema_tables": schemaTables})
+		dumpWithoutClean, err := s.pgDumpFn(ctx, *pgdumpOpts)
+		if err != nil {
+			s.logger.Error(err, "pg_dump for schema failed", loglib.Fields{"pgdumpOptions": pgdumpOpts.ToArgs()})
+			return nil, fmt.Errorf("dumping schema: %w", err)
+		}
+		parsedDump.cleanupPart = getDumpsDiff(d, dumpWithoutClean)
+	}
+
+	return parsedDump, nil
 }
 
 func (s *SnapshotGenerator) dumpSequenceValues(ctx context.Context, sequences []string) ([]byte, error) {
@@ -257,6 +276,7 @@ func (s *SnapshotGenerator) dumpRoles(ctx context.Context, roles map[string]stru
 	opts := &pglib.PGDumpAllOptions{
 		ConnectionString: s.sourceURL,
 		RolesOnly:        true,
+		Clean:            s.cleanTargetDB,
 		Role:             s.role,
 	}
 
@@ -653,8 +673,16 @@ func filterRolesDump(rolesDump []byte, roles map[string]struct{}) []byte {
 	var filteredDump strings.Builder
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "CREATE ROLE ") || strings.HasPrefix(line, "ALTER ROLE ") || strings.HasPrefix(line, "COMMENT ON ROLE ") {
-			roleName := getRoleNameAfterClause(line, " ROLE ")
+		roleName := ""
+		switch {
+		case strings.HasPrefix(line, "DROP ROLE IF EXISTS "):
+			roleName = getRoleNameAfterClause(line, "DROP ROLE IF EXISTS ")
+		case strings.HasPrefix(line, "DROP ROLE "):
+			roleName = getRoleNameAfterClause(line, "DROP ROLE ")
+		case strings.HasPrefix(line, "CREATE ROLE "), strings.HasPrefix(line, "ALTER ROLE "), strings.HasPrefix(line, "COMMENT ON ROLE "):
+			roleName = getRoleNameAfterClause(line, " ROLE ")
+		}
+		if roleName != "" {
 			if _, ok := roles[roleName]; !ok {
 				// skip the role if it is not in the roles map
 				continue
@@ -718,4 +746,24 @@ func hasWildcardTable(tables []string) bool {
 
 func hasWildcardSchema(schemaTables map[string][]string) bool {
 	return schemaTables[wildcard] != nil
+}
+
+// returns all the lines of d1 that are not in d2
+func getDumpsDiff(d1, d2 []byte) []byte {
+	var diff strings.Builder
+	lines1 := bytes.Split(d1, []byte("\n"))
+	lines2 := bytes.Split(d2, []byte("\n"))
+	lines2map := make(map[string]bool)
+	for _, line := range lines2 {
+		lines2map[string(line)] = true
+	}
+
+	for _, line := range lines1 {
+		if !lines2map[string(line)] {
+			diff.Write(line)
+			diff.WriteString("\n")
+		}
+	}
+
+	return []byte(diff.String())
 }
