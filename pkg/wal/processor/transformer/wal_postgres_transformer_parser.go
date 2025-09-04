@@ -18,7 +18,7 @@ import (
 type PostgresTransformerParser struct {
 	conn           pglib.Querier
 	builder        transformerBuilder
-	pgtypeMap      *pgtype.Map
+	pgtypeMap      *pglib.Mapper
 	requiredTables []string
 }
 
@@ -39,7 +39,7 @@ func NewPostgresTransformerParser(ctx context.Context, pgURL string, builder tra
 	return &PostgresTransformerParser{
 		conn:           pool,
 		builder:        builder,
-		pgtypeMap:      pgtype.NewMap(),
+		pgtypeMap:      pglib.NewMapper(pool),
 		requiredTables: requiredTables,
 	}, nil
 }
@@ -93,10 +93,10 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 				return nil, fmt.Errorf("column %s not found in table %s", colName, tableKey)
 			}
 
-			dataTypeName := v.getDataTypeName(ctx, dataTypeOID)
+			dataTypeName, err := v.pgtypeMap.TypeForOID(ctx, dataTypeOID)
 
 			// validate that the transformer is compatible with the column type
-			if !pgTypeCompatibleWithTransformerType(transformer.CompatibleTypes(), dataTypeOID, dataTypeName) {
+			if err != nil || !pgTypeCompatibleWithTransformerType(transformer.CompatibleTypes(), dataTypeOID, dataTypeName) {
 				return nil, fmt.Errorf("transformer '%s' specified for column '%s' in table %s does not support pg data type: %s with OID: %d", transformer.Type(), colName, tableKey, dataTypeName, dataTypeOID)
 			}
 
@@ -228,23 +228,6 @@ func (v *PostgresTransformerParser) getAllSchemaNames(ctx context.Context) ([]st
 	}
 
 	return schemas, nil
-}
-
-func (v *PostgresTransformerParser) getDataTypeName(ctx context.Context, oid uint32) string {
-	typeForOid, ok := v.pgtypeMap.TypeForOID(oid)
-	if ok {
-		return typeForOid.Name
-	}
-
-	// unknown oid, get the type as it could be an extension or custom type
-	var typeName string
-	err := v.conn.QueryRow(ctx, "SELECT typname FROM pg_type WHERE oid = $1", oid).Scan(&typeName)
-	if err != nil {
-		// if we can't get the type name
-		return "unknown"
-	}
-
-	return typeName
 }
 
 func parseTableName(qualifiedTableName string) (string, string, error) {

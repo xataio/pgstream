@@ -98,10 +98,22 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 		}
 	}
 
+	testQuerierWithUnknownTypeErr := testQuerier()
+	testQuerierWithUnknownTypeErr.QueryRowFn = func(ctx context.Context, query string, args ...any) pglib.Row {
+		return &pgmocks.Row{
+			ScanFn: func(dest ...any) error {
+				require.Equal(t, query, "SELECT typname FROM pg_type WHERE oid = $1")
+				require.Equal(t, 1, len(args))
+				require.Equal(t, citextOID, args[0])
+				return errors.New("not found")
+			},
+		}
+	}
+
 	testPGValidator := PostgresTransformerParser{
 		conn:           testQuerier(),
 		builder:        builder.NewTransformerBuilder(),
-		pgtypeMap:      pgtype.NewMap(),
+		pgtypeMap:      pglib.NewMapper(testQuerier()),
 		requiredTables: []string{"public.test"},
 	}
 
@@ -177,7 +189,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			validator: PostgresTransformerParser{
 				conn:           testQuerier(),
 				builder:        builder.NewTransformerBuilder(),
-				pgtypeMap:      pgtype.NewMap(),
+				pgtypeMap:      pglib.NewMapper(testQuerier()),
 				requiredTables: []string{"*"},
 			},
 
@@ -207,7 +219,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			validator: PostgresTransformerParser{
 				conn:           testQuerier(),
 				builder:        builder.NewTransformerBuilder(),
-				pgtypeMap:      pgtype.NewMap(),
+				pgtypeMap:      pglib.NewMapper(testQuerier()),
 				requiredTables: []string{"*.*"},
 			},
 
@@ -285,22 +297,9 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				},
 			},
 			validator: PostgresTransformerParser{
-				conn: func() *pgmocks.Querier {
-					q := testQuerier()
-					q.QueryRowFn = func(ctx context.Context, query string, args ...any) pglib.Row {
-						return &pgmocks.Row{
-							ScanFn: func(dest ...any) error {
-								require.Equal(t, query, "SELECT typname FROM pg_type WHERE oid = $1")
-								require.Equal(t, 1, len(args))
-								require.Equal(t, citextOID, args[0])
-								return errors.New("not found")
-							},
-						}
-					}
-					return q
-				}(),
+				conn:           testQuerierWithUnknownTypeErr,
 				builder:        builder.NewTransformerBuilder(),
-				pgtypeMap:      pgtype.NewMap(),
+				pgtypeMap:      pglib.NewMapper(testQuerierWithUnknownTypeErr),
 				requiredTables: []string{"public.test"},
 			},
 			wantErr: errors.New("transformer 'neosync_email' specified for column 'email' in table \"public\".\"test\" does not support pg data type: unknown with OID: 1234"),
@@ -365,7 +364,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			validator: PostgresTransformerParser{
 				conn:           testQuerier(),
 				builder:        builder.NewTransformerBuilder(),
-				pgtypeMap:      pgtype.NewMap(),
+				pgtypeMap:      pglib.NewMapper(testQuerier()),
 				requiredTables: []string{"*"},
 			},
 			wantErr: fmt.Errorf("required table %s not found in transformation rules", "\"public\".\"test\""),
@@ -376,7 +375,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			validator: PostgresTransformerParser{
 				conn:           testQuerier(),
 				builder:        builder.NewTransformerBuilder(),
-				pgtypeMap:      pgtype.NewMap(),
+				pgtypeMap:      pglib.NewMapper(testQuerier()),
 				requiredTables: []string{"invalid.table.name"},
 			},
 			wantErr: errInvalidTableName,
@@ -387,7 +386,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			validator: PostgresTransformerParser{
 				conn:           testQuerier(),
 				builder:        builder.NewTransformerBuilder(),
-				pgtypeMap:      pgtype.NewMap(),
+				pgtypeMap:      pglib.NewMapper(testQuerier()),
 				requiredTables: []string{"*.test"},
 			},
 			wantErr: fmt.Errorf("getting required tables list: wildcard schema must be used with wildcard table, got: \"test\""),
