@@ -48,6 +48,11 @@
       "example": "\n\tpgstream run --source postgres --source-url <source-postgres-url> --target postgres --target-url <target-postgres-url> --init\n\tpgstream run --source postgres --source-url <source-postgres-url> --target postgres --target-url <target-postgres-url> --snapshot-tables <schema.table> --reset\n\tpgstream run --source kafka --source-url <kafka-url> --target elasticsearch --target-url <elasticsearch-url>\n\tpgstream run --source postgres --source-url <postgres-url> --target kafka --target-url <kafka-url>\n\tpgstream run --config config.yaml --log-level info\n\tpgstream run --config config.env",
       "flags": [
         {
+          "name": "dump-file",
+          "description": "File where the pg_dump output will be written if initial snapshot is enabled",
+          "default": ""
+        },
+        {
           "name": "init",
           "description": "Whether to initialize pgstream before starting replication",
           "default": "false"
