@@ -1549,4 +1549,3 @@ func TestSnapshotGenerator_syncSchemaLog(t *testing.T) {
 		})
 	}
 }
-
