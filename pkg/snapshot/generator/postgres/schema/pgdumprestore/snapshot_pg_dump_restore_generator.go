@@ -138,8 +138,16 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 	}
 }
 
-func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) error {
+func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) (err error) {
 	s.logger.Info("creating schema snapshot", loglib.Fields{"schemaTables": ss.SchemaTables})
+	defer func() {
+		if err == nil {
+			// if we perform a schema snapshot using pg_dump/pg_restore, we need to make
+			// sure the schema_log table is updated accordingly with the schema view so that
+			// replication can work as expected if configured.
+			err = s.syncSchemaLog(ctx, ss.SchemaTables, ss.SchemaExcludedTables)
+		}
+	}()
 
 	// make sure any empty schemas are filtered out
 	dumpSchemas := make(map[string][]string, len(ss.SchemaTables))
@@ -324,17 +332,43 @@ func (s *SnapshotGenerator) restoreDump(ctx context.Context, schemaTables map[st
 		}
 	}
 
-	// if we perform a schema snapshot using pg_dump/pg_restore, we need to make
-	// sure the schema_log table is updated accordingly with the schema view so
-	// that replication can work as expected if configured.
-	if s.schemalogStore != nil {
+	return nil
+}
+
+func (s *SnapshotGenerator) syncSchemaLog(ctx context.Context, schemaTables, excludeSchemaTables map[string][]string) error {
+	if s.schemalogStore == nil {
+		return nil
+	}
+
+	s.logger.Info("syncing schema log", loglib.Fields{"schemaTables": schemaTables, "excludeSchemaTables": excludeSchemaTables})
+
+	conn, err := s.connBuilder(ctx, s.sourceURL)
+	if err != nil {
+		return err
+	}
+	defer conn.Close(context.Background())
+
+	schemas := make([]string, 0, len(schemaTables))
+	switch {
+	case hasWildcardSchema(schemaTables):
+		schemas, err = pglib.DiscoverAllSchemas(ctx, conn)
+		if err != nil {
+			return fmt.Errorf("discovering schemas: %w", err)
+		}
+	default:
 		for schema := range schemaTables {
-			if _, err := s.schemalogStore.Insert(ctx, schema); err != nil {
-				return fmt.Errorf("inserting schemalog entry after schema snapshot: %w", err)
-			}
+			schemas = append(schemas, schema)
 		}
 	}
 
+	for _, schema := range schemas {
+		if _, found := excludeSchemaTables[schema]; found {
+			continue
+		}
+		if _, err := s.schemalogStore.Insert(ctx, schema); err != nil {
+			return fmt.Errorf("inserting schemalog entry for schema %q after schema snapshot: %w", schema, err)
+		}
+	}
 	return nil
 }
 

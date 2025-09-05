@@ -77,6 +77,7 @@ func Prepare() *cobra.Command {
 	runCmd.Flags().Bool("reset", false, "Whether to reset the target before snapshotting (only for postgres target)")
 	runCmd.Flags().Bool("profile", false, "Whether to expose a /debug/pprof endpoint on localhost:6060")
 	runCmd.Flags().BoolVar(&initFlag, "init", false, "Whether to initialize pgstream before starting replication")
+	runCmd.Flags().String("dump-file", "", "File where the pg_dump output will be written if initial snapshot is enabled")
 
 	// status cmd
 	statusCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream has been initialised")

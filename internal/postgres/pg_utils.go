@@ -120,3 +120,53 @@ func registerTypesToConnMap(ctx context.Context, conn *pgx.Conn) error {
 
 	return nil
 }
+
+const DiscoverAllSchemasQuery = "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')"
+
+func DiscoverAllSchemas(ctx context.Context, conn Querier) ([]string, error) {
+	rows, err := conn.Query(ctx, DiscoverAllSchemasQuery)
+	if err != nil {
+		return nil, fmt.Errorf("discovering all schemas for wildcard: %w", err)
+	}
+	defer rows.Close()
+
+	schemas := []string{}
+	for rows.Next() {
+		var schemaName string
+		if err := rows.Scan(&schemaName); err != nil {
+			return nil, fmt.Errorf("scanning schema name: %w", err)
+		}
+		schemas = append(schemas, schemaName)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return schemas, nil
+}
+
+const DiscoverAllSchemaTablesQuery = "SELECT tablename FROM pg_tables WHERE schemaname=$1"
+
+func DiscoverAllSchemaTables(ctx context.Context, conn Querier, schema string) ([]string, error) {
+	rows, err := conn.Query(ctx, DiscoverAllSchemaTablesQuery, schema)
+	if err != nil {
+		return nil, fmt.Errorf("discovering all tables for schema %s: %w", schema, err)
+	}
+	defer rows.Close()
+
+	tableNames := []string{}
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			return nil, fmt.Errorf("scanning table name: %w", err)
+		}
+		tableNames = append(tableNames, tableName)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return tableNames, nil
+}

@@ -89,6 +89,8 @@ func initialSnapshotFlagBinding(cmd *cobra.Command) {
 		}
 	}
 
+	viper.BindPFlag("source.postgres.snapshot.schema.pgdump_pgrestore.dump_file", cmd.Flags().Lookup("dump-file"))
+
 	// if the source and target are postgres, and snapshot and replication mode
 	// is enabled, default to using bulk ingest if not set
 	if viper.GetString("source.postgres.url") != "" && viper.GetString("target.postgres.url") != "" &&
@@ -101,6 +103,8 @@ func initialSnapshotFlagBinding(cmd *cobra.Command) {
 	// provided or when no configuration is provided
 	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_TABLES", cmd.Flags().Lookup("snapshot-tables"))
 	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB", cmd.Flags().Lookup("reset"))
+
+	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE", cmd.Flags().Lookup("dump-file"))
 
 	// if the source and target are postgres, with replication + initial snapshot
 	// enabled, default to using bulk ingest if not set

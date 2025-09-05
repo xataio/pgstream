@@ -1151,7 +1151,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr: fmt.Errorf("inserting schemalog entry after schema snapshot: %w", errTest),
+			wantErr: fmt.Errorf("inserting schemalog entry for schema %q after schema snapshot: %w", testSchema, errTest),
 		},
 	}
 
@@ -1368,6 +1368,184 @@ func TestGetDumpsDiff(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := getDumpsDiff(tc.d1, tc.d2)
 			require.Equal(t, string(tc.want), string(got))
+		})
+	}
+}
+
+func TestSnapshotGenerator_syncSchemaLog(t *testing.T) {
+	t.Parallel()
+
+	testSchema := "test_schema"
+	testSchema2 := "test_schema_2"
+	excludedSchema := "excluded_schema"
+	errTest := errors.New("oh noes")
+
+	tests := []struct {
+		name                string
+		schemalogStore      schemalog.Store
+		connBuilder         pglib.QuerierBuilder
+		schemaTables        map[string][]string
+		excludeSchemaTables map[string][]string
+		wantErr             error
+	}{
+		{
+			name:           "ok - no schemalog store",
+			schemalogStore: nil,
+			schemaTables: map[string][]string{
+				testSchema: {"table1"},
+			},
+			excludeSchemaTables: map[string][]string{},
+			wantErr:             nil,
+		},
+		{
+			name: "ok - single schema",
+			schemalogStore: &schemalogmocks.Store{
+				InsertFn: func(ctx context.Context, schemaName string) (*schemalog.LogEntry, error) {
+					require.Equal(t, testSchema, schemaName)
+					return &schemalog.LogEntry{SchemaName: schemaName}, nil
+				},
+			},
+			connBuilder: func(ctx context.Context, s string) (pglib.Querier, error) {
+				return &mocks.Querier{}, nil
+			},
+			schemaTables: map[string][]string{
+				testSchema: {"table1"},
+			},
+			excludeSchemaTables: map[string][]string{},
+			wantErr:             nil,
+		},
+		{
+			name: "ok - wildcard schema",
+			schemalogStore: &schemalogmocks.Store{
+				InsertFn: func(ctx context.Context, schemaName string) (*schemalog.LogEntry, error) {
+					if schemaName != testSchema && schemaName != testSchema2 {
+						return nil, fmt.Errorf("unexpected schema name: %s", schemaName)
+					}
+					return &schemalog.LogEntry{SchemaName: schemaName}, nil
+				},
+			},
+			connBuilder: func(ctx context.Context, s string) (pglib.Querier, error) {
+				return &mocks.Querier{
+					QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+						require.Contains(t, query, pglib.DiscoverAllSchemasQuery)
+						return &mocks.Rows{
+							CloseFn: func() {},
+							NextFn: func(i uint) bool {
+								return i < 2
+							},
+							ScanFn: func(dest ...any) error {
+								schema, ok := dest[0].(*string)
+								require.True(t, ok)
+								if *schema == "" {
+									*schema = testSchema
+								} else {
+									*schema = testSchema2
+								}
+								return nil
+							},
+							ErrFn: func() error { return nil },
+						}, nil
+					},
+				}, nil
+			},
+			schemaTables: map[string][]string{
+				wildcard: {"table1"},
+			},
+			excludeSchemaTables: map[string][]string{},
+			wantErr:             nil,
+		},
+		{
+			name: "ok - excluded schema skipped",
+			schemalogStore: &schemalogmocks.Store{
+				InsertFn: func(ctx context.Context, schemaName string) (*schemalog.LogEntry, error) {
+					require.NotEqual(t, excludedSchema, schemaName)
+					return &schemalog.LogEntry{SchemaName: schemaName}, nil
+				},
+			},
+			connBuilder: func(ctx context.Context, s string) (pglib.Querier, error) {
+				return &mocks.Querier{}, nil
+			},
+			schemaTables: map[string][]string{
+				testSchema:     {"table1"},
+				excludedSchema: {"table2"},
+			},
+			excludeSchemaTables: map[string][]string{
+				excludedSchema: {"table2"},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "error - schema log insert fails",
+			schemalogStore: &schemalogmocks.Store{
+				InsertFn: func(ctx context.Context, schemaName string) (*schemalog.LogEntry, error) {
+					return nil, errTest
+				},
+			},
+			connBuilder: func(ctx context.Context, s string) (pglib.Querier, error) {
+				return &mocks.Querier{}, nil
+			},
+			schemaTables: map[string][]string{
+				testSchema: {"table1"},
+			},
+			excludeSchemaTables: map[string][]string{},
+			wantErr:             errTest,
+		},
+		{
+			name:           "error - getting source connection",
+			schemalogStore: &schemalogmocks.Store{},
+			connBuilder: func(ctx context.Context, s string) (pglib.Querier, error) {
+				return nil, errTest
+			},
+			schemaTables: map[string][]string{
+				testSchema: {"table1"},
+			},
+			excludeSchemaTables: map[string][]string{},
+			wantErr:             errTest,
+		},
+		{
+			name: "error - discovering schemas",
+			schemalogStore: &schemalogmocks.Store{
+				InsertFn: func(ctx context.Context, schemaName string) (*schemalog.LogEntry, error) {
+					if schemaName != testSchema && schemaName != testSchema2 {
+						return nil, fmt.Errorf("unexpected schema name: %s", schemaName)
+					}
+					return &schemalog.LogEntry{SchemaName: schemaName}, nil
+				},
+			},
+			connBuilder: func(ctx context.Context, s string) (pglib.Querier, error) {
+				return &mocks.Querier{
+					QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+						require.Contains(t, query, pglib.DiscoverAllSchemasQuery)
+						return &mocks.Rows{
+							CloseFn: func() {},
+							NextFn: func(i uint) bool {
+								return i < 2
+							},
+							ScanFn: func(dest ...any) error {
+								return errTest
+							},
+							ErrFn: func() error { return nil },
+						}, nil
+					},
+				}, nil
+			},
+			schemaTables: map[string][]string{
+				wildcard: {"table1"},
+			},
+			excludeSchemaTables: map[string][]string{},
+			wantErr:             errTest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sg := &SnapshotGenerator{
+				schemalogStore: tc.schemalogStore,
+				connBuilder:    tc.connBuilder,
+				logger:         log.NewNoopLogger(),
+			}
+			err := sg.syncSchemaLog(context.Background(), tc.schemaTables, tc.excludeSchemaTables)
+			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
 }
