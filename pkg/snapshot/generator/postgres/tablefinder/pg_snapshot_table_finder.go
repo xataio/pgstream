@@ -45,8 +45,8 @@ func NewSnapshotSchemaTableFinder(ctx context.Context, pgurl string, generator g
 	stf := &SnapshotSchemaTableFinder{
 		wrapped:           generator,
 		conn:              conn,
-		schemaDiscoveryFn: discoverAllSchemas,
-		tableDiscoveryFn:  discoverAllSchemaTables,
+		schemaDiscoveryFn: pglib.DiscoverAllSchemas,
+		tableDiscoveryFn:  pglib.DiscoverAllSchemaTables,
 	}
 
 	for _, opt := range opts {
@@ -124,52 +124,4 @@ func (s *SnapshotSchemaTableFinder) CreateSnapshot(ctx context.Context, ss *snap
 
 func (s *SnapshotSchemaTableFinder) Close() error {
 	return s.conn.Close(context.Background())
-}
-
-func discoverAllSchemaTables(ctx context.Context, conn pglib.Querier, schema string) ([]string, error) {
-	const query = "SELECT tablename FROM pg_tables WHERE schemaname=$1"
-	rows, err := conn.Query(ctx, query, schema)
-	if err != nil {
-		return nil, fmt.Errorf("discovering all tables for schema %s: %w", schema, err)
-	}
-	defer rows.Close()
-
-	tableNames := []string{}
-	for rows.Next() {
-		var tableName string
-		if err := rows.Scan(&tableName); err != nil {
-			return nil, fmt.Errorf("scanning table name: %w", err)
-		}
-		tableNames = append(tableNames, tableName)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return tableNames, nil
-}
-
-func discoverAllSchemas(ctx context.Context, conn pglib.Querier) ([]string, error) {
-	const query = "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')"
-	rows, err := conn.Query(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("discovering all schemas for wildcard: %w", err)
-	}
-	defer rows.Close()
-
-	schemas := []string{}
-	for rows.Next() {
-		var schemaName string
-		if err := rows.Scan(&schemaName); err != nil {
-			return nil, fmt.Errorf("scanning schema name: %w", err)
-		}
-		schemas = append(schemas, schemaName)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return schemas, nil
 }

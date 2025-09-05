@@ -332,8 +332,8 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 			tableFinder := SnapshotSchemaTableFinder{
 				conn:              tc.conn,
 				wrapped:           tc.generator,
-				schemaDiscoveryFn: discoverAllSchemas,
-				tableDiscoveryFn:  discoverAllSchemaTables,
+				schemaDiscoveryFn: pglib.DiscoverAllSchemas,
+				tableDiscoveryFn:  pglib.DiscoverAllSchemaTables,
 			}
 			err := tableFinder.CreateSnapshot(context.Background(), tc.snapshot)
 			if tc.wantErr != nil {
