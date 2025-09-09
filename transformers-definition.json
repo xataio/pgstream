@@ -3,10 +3,7 @@
   "transformers": [
     {
       "name": "greenmask_boolean",
-      "supported_types": [
-        "boolean",
-        "byte_array"
-      ],
+      "supported_types": ["boolean", "byte_array"],
       "parameters": [
         {
           "name": "generator",
@@ -14,19 +11,13 @@
           "default": "random",
           "dynamic": false,
           "required": false,
-          "values": [
-            "random",
-            "deterministic"
-          ]
+          "values": ["random", "deterministic"]
         }
       ]
     },
     {
       "name": "greenmask_choice",
-      "supported_types": [
-        "string",
-        "byte_array"
-      ],
+      "supported_types": ["string", "byte_array"],
       "parameters": [
         {
           "name": "choices",
@@ -41,20 +32,13 @@
           "default": "random",
           "dynamic": false,
           "required": false,
-          "values": [
-            "random",
-            "deterministic"
-          ]
+          "values": ["random", "deterministic"]
         }
       ]
     },
     {
       "name": "greenmask_date",
-      "supported_types": [
-        "string",
-        "byte_array",
-        "date"
-      ],
+      "supported_types": ["string", "byte_array", "date"],
       "parameters": [
         {
           "name": "generator",
@@ -62,10 +46,7 @@
           "default": "random",
           "dynamic": false,
           "required": false,
-          "values": [
-            "random",
-            "deterministic"
-          ]
+          "values": ["random", "deterministic"]
         },
         {
           "name": "min_value",
@@ -85,10 +66,7 @@
     },
     {
       "name": "greenmask_firstname",
-      "supported_types": [
-        "string",
-        "byte_array"
-      ],
+      "supported_types": ["string", "byte_array"],
       "parameters": [
         {
           "name": "generator",
@@ -96,10 +74,7 @@
           "default": "random",
           "dynamic": false,
           "required": false,
-          "values": [
-            "random",
-            "deterministic"
-          ]
+          "values": ["random", "deterministic"]
         },
         {
           "name": "gender",
@@ -107,21 +82,13 @@
           "default": "Any",
           "dynamic": true,
           "required": false,
-          "values": [
-            "Male",
-            "Female",
-            "Any"
-          ]
+          "values": ["Male", "Female", "Any"]
         }
       ]
     },
     {
       "name": "greenmask_float",
-      "supported_types": [
-        "float32",
-        "float64",
-        "byte_array"
-      ],
+      "supported_types": ["float32", "float64", "byte_array"],
       "parameters": [
         {
           "name": "generator",
@@ -129,22 +96,19 @@
           "default": "random",
           "dynamic": false,
           "required": false,
-          "values": [
-            "random",
-            "deterministic"
-          ]
+          "values": ["random", "deterministic"]
         },
         {
           "name": "min_value",
           "supported_type": "float",
-          "default": -3.4028234663852886e+38,
+          "default": -3.4028234663852886e38,
           "dynamic": false,
           "required": false
         },
         {
           "name": "max_value",
           "supported_type": "float",
-          "default": 3.4028234663852886e+38,
+          "default": 3.4028234663852886e38,
           "dynamic": false,
           "required": false
         },
@@ -179,10 +143,7 @@
           "default": "random",
           "dynamic": false,
           "required": false,
-          "values": [
-            "random",
-            "deterministic"
-          ]
+          "values": ["random", "deterministic"]
         },
         {
           "name": "size",
@@ -190,10 +151,7 @@
           "default": 4,
           "dynamic": false,
           "required": false,
-          "values": [
-            2,
-            4
-          ]
+          "values": [2, 4]
         },
         {
           "name": "min_value",
@@ -213,10 +171,7 @@
     },
     {
       "name": "greenmask_string",
-      "supported_types": [
-        "string",
-        "byte_array"
-      ],
+      "supported_types": ["string", "byte_array"],
       "parameters": [
         {
           "name": "symbols",
@@ -245,10 +200,7 @@
           "default": "random",
           "dynamic": false,
           "required": false,
-          "values": [
-            "random",
-            "deterministic"
-          ]
+          "values": ["random", "deterministic"]
         }
       ]
     },
@@ -274,10 +226,7 @@
           "default": "random",
           "dynamic": false,
           "required": false,
-          "values": [
-            "random",
-            "deterministic"
-          ]
+          "values": ["random", "deterministic"]
         },
         {
           "name": "min_value",
@@ -297,11 +246,7 @@
     },
     {
       "name": "greenmask_utc_timestamp",
-      "supported_types": [
-        "datetime",
-        "byte_array",
-        "string"
-      ],
+      "supported_types": ["datetime", "byte_array", "string"],
       "parameters": [
         {
           "name": "generator",
@@ -309,10 +254,7 @@
           "default": "random",
           "dynamic": false,
           "required": false,
-          "values": [
-            "random",
-            "deterministic"
-          ]
+          "values": ["random", "deterministic"]
         },
         {
           "name": "truncate_part",
@@ -350,12 +292,7 @@
     },
     {
       "name": "greenmask_uuid",
-      "supported_types": [
-        "string",
-        "byte_array",
-        "uuid",
-        "uint8_array_of_16"
-      ],
+      "supported_types": ["string", "byte_array", "uuid", "uint8_array_of_16"],
       "parameters": [
         {
           "name": "generator",
@@ -363,18 +300,13 @@
           "default": "random",
           "dynamic": false,
           "required": false,
-          "values": [
-            "random",
-            "deterministic"
-          ]
+          "values": ["random", "deterministic"]
         }
       ]
     },
     {
       "name": "json",
-      "supported_types": [
-        "json"
-      ],
+      "supported_types": ["json"],
       "parameters": [
         {
           "name": "operations",
@@ -387,9 +319,7 @@
     },
     {
       "name": "literal_string",
-      "supported_types": [
-        "all"
-      ],
+      "supported_types": ["all"],
       "parameters": [
         {
           "name": "literal",
@@ -402,10 +332,7 @@
     },
     {
       "name": "masking",
-      "supported_types": [
-        "string",
-        "byte_array"
-      ],
+      "supported_types": ["string", "byte_array"],
       "parameters": [
         {
           "name": "type",
@@ -459,10 +386,7 @@
     },
     {
       "name": "neosync_email",
-      "supported_types": [
-        "string",
-        "citext"
-      ],
+      "supported_types": ["string", "citext"],
       "parameters": [
         {
           "name": "seed",
@@ -505,11 +429,7 @@
           "default": "uuidv4",
           "dynamic": false,
           "required": false,
-          "values": [
-            "uuidv4",
-            "fullname",
-            "any"
-          ]
+          "values": ["uuidv4", "fullname", "any"]
         },
         {
           "name": "invalid_email_action",
@@ -517,20 +437,13 @@
           "default": "reject",
           "dynamic": false,
           "required": false,
-          "values": [
-            "reject",
-            "passthrough",
-            "null",
-            "generate"
-          ]
+          "values": ["reject", "passthrough", "null", "generate"]
         }
       ]
     },
     {
       "name": "neosync_firstname",
-      "supported_types": [
-        "string"
-      ],
+      "supported_types": ["string"],
       "parameters": [
         {
           "name": "seed",
@@ -557,9 +470,7 @@
     },
     {
       "name": "neosync_fullname",
-      "supported_types": [
-        "string"
-      ],
+      "supported_types": ["string"],
       "parameters": [
         {
           "name": "seed",
@@ -586,9 +497,7 @@
     },
     {
       "name": "neosync_lastname",
-      "supported_types": [
-        "string"
-      ],
+      "supported_types": ["string"],
       "parameters": [
         {
           "name": "seed",
@@ -615,9 +524,7 @@
     },
     {
       "name": "neosync_string",
-      "supported_types": [
-        "string"
-      ],
+      "supported_types": ["string"],
       "parameters": [
         {
           "name": "seed",
@@ -651,10 +558,7 @@
     },
     {
       "name": "phone_number",
-      "supported_types": [
-        "string",
-        "byte_array"
-      ],
+      "supported_types": ["string", "byte_array"],
       "parameters": [
         {
           "name": "prefix",
@@ -683,27 +587,45 @@
           "default": "random",
           "dynamic": false,
           "required": false,
-          "values": [
-            "random",
-            "deterministic"
-          ]
+          "values": ["random", "deterministic"]
         }
       ]
     },
     {
       "name": "string",
-      "supported_types": [
-        "string",
-        "byte_array"
-      ],
+      "supported_types": ["string", "byte_array"],
       "parameters": []
     },
     {
+      "name": "at_email",
+      "supported_types": ["string", "citext"],
+      "parameters": [
+        {
+          "name": "replacement_domain",
+          "supported_type": "string",
+          "default": "@crypt.com",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "exclude_domain",
+          "supported_type": "string",
+          "default": "",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "salt",
+          "supported_type": "string",
+          "default": "defaultsalt",
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
       "name": "template",
-      "supported_types": [
-        "string",
-        "byte_array"
-      ],
+      "supported_types": ["string", "byte_array"],
       "parameters": [
         {
           "name": "template",
