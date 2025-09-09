@@ -1308,6 +1308,48 @@ transformations:
 
 </details>
 
+ <details>
+  <summary>at_email</summary>
+
+**Description:** Anonymizes email addresses while optionally excluding domain to anonymize.
+
+| Supported PostgreSQL types                    |
+| --------------------------------------------- |
+| `text`, `varchar`, `char`, `bpchar`, `citext` |
+
+| Parameter            | Type     | Default | Required | Values                           |
+| -------------------- | -------- | ------- | -------- | -------------------------------- |
+| replacement_domain      | string     | "@crypt.com"  | No       |                                  |
+| exclude_domain      | string     | ""   | No       |                                  |
+| salt     | string | "defaultsalt"    | No       |                                  |
+
+**Example Configuration:**
+
+```yaml
+transformations:
+  table_transformers:
+    - schema: public
+      table: customers
+      column_transformers:
+        email:
+          name: at_email
+          parameters:
+            exclude_domain: "example.com"
+            salt: "helloworld"
+```
+
+**Input-Output Examples:**
+
+| Input Email            | Configuration Parameters                        | Output Email           |
+| ---------------------- | ----------------------------------------------- | ---------------------- |
+| `john.doe@example.com` | `exclude_domain: "example.com", salt: "helloworld"`  | `john.doe@example.com` |
+| `jane.doe@company.org` | `exclude_domain: "example.com", salt: "helloworld"`  | `T79P9zlFWzmT0yCUDMEE7S@crypt.com`   |
+| `jane.doe@company.org`    | `exclude_domain: "example.com", salt: "helloworld", replacement_domain: "@random.com"` | `6EIWw5lEa8nsY9JDOm5@random.com`  |
+| `invalid-email`        | `exclude_domain: "example.com", salt: "helloworld"`             | `1fk5VLgTeoRQCCvqXFoToC1@crypt.com`        |
+| `invalid-email`        | `exclude_domain: "example.com", salt: "helloworld", replacement_domain: "@random.com"`             | `6EIWw5lEa8nsY9JDOm5@random.com`        |
+
+</details>
+
 ### Transformation rules
 
 The rules for the transformers are defined in a dedicated yaml file, with the following format:
