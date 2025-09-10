@@ -5,6 +5,7 @@ package transformers
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"text/template"
 
 	"github.com/tidwall/gjson"
@@ -33,19 +34,24 @@ func (o *jsonOperation) apply(inp []byte, jsonVal *jsonValue, buf *bytes.Buffer)
 
 	switch o.operation {
 	case jsonSetOpName:
+		res = slices.Clone(inp)
 		if o.tmpl != nil {
 			buf.Reset()
 			jsonVal.setValue(inp, o.path)
 			if o.errorNotExist && !jsonVal.exists {
 				return nil, fmt.Errorf("value by path \"%s\" does not exist", o.path)
 			}
-			if err = o.tmpl.Execute(buf, jsonVal); err != nil {
-				return nil, fmt.Errorf("error executing template: %w", err)
-			}
-			newValue := buf.Bytes()
-			res, err = sjson.SetRawBytesOptions(inp, o.path, newValue, jsonSetOpt)
-			if err != nil {
-				return nil, fmt.Errorf("error applying set raw operation: %w", err)
+
+			if jsonVal.value != interface{}(nil) {
+				if err = o.tmpl.Execute(buf, jsonVal); err != nil {
+					return nil, fmt.Errorf("error executing template: %w", err)
+				}
+				newValue := buf.Bytes()
+
+				res, err = sjson.SetRawBytesOptions(inp, o.path, newValue, jsonSetOpt)
+				if err != nil {
+					return nil, fmt.Errorf("error applying set raw operation: %w", err)
+				}
 			}
 		} else {
 			res, err = sjson.SetBytesOptions(inp, o.path, o.value, jsonSetOpt)

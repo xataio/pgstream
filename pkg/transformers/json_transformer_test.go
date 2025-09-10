@@ -11,6 +11,8 @@ import (
 	"github.com/xataio/pgstream/internal/json"
 )
 
+var badValue interface{}
+
 func TestNewJsonTransformer(t *testing.T) {
 	t.Parallel()
 
@@ -305,6 +307,7 @@ func TestJsonTransformer_Transform(t *testing.T) {
 				"user": map[string]any{
 					"firstname": "john",
 					"lastname":  "unknown",
+					"email":     "scrambleme@gmail.com",
 				},
 				"residency": map[string]any{
 					"city":    "some city",
@@ -331,6 +334,24 @@ func TestJsonTransformer_Transform(t *testing.T) {
 					},
 					map[string]any{
 						"operation":       "set",
+						"path":            "residency.missingcity",
+						"value_template":  "\"{{ masking \"default\" .GetValue }}\"",
+						"error_not_exist": false,
+					},
+					map[string]any{
+						"operation":       "set",
+						"path":            "user.email",
+						"value_template":  "\"{{ atEmailScramble \"ignoreddomain.com\" \"@crypt.com\" \"asaltvalue\" .GetValue }}\"",
+						"error_not_exist": true,
+					},
+					map[string]any{
+						"operation":       "set",
+						"path":            "user.missingemail",
+						"value_template":  "\"{{ atEmailScramble \"ignoreddomain.com\" \"@crypt.com\" \"shouldnotcrash\" .GetValue }}\"",
+						"error_not_exist": false,
+					},
+					map[string]any{
+						"operation":       "set",
 						"path":            "residency.city",
 						"value_template":  "\"{{ masking \"default\" .GetValue }}\"",
 						"error_not_exist": true,
@@ -350,6 +371,7 @@ func TestJsonTransformer_Transform(t *testing.T) {
 				"user": map[string]any{
 					"firstname": "john",
 					"lastname":  "doe",
+					"email":     "S7iVt9DKRtZn7gKwVhu@crypt.com",
 				},
 				"residency": map[string]any{
 					"city": "*********",
@@ -375,6 +397,47 @@ func TestJsonTransformer_Transform(t *testing.T) {
 				},
 			},
 			wantErr: errors.New("json_transformer: error marshalling value to JSON"),
+		},
+		{
+			name: "error - missing complex key",
+			value: map[string]any{
+				"residency": map[string]any{
+					"city":        "some city",
+					"country":     "some country",
+					"missingcity": badValue,
+				},
+			},
+			params: ParameterValues{
+				"operations": []any{
+					map[string]any{
+						"operation":       "set",
+						"path":            "residency.missingkey",
+						"value_template":  "\"{{ masking \"default\" .GetValue }}\"",
+						"error_not_exist": true,
+					},
+				},
+			},
+			wantErr: errors.New("cannot apply \"set\" operation[0] with path residency.missingkey: value by path \"residency.missingkey\""),
+		},
+		{
+			name: "error - missing complex key no error",
+			value: map[string]any{
+				"residency": map[string]any{
+					"city":    "some city",
+					"country": "some country",
+				},
+			},
+			params: ParameterValues{
+				"operations": []any{
+					map[string]any{
+						"operation":       "set",
+						"path":            "residency.missingkey",
+						"value_template":  "\"{{ masking \"default\" .GetValue }}\"",
+						"error_not_exist": false,
+					},
+				},
+			},
+			wantErr: nil,
 		},
 		{
 			name:  "error - setting invalid value for json",
@@ -422,7 +485,7 @@ func TestJsonTransformer_Transform(t *testing.T) {
 		},
 		{
 			name:  "error - invalid template, quotes missing",
-			value: map[string]any{"greeting": "hello"},
+			value: map[string]any{"greeting": "hello", "farewell": "goodbye"},
 			params: ParameterValues{
 				"operations": []any{
 					map[string]any{
@@ -436,7 +499,7 @@ func TestJsonTransformer_Transform(t *testing.T) {
 		},
 		{
 			name:  "error - dynamic values missing",
-			value: map[string]any{"greeting": "hello"},
+			value: map[string]any{"greeting": "hello", "farewell": "goodbye"},
 			params: ParameterValues{
 				"operations": []any{
 					map[string]any{
@@ -450,7 +513,7 @@ func TestJsonTransformer_Transform(t *testing.T) {
 		},
 		{
 			name:  "error - dynamic value not found",
-			value: map[string]any{"greeting": "hello"},
+			value: map[string]any{"greeting": "hello", "farewell": "goodbye"},
 			params: ParameterValues{
 				"operations": []any{
 					map[string]any{
