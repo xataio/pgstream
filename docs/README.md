@@ -1238,6 +1238,92 @@ the JSON transformer with above config produces output:
 </details>
 
  <details>
+  <summary>hstore</summary>
+
+**Description:** Transforms hstore data with set and delete operations
+
+| Supported PostgreSQL types |
+| -------------------------- |
+| hstore                     |
+
+| Parameter  | Type  | Default | Required |
+| ---------- | ----- | ------- | -------- |
+| operations | array | N/A     | Yes      |
+
+Parameter for each operation:
+| Parameter | Type | Default | Required | Values |
+| --------------- | ------- | ------- | -------- | ------------------------------ |
+| operation | string | N/A | Yes | set, delete |
+| key | string | N/A | Yes | |
+| error_not_exist | boolean | false | No | true, false |
+| value | string, null | N\A | *Yes | Any string or null |
+| value_template | string | N\A | *Yes | Any template with valid syntax |
+
+\*Either `value` or `value_template` must be provided if the operation is `set`. If both are provided, `value_template` takes precedence.
+
+Hstore transformer can be used for Postgres type hstore. This transformer executes a list of given operations on the hstore data to be transformed.
+
+All operations must be either `set` or `delete`.
+`set` operations support literal values as well as templates, making use of `sprig` and `greenmask`'s function sets. See template transformer section for more details. Also, like the template transformer, `.GetValue` and `.GetDynamicValue` functions are supported. Unlike template transformer, here `.GetValue` refers to the value for the given key, rather than the entire Hstore object; whereas `.GetDynamicValue` is again used for referring to other columns.
+`delete` operations simply delete the object at the given path.
+Execution of an operation errors out if the given key does not exists and the parameter `error_not_exist` - which is false by default - is set to true.
+
+A limitation to be aware of: When using hstore transformer templates, you cannot set a value to the string literal "\<no value\>". This is because Go templates produce "\<no value\>" as output when the result is `nil`, creating an ambiguity. In such cases, `pgstream` will interpret it as `nil` and set the hstore value to `NULL` rather than storing the actual string "\<no value\>".
+
+With the below config `pgstream` transforms the hstore values in the column `attributes` of the table `users` by:
+
+- First, updating the value for key "email" to the masked version of it, using email masking function. If the key "email" is not found, it simply ignores it, since `error_not_exist` is not set to true explicitly and it is false by default.
+- Then, deleting the pair where the key is "public_key". If there's no such key, errors out, because the parameter "error_not_exist" is set to true.
+- Completely masking the value for key "private_key", using `go-masker`'s default masking function supported by `pgstream`'s templating.
+- Finally, updating the value for key "newKey" to "newValue". Since "error_not_exist" is false by default, and there is no such key in the example below, this operation will be done by adding a new key-value pair.
+
+Example input-output is given below the config.
+
+**Example Configuration:**
+
+```yaml
+  transformations:
+    validation_mode: relaxed
+    table_transformers:
+      - schema: public
+        table: users
+        column_transformers:
+          attributes:
+            name: hstore
+            parameters:
+              operations:
+                - operation: set
+                  key: "email"
+                  value_template: "{{masking \"email\" .GetValue}}"
+                - operation: delete
+                  key: "public_key"
+                  error_not_exist: true
+                - operation: set
+                  key: "private_key"
+                  value_template: "{{masking \"default\" .GetValue}}"
+                - operation: set
+                  key: "newKey"
+                  value: "newValue"
+```
+
+For input hstore value,
+
+```
+  public_key => 12345,
+  private_key => 12345abcdefg,
+  email => user@email.com
+```
+
+the hstore transformer with above config produces output:
+
+```
+  private_key => ************,
+  email => use***@email.com
+  newKey => newValue
+```
+</details>
+
+ <details>
   <summary>literal_string</summary>
 
 **Description:** Transforms all values into the given constant value.
