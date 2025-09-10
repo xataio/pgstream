@@ -371,6 +371,23 @@
       ]
     },
     {
+      "name": "hstore",
+      "supported_types": [
+        "string",
+        "byte_array",
+        "hstore"
+      ],
+      "parameters": [
+        {
+          "name": "operations",
+          "supported_type": "array",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        }
+      ]
+    },
+    {
       "name": "json",
       "supported_types": [
         "json"
