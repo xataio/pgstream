@@ -276,6 +276,8 @@ func pgTypeCompatibleWithTransformerType(compatibleTypes []transformers.Supporte
 		switch pgTypeName {
 		case "citext":
 			return slices.Contains(compatibleTypes, transformers.CitextDataType)
+		case "hstore":
+			return slices.Contains(compatibleTypes, transformers.HstoreDataType)
 		default:
 			return false
 		}
