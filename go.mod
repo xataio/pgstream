@@ -4,7 +4,7 @@ go 1.24.1
 
 require (
 	github.com/Masterminds/sprig/v3 v3.3.0
-	github.com/bytedance/sonic v1.14.0
+	github.com/bytedance/sonic v1.14.1
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/elastic/go-elasticsearch/v8 v8.19.0
 	github.com/eminano/greenmask v0.0.0-20250718112128-2fb5fa726c02
@@ -15,7 +15,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
 	github.com/jackc/pglogrepl v0.0.0-20240307033717-828fbfe908e9
-	github.com/jackc/pgx/v5 v5.7.5
+	github.com/jackc/pgx/v5 v5.7.6
 	github.com/jonboulle/clockwork v0.5.0
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/lib/pq v1.10.9
@@ -64,9 +64,10 @@ require (
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/OneOfOne/xxhash v1.2.8 // indirect
+	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic/loader v0.3.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
-	github.com/cloudwego/base64x v0.1.5 // indirect
+	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/containerd/console v1.0.5 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
