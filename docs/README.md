@@ -1134,6 +1134,7 @@ Parameter for each operation:
 | --------------- | ------- | ------- | -------- | ------------------------------ |
 | operation | string | N/A | Yes | set, delete |
 | path | string | N/A | Yes | \*sjson syntax |
+| skip_not_exist | boolean | false | No | true, false |
 | error_not_exist | boolean | false | No | true, false |
 | value | string | N\A | **Yes | Any valid JSON representation |
 | value_template | string | N\A | **Yes | Any template with valid syntax |
@@ -1147,7 +1148,8 @@ JSON transformer can be used for Postgres types json and jsonb. This transformer
 All operations must be either `set` or `delete`.
 `set` operations support literal values as well as templates, making use of `sprig` and `greenmask`'s function sets. See template transformer section for more details. Also, like the template transformer, `.GetValue` and `.GetDynamicValue` functions are supported. Unlike template transformer, here `.GetValue` refers to the value at given path, rather than the entire JSON object; whereas `.GetDynamicValue` is again used for referring to other columns.
 `delete` operations simply delete the object at the given path.
-Execution of an operation errors out if the given path does not exists and the parameter `error_not_exist` - which is false by default - is set to true.
+Execution of an operation will be skipped if the given path does not exists and the parameter `skip_not_exist` - which is false by default - is set to true.
+Execution of an operation errors out if the given path does not exists and the parameter `error_not_exist` - which is false by default - is set to true; unless the operation is skipped already.
 
 JSON transformer uses [sjson](https://github.com/tidwall/sjson) library for executing the operations. Operation paths should follow the [synxtax rules of sjson](https://github.com/tidwall/sjson#path-syntax)
 
@@ -1175,7 +1177,7 @@ transformations:
               - operation: set
                 path: "purchases.#.item"
                 value: "-"
-                error_not_exists: true
+                error_not_exist: true
               - operation: delete
                 path: "address.country"
               - operation: set
@@ -1255,6 +1257,7 @@ Parameter for each operation:
 | --------------- | ------- | ------- | -------- | ------------------------------ |
 | operation | string | N/A | Yes | set, delete |
 | key | string | N/A | Yes | |
+| skip_not_exist | boolean | false | No | true, false |
 | error_not_exist | boolean | false | No | true, false |
 | value | string, null | N\A | *Yes | Any string or null |
 | value_template | string | N\A | *Yes | Any template with valid syntax |
@@ -1265,8 +1268,9 @@ Hstore transformer can be used for Postgres type hstore. This transformer execut
 
 All operations must be either `set` or `delete`.
 `set` operations support literal values as well as templates, making use of `sprig` and `greenmask`'s function sets. See template transformer section for more details. Also, like the template transformer, `.GetValue` and `.GetDynamicValue` functions are supported. Unlike template transformer, here `.GetValue` refers to the value for the given key, rather than the entire Hstore object; whereas `.GetDynamicValue` is again used for referring to other columns.
-`delete` operations simply delete the object at the given path.
-Execution of an operation errors out if the given key does not exists and the parameter `error_not_exist` - which is false by default - is set to true.
+`delete` operations simply delete the pair with the given key.
+Execution of an operation will be skipped if the given key does not exists and the parameter `skip_not_exist` - which is false by default - is set to true.
+Execution of an operation errors out if the given key does not exists and the parameter `error_not_exist` - which is false by default - is set to true; unless the operation is skipped already.
 
 A limitation to be aware of: When using hstore transformer templates, you cannot set a value to the string literal "\<no value\>". This is because Go templates produce "\<no value\>" as output when the result is `nil`, creating an ambiguity. In such cases, `pgstream` will interpret it as `nil` and set the hstore value to `NULL` rather than storing the actual string "\<no value\>".
 

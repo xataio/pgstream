@@ -16,6 +16,7 @@ type hstoreOperation struct {
 	valueTemplate string
 	key           string
 	errorNotExist bool
+	skipNotExist  bool
 	tmpl          *template.Template
 }
 
@@ -24,7 +25,6 @@ var nullTemplateResult string = "<no value>"
 func (o *hstoreOperation) apply(hstore pgtype.Hstore, hstoreVal *hstoreValue, buf *bytes.Buffer) (pgtype.Hstore, error) {
 	var err error
 
-	hstoreVal.setValue(hstore, o.key)
 	if o.errorNotExist && !hstoreVal.exists {
 		return nil, fmt.Errorf("key \"%s\" does not exist", o.key)
 	}

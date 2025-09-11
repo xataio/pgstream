@@ -24,6 +24,7 @@ type jsonOperation struct {
 	valueTemplate string
 	path          string
 	errorNotExist bool
+	skipNotExist  bool
 	tmpl          *template.Template
 }
 
@@ -33,31 +34,22 @@ func (o *jsonOperation) apply(inp []byte, jsonVal *jsonValue, buf *bytes.Buffer)
 
 	switch o.operation {
 	case jsonSetOpName:
+		var newValue any
 		if o.tmpl != nil {
 			buf.Reset()
-			jsonVal.setValue(inp, o.path)
-			if o.errorNotExist && !jsonVal.exists {
-				return nil, fmt.Errorf("value by path \"%s\" does not exist", o.path)
-			}
 			if err = o.tmpl.Execute(buf, jsonVal); err != nil {
 				return nil, fmt.Errorf("error executing template: %w", err)
 			}
-			newValue := buf.Bytes()
-			res, err = sjson.SetRawBytesOptions(inp, o.path, newValue, jsonSetOpt)
-			if err != nil {
-				return nil, fmt.Errorf("error applying set raw operation: %w", err)
-			}
+			newValue = buf.Bytes()
 		} else {
-			res, err = sjson.SetBytesOptions(inp, o.path, o.value, jsonSetOpt)
-			if err != nil {
-				return nil, fmt.Errorf("error applying set operation: %w", err)
-			}
+			newValue = o.value
+		}
+		res, err = sjson.SetBytesOptions(inp, o.path, newValue, jsonSetOpt)
+		if err != nil {
+			return nil, fmt.Errorf("error applying set operation: %w", err)
 		}
 
 	case jsonDeleteOpName:
-		if o.errorNotExist && !gjson.GetBytes(inp, o.path).Exists() {
-			return nil, fmt.Errorf("value by path \"%s\" does not exist", o.path)
-		}
 		res, err = sjson.DeleteBytes(inp, o.path)
 		if err != nil {
 			return nil, fmt.Errorf("error applying delete operation: %w", err)

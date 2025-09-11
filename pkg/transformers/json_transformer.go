@@ -93,6 +93,15 @@ func (jt *JSONTransformer) Transform(_ context.Context, value Value) (any, error
 
 	res := slices.Clone(toTransform)
 	for idx, op := range jt.operations {
+		jt.jsonVal.setValue(res, op.path)
+		if !jt.jsonVal.exists {
+			if op.skipNotExist {
+				continue
+			}
+			if op.errorNotExist {
+				return nil, fmt.Errorf("value by path \"%s\" does not exist", op.path)
+			}
+		}
 		// apply each operation in the order they were provided
 		res, err = op.apply(res, jt.jsonVal, jt.buf)
 		if err != nil {
@@ -164,6 +173,11 @@ func getOperationsParam(params ParameterValues) ([]*jsonOperation, error) {
 		op.errorNotExist, err = FindParameterWithDefault(val, "error_not_exist", false)
 		if err != nil {
 			return nil, fmt.Errorf("error_not_exist must be a boolean: %w", err)
+		}
+
+		op.skipNotExist, err = FindParameterWithDefault(val, "skip_not_exist", false)
+		if err != nil {
+			return nil, fmt.Errorf("skip_not_exist must be a boolean: %w", err)
 		}
 
 		if op.operation == jsonDeleteOpName {

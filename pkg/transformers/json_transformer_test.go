@@ -273,6 +273,27 @@ func TestJsonTransformer_Transform(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name:  "ok - basic set and delete operations with skip_not_exist",
+			value: []byte(`{}`),
+			params: ParameterValues{
+				"operations": []any{
+					map[string]any{
+						"operation":      "set",
+						"path":           "greeting",
+						"value":          "hello world",
+						"skip_not_exist": true,
+					},
+					map[string]any{
+						"operation":      "delete",
+						"path":           "farewell",
+						"skip_not_exist": true,
+					},
+				},
+			},
+			wantOutput: map[string]any{},
+			wantErr:    nil,
+		},
+		{
 			name:  "ok - set and delete on array",
 			value: []any{map[string]any{"greeting": "hello", "farewell": "goodbye"}},
 			params: ParameterValues{
@@ -287,7 +308,7 @@ func TestJsonTransformer_Transform(t *testing.T) {
 						"operation":       "set",
 						"path":            "1.greeting",
 						"value":           "hello again",
-						"error_not_exist": true,
+						"error_not_exist": false,
 					},
 					map[string]any{
 						"operation":       "delete",
@@ -326,13 +347,13 @@ func TestJsonTransformer_Transform(t *testing.T) {
 					map[string]any{
 						"operation":       "set",
 						"path":            "user.lastname",
-						"value_template":  "\"{{ .GetDynamicValue \"lastname\" }}\"",
+						"value_template":  "{{ .GetDynamicValue \"lastname\" }}",
 						"error_not_exist": true,
 					},
 					map[string]any{
 						"operation":       "set",
 						"path":            "residency.city",
-						"value_template":  "\"{{ masking \"default\" .GetValue }}\"",
+						"value_template":  "{{ masking \"default\" .GetValue }}",
 						"error_not_exist": true,
 					},
 					map[string]any{

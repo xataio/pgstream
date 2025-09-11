@@ -427,6 +427,31 @@ func TestHstoreTransformer_Transform(t *testing.T) {
 			wantErr:            nil,
 		},
 		{
+			name: "set and delete with skip_not_exist",
+			params: ParameterValues{
+				"operations": []any{
+					map[string]any{
+						"operation":      hstoreSetOpName,
+						"key":            "key1",
+						"value":          "value1",
+						"skip_not_exist": true,
+					},
+					map[string]any{
+						"operation":      hstoreDeleteOpName,
+						"key":            "key2",
+						"skip_not_exist": true,
+					},
+				},
+			},
+			input: pgtype.Hstore{
+				"key3": stringPtr("value3"),
+			},
+			wantOutput: pgtype.Hstore{
+				"key3": stringPtr("value3"),
+			},
+			wantErr: nil,
+		},
+		{
 			name: "unsupported input type",
 			params: ParameterValues{
 				"operations": []any{
