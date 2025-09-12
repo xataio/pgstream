@@ -30,10 +30,10 @@ type Config struct {
 type ListenerConfig struct {
 	Postgres *PostgresListenerConfig
 	Kafka    *KafkaListenerConfig
-	Snapshot *snapshotbuilder.SnapshotListenerConfig
 }
 
 type PostgresListenerConfig struct {
+	URL         string
 	Replication pgreplication.Config
 	Snapshot    *snapshotbuilder.SnapshotListenerConfig
 }
@@ -95,9 +95,6 @@ func (c *ListenerConfig) IsValid() error {
 	if c.Postgres != nil {
 		listenerCount++
 	}
-	if c.Snapshot != nil {
-		listenerCount++
-	}
 
 	switch listenerCount {
 	case 0:
@@ -140,10 +137,7 @@ func (c *ProcessorConfig) IsValid() error {
 
 func (c *Config) SourcePostgresURL() string {
 	if c.Listener.Postgres != nil {
-		return c.Listener.Postgres.Replication.PostgresURL
-	}
-	if c.Listener.Snapshot != nil {
-		return c.Listener.Snapshot.Generator.URL
+		return c.Listener.Postgres.URL
 	}
 	return ""
 }
@@ -157,9 +151,6 @@ func (c *Config) PostgresReplicationSlot() string {
 
 func (c *Config) RequiredTables() []string {
 	requiredTables := []string{}
-	if c.Listener.Snapshot != nil {
-		requiredTables = append(requiredTables, c.Listener.Snapshot.Adapter.Tables...)
-	}
 	if c.Listener.Postgres != nil {
 		if c.Listener.Postgres.Snapshot != nil {
 			requiredTables = append(requiredTables, c.Listener.Postgres.Snapshot.Adapter.Tables...)
