@@ -37,6 +37,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 	expectedConfig := &stream.Config{
 		Listener: stream.ListenerConfig{
 			Postgres: &stream.PostgresListenerConfig{
+				URL: "postgresql://user:password@localhost:5432/mydatabase",
 				Replication: pgreplication.Config{
 					PostgresURL:         "postgresql://user:password@localhost:5432/mydatabase",
 					ReplicationSlotName: "pgstream_mydatabase_slot",

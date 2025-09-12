@@ -132,27 +132,9 @@ func testLogger() loglib.Logger {
 func testPostgresListenerCfg() stream.ListenerConfig {
 	return stream.ListenerConfig{
 		Postgres: &stream.PostgresListenerConfig{
+			URL: pgurl,
 			Replication: pgreplication.Config{
 				PostgresURL: pgurl,
-			},
-		},
-	}
-}
-
-func testSnapshotListenerCfg(sourceURL, targetURL string, tables []string) stream.ListenerConfig {
-	return stream.ListenerConfig{
-		Snapshot: &snapshotbuilder.SnapshotListenerConfig{
-			Generator: pgsnapshotgenerator.Config{
-				URL: sourceURL,
-			},
-			Adapter: adapter.SnapshotConfig{
-				Tables: tables,
-			},
-			Schema: snapshotbuilder.SchemaSnapshotConfig{
-				DumpRestore: &pgdumprestore.Config{
-					SourcePGURL: sourceURL,
-					TargetPGURL: targetURL,
-				},
 			},
 		},
 	}
@@ -161,6 +143,7 @@ func testSnapshotListenerCfg(sourceURL, targetURL string, tables []string) strea
 func testPostgresListenerCfgWithSnapshot(sourceURL, targetURL string, tables []string) stream.ListenerConfig {
 	return stream.ListenerConfig{
 		Postgres: &stream.PostgresListenerConfig{
+			URL: sourceURL,
 			Replication: pgreplication.Config{
 				PostgresURL: sourceURL,
 			},
