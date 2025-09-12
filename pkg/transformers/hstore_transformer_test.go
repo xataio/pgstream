@@ -266,6 +266,7 @@ func TestHstoreTransformer_Transform(t *testing.T) {
 						"operation":       hstoreDeleteOpName,
 						"key":             "key2",
 						"error_not_exist": true,
+						"skip_not_exist":  false,
 					},
 				},
 			},
@@ -301,9 +302,10 @@ func TestHstoreTransformer_Transform(t *testing.T) {
 			params: ParameterValues{
 				"operations": []any{
 					map[string]any{
-						"operation": hstoreSetOpName,
-						"key":       "key2",
-						"value":     "value2",
+						"operation":      hstoreSetOpName,
+						"key":            "key2",
+						"value":          "value2",
+						"skip_not_exist": false,
 					},
 				},
 			},
@@ -381,6 +383,7 @@ func TestHstoreTransformer_Transform(t *testing.T) {
 						"operation":      hstoreSetOpName,
 						"key":            "key3",
 						"value_template": "{{ .GetValue }}",
+						"skip_not_exist": false,
 					},
 				},
 			},
@@ -401,9 +404,10 @@ func TestHstoreTransformer_Transform(t *testing.T) {
 			params: ParameterValues{
 				"operations": []any{
 					map[string]any{
-						"operation": hstoreSetOpName,
-						"key":       "key3",
-						"value":     "value3",
+						"operation":      hstoreSetOpName,
+						"key":            "key3",
+						"value":          "value3",
+						"skip_not_exist": false,
 					},
 				},
 			},
@@ -416,9 +420,10 @@ func TestHstoreTransformer_Transform(t *testing.T) {
 			params: ParameterValues{
 				"operations": []any{
 					map[string]any{
-						"operation": hstoreSetOpName,
-						"key":       "key3",
-						"value":     "value3",
+						"operation":      hstoreSetOpName,
+						"key":            "key3",
+						"value":          "value3",
+						"skip_not_exist": false,
 					},
 				},
 			},

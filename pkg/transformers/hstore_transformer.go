@@ -188,7 +188,7 @@ func getHstoreOperations(params ParameterValues) ([]*hstoreOperation, error) {
 			return nil, fmt.Errorf("error_not_exist must be a boolean: %w", err)
 		}
 
-		op.skipNotExist, err = FindParameterWithDefault(val, "skip_not_exist", false)
+		op.skipNotExist, err = FindParameterWithDefault(val, "skip_not_exist", true)
 		if err != nil {
 			return nil, fmt.Errorf("skip_not_exist must be a boolean: %w", err)
 		}
