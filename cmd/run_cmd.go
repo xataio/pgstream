@@ -78,7 +78,6 @@ func initialSnapshotFlagBinding(cmd *cobra.Command) {
 	// provided
 	if cmd.Flags().Lookup("snapshot-tables").Changed {
 		viper.BindPFlag("source.postgres.snapshot.tables", cmd.Flags().Lookup("snapshot-tables"))
-		viper.BindPFlag("source.postgres.snapshot.schema.pgdump_pgrestore.clean_target_db", cmd.Flags().Lookup("reset"))
 		if len(viper.GetStringSlice("source.postgres.snapshot.tables")) > 0 {
 			viper.Set("source.postgres.mode", "snapshot_and_replication")
 			viper.Set("source.postgres.snapshot.mode", "full")
@@ -87,9 +86,21 @@ func initialSnapshotFlagBinding(cmd *cobra.Command) {
 				viper.Set("source.postgres.snapshot.schema.mode", "pgdump_pgrestore")
 			}
 		}
+
+		viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_TABLES", cmd.Flags().Lookup("snapshot-tables"))
 	}
 
-	viper.BindPFlag("source.postgres.snapshot.schema.pgdump_pgrestore.dump_file", cmd.Flags().Lookup("dump-file"))
+	if cmd.Flags().Lookup("reset").Changed {
+		viper.BindPFlag("source.postgres.snapshot.schema.pgdump_pgrestore.clean_target_db", cmd.Flags().Lookup("reset"))
+		// to be able to overwrite configuration with flags when env config file is
+		// provided or when no configuration is provided
+		viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB", cmd.Flags().Lookup("reset"))
+	}
+
+	if cmd.Flags().Lookup("dump-file").Changed {
+		viper.BindPFlag("source.postgres.snapshot.schema.pgdump_pgrestore.dump_file", cmd.Flags().Lookup("dump-file"))
+		viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE", cmd.Flags().Lookup("dump-file"))
+	}
 
 	// if the source and target are postgres, and snapshot and replication mode
 	// is enabled, default to using bulk ingest if not set
@@ -98,13 +109,6 @@ func initialSnapshotFlagBinding(cmd *cobra.Command) {
 		!viper.IsSet("target.postgres.bulk_ingest.enabled") {
 		viper.Set("target.postgres.bulk_ingest.enabled", true)
 	}
-
-	// to be able to overwrite configuration with flags when env config file is
-	// provided or when no configuration is provided
-	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_TABLES", cmd.Flags().Lookup("snapshot-tables"))
-	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB", cmd.Flags().Lookup("reset"))
-
-	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE", cmd.Flags().Lookup("dump-file"))
 
 	// if the source and target are postgres, with replication + initial snapshot
 	// enabled, default to using bulk ingest if not set
