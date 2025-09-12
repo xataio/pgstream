@@ -29,10 +29,15 @@ func TestStatusChecker_Status(t *testing.T) {
 	const testDB = "db"
 
 	validConfig := &Config{
-		Listener: ListenerConfig{Postgres: &PostgresListenerConfig{Replication: replicationpg.Config{
-			PostgresURL:         "postgres://user:password@localhost:5432/db",
-			ReplicationSlotName: testReplicationSlot,
-		}}},
+		Listener: ListenerConfig{
+			Postgres: &PostgresListenerConfig{
+				URL: "postgres://user:password@localhost:5432/db",
+				Replication: replicationpg.Config{
+					PostgresURL:         "postgres://user:password@localhost:5432/db",
+					ReplicationSlotName: testReplicationSlot,
+				},
+			},
+		},
 		Processor: ProcessorConfig{
 			Postgres: &PostgresProcessorConfig{
 				BatchWriter: pgprocessor.Config{
@@ -221,9 +226,11 @@ func TestStatusChecker_configStatus(t *testing.T) {
 		{
 			name: "valid config",
 			config: &Config{
-				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{Replication: replicationpg.Config{
-					PostgresURL: "postgres://user:password@localhost:5432/db",
-				}}},
+				Listener: ListenerConfig{
+					Postgres: &PostgresListenerConfig{
+						URL: "postgres://user:password@localhost:5432/db",
+					},
+				},
 				Processor: ProcessorConfig{
 					Postgres: &PostgresProcessorConfig{
 						BatchWriter: pgprocessor.Config{
@@ -239,9 +246,11 @@ func TestStatusChecker_configStatus(t *testing.T) {
 		{
 			name: "invalid config",
 			config: &Config{
-				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{Replication: replicationpg.Config{
-					PostgresURL: "postgres://user:password@localhost:5432/db",
-				}}},
+				Listener: ListenerConfig{
+					Postgres: &PostgresListenerConfig{
+						URL: "postgres://user:password@localhost:5432/db",
+					},
+				},
 			},
 			wantStatus: &ConfigStatus{
 				Valid:  false,
@@ -283,9 +292,11 @@ func TestStatusChecker_sourceStatus(t *testing.T) {
 				}, nil
 			},
 			config: &Config{
-				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{Replication: replicationpg.Config{
-					PostgresURL: "postgres://user:password@localhost:5432/db",
-				}}},
+				Listener: ListenerConfig{
+					Postgres: &PostgresListenerConfig{
+						URL: "postgres://user:password@localhost:5432/db",
+					},
+				},
 			},
 			wantStatus: &SourceStatus{
 				Reachable: true,
@@ -298,9 +309,11 @@ func TestStatusChecker_sourceStatus(t *testing.T) {
 				return nil, errors.New("unexpected call to connBuilder")
 			},
 			config: &Config{
-				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{Replication: replicationpg.Config{
-					PostgresURL: "",
-				}}},
+				Listener: ListenerConfig{
+					Postgres: &PostgresListenerConfig{
+						URL: "",
+					},
+				},
 			},
 			wantStatus: &SourceStatus{
 				Reachable: false,
@@ -314,9 +327,11 @@ func TestStatusChecker_sourceStatus(t *testing.T) {
 				return nil, syscall.ECONNREFUSED
 			},
 			config: &Config{
-				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{Replication: replicationpg.Config{
-					PostgresURL: "postgres://user:password@localhost:5432/db",
-				}}},
+				Listener: ListenerConfig{
+					Postgres: &PostgresListenerConfig{
+						URL: "postgres://user:password@localhost:5432/db",
+					},
+				},
 			},
 			wantStatus: &SourceStatus{
 				Reachable: false,
@@ -334,9 +349,11 @@ func TestStatusChecker_sourceStatus(t *testing.T) {
 				}, nil
 			},
 			config: &Config{
-				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{Replication: replicationpg.Config{
-					PostgresURL: "postgres://user:password@localhost:5432/db",
-				}}},
+				Listener: ListenerConfig{
+					Postgres: &PostgresListenerConfig{
+						URL: "postgres://user:password@localhost:5432/db",
+					},
+				},
 			},
 			wantStatus: &SourceStatus{
 				Reachable: false,
@@ -350,9 +367,11 @@ func TestStatusChecker_sourceStatus(t *testing.T) {
 				return nil, errTest
 			},
 			config: &Config{
-				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{Replication: replicationpg.Config{
-					PostgresURL: "postgres://user:password@localhost:5432/db",
-				}}},
+				Listener: ListenerConfig{
+					Postgres: &PostgresListenerConfig{
+						URL: "postgres://user:password@localhost:5432/db",
+					},
+				},
 			},
 			wantStatus: nil,
 			wantErr:    errTest,
@@ -630,9 +649,11 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 						TransformerRules: []transformer.TableRules{},
 					},
 				},
-				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{Replication: replicationpg.Config{
-					PostgresURL: "postgres://user:password@localhost:5432/db",
-				}}},
+				Listener: ListenerConfig{
+					Postgres: &PostgresListenerConfig{
+						URL: "postgres://user:password@localhost:5432/db",
+					},
+				},
 			},
 			wantStatus: &TransformationRulesStatus{
 				Valid: true,
@@ -648,9 +669,11 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 				Processor: ProcessorConfig{
 					Transformer: nil,
 				},
-				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{Replication: replicationpg.Config{
-					PostgresURL: "postgres://user:password@localhost:5432/db",
-				}}},
+				Listener: ListenerConfig{
+					Postgres: &PostgresListenerConfig{
+						URL: "postgres://user:password@localhost:5432/db",
+					},
+				},
 			},
 			wantStatus: nil,
 			wantErr:    nil,
@@ -666,9 +689,11 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 						TransformerRules: []transformer.TableRules{},
 					},
 				},
-				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{Replication: replicationpg.Config{
-					PostgresURL: "",
-				}}},
+				Listener: ListenerConfig{
+					Postgres: &PostgresListenerConfig{
+						URL: "",
+					},
+				},
 			},
 			wantStatus: &TransformationRulesStatus{
 				Valid:  false,
@@ -689,9 +714,11 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 						TransformerRules: []transformer.TableRules{},
 					},
 				},
-				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{Replication: replicationpg.Config{
-					PostgresURL: "postgres://user:password@localhost:5432/db",
-				}}},
+				Listener: ListenerConfig{
+					Postgres: &PostgresListenerConfig{
+						URL: "postgres://user:password@localhost:5432/db",
+					},
+				},
 			},
 			wantStatus: &TransformationRulesStatus{
 				Valid:  false,
@@ -710,9 +737,11 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 						TransformerRules: []transformer.TableRules{},
 					},
 				},
-				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{Replication: replicationpg.Config{
-					PostgresURL: "postgres://user:password@localhost:5432/db",
-				}}},
+				Listener: ListenerConfig{
+					Postgres: &PostgresListenerConfig{
+						URL: "postgres://user:password@localhost:5432/db",
+					},
+				},
 			},
 			wantStatus: nil,
 			wantErr:    errTest,

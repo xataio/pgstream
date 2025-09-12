@@ -352,31 +352,15 @@ func (c *YAMLConfig) toStreamConfig() (*stream.Config, error) {
 }
 
 func (c *YAMLConfig) parseListenerConfig() (stream.ListenerConfig, error) {
-	streamCfg := stream.ListenerConfig{
-		Kafka: c.Source.Kafka.parseKafkaListenerConfig(),
+	pgCfg, err := c.parsePostgresListenerConfig()
+	if err != nil {
+		return stream.ListenerConfig{}, fmt.Errorf("parsing postgres listener config: %w", err)
 	}
 
-	if c.Source.Postgres == nil {
-		return streamCfg, nil
-	}
-
-	var err error
-	switch c.Source.Postgres.Mode {
-	case replicationMode, snapshotAndReplicationMode:
-		streamCfg.Postgres, err = c.parsePostgresListenerConfig()
-		if err != nil {
-			return stream.ListenerConfig{}, fmt.Errorf("parsing postgres listener config: %w", err)
-		}
-	case snapshotMode:
-		streamCfg.Snapshot, err = c.parseSnapshotConfig()
-		if err != nil {
-			return stream.ListenerConfig{}, fmt.Errorf("parsing postgres snapshot listener config: %w", err)
-		}
-	default:
-		return stream.ListenerConfig{}, errUnsupportedPostgresSourceMode
-	}
-
-	return streamCfg, nil
+	return stream.ListenerConfig{
+		Kafka:    c.Source.Kafka.parseKafkaListenerConfig(),
+		Postgres: pgCfg,
+	}, nil
 }
 
 func (c *YAMLConfig) parseProcessorConfig() (stream.ProcessorConfig, error) {
@@ -411,16 +395,14 @@ func (c *YAMLConfig) parsePostgresListenerConfig() (*stream.PostgresListenerConf
 		return nil, nil
 	}
 
-	streamCfg := &stream.PostgresListenerConfig{
-		Replication: pgreplication.Config{
-			PostgresURL: c.Source.Postgres.URL,
-		},
+	switch c.Source.Postgres.Mode {
+	case replicationMode, snapshotAndReplicationMode, snapshotMode:
+	default:
+		return nil, errUnsupportedPostgresSourceMode
 	}
 
-	// if there's a filter config, apply it to the replication config
-	if c.Modifiers.Filter != nil {
-		streamCfg.Replication.ExcludeTables = c.Modifiers.Filter.ExcludeTables
-		streamCfg.Replication.IncludeTables = c.Modifiers.Filter.IncludeTables
+	streamCfg := &stream.PostgresListenerConfig{
+		URL: c.Source.Postgres.URL,
 	}
 
 	if c.Source.Postgres.Mode == replicationMode || c.Source.Postgres.Mode == snapshotAndReplicationMode {
@@ -428,15 +410,24 @@ func (c *YAMLConfig) parsePostgresListenerConfig() (*stream.PostgresListenerConf
 		if c.Source.Postgres.Replication != nil {
 			replicationSlotName = c.Source.Postgres.Replication.ReplicationSlot
 		}
-		streamCfg.Replication.ReplicationSlotName = replicationSlotName
+		streamCfg.Replication = pgreplication.Config{
+			PostgresURL:         c.Source.Postgres.URL,
+			ReplicationSlotName: replicationSlotName,
+		}
 	}
 
-	if c.Source.Postgres.Mode == snapshotAndReplicationMode {
+	if c.Source.Postgres.Mode == snapshotMode || c.Source.Postgres.Mode == snapshotAndReplicationMode {
 		var err error
 		streamCfg.Snapshot, err = c.parseSnapshotConfig()
 		if err != nil {
-			return nil, err
+			return &stream.PostgresListenerConfig{}, fmt.Errorf("parsing postgres snapshot listener config: %w", err)
 		}
+	}
+
+	// if there's a filter config, apply it to the replication config
+	if c.Modifiers.Filter != nil {
+		streamCfg.Replication.ExcludeTables = c.Modifiers.Filter.ExcludeTables
+		streamCfg.Replication.IncludeTables = c.Modifiers.Filter.IncludeTables
 	}
 
 	return streamCfg, nil

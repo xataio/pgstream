@@ -186,13 +186,7 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 
 		opts := []transformer.Option{transformer.WithLogger(logger)}
 		// if a source pg url is provided, use it to validate the transformer
-		pgURL := ""
-		switch {
-		case config.Listener.Postgres != nil:
-			pgURL = config.Listener.Postgres.Replication.PostgresURL
-		case config.Listener.Snapshot != nil:
-			pgURL = config.Listener.Snapshot.Generator.URL
-		}
+		pgURL := config.SourcePostgresURL()
 		if pgURL != "" {
 			pgParser, err := transformer.NewPostgresTransformerParser(ctx, pgURL, transformerBuilder, config.RequiredTables())
 			if err != nil {

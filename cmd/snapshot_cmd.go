@@ -63,7 +63,7 @@ func snapshotFlagBinding(cmd *cobra.Command, args []string) error {
 
 	// to be able to overwrite configuration with flags when env config file is
 	// provided or when no configuration is provided
-	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL", cmd.Flags().Lookup("postgres-url"))
+	viper.BindPFlag("PGSTREAM_POSTGRES_LISTENER_URL", cmd.Flags().Lookup("postgres-url"))
 	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_TABLES", cmd.Flags().Lookup("tables"))
 	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB", cmd.Flags().Lookup("reset"))
 	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE", cmd.Flags().Lookup("dump-file"))

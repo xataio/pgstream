@@ -39,7 +39,7 @@ func Test_SnapshotToPostgres(t *testing.T) {
 		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf("grant select on %s to test_role_%s", testTable, testTable))
 
 		cfg := &stream.Config{
-			Listener:  testSnapshotListenerCfg(snapshotPGURL, targetPGURL, []string{"*.*"}),
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
 			Processor: testPostgresProcessorCfg(snapshotPGURL, bulkIngestion),
 		}
 		initStream(t, ctx, snapshotPGURL)
