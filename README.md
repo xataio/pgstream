@@ -268,4 +268,4 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 If you have any questions, encounter issues, or need assistance, open an issue in this repository our join our [Discord](https://xata.io/discord), and our community will be happy to help.
 
 <br>
-<p align="right">Made with :heart: by <a href="https://xata.io">Xata 🦋</a></p>
+<p align="right">Made with 💜 by <a href="https://xata.io">Xata 🦋</a></p>
