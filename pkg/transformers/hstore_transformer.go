@@ -94,8 +94,13 @@ func (t *HstoreTransformer) Transform(_ context.Context, value Value) (any, erro
 	transformed := toTransform
 	for idx, op := range t.operations {
 		t.hstoreVal.setValue(transformed, op.key)
-		if op.skipNotExist && !t.hstoreVal.exists {
-			continue
+		if !t.hstoreVal.exists {
+			if op.skipNotExist {
+				continue
+			}
+			if op.errorNotExist {
+				return nil, fmt.Errorf("key \"%s\" does not exist", op.key)
+			}
 		}
 		// apply each operation in the order they were provided
 		transformed, err = op.apply(transformed, t.hstoreVal, t.buf)

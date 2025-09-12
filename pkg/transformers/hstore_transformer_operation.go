@@ -23,17 +23,11 @@ type hstoreOperation struct {
 var nullTemplateResult string = "<no value>"
 
 func (o *hstoreOperation) apply(hstore pgtype.Hstore, hstoreVal *hstoreValue, buf *bytes.Buffer) (pgtype.Hstore, error) {
-	var err error
-
-	if o.errorNotExist && !hstoreVal.exists {
-		return nil, fmt.Errorf("key \"%s\" does not exist", o.key)
-	}
-
 	switch o.operation {
 	case hstoreSetOpName:
 		if o.tmpl != nil {
 			buf.Reset()
-			if err = o.tmpl.Execute(buf, hstoreVal); err != nil {
+			if err := o.tmpl.Execute(buf, hstoreVal); err != nil {
 				return nil, fmt.Errorf("error executing template: %w", err)
 			}
 			newValue := buf.String()
