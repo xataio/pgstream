@@ -54,7 +54,7 @@ In order to run pgstream, we need to provide the configuration required to run t
 
 ```sh
 # URL of the source PostgreSQL database. This is where the snapshot will be taken from.
-PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
+PGSTREAM_POSTGRES_LISTENER_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 ```
 
 The snapshot listener needs to be configured to indicate the tables/schemas that need to be snapshotted. If the tables are not schema qualified, the `public` schema will be assumed. Wildcards are supported. For example, `test_schema.*` will snapshot all tables in the `test_schema` schema, and `test` will snapshot the `public.test` table.
@@ -127,7 +127,7 @@ The full configuration for this tutorial can be put into a `snapshot2pg_tutorial
 
 ```sh
 # Listener config
-PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
+PGSTREAM_POSTGRES_LISTENER_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 PGSTREAM_POSTGRES_SNAPSHOT_TABLES="*"
 PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS=4
 PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS=4
