@@ -266,6 +266,7 @@ func TestHstoreTransformer_Transform(t *testing.T) {
 						"operation":       hstoreDeleteOpName,
 						"key":             "key2",
 						"error_not_exist": true,
+						"skip_not_exist":  false,
 					},
 				},
 			},
@@ -301,9 +302,10 @@ func TestHstoreTransformer_Transform(t *testing.T) {
 			params: ParameterValues{
 				"operations": []any{
 					map[string]any{
-						"operation": hstoreSetOpName,
-						"key":       "key2",
-						"value":     "value2",
+						"operation":      hstoreSetOpName,
+						"key":            "key2",
+						"value":          "value2",
+						"skip_not_exist": false,
 					},
 				},
 			},
@@ -381,6 +383,7 @@ func TestHstoreTransformer_Transform(t *testing.T) {
 						"operation":      hstoreSetOpName,
 						"key":            "key3",
 						"value_template": "{{ .GetValue }}",
+						"skip_not_exist": false,
 					},
 				},
 			},
@@ -401,9 +404,10 @@ func TestHstoreTransformer_Transform(t *testing.T) {
 			params: ParameterValues{
 				"operations": []any{
 					map[string]any{
-						"operation": hstoreSetOpName,
-						"key":       "key3",
-						"value":     "value3",
+						"operation":      hstoreSetOpName,
+						"key":            "key3",
+						"value":          "value3",
+						"skip_not_exist": false,
 					},
 				},
 			},
@@ -416,15 +420,41 @@ func TestHstoreTransformer_Transform(t *testing.T) {
 			params: ParameterValues{
 				"operations": []any{
 					map[string]any{
-						"operation": hstoreSetOpName,
-						"key":       "key3",
-						"value":     "value3",
+						"operation":      hstoreSetOpName,
+						"key":            "key3",
+						"value":          "value3",
+						"skip_not_exist": false,
 					},
 				},
 			},
 			input:              []byte(`"key1"=>"value1", "key2"=>"value2"`),
 			wantOutputContains: []string{`"key3"=>"value3"`, `"key1"=>"value1"`, `"key2"=>"value2"`},
 			wantErr:            nil,
+		},
+		{
+			name: "set and delete with skip_not_exist",
+			params: ParameterValues{
+				"operations": []any{
+					map[string]any{
+						"operation":      hstoreSetOpName,
+						"key":            "key1",
+						"value":          "value1",
+						"skip_not_exist": true,
+					},
+					map[string]any{
+						"operation":      hstoreDeleteOpName,
+						"key":            "key2",
+						"skip_not_exist": true,
+					},
+				},
+			},
+			input: pgtype.Hstore{
+				"key3": stringPtr("value3"),
+			},
+			wantOutput: pgtype.Hstore{
+				"key3": stringPtr("value3"),
+			},
+			wantErr: nil,
 		},
 		{
 			name: "unsupported input type",

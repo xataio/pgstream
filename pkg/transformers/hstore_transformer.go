@@ -93,6 +93,15 @@ func (t *HstoreTransformer) Transform(_ context.Context, value Value) (any, erro
 
 	transformed := toTransform
 	for idx, op := range t.operations {
+		t.hstoreVal.setValue(transformed, op.key)
+		if !t.hstoreVal.exists {
+			if op.skipNotExist {
+				continue
+			}
+			if op.errorNotExist {
+				return nil, fmt.Errorf("key \"%s\" does not exist", op.key)
+			}
+		}
 		// apply each operation in the order they were provided
 		transformed, err = op.apply(transformed, t.hstoreVal, t.buf)
 		if err != nil {
@@ -177,6 +186,11 @@ func getHstoreOperations(params ParameterValues) ([]*hstoreOperation, error) {
 		op.errorNotExist, err = FindParameterWithDefault(val, "error_not_exist", false)
 		if err != nil {
 			return nil, fmt.Errorf("error_not_exist must be a boolean: %w", err)
+		}
+
+		op.skipNotExist, err = FindParameterWithDefault(val, "skip_not_exist", true)
+		if err != nil {
+			return nil, fmt.Errorf("skip_not_exist must be a boolean: %w", err)
 		}
 
 		if op.operation == hstoreDeleteOpName {
