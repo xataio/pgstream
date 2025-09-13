@@ -54,6 +54,7 @@ const (
 	Masking                TransformerType = "masking"
 	Template               TransformerType = "template"
 	JSON                   TransformerType = "json"
+	Hstore                 TransformerType = "hstore"
 )
 
 type SupportedDataType string
@@ -79,6 +80,7 @@ const (
 	JSONDataType           SupportedDataType = "json"
 	AllDataTypes           SupportedDataType = "all"
 	CitextDataType         SupportedDataType = "citext"
+	HstoreDataType         SupportedDataType = "hstore"
 )
 
 const (

@@ -60,6 +60,12 @@ var TransformersMap = map[transformers.TransformerType]struct {
 			return transformers.NewJSONTransformer(cfg.Parameters)
 		},
 	},
+	transformers.Hstore: {
+		Definition: transformers.HstoreTransformerDefinition(),
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return transformers.NewHstoreTransformer(cfg.Parameters)
+		},
+	},
 	transformers.PhoneNumber: {
 		Definition: transformers.PhoneNumberTransformerDefinition(),
 		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {

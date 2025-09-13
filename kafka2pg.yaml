@@ -1,0 +1,29 @@
+source:
+  kafka:
+    servers: ["localhost:9092"]
+    topic:
+      name: "pgstream"
+    consumer_group:
+      id: "pgstream-consumer-group"
+      start_offset: "earliest" # options are earliest or latest
+    backoff: # one of exponential or constant
+      exponential:
+        max_retries: 60 # maximum number of retries
+        initial_interval: 1000 # initial interval in milliseconds
+        max_interval: 60000 # maximum interval in milliseconds
+
+target:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:7654?sslmode=disable"
+    batch:
+      timeout: 5000 # batch timeout in milliseconds
+      size: 100 # number of messages in a batch
+    disable_triggers: false # whether to disable triggers on the target database
+    on_conflict_action: "nothing" # options are update, nothing or error
+    schema_log_store_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the schemalog database, if different from the source database
+
+
+modifiers:
+  injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events
+    schemalog_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the schemalog database, if different from the source database
