@@ -227,7 +227,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			wantErr:             nil,
 		},
 		{
-			name: "ok - eat email",
+			name: "ok - email transformer",
 			transformerRules: []TableRules{
 				{
 					Schema:         "public",
@@ -235,7 +235,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 					ValidationMode: "relaxed",
 					ColumnRules: map[string]TransformerRules{
 						"email": {
-							Name: "at_email",
+							Name: "email",
 						},
 					},
 				},

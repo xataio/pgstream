@@ -42,10 +42,10 @@ var TransformersMap = map[transformers.TransformerType]struct {
 			return transformers.NewMaskingTransformer(cfg.Parameters)
 		},
 	},
-	transformers.AtEmail: {
-		Definition: transformers.AtEmailTransformerDefinition(),
+	transformers.Email: {
+		Definition: transformers.EmailTransformerDefinition(),
 		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
-			return transformers.NewAtEmailTransformer(cfg.Parameters)
+			return transformers.NewEmailTransformer(cfg.Parameters)
 		},
 	},
 	transformers.Template: {

@@ -1399,7 +1399,7 @@ transformations:
 </details>
 
  <details>
-  <summary>at_email</summary>
+  <summary>email</summary>
 
 **Description:** Anonymizes email addresses while optionally excluding domain to anonymize.
 
@@ -1409,7 +1409,7 @@ transformations:
 
 | Parameter            | Type     | Default | Required | Values                           |
 | -------------------- | -------- | ------- | -------- | -------------------------------- |
-| replacement_domain      | string     | "@crypt.com"  | No       |                                  |
+| replacement_domain      | string     | "@example.com"  | No       |                                  |
 | exclude_domain      | string     | ""   | No       |                                  |
 | salt     | string | "defaultsalt"    | No       |                                  |
 

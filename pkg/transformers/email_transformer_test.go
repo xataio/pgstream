@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAtEmailTransformer_Transform(t *testing.T) {
+func TestEmailTransformer_Transform(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -18,31 +18,31 @@ func TestAtEmailTransformer_Transform(t *testing.T) {
 		params ParameterValues
 
 		wantLen int
-		wantAtEmail string
+		wantEmail string
 		wantErr error
 	}{
 		{
 			name:  "ok - string",
 			value: "hello@test.com",
 			params: ParameterValues{
-				"replacement_domain": "@crypt.com",
+				"replacement_domain": "@example.com",
 				"exclude_domain": "test.com",
 			},
 			wantLen: 14,
-			wantAtEmail: "hello@test.com",
+			wantEmail: "hello@test.com",
 			wantErr: nil,
 		},
 		{
 			name:  "ok - []byte",
 			value: []byte("hello@test.com"),
 			params: ParameterValues{
-				"replacement_domain": "@crypt.com",
+				"replacement_domain": "@example.com",
 				"exclude_domain": "test.com",
 				"salt": "customsalt",
 			},
 
 			wantLen: 14,
-			wantAtEmail: "hello@test.com",
+			wantEmail: "hello@test.com",
 			wantErr: nil,
 		},
 		{
@@ -54,7 +54,7 @@ func TestAtEmailTransformer_Transform(t *testing.T) {
 			},
 
 			wantLen: 35,
-			wantAtEmail: "BYB5liPSx6sugfg2mewc@nondefault.com",
+			wantEmail: "BYB5liPSx6sugfg2mewc@nondefault.com",
 			wantErr: nil,
 		},
 		{
@@ -66,7 +66,7 @@ func TestAtEmailTransformer_Transform(t *testing.T) {
 			},
 
 			wantLen: 50,
-			wantAtEmail: "{IllJlcIkRf@nondefaultcrypt.com,test@excluded.com}",
+			wantEmail: "{IllJlcIkRf@nondefaultcrypt.com,test@excluded.com}",
 			wantErr: nil,
 		},
 		{
@@ -82,7 +82,7 @@ func TestAtEmailTransformer_Transform(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			st, err := NewAtEmailTransformer(tc.params)
+			st, err := NewEmailTransformer(tc.params)
 			require.NoError(t, err)
 			got, err := st.Transform(context.Background(), Value{TransformValue: tc.value})
 			require.ErrorIs(t, err, tc.wantErr)
@@ -90,8 +90,8 @@ func TestAtEmailTransformer_Transform(t *testing.T) {
 				return
 			}
 
-			if(tc.wantAtEmail != "") {
-				require.Equal(t, tc.wantAtEmail, got.(string))
+			if(tc.wantEmail != "") {
+				require.Equal(t, tc.wantEmail, got.(string))
 			}
 
 			require.Len(t, got, tc.wantLen)

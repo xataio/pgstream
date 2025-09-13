@@ -89,18 +89,18 @@ func scrambleEmail(s []byte, excludeDomain string, replacementDomain string, sal
 	return s
 }
 
-type AtEmailTransformer struct {
+type EmailTransformer struct {
 	replacementDomain string
 	excludeDomain     string
 	salt              string
 }
 
 var (
-	atEmailParams = []Parameter{
+	emailParams = []Parameter{
 		{
 			Name:          "replacement_domain",
 			SupportedType: "string",
-			Default:       "@crypt.com",
+			Default:       "@example.com",
 			Dynamic:       false,
 			Required:      false,
 		},
@@ -119,13 +119,13 @@ var (
 			Required:      false,
 		},
 	}
-	atEmailCompatibleTypes = []SupportedDataType{
+	emailCompatibleTypes = []SupportedDataType{
 		StringDataType,
 		CitextDataType,
 	}
 )
 
-func NewAtEmailTransformer(params ParameterValues) (*AtEmailTransformer, error) {
+func NewEmailTransformer(params ParameterValues) (*EmailTransformer, error) {
 	replacementDomain, err := FindParameterWithDefault(params, "replacement_domain", "@crypt.com")
 	if err != nil {
 		return nil, fmt.Errorf("replacement_domain: replacement_domain must be a string: %w", err)
@@ -139,14 +139,14 @@ func NewAtEmailTransformer(params ParameterValues) (*AtEmailTransformer, error) 
 		return nil, fmt.Errorf("salt: salt must be a string: %w", err)
 	}
 
-	return &AtEmailTransformer{
+	return &EmailTransformer{
 		replacementDomain: replacementDomain,
 		excludeDomain: excludeDomain,
 		salt:              salt,
 	}, nil
 }
 
-func (st *AtEmailTransformer) Transform(_ context.Context, v Value) (any, error) {
+func (st *EmailTransformer) Transform(_ context.Context, v Value) (any, error) {
 	switch str := v.TransformValue.(type) {
 	case string:
 		return st.transform(str), nil
@@ -157,22 +157,22 @@ func (st *AtEmailTransformer) Transform(_ context.Context, v Value) (any, error)
 	}
 }
 
-func (st *AtEmailTransformer) transform(str string) string {
+func (st *EmailTransformer) transform(str string) string {
 	b := scrambleEmail([]byte(str), st.excludeDomain, st.replacementDomain, st.salt)
 	return string(b)
 }
 
-func (st *AtEmailTransformer) CompatibleTypes() []SupportedDataType {
-	return atEmailCompatibleTypes
+func (st *EmailTransformer) CompatibleTypes() []SupportedDataType {
+	return emailCompatibleTypes
 }
 
-func (st *AtEmailTransformer) Type() TransformerType {
-	return AtEmail
+func (st *EmailTransformer) Type() TransformerType {
+	return Email
 }
 
-func AtEmailTransformerDefinition() *Definition {
+func EmailTransformerDefinition() *Definition {
 	return &Definition{
-		SupportedTypes: atEmailCompatibleTypes,
-		Parameters:     atEmailParams,
+		SupportedTypes: emailCompatibleTypes,
+		Parameters:     emailParams,
 	}
 }
