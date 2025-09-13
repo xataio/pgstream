@@ -14,7 +14,7 @@ var bytesKeep = []byte("',\\{}")
 var bytesOutputAlphabet = []byte("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 // Modifies `s` in-place.
-func scrambleBytes(s []byte, salt string) []byte {
+func ScrambleBytes(s []byte, salt string) []byte {
 	isArray := len(s) >= 2 && s[0] == '{' && s[len(s)-1] == '}'
 
 	hash := sha256.New()
@@ -58,8 +58,8 @@ func scrambleOneEmail(s []byte, excludeDomain string, replacementDomain string, 
 		s = make([]byte, scrambleLength+len(replacementDomain))
 		copy(s, mailbox)
 		copy(s[len(mailbox):], domain)
-		// scrambleBytes is in-place, but may return string shorter than input.
-		scrambleBytes(s[:scrambleLength], salt)
+		// ScrambleBytes is in-place, but may return string shorter than input.
+		ScrambleBytes(s[:scrambleLength], salt)
 		copy(s[scrambleLength:], replacementDomain)
 		// So final len(mailbox) may be shorter than whole allocated string.
 		return s[:scrambleLength+len(replacementDomain)]
@@ -67,9 +67,9 @@ func scrambleOneEmail(s []byte, excludeDomain string, replacementDomain string, 
 }
 
 // Supports array of emails in format {email1,email2}
-func scrambleEmail(s []byte, excludeDomain string, replacementDomain string, salt string) []byte {
+func ScrambleEmail(s []byte, excludeDomain string, replacementDomain string, salt string) []byte {
 	if len(s) < 2 {
-		// panic("scrambleEmail: input is too small: '" + string(s) + "'")
+		// panic("ScrambleEmail: input is too small: '" + string(s) + "'")
 		return s
 	}
 	if s[0] != '{' && s[len(s)-1] != '}' {
@@ -96,7 +96,7 @@ type AtEmailTransformer struct {
 }
 
 var (
-	atEmailParams = []Parameter{
+	atEmailParams          = []Parameter{
 		{
 			Name:          "replacement_domain",
 			SupportedType: "string",
@@ -118,6 +118,7 @@ var (
 			Dynamic:       false,
 			Required:      false,
 		},
+
 	}
 	atEmailCompatibleTypes = []SupportedDataType{
 		StringDataType,
@@ -158,7 +159,8 @@ func (st *AtEmailTransformer) Transform(_ context.Context, v Value) (any, error)
 }
 
 func (st *AtEmailTransformer) transform(str string) string {
-	b := scrambleEmail([]byte(str), st.excludeDomain, st.replacementDomain, st.salt)
+
+	b := ScrambleEmail([]byte(str), st.excludeDomain, st.replacementDomain, st.salt)
 	return string(b)
 }
 
@@ -175,15 +177,4 @@ func AtEmailTransformerDefinition() *Definition {
 		SupportedTypes: atEmailCompatibleTypes,
 		Parameters:     atEmailParams,
 	}
-}
-
-func FuncMap() template.FuncMap {
-	functions := template.FuncMap{
-		"atEmailScramble": func(excludeDomain string, replacementDomain string, salt string, value string) string {
-			return string(scrambleEmail([]byte(value), excludeDomain, replacementDomain, salt))
-		},
-	}
-	tm := make(template.FuncMap)
-	maps.Copy(tm, functions)
-	return tm
 }
