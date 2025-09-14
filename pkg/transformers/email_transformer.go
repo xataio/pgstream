@@ -9,9 +9,11 @@ import (
 	"fmt"
 )
 
-var bytesOutputAlphabetLength = byte(len(bytesOutputAlphabet))
-var bytesKeep = []byte("',\\{}")
-var bytesOutputAlphabet = []byte("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+var (
+	bytesOutputAlphabetLength = byte(len(bytesOutputAlphabet))
+	bytesKeep                 = []byte("',\\{}")
+	bytesOutputAlphabet       = []byte("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+)
 
 // Modifies `s` in-place.
 func scrambleBytes(s []byte, salt string) []byte {
@@ -33,7 +35,7 @@ func scrambleBytes(s []byte, salt string) []byte {
 			s = s[:i]
 			break
 		}
-		if !isArray || bytes.IndexRune(bytesKeep, r) == -1 {
+		if !isArray || !bytes.ContainsRune(bytesKeep, r) {
 			// Do not insert, so should not obstruct reader.
 			s[i] = bytesOutputAlphabet[(sumBytes[i%sumLength]+byte(r))%bytesOutputAlphabetLength]
 		} else {
@@ -141,7 +143,7 @@ func NewEmailTransformer(params ParameterValues) (*EmailTransformer, error) {
 
 	return &EmailTransformer{
 		replacementDomain: replacementDomain,
-		excludeDomain: excludeDomain,
+		excludeDomain:     excludeDomain,
 		salt:              salt,
 	}, nil
 }
