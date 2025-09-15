@@ -2,37 +2,14 @@
 
 pgstream provides comprehensive observability through [OpenTelemetry](https://opentelemetry.io/) metrics and distributed tracing. This document outlines the available metrics and how to use them for monitoring your data streaming pipeline.
 
-# Table of Contents
-
 - [Overview](#overview)
 - [Quick Start with Local Setup](#quick-start-with-local-setup)
 - [Metrics](#metrics)
-  - [WAL Replication](#wal-replication)
-  - [WAL Event Processing](#wal-event-processing)
-  - [Snapshot Operations](#snapshot-operations)
-  - [Kafka Operations](#kafka-operations)
-    - [Writer Metrics](#writer-metrics)
-    - [Reader Metrics](#reader-metrics)
-  - [PostgreSQL Operations](#postgresql-operations)
-  - [Search Operations](#search-operations)
-  - [Data Transformations](#data-transformations)
-  - [Go Runtime Metrics](#go-runtime-metrics)
 - [Configuration](#configuration)
-  - [Enabling Metrics](#enabling-metrics)
 - [Monitoring Dashboards](#monitoring-dashboards)
-  - [Pre-built pgstream Dashboard](#pre-built-pgstream-dashboard)
-  - [Key Performance Indicators (KPIs)](#key-performance-indicators-kpis)
 - [Source PostgreSQL Monitoring](#source-postgresql-monitoring)
-  - [Essential PostgreSQL Metrics](#essential-postgresql-metrics)
 - [Distributed Tracing](#distributed-tracing)
 - [Profiling](#profiling)
-  - [Enabling Profiling](#enabling-profiling)
-  - [Profiling Modes](#profiling-modes)
-    - [1. HTTP Endpoint (All Commands)](#1-http-endpoint-all-commands)
-    - [2. File Output (Snapshot Command Only)](#2-file-output-snapshot-command-only)
-  - [Using Profiling Data](#using-profiling-data)
-    - [With Go's pprof Tool](#with-gos-pprof-tool)
-  - [Considerations](#considerations)
 - [Best Practices](#best-practices)
 - [Troubleshooting](#troubleshooting)
 
