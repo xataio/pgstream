@@ -2,6 +2,36 @@
   "name": "transformers",
   "transformers": [
     {
+      "name": "email",
+      "supported_types": [
+        "string",
+        "citext"
+      ],
+      "parameters": [
+        {
+          "name": "replacement_domain",
+          "supported_type": "string",
+          "default": "@example.com",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "exclude_domain",
+          "supported_type": "string",
+          "default": "",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "salt",
+          "supported_type": "string",
+          "default": "defaultsalt",
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
       "name": "greenmask_boolean",
       "supported_types": [
         "boolean",

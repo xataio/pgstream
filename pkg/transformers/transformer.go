@@ -32,6 +32,7 @@ type Config struct {
 type TransformerType string
 
 const (
+	Email                  TransformerType = "email"
 	String                 TransformerType = "string"
 	LiteralString          TransformerType = "literal_string"
 	PhoneNumber            TransformerType = "phone_number"

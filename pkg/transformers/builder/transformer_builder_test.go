@@ -24,6 +24,14 @@ func TestTransformerBuilder_New(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "valid email transformer",
+			config: &transformers.Config{
+				Name:       transformers.Email,
+				Parameters: nil,
+			},
+			wantErr: nil,
+		},
+		{
 			name: "invalid parameter for phone number transformer",
 			config: &transformers.Config{
 				Name:       transformers.String,
