@@ -235,6 +235,7 @@ For more advanced usage, implementation details, and detailed configuration sett
 2. [Configuration](docs/configuration.md)
    - [Yaml](docs/configuration.md#yaml)
    - [Environment Variables](docs/configuration.md#environment-variables)
+   - [Examples](docs/examples/)
 3. [Snapshots](docs/snapshots.md)
 4. [Transformers](docs/transformers.md)
    - [Supported Transformers](docs/transformers.md#supported-transformers)
