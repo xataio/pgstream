@@ -268,7 +268,7 @@ Here's a list of all the environment variables that can be used to configure the
 | PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS | False            | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to snapshot all global database objects outside of the selected schema (such as extensions, triggers, etc).                                                                                                                |
 | PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB          | False            | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to create the database being restored.                                                                                                                                                                                     |
 | PGSTREAM_POSTGRES_SNAPSHOT_ROLE                      | ""               | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, role name to be used to create the dump.                                                                                                                                                                                          |
-| PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE       | "enabled"        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to enable/disable snapshotting roles. Could be set to "no_passwords" to snapshot roles, without passwords.
+| PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE       | "enabled"        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to enable/disable snapshotting roles. Could be set to "no_passwords" to snapshot roles, without passwords.                                                                                                                 |
 | PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE          | ""               | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, file where the contents of the schema pg_dump command and output will be written for debugging purposes.                                                                                                                          |
 
 </details>
@@ -1286,28 +1286,28 @@ Example input-output is given below the config.
 **Example Configuration:**
 
 ```yaml
-  transformations:
-    validation_mode: relaxed
-    table_transformers:
-      - schema: public
-        table: users
-        column_transformers:
-          attributes:
-            name: hstore
-            parameters:
-              operations:
-                - operation: set
-                  key: "email"
-                  value_template: "{{masking \"email\" .GetValue}}"
-                - operation: delete
-                  key: "public_key"
-                  error_not_exist: true
-                - operation: set
-                  key: "private_key"
-                  value_template: "{{masking \"default\" .GetValue}}"
-                - operation: set
-                  key: "newKey"
-                  value: "newValue"
+transformations:
+  validation_mode: relaxed
+  table_transformers:
+    - schema: public
+      table: users
+      column_transformers:
+        attributes:
+          name: hstore
+          parameters:
+            operations:
+              - operation: set
+                key: "email"
+                value_template: '{{masking "email" .GetValue}}'
+              - operation: delete
+                key: "public_key"
+                error_not_exist: true
+              - operation: set
+                key: "private_key"
+                value_template: '{{masking "default" .GetValue}}'
+              - operation: set
+                key: "newKey"
+                value: "newValue"
 ```
 
 For input hstore value,
@@ -1325,6 +1325,7 @@ the hstore transformer with above config produces output:
   email => use***@email.com
   newKey => newValue
 ```
+
 </details>
 
  <details>
@@ -1407,11 +1408,11 @@ transformations:
 | --------------------------------------------- |
 | `text`, `varchar`, `char`, `bpchar`, `citext` |
 
-| Parameter            | Type     | Default | Required | Values                           |
-| -------------------- | -------- | ------- | -------- | -------------------------------- |
-| replacement_domain      | string     | "@example.com"  | No       |                                  |
-| exclude_domain      | string     | ""   | No       |                                  |
-| salt     | string | "defaultsalt"    | No       |                                  |
+| Parameter          | Type   | Default        | Required | Values |
+| ------------------ | ------ | -------------- | -------- | ------ |
+| replacement_domain | string | "@example.com" | No       |        |
+| exclude_domain     | string | ""             | No       |        |
+| salt               | string | "defaultsalt"  | No       |        |
 
 **Example Configuration:**
 
@@ -1430,13 +1431,13 @@ transformations:
 
 **Input-Output Examples:**
 
-| Input Email            | Configuration Parameters                        | Output Email           |
-| ---------------------- | ----------------------------------------------- | ---------------------- |
-| `john.doe@example.com` | `exclude_domain: "example.com", salt: "helloworld"`  | `john.doe@example.com` |
-| `jane.doe@company.org` | `exclude_domain: "example.com", salt: "helloworld"`  | `T79P9zlFWzmT0yCUDMEE7S@crypt.com`   |
-| `jane.doe@company.org`    | `exclude_domain: "example.com", salt: "helloworld", replacement_domain: "@random.com"` | `6EIWw5lEa8nsY9JDOm5@random.com`  |
-| `invalid-email`        | `exclude_domain: "example.com", salt: "helloworld"`             | `1fk5VLgTeoRQCCvqXFoToC1@crypt.com`        |
-| `invalid-email`        | `exclude_domain: "example.com", salt: "helloworld", replacement_domain: "@random.com"`             | `6EIWw5lEa8nsY9JDOm5@random.com`        |
+| Input Email            | Configuration Parameters                                                               | Output Email                          |
+| ---------------------- | -------------------------------------------------------------------------------------- | ------------------------------------- |
+| `john.doe@company.org` | `exclude_domain: "company.org", salt: "helloworld"`                                    | `john.doe@company.org`                |
+| `jane.doe@company.org` | `exclude_domain: "exclude.com", salt: "helloworld"`                                    | `T79P9zlFWzmT0yCUDMEE7S@example.com`  |
+| `jane.doe@company.org` | `exclude_domain: "exclude.com", salt: "helloworld", replacement_domain: "@random.com"` | `6EIWw5lEa8nsY9JDOm5@random.com`      |
+| `invalid-email`        | `exclude_domain: "exclude.com", salt: "helloworld"`                                    | `1fk5VLgTeoRQCCvqXFoToC1@example.com` |
+| `invalid-email`        | `exclude_domain: "exclude.com", salt: "helloworld", replacement_domain: "@random.com"` | `6EIWw5lEa8nsY9JDOm5@random.com`      |
 
 </details>
 
