@@ -674,15 +674,15 @@ Parameter for each operation:
 | Parameter | Type | Default | Required | Values |
 | --------------- | ------- | ------- | -------- | ------------------------------ |
 | operation | string | N/A | Yes | set, delete |
-| path | string | N/A | Yes | \*sjson syntax |
+| path | string | N/A | Yes | sjson syntax<sup>\*</sup> |
 | skip_not_exist | boolean | true | No | true, false |
 | error_not_exist | boolean | false | No | true, false |
-| value | string | N\A | **Yes | Any valid JSON representation |
-| value_template | string | N\A | **Yes | Any template with valid syntax |
+| value | string | N/A | Yes<sup>\*\*</sup>| Any valid JSON representation |
+| value_template | string | N/A | Yes<sup>\*\*</sup> | Any template with valid syntax |
 
-\*Paths should follow [sjson syntax](https://github.com/tidwall/sjson#path-syntax)
+<sup>\*</sup>_Paths should follow [sjson syntax](https://github.com/tidwall/sjson#path-syntax)_
 
-\*\*Either `value` or `value_template` must be provided if the operation is `set`. If both are provided, `value_template` takes precedence.
+<sup>\*\*</sup>_Either `value` or `value_template` must be provided if the operation is `set`. If both are provided, `value_template` takes precedence._
 
 JSON transformer can be used for Postgres types json and jsonb. This transformer executes a list of given operations on the json data to be transformed.
 
@@ -800,10 +800,10 @@ Parameter for each operation:
 | key | string | N/A | Yes | |
 | skip_not_exist | boolean | true | No | true, false |
 | error_not_exist | boolean | false | No | true, false |
-| value | string, null | N\A | *Yes | Any string or null |
-| value_template | string | N\A | *Yes | Any template with valid syntax |
+| value | string, null | N/A | Yes<sup>\*</sup> | Any string or null |
+| value_template | string | N/A | Yes<sup>\*</sup> | Any template with valid syntax |
 
-\*Either `value` or `value_template` must be provided if the operation is `set`. If both are provided, `value_template` takes precedence.
+<sup>\*</sup>_Either `value` or `value_template` must be provided if the operation is `set`. If both are provided, `value_template` takes precedence._
 
 Hstore transformer can be used for Postgres type hstore. This transformer executes a list of given operations on the hstore data to be transformed.
 

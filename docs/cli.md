@@ -306,7 +306,7 @@ pgstream version v0.8.1
 pgstream uses YAML or .env configuration files. The configuration can be specified via:
 
 1. **Command-line flag:** `--config /path/to/config.yaml` or `-c /path/to/config.env`
-2. **Environment variable:** `PGSTREAM_CONFIG_FILE=/path/to/config.yaml`
+2. **Environment variable:** `PGSTREAM_CONFIG=/path/to/config.yaml`
 
 ### Environment Variable Support
 
