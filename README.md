@@ -35,6 +35,7 @@
 ## Table of Contents
 
 - [Usage](#usage)
+- [Tutorials](#tutorials)
 - [Documentation](#documentation)
 - [Benchmarks](#benchmarks)
 - [Limitations](#limitations)
@@ -217,6 +218,15 @@ pgstream snapshot --postgres-url="postgres://postgres:postgres@localhost:5432?ss
 
 Pgstream will parse the configuration provided, and initialise the relevant modules. It requires at least one source(listener) and one target(processor).
 
+## Tutorials
+
+- [PostgreSQL replication to PostgreSQL](docs/tutorials/postgres_to_postgres.md)
+- [PostgreSQL replication to OpenSearch](docs/tutorials/postgres_to_opensearch.md)
+- [PostgreSQL replication to webhooks](docs/tutorials/postgres_to_webhooks.md)
+- [PostgreSQL replication using Kafka](docs/tutorials/postgres_kafka.md)
+- [PostgreSQL snapshots](docs/tutorials/postgres_snapshot.md)
+- [PostgreSQL column transformations](docs/tutorials/postgres_transformer.md)
+
 ## Documentation
 
 For more advanced usage, implementation details, and detailed configuration settings, please refer to the full documentation below.
@@ -230,14 +240,7 @@ For more advanced usage, implementation details, and detailed configuration sett
    - [Supported Transformers](docs/transformers.md#supported-transformers)
    - [Transformation Rules](docs/transformers.md#transformation-rules)
 5. [Observability](docs/observability.md)
-6. [Tutorials](docs/tutorials/)
-   - [PostgreSQL replication to PostgreSQL](docs/tutorials/postgres_to_postgres.md)
-   - [PostgreSQL replication to OpenSearch](docs/tutorials/postgres_to_opensearch.md)
-   - [PostgreSQL replication to webhooks](docs/tutorials/postgres_to_webhooks.md)
-   - [PostgreSQL replication using Kafka](docs/tutorials/postgres_kafka.md)
-   - [PostgreSQL snapshots](docs/tutorials/postgres_snapshot.md)
-   - [PostgreSQL column transformations](docs/tutorials/postgres_transformer.md)
-7. [Glossary](docs/glossary.md)
+6. [Glossary](docs/glossary.md)
 
 ## Benchmarks
 
