@@ -106,9 +106,9 @@ Pgstream source and target need to be configured appropriately before the comman
 - Using a yaml configuration file
 - Using environment variables (.env file supported)
 
-Check the [documentation](docs/README.md#configuration) for more information about the configuration options, or check the help on the CLI for details on the available flags. Additionally, at the root of this repository you can find sample files for both .env and .yaml.
+Check the [configuration documentation](docs/configuration.md) for more information about the configuration options, or check the [CLI documentation](docs/cli.md) for details on the available flags. Additionally, you can find sample files for both .env and .yaml [here](docs/examples).
 
-If you want to configure column transformations, leveraging [greenmask](https://github.com/GreenmaskIO/greenmask), [neosync](https://github.com/nucleuscloud/neosync) and [go-masker](https://github.com/ggwhite/go-masker) open source integrations, as well as custom transformers, check the [transformation rules](docs/README.md#transformation-rules) configuration for more details, along with the list of [available transformers](docs/README.md#supported-transformers).
+If you want to configure column transformations, leveraging [greenmask](https://github.com/GreenmaskIO/greenmask), [neosync](https://github.com/nucleuscloud/neosync) and [go-masker](https://github.com/ggwhite/go-masker) open source integrations, as well as custom transformers, check the [transformation rules](docs/transformers.md#transformation-rules) configuration for more details, along with the list of [available transformers](docs/transformers.md#supported-transformers).
 
 ### Prepare the database
 
