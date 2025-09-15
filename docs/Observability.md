@@ -174,6 +174,8 @@ The included SigNoz dashboard provides:
 - **Error Tracking**: Error rates and failure patterns
 - **Resource Utilization**: Memory, CPU, and network usage
 
+<img width="1656" height="1251" alt="pgstream_signoz_dashboard" src="https://github.com/user-attachments/assets/c08e5029-494d-4dc6-94e1-6ce467d3abce" />
+
 ### Key Performance Indicators (KPIs)
 
 1. **Replication Health**
@@ -229,6 +231,8 @@ pgstream automatically creates traces for all major operations. Traces include:
 - Error context and stack traces
 
 Use the included SigNoz setup or tools like Jaeger/Zipkin to visualize and analyze trace data for debugging and performance optimization.
+
+<img width="1454" height="1022" alt="pgstream_signoz_tracing" src="https://github.com/user-attachments/assets/595cfff7-d1a2-419c-afd0-739e851e1fa7" />
 
 ## Best Practices
 
