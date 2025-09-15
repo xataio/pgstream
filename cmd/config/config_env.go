@@ -41,7 +41,6 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_URL")
 	viper.BindEnv("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME")
 
-	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS")
@@ -171,15 +170,9 @@ func parseListenerConfig() (stream.ListenerConfig, error) {
 		return stream.ListenerConfig{}, err
 	}
 
-	snapshotConfig, err := parseSnapshotListenerConfig()
-	if err != nil {
-		return stream.ListenerConfig{}, err
-	}
-
 	return stream.ListenerConfig{
 		Postgres: postgresConfig,
 		Kafka:    parseKafkaListenerConfig(),
-		Snapshot: snapshotConfig,
 	}, nil
 }
 
@@ -190,6 +183,7 @@ func parsePostgresListenerConfig() (*stream.PostgresListenerConfig, error) {
 	}
 
 	cfg := &stream.PostgresListenerConfig{
+		URL: pgURL,
 		Replication: pgreplication.Config{
 			PostgresURL:         pgURL,
 			ReplicationSlotName: viper.GetString("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME"),
@@ -212,14 +206,6 @@ func parsePostgresListenerConfig() (*stream.PostgresListenerConfig, error) {
 	}
 
 	return cfg, nil
-}
-
-func parseSnapshotListenerConfig() (*snapshotbuilder.SnapshotListenerConfig, error) {
-	pgsnapshotURL := viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL")
-	if pgsnapshotURL == "" {
-		return nil, nil
-	}
-	return parseSnapshotConfig(pgsnapshotURL)
 }
 
 func parseSnapshotConfig(pgURL string) (*snapshotbuilder.SnapshotListenerConfig, error) {
