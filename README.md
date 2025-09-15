@@ -45,7 +45,7 @@
 
 ## Usage
 
-`pgstream` can be used via the readily available CLI or as a library.
+`pgstream` can be used via the readily available CLI or as a library. For detailed information about the CLI usage, check out the dedicated [CLI documentation section](docs/cli.md).
 
 ### CLI Installation
 
@@ -229,7 +229,20 @@ Pgstream will parse the configuration provided, and initialise the relevant modu
 
 ## Documentation
 
-For more advanced usage, implementation details, and detailed configuration settings, please refer to the full [Documentation](docs/README.md).
+For more advanced usage, implementation details, and detailed configuration settings, please refer to the full documentation below.
+
+1. [Architecture](docs/architecture.md)
+2. [Configuration](docs/configuration.md)
+   - [Yaml](docs/configuration.md#yaml)
+   - [Environment Variables](docs/configuration.md#environment-variables)
+   - [Examples](docs/examples/)
+3. [Snapshots](docs/snapshots.md)
+4. [Transformers](docs/transformers.md)
+   - [Supported Transformers](docs/transformers.md#supported-transformers)
+   - [Transformation Rules](docs/transformers.md#transformation-rules)
+5. [Observability](docs/observability.md)
+6. [CLI](docs/cli.md)
+7. [Glossary](docs/glossary.md)
 
 ## Benchmarks
 
