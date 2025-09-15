@@ -128,7 +128,7 @@ var (
 )
 
 func NewEmailTransformer(params ParameterValues) (*EmailTransformer, error) {
-	replacementDomain, err := FindParameterWithDefault(params, "replacement_domain", "@crypt.com")
+	replacementDomain, err := FindParameterWithDefault(params, "replacement_domain", "@example.com")
 	if err != nil {
 		return nil, fmt.Errorf("replacement_domain: replacement_domain must be a string: %w", err)
 	}
