@@ -13,6 +13,7 @@ pgstream instruments all major components of the data streaming pipeline with me
 - Search indexing operations
 - Data transformations
 - [Go runtime metrics](https://pkg.go.dev/go.opentelemetry.io/contrib/instrumentation/runtime) (memory, GC, goroutines, etc.)
+- [Go profiling](https://go.dev/blog/pprof) (CPU, memory, goroutines, etc.)
 
 ## Quick Start with Local Setup
 
@@ -262,6 +263,79 @@ Use the included SigNoz setup or tools like Jaeger/Zipkin to visualize and analy
 
 <img width="1454" height="1022" alt="pgstream_signoz_tracing" src="https://github.com/user-attachments/assets/595cfff7-d1a2-419c-afd0-739e851e1fa7" />
 
+## Profiling
+
+pgstream includes built-in Go profiling capabilities using Go's [`net/http/pprof`](pkg.go.dev/net/http/pprof) package for performance analysis and debugging.
+
+### Enabling Profiling
+
+Profiling can be enabled using the `--profile` flag on supported commands:
+
+```bash
+# Enable profiling for snapshot operations
+pgstream snapshot --profile --config config.yaml
+
+# Enable profiling for run operations
+pgstream run --profile --config config.yaml
+```
+
+### Profiling Modes
+
+#### 1. HTTP Endpoint (All Commands)
+
+When `--profile` is enabled, pgstream exposes a profiling HTTP server at `localhost:6060` with the following endpoints:
+
+| Endpoint                                      | Description                    |
+| --------------------------------------------- | ------------------------------ |
+| `http://localhost:6060/debug/pprof/`          | Profile index page             |
+| `http://localhost:6060/debug/pprof/profile`   | CPU profile (30-second sample) |
+| `http://localhost:6060/debug/pprof/heap`      | Memory heap profile            |
+| `http://localhost:6060/debug/pprof/goroutine` | Goroutine profile              |
+| `http://localhost:6060/debug/pprof/allocs`    | Memory allocation profile      |
+| `http://localhost:6060/debug/pprof/block`     | Block profile                  |
+| `http://localhost:6060/debug/pprof/mutex`     | Mutex profile                  |
+| `http://localhost:6060/debug/pprof/trace`     | Execution trace                |
+
+#### 2. File Output (Snapshot Command Only)
+
+For the `snapshot` command, profiling also generates profile files:
+
+- **`cpu.prof`** - CPU profile for the entire snapshot operation
+- **`mem.prof`** - Memory profile taken at the end of the operation
+
+### Using Profiling Data
+
+#### With Go's pprof Tool
+
+1. **CPU Hotspots**: Identify functions consuming the most CPU time
+
+   ```bash
+   go tool pprof -http=:8080 http://localhost:6060/debug/pprof/profile
+   ```
+
+2. **Memory Usage**: Find memory allocation patterns and potential leaks
+
+   ```bash
+   go tool pprof -http=:8080 http://localhost:6060/debug/pprof/heap
+   ```
+
+3. **Goroutine Analysis**: Debug goroutine leaks or blocking operations
+
+   ```bash
+   go tool pprof -http=:8080 http://localhost:6060/debug/pprof/goroutine
+   ```
+
+4. **Blocked Operations**:
+   ```bash
+   go tool pprof -http=:8080 http://localhost:6060/debug/pprof/block
+   ```
+
+### Considerations
+
+- **Local Only**: The profiling server binds to `localhost:6060` and is not accessible externally
+- **Disable in Production**: Only enable profiling for debugging/optimization sessions
+- **Performance Impact**: Profiling has minimal overhead but should be used carefully
+
 ## Best Practices
 
 1. **Use the Pre-built Dashboard**: Start with the included SigNoz dashboard for immediate visibility
@@ -271,6 +345,8 @@ Use the included SigNoz setup or tools like Jaeger/Zipkin to visualize and analy
 5. **Regular Health Checks**: Use the dashboard to perform regular health assessments
 6. **Analyze Traces for Debugging**: Leverage distributed tracing for complex issue resolution
 7. **Capacity Planning**: Use historical metrics data to plan for scaling needs
+8. **Enable Profiling Only When Needed**: Don't run profiling continuously in production
+9. **Collect Sufficient Profile Data**: Let profiling run for adequate time to collect meaningful samples
 
 ## Troubleshooting
 
@@ -290,6 +366,7 @@ If you encounter issues with observability setup:
 1. Check the SigNoz dashboard for immediate insights
 2. Review both pgstream and PostgreSQL metrics
 3. Examine Go runtime metrics for application health issues
-4. Examine distributed traces for detailed execution flow
-5. Consult the troubleshooting section above
-6. Check PostgreSQL logs for replication related errors
+4. Use profiling to drill down into performance bottlenecks
+5. Examine distributed traces for detailed execution flow
+6. Consult the troubleshooting section above
+7. Check PostgreSQL logs for replication related errors
