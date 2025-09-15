@@ -12,6 +12,7 @@ pgstream instruments all major components of the data streaming pipeline with me
 - PostgreSQL query operations
 - Search indexing operations
 - Data transformations
+- [Go runtime metrics](https://pkg.go.dev/go.opentelemetry.io/contrib/instrumentation/runtime) (memory, GC, goroutines, etc.)
 
 ## Quick Start with Local Setup
 
@@ -137,6 +138,26 @@ All metrics follow the `pgstream.*` naming convention and include relevant attri
 
 **Usage:** Monitor transformation performance and identify slow transformers.
 
+### Go Runtime Metrics
+
+pgstream automatically collects Go runtime metrics using the [OpenTelemetry Go runtime instrumentation](https://pkg.go.dev/go.opentelemetry.io/contrib/instrumentation/runtime). These metrics are essential for monitoring application health and performance:
+
+| Metric                         | Type      | Unit        | Description                                        |
+| ------------------------------ | --------- | ----------- | -------------------------------------------------- |
+| `runtime.go.mem.heap_alloc`    | Gauge     | bytes       | Bytes of allocated heap objects                    |
+| `runtime.go.mem.heap_idle`     | Gauge     | bytes       | Bytes in idle (unused) heap spans                  |
+| `runtime.go.mem.heap_inuse`    | Gauge     | bytes       | Bytes in in-use heap spans                         |
+| `runtime.go.mem.heap_objects`  | Gauge     | objects     | Number of allocated heap objects                   |
+| `runtime.go.mem.heap_released` | Gauge     | bytes       | Bytes of physical memory returned to the OS        |
+| `runtime.go.mem.heap_sys`      | Gauge     | bytes       | Bytes of heap memory obtained from the OS          |
+| `runtime.go.gc.count`          | Counter   | collections | Number of completed GC cycles                      |
+| `runtime.go.gc.pause_ns`       | Histogram | ns          | Amount of nanoseconds in GC stop-the-world pauses  |
+| `runtime.go.goroutines`        | Gauge     | goroutines  | Number of goroutines that currently exist          |
+| `runtime.go.lookups`           | Counter   | lookups     | Number of pointer lookups performed by the runtime |
+| `runtime.go.mem.gc_sys`        | Gauge     | bytes       | Bytes of memory in garbage collection metadata     |
+
+**Usage:** Monitor application resource usage, detect memory leaks, track GC performance, and identify goroutine leaks.
+
 ## Configuration
 
 ### Enabling Metrics
@@ -173,30 +194,37 @@ The included SigNoz dashboard provides:
 - **Processing Performance**: Latency and throughput across all components
 - **Error Tracking**: Error rates and failure patterns
 - **Resource Utilization**: Memory, CPU, and network usage
+- **Go Runtime Health**: Memory usage, GC performance, and goroutine tracking
 
 <img width="1656" height="1251" alt="pgstream_signoz_dashboard" src="https://github.com/user-attachments/assets/c08e5029-494d-4dc6-94e1-6ce467d3abce" />
 
 ### Key Performance Indicators (KPIs)
 
-1. **Replication Health**
+1. **Application Health**
+
+   - `runtime.go.mem.heap_alloc` - Memory usage trends
+   - `runtime.go.goroutines` - Goroutine count (detect leaks)
+   - `runtime.go.gc.pause_ns` - GC pause times (performance impact)
+
+2. **Replication Health**
 
    - `pgstream.replication.lag` - Should remain low and stable
    - `pgstream.target.processing.lag` - End-to-end processing delay
    - **PostgreSQL replication lag** - Monitor source database metrics
 
-2. **Throughput**
+3. **Throughput**
 
    - `pgstream.kafka.writer.batch.size` - Messages per batch
    - `pgstream.kafka.writer.batch.bytes` - Bytes per batch
    - `rate(pgstream.postgres.querier.latency_count[5m])` - Query rate
 
-3. **Latency**
+4. **Latency**
 
    - `pgstream.target.processing.latency` (p95, p99) - Processing latency percentiles
    - `pgstream.kafka.writer.latency` (p95, p99) - Kafka write latency
    - `pgstream.postgres.querier.latency` (p95, p99) - Database query latency
 
-4. **Error Rates**
+5. **Error Rates**
    - `rate(pgstream.search.store.doc.errors[5m])` - Search indexing errors
    - Error logs from distributed traces
 
@@ -238,13 +266,17 @@ Use the included SigNoz setup or tools like Jaeger/Zipkin to visualize and analy
 
 1. **Use the Pre-built Dashboard**: Start with the included SigNoz dashboard for immediate visibility
 2. **Monitor Both Sides**: Track both pgstream metrics AND source PostgreSQL replication metrics
-3. **Set Up Comprehensive Alerting**: Configure alerts for both application and infrastructure metrics
-4. **Regular Health Checks**: Use the dashboard to perform regular health assessments
-5. **Analyze Traces for Debugging**: Leverage distributed tracing for complex issue resolution
-6. **Capacity Planning**: Use historical metrics data to plan for scaling needs
+3. **Watch Runtime Metrics**: Monitor memory usage, GC performance, and goroutine counts for application health
+4. **Set Up Comprehensive Alerting**: Configure alerts for both application and infrastructure metrics
+5. **Regular Health Checks**: Use the dashboard to perform regular health assessments
+6. **Analyze Traces for Debugging**: Leverage distributed tracing for complex issue resolution
+7. **Capacity Planning**: Use historical metrics data to plan for scaling needs
 
 ## Troubleshooting
 
+- **High Memory Usage**: Check `runtime.go.mem.heap_alloc` and look for memory leaks in processing pipelines
+- **Goroutine Leaks**: Monitor `runtime.go.goroutines` and investigate if count keeps growing
+- **GC Pressure**: High `runtime.go.gc.count` rate may indicate memory allocation issues
 - **High Lag**: Check both `pgstream.replication.lag` and PostgreSQL `pg_stat_replication` for the root cause
 - **Write Failures**: Monitor `pgstream.kafka.writer.latency` and check Kafka connectivity
 - **Slow Snapshots**: Use `pgstream.snapshot.generator.latency` with schema/table attributes to identify problematic tables
@@ -257,6 +289,7 @@ If you encounter issues with observability setup:
 
 1. Check the SigNoz dashboard for immediate insights
 2. Review both pgstream and PostgreSQL metrics
-3. Examine distributed traces for detailed execution flow
-4. Consult the troubleshooting section above
-5. Check PostgreSQL logs for replication related errors
+3. Examine Go runtime metrics for application health issues
+4. Examine distributed traces for detailed execution flow
+5. Consult the troubleshooting section above
+6. Check PostgreSQL logs for replication related errors
