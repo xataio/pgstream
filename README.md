@@ -45,7 +45,7 @@
 
 ## Usage
 
-`pgstream` can be used via the readily available CLI or as a library.
+`pgstream` can be used via the readily available CLI or as a library. For detailed information about the CLI usage, check out the dedicated [CLI documentation section](docs/cli.md).
 
 ### CLI Installation
 
@@ -241,7 +241,8 @@ For more advanced usage, implementation details, and detailed configuration sett
    - [Supported Transformers](docs/transformers.md#supported-transformers)
    - [Transformation Rules](docs/transformers.md#transformation-rules)
 5. [Observability](docs/observability.md)
-6. [Glossary](docs/glossary.md)
+6. [CLI](docs/cli.md)
+7. [Glossary](docs/glossary.md)
 
 ## Benchmarks
 
