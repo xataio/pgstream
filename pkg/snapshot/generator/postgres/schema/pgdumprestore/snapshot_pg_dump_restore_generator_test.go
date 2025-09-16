@@ -163,6 +163,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						RolesOnly:        true,
 						Role:             testRole,
+						NoOwner:          true,
 					}, po)
 					return rolesDumpOriginal, nil
 				default:

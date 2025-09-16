@@ -311,7 +311,7 @@ func (s *SnapshotGenerator) dumpRoles(ctx context.Context, roles map[string]stru
 	}
 
 	filteredRolesDump := filterRolesDump(d, roles)
-	defer s.dumpToFile(s.rolesDumpFile(), opts, filteredRolesDump)
+	s.dumpToFile(s.rolesDumpFile(), opts, filteredRolesDump)
 
 	return filteredRolesDump, nil
 }
