@@ -1,4 +1,4 @@
-# pgstream CLI Documentation
+# ⌨️ CLI Documentation
 
 pgstream is a command-line tool for streaming PostgreSQL data changes to various targets. This document covers all available commands and their usage.
 
@@ -24,10 +24,17 @@ curl -L https://github.com/xataio/pgstream/releases/latest/download/pgstream-lin
 chmod +x pgstream
 sudo mv pgstream /usr/local/bin/
 
+# Or use go install
+go install github.com/xataio/pgstream@latest
+
 # Or build from source
 git clone https://github.com/xataio/pgstream.git
 cd pgstream
 go build -o pgstream ./cmd
+
+# Or install via homebrew on macOS or Linux
+brew tap xataio/pgstream
+brew install pgstream
 ```
 
 ## Global Flags
@@ -44,7 +51,7 @@ These flags are available for all commands:
 
 ### init
 
-Initialises pgstream, creating the replication slot and the relevant tables/functions/triggers under the configured internal pgstream schema.
+Initialises pgstream, creating the replication slot and the relevant tables/functions/triggers under the configured internal pgstream schema. It performs the same operations as the `--init` flag on the `run` command.
 
 ```bash
 pgstream init [flags]
@@ -308,9 +315,7 @@ pgstream uses YAML or .env configuration files. The configuration can be specifi
 1. **Command-line flag:** `--config /path/to/config.yaml` or `-c /path/to/config.env`
 2. **Environment variable:** `PGSTREAM_CONFIG=/path/to/config.yaml`
 
-### Environment Variable Support
-
-Configuration values can be overridden using environment variables with the `PGSTREAM_` prefix. pgstream automatically reads environment variables and maps them to configuration values.
+For more information about the configuration options, check out the [configuration documentation](configuration.md).
 
 ## Examples
 
@@ -451,6 +456,14 @@ pgstream snapshot -c config.yaml --reset
 # Snapshot with profiling and custom dump file
 pgstream snapshot -c config.yaml --profile --dump-file custom_dump.sql
 ```
+
+### Best Practices
+
+- Use `run` with the `--init` flag to ensure pgstream can properly replicate schema changes
+- `snapshot` only requires read access on your Postgres source, so it's a good alternative for non invasive syncs
+- If you need a snapshot and replication, use `run` with initial snapshot to prevent data loss
+- Use the `status` command to validate your transformer configuration and your pgstream replication setup
+- Use `destroy` carefully, since it will remove everything used by pgstream, including the replication slot
 
 ### Getting Help
 
