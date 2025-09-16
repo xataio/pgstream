@@ -52,6 +52,8 @@ The initialisation step allows to provide both the URL of the PostgreSQL databas
 
 For this tutorial, we'll create a replication slot with the name `pgstream_tutorial_slot`.
 
+- Using the `--init` flag in the `run` command
+
 - Using CLI flags:
 
 ```sh
@@ -264,6 +266,7 @@ modifiers:
 We can validate that the initialisation and the configuration are valid by running the `status` command before starting `pgstream`.
 
 ```sh
+
 # using yaml configuration file
 ./pgstream status -c pg2pg_transformer_tutorial.yaml
 # using env configuration file
@@ -295,6 +298,9 @@ With the configuration ready, we can now run pgstream. In this case we set the l
 **Important:** Ensure that the source and target databases are running before proceeding.
 
 ```sh
+# with initialization
+pgstream run -c pg2pg_transformer_tutorial.env --init --log-level trace
+
 # with the environment configuration
 pgstream run -c pg2pg_transformer_tutorial.env --log-level trace
 

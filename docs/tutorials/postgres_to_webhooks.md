@@ -53,6 +53,8 @@ The initialisation step allows to provide both the URL of the PostgreSQL databas
 
 For this tutorial, we'll create a replication slot with the name `pgstream_tutorial_slot`.
 
+- Using the `--init` flag in the `run` command
+
 - Using CLI parameters:
 
 ```sh
@@ -244,6 +246,9 @@ Source status:
 With the configuration ready, we can now run pgstream. In this case we set the log level as trace to provide more context for debugging and have more visibility into what pgstream is doing under the hood.
 
 ```sh
+# with initialization
+pgstream run -c pg2webhook_tutorial.env --init --log-level trace
+
 # with the environment configuration
 pgstream run -c pg2webhook_tutorial.env --log-level trace
 
