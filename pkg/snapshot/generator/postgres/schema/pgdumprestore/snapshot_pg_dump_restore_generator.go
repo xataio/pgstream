@@ -304,11 +304,16 @@ func (s *SnapshotGenerator) dumpRoles(ctx context.Context, roles map[string]stru
 		s.logger.Error(err, "pg_dumpall for roles failed", loglib.Fields{"pgdumpallOptions": opts.ToArgs()})
 		return nil, fmt.Errorf("dumping roles: %w", err)
 	}
+
 	rolesToAdd := s.parseDump(d).roles
 	for role := range rolesToAdd {
 		roles[role] = struct{}{}
 	}
-	return filterRolesDump(d, roles), nil
+
+	filteredRolesDump := filterRolesDump(d, roles)
+	defer s.dumpToFile(s.rolesDumpFile(), opts, filteredRolesDump)
+
+	return filteredRolesDump, nil
 }
 
 func (s *SnapshotGenerator) restoreDump(ctx context.Context, schemaTables map[string][]string, dump []byte) error {
@@ -752,7 +757,11 @@ func getRoleNameAfterClause(line string, clause string) string {
 	return strings.TrimSuffix(roleName, ";")
 }
 
-func (s *SnapshotGenerator) dumpToFile(file string, opts *pglib.PGDumpOptions, d []byte) {
+type options interface {
+	ToArgs() []string
+}
+
+func (s *SnapshotGenerator) dumpToFile(file string, opts options, d []byte) {
 	if s.dumpDebugFile != "" {
 		b := bytes.NewBufferString(fmt.Sprintf("pg_dump options: %v\n\n%s", opts.ToArgs(), string(d)))
 		if err := os.WriteFile(file, b.Bytes(), 0o644); err != nil { //nolint:gosec
@@ -762,6 +771,14 @@ func (s *SnapshotGenerator) dumpToFile(file string, opts *pglib.PGDumpOptions, d
 }
 
 func (s *SnapshotGenerator) sequenceDumpFile() string {
+	return s.getDumpFileName("-sequences")
+}
+
+func (s *SnapshotGenerator) rolesDumpFile() string {
+	return s.getDumpFileName("-roles")
+}
+
+func (s *SnapshotGenerator) getDumpFileName(suffix string) string {
 	if s.dumpDebugFile == "" {
 		return ""
 	}
@@ -769,12 +786,12 @@ func (s *SnapshotGenerator) sequenceDumpFile() string {
 	fileExtension := filepath.Ext(s.dumpDebugFile)
 	if fileExtension == "" {
 		// if there's no extension, we assume it's a plain text file
-		return s.dumpDebugFile + "-sequences"
+		return s.dumpDebugFile + suffix
 	}
 
-	// if there's an extension, we append "-sequences" before the extension
+	// if there's an extension, we append the suffix before the extension
 	baseName := strings.TrimSuffix(s.dumpDebugFile, fileExtension)
-	return baseName + "-sequences" + fileExtension
+	return baseName + suffix + fileExtension
 }
 
 func hasWildcardTable(tables []string) bool {
