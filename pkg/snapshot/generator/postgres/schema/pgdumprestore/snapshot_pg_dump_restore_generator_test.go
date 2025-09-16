@@ -116,6 +116,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		schemalogStore    schemalog.Store
 		generator         generator.SnapshotGenerator
 		role              string
+		noOwner           bool
 		rolesSnapshotMode string
 		cleanTargetDB     bool
 
@@ -176,7 +177,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
 				return "", nil
 			},
-			role: testRole,
+			role:    testRole,
+			noOwner: true,
 
 			wantErr: nil,
 		},
@@ -1171,6 +1173,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				includeGlobalDBObjects: true,
 				generator:              tc.generator,
 				role:                   tc.role,
+				noOwner:                tc.noOwner,
 				rolesSnapshotMode:      tc.rolesSnapshotMode,
 				cleanTargetDB:          tc.cleanTargetDB,
 			}

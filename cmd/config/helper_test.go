@@ -65,6 +65,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 							IncludeGlobalDBObjects: true,
 							RolesSnapshotMode:      "disabled",
 							Role:                   "test-role",
+							NoOwner:                true,
 							DumpDebugFile:          "pg_dump.sql",
 						},
 					},

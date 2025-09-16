@@ -56,6 +56,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_NO_OWNER")
 
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_TARGET_URL")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT")
@@ -257,6 +258,7 @@ func parseSchemaSnapshotConfig(pgurl string) (snapshotbuilder.SchemaSnapshotConf
 				Role:                   viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_ROLE"),
 				RolesSnapshotMode:      rolesSnapshotConfig,
 				DumpDebugFile:          viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE"),
+				NoOwner:                viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_NO_OWNER"),
 			},
 		}, nil
 	}
