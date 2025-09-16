@@ -266,7 +266,6 @@ modifiers:
 We can validate that the initialisation and the configuration are valid by running the `status` command before starting `pgstream`.
 
 ```sh
-
 # using yaml configuration file
 ./pgstream status -c pg2pg_transformer_tutorial.yaml
 # using env configuration file
