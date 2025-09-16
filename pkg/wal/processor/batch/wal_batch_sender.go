@@ -127,6 +127,7 @@ func (s *Sender[T]) send(ctx context.Context) error {
 			err := s.sendBatchFn(context.Background(), batch)
 			s.queueBytesSema.Release(int64(batch.totalBytes))
 			if err != nil {
+				s.logger.Error(err, "failed to send batch")
 				sendErrChan <- err
 				return
 			}
