@@ -47,6 +47,7 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_ROLE", "test-role")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE", "disabled")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE", "pg_dump.sql")
+	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_NO_OWNER", "true")
 
 	os.Setenv("PGSTREAM_KAFKA_READER_SERVERS", "localhost:9092")
 	os.Setenv("PGSTREAM_KAFKA_TOPIC_NAME", "mytopic")

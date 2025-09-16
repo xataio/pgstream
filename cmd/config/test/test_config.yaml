@@ -23,6 +23,7 @@ source:
           role: test-role # role name to be used to create the dump
           roles_snapshot_mode: "disabled" # "enabled", "disabled" or "no_passwords" for snapshotting roles
           dump_file: "pg_dump.sql"
+          no_owner: true # whether to remove ownership commands from the dump
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
   kafka:

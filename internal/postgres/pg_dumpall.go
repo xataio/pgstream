@@ -22,6 +22,8 @@ type PGDumpAllOptions struct {
 	NoPasswords bool
 	// Role specifies the role to be used for the dump
 	Role string
+	// Do not output commands to set ownership of objects to match the original database
+	NoOwner bool
 	// Options to pass to pg_dumpall
 	Options []string
 }
@@ -38,6 +40,10 @@ func (opts *PGDumpAllOptions) ToArgs() []string {
 
 	if opts.NoPasswords {
 		options = append(options, "--no-role-passwords")
+	}
+
+	if opts.NoOwner {
+		options = append(options, "--no-owner")
 	}
 
 	if opts.Role != "" {
