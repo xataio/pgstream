@@ -117,6 +117,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		generator         generator.SnapshotGenerator
 		role              string
 		noOwner           bool
+		noPrivileges      bool
 		rolesSnapshotMode string
 		cleanTargetDB     bool
 
@@ -141,6 +142,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
 						Role:             testRole,
 						NoOwner:          true,
+						NoPrivileges:     true,
 					}, po)
 					return schemaDump, nil
 
@@ -164,6 +166,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						RolesOnly:        true,
 						Role:             testRole,
 						NoOwner:          true,
+						NoPrivileges:     true,
 					}, po)
 					return rolesDumpOriginal, nil
 				default:
@@ -178,8 +181,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
 				return "", nil
 			},
-			role:    testRole,
-			noOwner: true,
+			role:         testRole,
+			noOwner:      true,
+			noPrivileges: true,
 
 			wantErr: nil,
 		},
@@ -1175,6 +1179,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				generator:              tc.generator,
 				role:                   tc.role,
 				noOwner:                tc.noOwner,
+				noPrivileges:           tc.noPrivileges,
 				rolesSnapshotMode:      tc.rolesSnapshotMode,
 				cleanTargetDB:          tc.cleanTargetDB,
 			}
