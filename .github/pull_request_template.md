@@ -1,14 +1,14 @@
-## Description
+#### Description
 
 Please provide a brief description of the changes in this PR.
 
-**Related Issue(s):**
+##### Related Issue(s)
 
 - Fixes #(issue number)
 - Closes #(issue number)
 - Related to #(issue number)
 
-## Type of Change
+#### Type of Change
 
 Please select the relevant option(s):
 
@@ -22,28 +22,27 @@ Please select the relevant option(s):
 - [ ] 🔨 Build/CI changes
 - [ ] 🧹 Code cleanup
 
-## Changes Made
+#### Changes Made
 
 -
 -
 -
 
-## Testing
+#### Testing
 
 - [ ] Unit tests added/updated
 - [ ] Integration tests added/updated
 - [ ] Manual testing performed
 - [ ] All existing tests pass
 
-## Checklist
+#### Checklist
 
 - [ ] Code follows project style guidelines
 - [ ] Self-review completed
 - [ ] Code is well-commented
 - [ ] Documentation updated where necessary
-- [ ] CLI help text updated (if applicable)
-- [ ] No debug code or TODOs left behind
 
-## Additional Notes
+
+#### Additional Notes
 
 <!-- Any context or special instructions for reviewers -->
