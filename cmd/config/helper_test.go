@@ -66,6 +66,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 							RolesSnapshotMode:      "disabled",
 							Role:                   "test-role",
 							NoOwner:                true,
+							NoPrivileges:           true,
 							DumpDebugFile:          "pg_dump.sql",
 						},
 					},

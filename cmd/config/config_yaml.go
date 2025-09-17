@@ -104,6 +104,7 @@ type PgDumpPgRestoreConfig struct {
 	Role                   string `mapstructure:"role" yaml:"role"`
 	RolesSnapshotMode      string `mapstructure:"roles_snapshot_mode" yaml:"roles_snapshot_mode"`
 	NoOwner                bool   `mapstructure:"no_owner" yaml:"no_owner"`
+	NoPrivileges           bool   `mapstructure:"no_privileges" yaml:"no_privileges"`
 	DumpFile               string `mapstructure:"dump_file" yaml:"dump_file"`
 }
 
@@ -524,6 +525,7 @@ func (c *YAMLConfig) parseSchemaSnapshotConfig() (snapshotbuilder.SchemaSnapshot
 			streamSchemaCfg.DumpRestore.CreateTargetDB = schemaSnapshotCfg.PgDumpPgRestore.CreateTargetDB
 			streamSchemaCfg.DumpRestore.Role = schemaSnapshotCfg.PgDumpPgRestore.Role
 			streamSchemaCfg.DumpRestore.NoOwner = schemaSnapshotCfg.PgDumpPgRestore.NoOwner
+			streamSchemaCfg.DumpRestore.NoPrivileges = schemaSnapshotCfg.PgDumpPgRestore.NoPrivileges
 			streamSchemaCfg.DumpRestore.DumpDebugFile = schemaSnapshotCfg.PgDumpPgRestore.DumpFile
 
 			var err error

@@ -40,6 +40,7 @@ type SnapshotGenerator struct {
 	role                   string
 	rolesSnapshotMode      string
 	noOwner                bool
+	noPrivileges           bool
 	logger                 loglib.Logger
 	generator              generator.SnapshotGenerator
 	dumpDebugFile          string // if set, the dump will be written to this file for debugging purposes
@@ -60,6 +61,8 @@ type Config struct {
 	// Do not output commands to set ownership of objects to match the original
 	// database.
 	NoOwner bool
+	// Prevent dumping of access privileges (grant/revoke commands)
+	NoPrivileges bool
 	// if set, the dump will be written to this file for debugging purposes
 	DumpDebugFile string
 }
@@ -96,6 +99,7 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		role:                   c.Role,
 		rolesSnapshotMode:      c.RolesSnapshotMode,
 		noOwner:                c.NoOwner,
+		noPrivileges:           c.NoPrivileges,
 		logger:                 loglib.NewNoopLogger(),
 		dumpDebugFile:          c.DumpDebugFile,
 	}
@@ -292,6 +296,7 @@ func (s *SnapshotGenerator) dumpRoles(ctx context.Context, roles map[string]stru
 		Clean:            s.cleanTargetDB,
 		Role:             s.role,
 		NoOwner:          s.noOwner,
+		NoPrivileges:     s.noPrivileges,
 	}
 
 	if s.rolesSnapshotMode == "no_passwords" {
@@ -416,6 +421,7 @@ func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, schemaTables map[
 		Clean:            s.cleanTargetDB,
 		Create:           s.createTargetDB,
 		NoOwner:          s.noOwner,
+		NoPrivileges:     s.noPrivileges,
 		Role:             s.role,
 	}
 
