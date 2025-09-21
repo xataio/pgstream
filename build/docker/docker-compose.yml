@@ -54,7 +54,7 @@ services:
       - pgstream-net
 
   opensearch:
-    image: "opensearchproject/opensearch:2.7.0"
+    image: "opensearchproject/opensearch:3.2.0"
     environment:
       - cluster.name=opensearch-cluster-pgstream
       - node.name=opensearch-node-pgstream
@@ -74,7 +74,7 @@ services:
       - pgstream-net
 
   opensearch-dashboards:
-    image: "opensearchproject/opensearch-dashboards:2.7.0"
+    image: "opensearchproject/opensearch-dashboards:3.2.0"
     ports: ["5601:5601"]
     environment: ["OPENSEARCH_HOSTS=http://opensearch:9200"] # 9201 to access externally, 9200 internally
     profiles: ["pg2os"]
