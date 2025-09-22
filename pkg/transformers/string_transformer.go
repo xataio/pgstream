@@ -4,9 +4,9 @@ package transformers
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
-
-	"golang.org/x/exp/rand"
+	"math/big"
 )
 
 type StringTransformer struct {
@@ -42,8 +42,10 @@ func (st *StringTransformer) transform(str string) string {
 	const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 	b := make([]byte, len(str))
+	l := int64(len(letterBytes))
 	for i := range b {
-		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+		a, _ := rand.Int(rand.Reader, big.NewInt(l))
+		b[i] = letterBytes[a.Int64()]
 	}
 	return string(b)
 }
