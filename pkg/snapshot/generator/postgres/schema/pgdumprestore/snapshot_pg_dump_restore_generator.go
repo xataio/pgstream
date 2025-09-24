@@ -27,16 +27,17 @@ import (
 // SnapshotGenerator generates postgres schema snapshots using pg_dump and
 // pg_restore
 type SnapshotGenerator struct {
-	sourceURL              string
-	targetURL              string
-	pgDumpFn               pglib.PGDumpFn
-	pgDumpAllFn            pglib.PGDumpAllFn
-	pgRestoreFn            pglib.PGRestoreFn
-	schemalogStore         schemalog.Store
-	connBuilder            pglib.QuerierBuilder
-	logger                 loglib.Logger
-	generator              generator.SnapshotGenerator
-	dumpDebugFile          string // if set, the dump will be written to this file for debugging purposes
+	sourceURL       string
+	targetURL       string
+	pgDumpFn        pglib.PGDumpFn
+	pgDumpAllFn     pglib.PGDumpAllFn
+	pgRestoreFn     pglib.PGRestoreFn
+	schemalogStore  schemalog.Store
+	connBuilder     pglib.QuerierBuilder
+	logger          loglib.Logger
+	generator       generator.SnapshotGenerator
+	dumpDebugFile   string // if set, the dump will be written to this file for debugging purposes
+	roleSQLParser   *roleSQLParser
 	optionGenerator *optionGenerator
 }
 
@@ -69,7 +70,7 @@ type dump struct {
 	cleanupPart           []byte
 	indicesAndConstraints []byte
 	sequences             []string
-	roles                 map[string]struct{}
+	roles                 map[string]role
 }
 
 const (
@@ -81,14 +82,15 @@ const (
 // uses pg_dump and pg_restore to sync the schema of two postgres databases
 func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*SnapshotGenerator, error) {
 	sg := &SnapshotGenerator{
-		sourceURL:              c.SourcePGURL,
-		targetURL:              c.TargetPGURL,
-		pgDumpFn:               pglib.RunPGDump,
-		pgDumpAllFn:            pglib.RunPGDumpAll,
-		pgRestoreFn:            pglib.RunPGRestore,
-		connBuilder:            pglib.ConnBuilder,
-		logger:                 loglib.NewNoopLogger(),
-		dumpDebugFile:          c.DumpDebugFile,
+		sourceURL:       c.SourcePGURL,
+		targetURL:       c.TargetPGURL,
+		pgDumpFn:        pglib.RunPGDump,
+		pgDumpAllFn:     pglib.RunPGDumpAll,
+		pgRestoreFn:     pglib.RunPGRestore,
+		connBuilder:     pglib.ConnBuilder,
+		logger:          loglib.NewNoopLogger(),
+		dumpDebugFile:   c.DumpDebugFile,
+		roleSQLParser:   &roleSQLParser{},
 		optionGenerator: newOptionGenerator(pglib.ConnBuilder, c),
 	}
 
@@ -268,12 +270,13 @@ func (s *SnapshotGenerator) dumpSequenceValues(ctx context.Context, sequences []
 	return d, nil
 }
 
-func (s *SnapshotGenerator) dumpRoles(ctx context.Context, roles map[string]struct{}) ([]byte, error) {
+func (s *SnapshotGenerator) dumpRoles(ctx context.Context, rolesInSchemaDump map[string]role) ([]byte, error) {
 	opts := s.optionGenerator.pgdumpRolesOptions()
 	if opts == nil {
 		return nil, nil
 	}
 
+	// 1. dump all roles in the database
 	s.logger.Debug("dumping roles", loglib.Fields{"pg_dumpall_options": opts.ToArgs()})
 	d, err := s.pgDumpAllFn(ctx, *opts)
 	if err != nil {
@@ -281,12 +284,25 @@ func (s *SnapshotGenerator) dumpRoles(ctx context.Context, roles map[string]stru
 		return nil, fmt.Errorf("dumping roles: %w", err)
 	}
 
-	rolesToAdd := s.parseDump(d).roles
-	for role := range rolesToAdd {
-		roles[role] = struct{}{}
+	// 2. extract the role names from the dump
+	rolesInRoleDump := s.roleSQLParser.extractRoleNamesFromDump(d)
+
+	s.logger.Debug("dumped roles", loglib.Fields{"roles in schema dump": rolesInSchemaDump, "roles in role dump": rolesInRoleDump})
+
+	// 3. add any dependencies found in the role dump for the schema dump roles
+	for _, role := range rolesInRoleDump {
+		if _, found := rolesInSchemaDump[role.name]; !found {
+			// if the role is not in the schema dump, we don't need to include its dependencies
+			continue
+		}
+		for _, dep := range role.roleDependencies {
+			rolesInSchemaDump[dep.name] = dep
+		}
 	}
 
-	filteredRolesDump := filterRolesDump(d, roles)
+	// 4. filter the dump statements to include only the roles found in the
+	// schema dump and their dependencies
+	filteredRolesDump := s.filterRolesDump(d, rolesInSchemaDump)
 	s.dumpToFile(s.rolesDumpFile(), opts, filteredRolesDump)
 
 	return filteredRolesDump, nil
@@ -410,7 +426,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	indicesAndConstraints := strings.Builder{}
 	filteredDump := strings.Builder{}
 	sequenceNames := []string{}
-	roleNames := make(map[string]struct{})
+	dumpRoles := make(map[string]role)
 	alterTable := ""
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -449,58 +465,6 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		case strings.HasPrefix(line, "ALTER TABLE") && !strings.HasSuffix(line, ";"):
 			// keep it in case the alter table is provided in two lines (pg_dump format)
 			alterTable = line
-		case strings.HasPrefix(line, "ALTER") && strings.Contains(line, "OWNER TO"):
-			roleNames[getRoleNameAfterClause(line, " OWNER TO ")] = struct{}{}
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
-		case strings.HasPrefix(line, "GRANT "):
-			roleName := getRoleNameAfterClause(line, "GRANT ")
-			_, secondPart, _ := strings.Cut(line, roleName)
-			if strings.HasPrefix(secondPart, " TO ") {
-				// GRANT <rolename> TO <rolename2>;
-				roleName2 := getRoleNameAfterClause(secondPart, " TO ")
-				roleNames[roleName] = struct{}{}
-				roleNames[roleName2] = struct{}{}
-			} else if strings.Contains(line, " ON ") {
-				// GRANT <privileges> ON <object> TO <rolename>;
-				roleNames[getRoleNameAfterClause(line, " TO ")] = struct{}{}
-			}
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
-		case strings.HasPrefix(line, "REVOKE "):
-			roleNames[getRoleNameAfterClause(line, " FROM ")] = struct{}{}
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
-		case strings.HasPrefix(line, "SET ROLE "),
-			strings.HasPrefix(line, "SET SESSION ROLE "),
-			strings.HasPrefix(line, "SET LOCAL ROLE "):
-			roleNames[getRoleNameAfterClause(line, " ROLE ")] = struct{}{}
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
-		case strings.HasPrefix(line, "SET ") && strings.Contains(line, " SESSION AUTHORIZATION "):
-			roleName := getRoleNameAfterClause(line, " SESSION AUTHORIZATION ")
-			if roleName != "DEFAULT" {
-				roleNames[roleName] = struct{}{}
-			}
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
-		case strings.HasPrefix(line, "ALTER DEFAULT PRIVILEGES FOR ROLE "):
-			roleName := getRoleNameAfterClause(line, "ALTER DEFAULT PRIVILEGES FOR ROLE ")
-			roleNames[roleName] = struct{}{}
-			_, afterRole, _ := strings.Cut(line, roleName)
-			_, afterRevoke, isRevokeStmt := strings.Cut(afterRole, " REVOKE ")
-			if isRevokeStmt {
-				// ALTER DEFAULT PRIVILEGES FOR ROLE <rolename> [IN SCHEMA <schemaname>] REVOKE <privileges> ON <objecttype> FROM <rolename2>;
-				_, afterOn, _ := strings.Cut(afterRevoke, " ON ")
-				roleNames[getRoleNameAfterClause(afterOn, " FROM ")] = struct{}{}
-			} else {
-				// ALTER DEFAULT PRIVILEGES FOR ROLE <rolename> [IN SCHEMA <schemaname>] GRANT <privileges> ON <objecttype> TO <rolename2>;
-				_, afterGrant, _ := strings.Cut(afterRole, " GRANT ")
-				_, afterOn, _ := strings.Cut(afterGrant, " ON ")
-				roleNames[getRoleNameAfterClause(afterOn, " TO ")] = struct{}{}
-			}
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
 		case strings.HasPrefix(line, "CREATE SEQUENCE"):
 			qualifiedName, err := pglib.NewQualifiedName(strings.TrimPrefix(line, "CREATE SEQUENCE "))
 			if err == nil {
@@ -508,68 +472,77 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			}
 			filteredDump.WriteString(line)
 			filteredDump.WriteString("\n")
+		case isRoleStatement(line):
+			roles := s.roleSQLParser.extractRoleNamesFromLine(line)
+			if hasExcludedRole(roles) {
+				// if any of the roles is excluded or predefined, skip the whole line
+				continue
+			}
+
+			for _, role := range roles {
+				dumpRoles[role.name] = role
+			}
+
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
+
 		default:
 			filteredDump.WriteString(line)
 			filteredDump.WriteString("\n")
 		}
+
 	}
 
-	delete(roleNames, "postgres") // remove the postgres role from the list, since it is not needed and can cause issues
 	return &dump{
 		full:                  d,
 		filtered:              []byte(filteredDump.String()),
 		indicesAndConstraints: []byte(indicesAndConstraints.String()),
 		sequences:             sequenceNames,
-		roles:                 roleNames,
+		roles:                 dumpRoles,
 	}
 }
 
-func filterRolesDump(rolesDump []byte, roles map[string]struct{}) []byte {
+func (s *SnapshotGenerator) filterRolesDump(rolesDump []byte, keepRoles map[string]role) []byte {
 	scanner := bufio.NewScanner(bytes.NewReader(rolesDump))
 	scanner.Split(bufio.ScanLines)
 	var filteredDump strings.Builder
-	for scanner.Scan() {
-		line := scanner.Text()
-		roleName := ""
-		switch {
-		case strings.HasPrefix(line, "DROP ROLE IF EXISTS "):
-			roleName = getRoleNameAfterClause(line, "DROP ROLE IF EXISTS ")
-		case strings.HasPrefix(line, "DROP ROLE "):
-			roleName = getRoleNameAfterClause(line, "DROP ROLE ")
-		case strings.HasPrefix(line, "CREATE ROLE "), strings.HasPrefix(line, "ALTER ROLE "), strings.HasPrefix(line, "COMMENT ON ROLE "):
-			roleName = getRoleNameAfterClause(line, " ROLE ")
-		}
-		if roleName != "" {
-			if _, ok := roles[roleName]; !ok {
-				// skip the role if it is not in the roles map
-				continue
+
+	skipLine := func(lineRoles []role) bool {
+		for _, role := range lineRoles {
+			_, roleFound := keepRoles[role.name]
+			if !roleFound || isPredefinedRole(role.name) || isExcludedRole(role.name) {
+				return true
 			}
 		}
+		return false
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		lineRoles := s.roleSQLParser.extractRoleNamesFromLine(line)
+		if skipLine(lineRoles) {
+			continue
+		}
+
+		// remove role attributes that require superuser privileges to be set
+		// when the value is the same as the default.
+		line = removeDefaultRoleAttributes(line)
+
 		filteredDump.WriteString(line)
 		filteredDump.WriteString("\n")
 	}
+
+	for _, role := range keepRoles {
+		if isPredefinedRole(role.name) || isExcludedRole(role.name) || !role.isOwner {
+			continue
+		}
+		// add a line to grant the role to the current user to avoid permission
+		// issues when granting ownership (OWNER TO) when using non superuser
+		// roles to restore the dump
+		filteredDump.WriteString(fmt.Sprintf("GRANT %s TO CURRENT_USER;\n", pglib.QuoteIdentifier(role.name)))
+	}
+
 	return []byte(filteredDump.String())
-}
-
-func getRoleNameAfterClause(line string, clause string) string {
-	_, roleName, found := strings.Cut(line, clause)
-	if !found {
-		return ""
-	}
-
-	if strings.HasPrefix(roleName, "\"") {
-		endIndexRelative := strings.Index(roleName[1:], "\"")
-		if endIndexRelative != -1 {
-			endIndexAbsolute := endIndexRelative + 1 // +1 to account for the leading quote
-			roleName = roleName[:endIndexAbsolute+1]
-		}
-	} else {
-		endIndex := strings.Index(roleName, " ")
-		if endIndex != -1 {
-			roleName = roleName[:endIndex]
-		}
-	}
-	return strings.TrimSuffix(roleName, ";")
 }
 
 type options interface {

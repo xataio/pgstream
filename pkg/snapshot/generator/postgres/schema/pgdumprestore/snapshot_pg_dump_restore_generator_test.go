@@ -1167,15 +1167,16 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			t.Parallel()
 
 			sg := SnapshotGenerator{
-				sourceURL:              "source-url",
-				targetURL:              "target-url",
-				connBuilder:            func(ctx context.Context, s string) (pglib.Querier, error) { return tc.conn, nil },
-				pgDumpFn:               tc.pgdumpFn,
-				pgDumpAllFn:            tc.pgdumpallFn,
-				pgRestoreFn:            tc.pgrestoreFn,
-				schemalogStore:         tc.schemalogStore,
-				logger:                 log.NewNoopLogger(),
-				generator:              tc.generator,
+				sourceURL:      "source-url",
+				targetURL:      "target-url",
+				connBuilder:    func(ctx context.Context, s string) (pglib.Querier, error) { return tc.conn, nil },
+				pgDumpFn:       tc.pgdumpFn,
+				pgDumpAllFn:    tc.pgdumpallFn,
+				pgRestoreFn:    tc.pgrestoreFn,
+				schemalogStore: tc.schemalogStore,
+				logger:         log.NewNoopLogger(),
+				generator:      tc.generator,
+				roleSQLParser:  &roleSQLParser{},
 				optionGenerator: &optionGenerator{
 					sourceURL:              "source-url",
 					targetURL:              "target-url",
