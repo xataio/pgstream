@@ -30,7 +30,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	sequenceDump := []byte("sequence dump\n")
 	indexDump := []byte("CREATE INDEX a;\n\n")
 	rolesDumpOriginal := []byte("roles dump\nCREATE ROLE postgres\nCREATE ROLE test_role\nCREATE ROLE test_role2\nALTER ROLE test_role3 INHERIT FROM test_role;\n")
-	rolesDumpFiltered := []byte("roles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\n")
+	rolesDumpFiltered := []byte("roles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\nGRANT \"test_role\" TO CURRENT_USER;\n")
 	roleDumpEmpty := []byte("roles dump\n")
 	cleanupDump := []byte("cleanup dump\n")
 	testSchema := "test_schema"
@@ -41,6 +41,11 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	errTest := errors.New("oh noes")
 	testSequence := pglib.QuoteQualifiedIdentifier("test", "test_sequence")
 	testRole := "test_role"
+
+	restoreFullDump := rolesDumpFiltered
+	restoreFullDump = append(restoreFullDump, filteredDump...)
+	restoreFullDump = append(restoreFullDump, sequenceDump...)
+	restoreFullDump = append(restoreFullDump, indexDump...)
 
 	validQuerier := func() *mocks.Querier {
 		return &mocks.Querier{
@@ -178,7 +183,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
+				require.Equal(t, string(restoreFullDump), string(dump))
 				return "", nil
 			},
 			role:         testRole,
@@ -227,7 +232,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(roleDumpEmpty, schemaDumpNoSequences...), dump)
+				require.Equal(t, string(append(roleDumpEmpty, schemaDumpNoSequences...)), string(dump))
 				return "", nil
 			},
 
@@ -285,7 +290,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				case 1:
 					require.Equal(t, string(append(rolesDumpFiltered, filteredDump...)), string(dump))
 				case 2:
-					require.Equal(t, string(append(indexDump, sequenceDump...)), string(dump))
+					require.Equal(t, string(append(sequenceDump, indexDump...)), string(dump))
 				default:
 					return "", fmt.Errorf("unexpected call to pgrestoreFn: %d", i)
 				}
@@ -351,7 +356,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
+				require.Equal(t, string(restoreFullDump), string(dump))
 				return "", nil
 			},
 
@@ -407,7 +412,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
+				require.Equal(t, string(restoreFullDump), string(dump))
 				return "", nil
 			},
 
@@ -459,7 +464,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
+
+				require.Equal(t, string(restoreFullDump), string(dump))
 				return "", nil
 			},
 
@@ -514,7 +520,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(schemaDump, sequenceDump...), dump)
+				require.Equal(t, append(filteredDump, append(sequenceDump, indexDump...)...), dump)
 				return "", nil
 			},
 
@@ -569,7 +575,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
+				require.Equal(t, string(restoreFullDump), string(dump))
 				return "", nil
 			},
 
@@ -636,8 +642,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				expectedDump := cleanupDump
 				expectedDump = append(expectedDump, rolesDumpFiltered...)
 				expectedDump = append(expectedDump, cleanupDump...) // because we're not removing the duplicate cleanup dump for now
-				expectedDump = append(expectedDump, schemaDump...)
+				expectedDump = append(expectedDump, filteredDump...)
 				expectedDump = append(expectedDump, sequenceDump...)
+				expectedDump = append(expectedDump, indexDump...)
 				require.Equal(t, string(expectedDump), string(dump))
 				return "", nil
 			},
@@ -1149,7 +1156,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				}
 			}),
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
-				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
+				require.Equal(t, string(restoreFullDump), string(dump))
 				return "", nil
 			},
 			schemalogStore: &schemalogmocks.Store{

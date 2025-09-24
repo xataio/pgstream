@@ -181,15 +181,20 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return err
 	}
 
+	// the cleanup part will drop all the objects before we execute the roles dump,
+	// and this will allow us to drop the roles safely, in case `clean_target_db` is enabled.
+	preDataDump := dump.cleanupPart
+	preDataDump = append(preDataDump, rolesDump...)
+	preDataDump = append(preDataDump, dump.filtered...)
+
+	postDataDump := sequenceDump
+	postDataDump = append(postDataDump, dump.indicesAndConstraints...)
+
 	// if there's no further snapshotting happening, we can apply the full dump,
-	// no need to apply the constraints/indices separately.
+	// no need to wait to apply the constraints/indices.
 	if s.generator == nil {
-		// the cleanup part will drop all the objects before we execute the roles dump,
-		// and this will allow us to drop the roles safely, in case `clean_target_db` is enabled.
-		dumpsToRestore := dump.cleanupPart
-		dumpsToRestore = append(dumpsToRestore, rolesDump...)
-		dumpsToRestore = append(dumpsToRestore, dump.full...)
-		dumpsToRestore = append(dumpsToRestore, sequenceDump...)
+		dumpsToRestore := preDataDump
+		dumpsToRestore = append(dumpsToRestore, postDataDump...)
 		return s.restoreDump(ctx, dumpSchemas, dumpsToRestore)
 	}
 
@@ -197,7 +202,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	// then call the wrapped snapshot generator, and apply the indices and constraints last.
 	// This will make the data snapshot faster, since there will be no
 	// constraints to be updated/checked on each insert.
-	if err := s.restoreDump(ctx, dumpSchemas, append(dump.cleanupPart, append(rolesDump, dump.filtered...)...)); err != nil {
+	if err := s.restoreDump(ctx, dumpSchemas, preDataDump); err != nil {
 		return err
 	}
 
@@ -207,7 +212,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 
 	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
 	// apply the indices and constraints when the wrapped generator has finished
-	return s.restoreDump(ctx, dumpSchemas, append(dump.indicesAndConstraints, sequenceDump...))
+	return s.restoreDump(ctx, dumpSchemas, postDataDump)
 }
 
 func (s *SnapshotGenerator) Close() error {
@@ -329,7 +334,7 @@ func (s *SnapshotGenerator) restoreDump(ctx context.Context, schemaTables map[st
 				return err
 			}
 			ignoredErrors := pgrestoreErr.GetIgnoredErrors()
-			s.logger.Warn(nil, fmt.Sprintf("restore: %d errors ignored", len(ignoredErrors)), loglib.Fields{"errors_ignored": ignoredErrors})
+			s.logger.Warn(err, fmt.Sprintf("restore: %d errors ignored", len(ignoredErrors)), loglib.Fields{"errors_ignored": ignoredErrors})
 		default:
 			return err
 		}
