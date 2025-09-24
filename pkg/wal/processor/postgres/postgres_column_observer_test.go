@@ -39,10 +39,10 @@ func TestPGColumnObserver_getGeneratedColumnNames(t *testing.T) {
 					return &pgmocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
-						ScanFn: func(args ...any) error {
-							require.Len(t, args, 1)
-							colName, ok := args[0].(*string)
-							require.True(t, ok, fmt.Sprintf("column name, expected *string, got %T", args[0]))
+						ScanFn: func(_ uint, dest ...any) error {
+							require.Len(t, dest, 1)
+							colName, ok := dest[0].(*string)
+							require.True(t, ok, fmt.Sprintf("column name, expected *string, got %T", dest[0]))
 							*colName = "id"
 							return nil
 						},
@@ -97,7 +97,7 @@ func TestPGColumnObserver_getGeneratedColumnNames(t *testing.T) {
 					return &pgmocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
-						ScanFn: func(args ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							return errTest
 						},
 						ErrFn: func() error { return nil },
@@ -119,7 +119,7 @@ func TestPGColumnObserver_getGeneratedColumnNames(t *testing.T) {
 					return &pgmocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
-						ScanFn: func(args ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							return nil
 						},
 						ErrFn: func() error { return errTest },

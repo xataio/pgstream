@@ -55,7 +55,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return &mocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
-						ScanFn: func(dest ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							require.Len(t, dest, 1)
 							schemaName, ok := dest[0].(*string)
 							require.True(t, ok)
@@ -69,7 +69,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return &mocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
-						ScanFn: func(dest ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							require.Len(t, dest, 2)
 							schemaName, ok := dest[0].(*string)
 							require.True(t, ok)
@@ -86,7 +86,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return &mocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
-						ScanFn: func(dest ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							require.Len(t, dest, 2)
 							schemaName, ok := dest[0].(*string)
 							require.True(t, ok)
@@ -710,7 +710,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return &mocks.Rows{
 							CloseFn: func() {},
 							NextFn:  func(i uint) bool { return i == 1 },
-							ScanFn: func(dest ...any) error {
+							ScanFn: func(i uint, dest ...any) error {
 								require.Len(t, dest, 1)
 								schemaName, ok := dest[0].(*string)
 								require.True(t, ok)
@@ -724,7 +724,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return &mocks.Rows{
 							CloseFn: func() {},
 							NextFn:  func(i uint) bool { return i == 1 },
-							ScanFn: func(dest ...any) error {
+							ScanFn: func(i uint, dest ...any) error {
 								return errTest
 							},
 							ErrFn: func() error { return nil },
@@ -765,7 +765,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return &mocks.Rows{
 							CloseFn: func() {},
 							NextFn:  func(i uint) bool { return i == 1 },
-							ScanFn: func(dest ...any) error {
+							ScanFn: func(i uint, dest ...any) error {
 								require.Len(t, dest, 1)
 								schemaName, ok := dest[0].(*string)
 								require.True(t, ok)
@@ -779,7 +779,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return &mocks.Rows{
 							CloseFn: func() {},
 							NextFn:  func(i uint) bool { return i == 1 },
-							ScanFn: func(dest ...any) error {
+							ScanFn: func(i uint, dest ...any) error {
 								require.Len(t, dest, 2)
 								schemaName, ok := dest[0].(*string)
 								require.True(t, ok)
@@ -1442,7 +1442,7 @@ func TestSnapshotGenerator_syncSchemaLog(t *testing.T) {
 							NextFn: func(i uint) bool {
 								return i < 2
 							},
-							ScanFn: func(dest ...any) error {
+							ScanFn: func(i uint, dest ...any) error {
 								schema, ok := dest[0].(*string)
 								require.True(t, ok)
 								if *schema == "" {
@@ -1530,7 +1530,7 @@ func TestSnapshotGenerator_syncSchemaLog(t *testing.T) {
 							NextFn: func(i uint) bool {
 								return i < 2
 							},
-							ScanFn: func(dest ...any) error {
+							ScanFn: func(i uint, dest ...any) error {
 								return errTest
 							},
 							ErrFn: func() error { return nil },
