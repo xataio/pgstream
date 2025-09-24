@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -18,7 +20,10 @@ type QualifiedName struct {
 	name   string
 }
 
-var errUnexpectedQualifiedName = errors.New("unexpected qualified name format")
+var (
+	errUnexpectedQualifiedName = errors.New("unexpected qualified name format")
+	errInvalidURL              = errors.New("invalid URL")
+)
 
 func NewQualifiedName(s string) (*QualifiedName, error) {
 	qualifiedName := strings.Split(s, ".")
@@ -100,7 +105,7 @@ func removeQuotes(s string) string {
 }
 
 func extractDatabase(url string) (string, error) {
-	pgCfg, err := pgx.ParseConfig(url)
+	pgCfg, err := ParseConfig(url)
 	if err != nil {
 		return "", err
 	}
@@ -169,4 +174,55 @@ func DiscoverAllSchemaTables(ctx context.Context, conn Querier, schema string) (
 	}
 
 	return tableNames, nil
+}
+
+func ParseConfig(pgurl string) (*pgx.ConnConfig, error) {
+	pgCfg, err := pgx.ParseConfig(pgurl)
+	if err != nil {
+		urlErr := &url.Error{}
+		if errors.As(err, &urlErr) {
+			escapedURL, err := escapeConnectionURL(pgurl)
+			if err != nil {
+				return nil, fmt.Errorf("failed to escape connection URL: %w", err)
+			}
+			return pgx.ParseConfig(escapedURL)
+		}
+		return nil, fmt.Errorf("failed parsing postgres connection string: %w", mapError(err))
+	}
+	return pgCfg, nil
+}
+
+var postgresURLRegex = regexp.MustCompile(`^(postgres(?:ql)?://)([^@]+?)@(.+)$`)
+
+func escapeConnectionURL(rawURL string) (string, error) {
+	// Only process PostgreSQL URLs
+	if !strings.HasPrefix(rawURL, "postgresql://") && !strings.HasPrefix(rawURL, "postgres://") {
+		return rawURL, nil
+	}
+
+	matches := postgresURLRegex.FindStringSubmatch(rawURL)
+	if matches == nil {
+		return "", errInvalidURL
+	}
+
+	scheme := matches[1]      // "postgresql://" or "postgres://"
+	userInfo := matches[2]    // "username:password"
+	hostAndPath := matches[3] // "host:port/database?params"
+
+	// Find the last colon in userInfo to split username and password
+	lastColonIndex := strings.LastIndex(userInfo, ":")
+	if lastColonIndex == -1 {
+		// No password, return as-is
+		return rawURL, nil
+	}
+
+	username := userInfo[:lastColonIndex]
+	password := userInfo[lastColonIndex+1:]
+	if username == "" {
+		return "", errInvalidURL
+	}
+	// URL encode the password
+	encodedPassword := url.QueryEscape(password)
+
+	return fmt.Sprintf("%s%s:%s@%s", scheme, username, encodedPassword, hostAndPath), nil
 }

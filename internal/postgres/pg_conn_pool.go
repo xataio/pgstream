@@ -17,7 +17,11 @@ type Pool struct {
 const maxConns = 50
 
 func NewConnPool(ctx context.Context, url string) (*Pool, error) {
-	pgCfg, err := pgxpool.ParseConfig(url)
+	escapedURL, err := escapeConnectionURL(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to escape connection URL: %w", err)
+	}
+	pgCfg, err := pgxpool.ParseConfig(escapedURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing postgres connection string: %w", mapError(err))
 	}

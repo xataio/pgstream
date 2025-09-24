@@ -172,3 +172,167 @@ func Test_newIdentifier(t *testing.T) {
 		})
 	}
 }
+
+func Test_IsQuotedIdentifier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{
+			name:     "quoted identifier",
+			input:    `"table"`,
+			expected: true,
+		},
+		{
+			name:     "unquoted identifier",
+			input:    "table",
+			expected: false,
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: false,
+		},
+		{
+			name:     "only opening quote",
+			input:    `"table`,
+			expected: false,
+		},
+		{
+			name:     "only closing quote",
+			input:    `table"`,
+			expected: false,
+		},
+		{
+			name:     "single quote",
+			input:    `"`,
+			expected: false,
+		},
+		{
+			name:     "two quotes",
+			input:    `""`,
+			expected: false,
+		},
+		{
+			name:     "three characters with quotes",
+			input:    `"a"`,
+			expected: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := IsQuotedIdentifier(tc.input)
+			require.Equal(t, tc.expected, got)
+		})
+	}
+}
+
+func Test_escapeConnectionURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		rawURL   string
+		expected string
+		wantErr  error
+	}{
+		{
+			name:     "postgres url with special characters in password",
+			rawURL:   "postgres://user:p^ssword@localhost:5432/mydb",
+			expected: "postgres://user:p%5Essword@localhost:5432/mydb",
+			wantErr:  nil,
+		},
+		{
+			name:     "url with percent signs in password",
+			rawURL:   "postgres://user:p%ss@localhost:5432/mydb",
+			expected: "postgres://user:p%25ss@localhost:5432/mydb",
+			wantErr:  nil,
+		},
+		{
+			name:     "url with ampersand in password",
+			rawURL:   "postgres://user:p&ss@localhost:5432/mydb",
+			expected: "postgres://user:p%26ss@localhost:5432/mydb",
+			wantErr:  nil,
+		},
+		{
+			name:     "url with equals sign in password",
+			rawURL:   "postgres://user:p=ss@localhost:5432/mydb",
+			expected: "postgres://user:p%3Dss@localhost:5432/mydb",
+			wantErr:  nil,
+		},
+		{
+			name:     "url with question mark in password",
+			rawURL:   "postgres://user:p?ss@localhost:5432/mydb",
+			expected: "postgres://user:p%3Fss@localhost:5432/mydb",
+			wantErr:  nil,
+		},
+		{
+			name:     "url with forward slash in password",
+			rawURL:   "postgres://user:p/ss@localhost:5432/mydb",
+			expected: "postgres://user:p%2Fss@localhost:5432/mydb",
+			wantErr:  nil,
+		},
+		{
+			name:     "simple password without special characters",
+			rawURL:   "postgres://user:password@localhost:5432/mydb",
+			expected: "postgres://user:password@localhost:5432/mydb",
+			wantErr:  nil,
+		},
+		{
+			name:     "non-postgres url should return unchanged",
+			rawURL:   "mysql://user:password@localhost:3306/mydb",
+			expected: "mysql://user:password@localhost:3306/mydb",
+			wantErr:  nil,
+		},
+		{
+			name:     "url with port and parameters",
+			rawURL:   "postgres://user:p^ss@localhost:5432/mydb?sslmode=disable",
+			expected: "postgres://user:p%5Ess@localhost:5432/mydb?sslmode=disable",
+			wantErr:  nil,
+		},
+		{
+			name:     "url with username with colons",
+			rawURL:   "postgres://user:name:with:colons:p^ss@localhost:5432/mydb",
+			expected: "postgres://user:name:with:colons:p%5Ess@localhost:5432/mydb",
+			wantErr:  nil,
+		},
+		{
+			name:     "url with no password",
+			rawURL:   "postgres://user@localhost:5432/mydb",
+			expected: "postgres://user@localhost:5432/mydb",
+			wantErr:  nil,
+		},
+		{
+			name:     "invalid postgres url format",
+			rawURL:   "postgres://invalid-format",
+			expected: "",
+			wantErr:  errInvalidURL,
+		},
+		{
+			name:     "postgres url missing username",
+			rawURL:   "postgres://:password@localhost:5432/mydb",
+			expected: "",
+			wantErr:  errInvalidURL,
+		},
+		{
+			name:     "postgres url missing host",
+			rawURL:   "postgres://user:password@",
+			expected: "",
+			wantErr:  errInvalidURL,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := escapeConnectionURL(tc.rawURL)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.expected, got)
+		})
+	}
+}

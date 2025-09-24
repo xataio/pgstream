@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmigrations "github.com/xataio/pgstream/migrations/postgres"
@@ -156,7 +157,7 @@ func replicationSlotExists(ctx context.Context, conn *pgx.Conn, slotName string)
 }
 
 func newPGConn(ctx context.Context, pgURL string) (*pgx.Conn, error) {
-	pgCfg, err := pgx.ParseConfig(pgURL)
+	pgCfg, err := pglib.ParseConfig(pgURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing postgres connection string: %w", err)
 	}
@@ -174,7 +175,14 @@ func newPGMigrator(pgURL string) (*migrate.Migrate, error) {
 		return nil, err
 	}
 
-	url := pgURL + "&search_path=pgstream"
+	// Check if URL already has query parameters
+	var url string
+	if strings.Contains(pgURL, "?") {
+		url = pgURL + "&search_path=pgstream"
+	} else {
+		url = pgURL + "?search_path=pgstream"
+	}
+
 	return migrate.NewWithSourceInstance("go-bindata", d, url)
 }
 
@@ -188,7 +196,7 @@ func isDuplicateObject(err error) bool {
 }
 
 func getReplicationSlotName(pgURL string) (string, error) {
-	cfg, err := pgx.ParseConfig(pgURL)
+	cfg, err := pglib.ParseConfig(pgURL)
 	if err != nil {
 		return "", err
 	}
