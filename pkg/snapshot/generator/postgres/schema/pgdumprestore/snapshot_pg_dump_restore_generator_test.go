@@ -1175,17 +1175,23 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				pgRestoreFn:            tc.pgrestoreFn,
 				schemalogStore:         tc.schemalogStore,
 				logger:                 log.NewNoopLogger(),
-				includeGlobalDBObjects: true,
 				generator:              tc.generator,
-				role:                   tc.role,
-				noOwner:                tc.noOwner,
-				noPrivileges:           tc.noPrivileges,
-				rolesSnapshotMode:      tc.rolesSnapshotMode,
-				cleanTargetDB:          tc.cleanTargetDB,
+				optionGenerator: &optionGenerator{
+					sourceURL:              "source-url",
+					targetURL:              "target-url",
+					includeGlobalDBObjects: true,
+					role:                   tc.role,
+					noOwner:                tc.noOwner,
+					noPrivileges:           tc.noPrivileges,
+					rolesSnapshotMode:      tc.rolesSnapshotMode,
+					cleanTargetDB:          tc.cleanTargetDB,
+					connBuilder:            func(ctx context.Context, s string) (pglib.Querier, error) { return tc.conn, nil },
+				},
 			}
 
 			if tc.connBuilder != nil {
 				sg.connBuilder = tc.connBuilder
+				sg.optionGenerator.connBuilder = tc.connBuilder
 			}
 
 			err := sg.CreateSnapshot(context.Background(), tc.snapshot)
