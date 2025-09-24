@@ -13,7 +13,16 @@
   <a href="https://twitter.com/xata"><img src="https://img.shields.io/twitter/follow/xata?style=flat&color=8566ff" alt="X (formerly Twitter) Follow" /> </a>
 </p>
 
+
+<p align="center">
+  <a href="https://xata.io">
+    <img src="https://img.shields.io/badge/Made%20with%20♥%20%20-%20%20by%20Xata-6c47ff?style=flat-square&logo=postgresql&logoColor=white&labelColor=000000" alt="Made with ♥ by Xata">
+  </a>
+</p>
+
+
 # pgstream - Postgres replication with DDL changes
+
 
 `pgstream` is an open source CDC command-line tool and library that offers Postgres replication support with DDL changes to any provided target.
 
