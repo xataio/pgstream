@@ -16,7 +16,7 @@
 
 <p align="center">
   <a href="https://xata.io">
-    <img src="https://img.shields.io/badge/Made%20with%20♥%20%20-%20%20by%20Xata-6c47ff?style=flat-square&logo=postgresql&logoColor=white&labelColor=000000" alt="Made with ♥ by Xata">
+    <img src="https://img.shields.io/badge/Made%20with%20♥%20%20-%20%20by%20Xata-6c47ff?style=flat&logo=postgresql&logoColor=white" alt="Made with ♥ by Xata">
   </a>
 </p>
 
