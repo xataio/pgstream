@@ -10,7 +10,7 @@
   <a href="https://somsubhra.github.io/github-release-stats/?username=xataio&repository=pgstream&page=1&per_page=5"><img src="https://img.shields.io/github/downloads/xataio/pgstream/total" alt="Downloads"></a> &nbsp;
   <a href="https://goreportcard.com/report/github.com/xataio/pgstream"><img src="https://goreportcard.com/badge/github.com/xataio/pgstream" alt="Go Report Card"></a> &nbsp;
   <a href="https://xata.io/discord"><img src="https://img.shields.io/discord/996791218879086662?label=Discord&logo=discord" alt="Discord"></a> &nbsp;
-  <a href="https://twitter.com/xata"><img src="https://img.shields.io/twitter/follow/xata?style=flat&color=8566ff&logo=x" alt="X (formerly Twitter) Follow" /> </a>
+  <a href="https://twitter.com/xata"><img src="https://img.shields.io/badge/@xata-6c47ff?label=Follow&logo=x" alt="X (formerly Twitter) Follow" /> </a>
 </p>
 
 
