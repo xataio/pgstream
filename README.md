@@ -213,7 +213,9 @@ For more advanced usage, implementation details, and detailed configuration sett
    - [Transformation Rules](docs/transformers.md#transformation-rules)
 5. [Observability](docs/observability.md)
 6. [CLI](docs/cli.md)
-7. [Glossary](docs/glossary.md)
+7. [Privileges](docs/privileges.md)
+   - [CloudSQL](docs/gcp_cloudsql.md)
+8. [Glossary](docs/glossary.md)
 
 ## Benchmarks
 
