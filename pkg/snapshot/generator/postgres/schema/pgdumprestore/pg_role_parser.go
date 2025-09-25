@@ -231,7 +231,7 @@ func isRoleStatement(line string) bool {
 		strings.HasPrefix(line, "DROP ROLE "),
 		strings.HasPrefix(line, "DROP ROLE IF EXISTS "),
 		strings.HasPrefix(line, "COMMENT ON ROLE "),
-		strings.HasPrefix(line, "ALTER") && strings.Contains(line, "OWNER TO"), // Add this line
+		strings.HasPrefix(line, "ALTER") && strings.Contains(line, "OWNER TO"), 
 		strings.HasPrefix(line, "GRANT ") && strings.Contains(line, " TO "),
 		strings.HasPrefix(line, "REVOKE ") && strings.Contains(line, " FROM "),
 		strings.HasPrefix(line, "SET ROLE "),
