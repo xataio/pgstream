@@ -41,8 +41,6 @@ func NewBulkIngestWriter(ctx context.Context, config *Config, opts ...WriterOpti
 	if err != nil {
 		return nil, err
 	}
-	// disable triggers to prevent FK constraints from firing during bulk inserts
-	config.DisableTriggers = true
 	w, err := newWriter(ctx, config, adapter, bulkIngestWriter, opts...)
 	if err != nil {
 		return nil, err

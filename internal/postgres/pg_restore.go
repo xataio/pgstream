@@ -112,26 +112,70 @@ func removeDatabaseFromConnectionString(url string) (string, error) {
 }
 
 func parsePgRestoreOutputErrs(out []byte) error {
+	if len(out) == 0 {
+		return nil
+	}
+
 	errs := &PGRestoreErrors{}
 	scanner := bufio.NewScanner(bytes.NewReader(out))
+	var currentErr error
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.Contains(line, "pg_restore: error:") || strings.Contains(line, "ERROR") {
-			switch {
-			case strings.Contains(line, "already exists"),
-				strings.Contains(line, "multiple primary keys for table"):
-				errs.addError(&ErrRelationAlreadyExists{Details: line})
-			case strings.Contains(line, "cannot drop schema public because other objects depend on it"):
-				errs.addError(&ErrConstraintViolation{Details: line})
-			default:
-				errs.addError(errors.New(line))
+		switch {
+		case isErrorLine(line):
+			// Save any pending error before processing new one
+			if currentErr != nil {
+				errs.addError(currentErr)
+			}
+			currentErr = parseErrorLine(line)
+		case isDetailLine(line):
+			// Append details to current error
+			if currentErr != nil {
+				currentErr = fmt.Errorf("%w: %s", currentErr, line)
 			}
 		}
-		if strings.Contains(line, "psql: error:") {
-			errs.addError(errors.New(line))
-		}
 	}
+	if currentErr != nil {
+		errs.addError(currentErr)
+	}
+
+	if !errs.HasErrors() {
+		return nil
+	}
+
 	return errs
+}
+
+// isDetailLine checks if a line contains detail information
+func isDetailLine(line string) bool {
+	return strings.Contains(line, "DETAIL:")
+}
+
+// isErrorLine checks if a line contains an error indicator
+func isErrorLine(line string) bool {
+	switch {
+	case strings.Contains(line, "pg_restore: error:"),
+		strings.Contains(line, "ERROR"),
+		strings.Contains(line, "psql: error:"):
+		return true
+	default:
+		return false
+	}
+}
+
+// parseErrorLine creates an appropriate error type based on the error content
+func parseErrorLine(line string) error {
+	switch {
+	case strings.Contains(line, "already exists"),
+		strings.Contains(line, "multiple primary keys for table"):
+		return &ErrRelationAlreadyExists{Details: line}
+	case strings.Contains(line, "cannot drop schema public because other objects depend on it"):
+		return &ErrConstraintViolation{Details: line}
+	case strings.Contains(line, `permission denied to grant privileges as role`):
+		return &ErrPermissionDenied{Details: line}
+	default:
+		return errors.New(line)
+	}
 }
 
 type PGRestoreErrors struct {
@@ -155,6 +199,10 @@ func (e PGRestoreErrors) Error() string {
 	return errors.Join(append(e.criticalErrs, e.ignoredErrs...)...).Error()
 }
 
+func (e PGRestoreErrors) HasErrors() bool {
+	return len(e.criticalErrs) > 0 || len(e.ignoredErrs) > 0
+}
+
 func (e *PGRestoreErrors) HasCriticalErrors() bool {
 	return len(e.criticalErrs) > 0
 }
@@ -170,9 +218,11 @@ func (e *PGRestoreErrors) addError(err error) {
 
 	var errAlreadyExists *ErrRelationAlreadyExists
 	var errConstraintViolation *ErrConstraintViolation
+	var errPermissionDenied *ErrPermissionDenied
 	switch {
 	case errors.As(err, &errAlreadyExists),
-		errors.As(err, &errConstraintViolation):
+		errors.As(err, &errConstraintViolation),
+		errors.As(err, &errPermissionDenied):
 		e.ignoredErrs = append(e.ignoredErrs, err)
 	default:
 		e.criticalErrs = append(e.criticalErrs, err)

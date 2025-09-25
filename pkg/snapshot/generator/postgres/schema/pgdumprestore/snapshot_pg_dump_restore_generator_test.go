@@ -30,7 +30,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	sequenceDump := []byte("sequence dump\n")
 	indexDump := []byte("CREATE INDEX a;\n\n")
 	rolesDumpOriginal := []byte("roles dump\nCREATE ROLE postgres\nCREATE ROLE test_role\nCREATE ROLE test_role2\nALTER ROLE test_role3 INHERIT FROM test_role;\n")
-	rolesDumpFiltered := []byte("roles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\n")
+	rolesDumpFiltered := []byte("roles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\nGRANT \"test_role\" TO CURRENT_USER;\n")
 	roleDumpEmpty := []byte("roles dump\n")
 	cleanupDump := []byte("cleanup dump\n")
 	testSchema := "test_schema"
@@ -41,6 +41,11 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	errTest := errors.New("oh noes")
 	testSequence := pglib.QuoteQualifiedIdentifier("test", "test_sequence")
 	testRole := "test_role"
+
+	restoreFullDump := rolesDumpFiltered
+	restoreFullDump = append(restoreFullDump, filteredDump...)
+	restoreFullDump = append(restoreFullDump, sequenceDump...)
+	restoreFullDump = append(restoreFullDump, indexDump...)
 
 	validQuerier := func() *mocks.Querier {
 		return &mocks.Querier{
@@ -55,7 +60,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return &mocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
-						ScanFn: func(dest ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							require.Len(t, dest, 1)
 							schemaName, ok := dest[0].(*string)
 							require.True(t, ok)
@@ -69,7 +74,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return &mocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
-						ScanFn: func(dest ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							require.Len(t, dest, 2)
 							schemaName, ok := dest[0].(*string)
 							require.True(t, ok)
@@ -86,7 +91,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return &mocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
-						ScanFn: func(dest ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							require.Len(t, dest, 2)
 							schemaName, ok := dest[0].(*string)
 							require.True(t, ok)
@@ -178,7 +183,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
+				require.Equal(t, string(restoreFullDump), string(dump))
 				return "", nil
 			},
 			role:         testRole,
@@ -227,7 +232,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(roleDumpEmpty, schemaDumpNoSequences...), dump)
+				require.Equal(t, string(append(roleDumpEmpty, schemaDumpNoSequences...)), string(dump))
 				return "", nil
 			},
 
@@ -285,7 +290,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				case 1:
 					require.Equal(t, string(append(rolesDumpFiltered, filteredDump...)), string(dump))
 				case 2:
-					require.Equal(t, string(append(indexDump, sequenceDump...)), string(dump))
+					require.Equal(t, string(append(sequenceDump, indexDump...)), string(dump))
 				default:
 					return "", fmt.Errorf("unexpected call to pgrestoreFn: %d", i)
 				}
@@ -351,7 +356,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
+				require.Equal(t, string(restoreFullDump), string(dump))
 				return "", nil
 			},
 
@@ -407,7 +412,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
+				require.Equal(t, string(restoreFullDump), string(dump))
 				return "", nil
 			},
 
@@ -459,7 +464,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
+
+				require.Equal(t, string(restoreFullDump), string(dump))
 				return "", nil
 			},
 
@@ -514,7 +520,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(schemaDump, sequenceDump...), dump)
+				require.Equal(t, append(filteredDump, append(sequenceDump, indexDump...)...), dump)
 				return "", nil
 			},
 
@@ -569,7 +575,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
+				require.Equal(t, string(restoreFullDump), string(dump))
 				return "", nil
 			},
 
@@ -636,8 +642,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				expectedDump := cleanupDump
 				expectedDump = append(expectedDump, rolesDumpFiltered...)
 				expectedDump = append(expectedDump, cleanupDump...) // because we're not removing the duplicate cleanup dump for now
-				expectedDump = append(expectedDump, schemaDump...)
+				expectedDump = append(expectedDump, filteredDump...)
 				expectedDump = append(expectedDump, sequenceDump...)
+				expectedDump = append(expectedDump, indexDump...)
 				require.Equal(t, string(expectedDump), string(dump))
 				return "", nil
 			},
@@ -710,7 +717,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return &mocks.Rows{
 							CloseFn: func() {},
 							NextFn:  func(i uint) bool { return i == 1 },
-							ScanFn: func(dest ...any) error {
+							ScanFn: func(i uint, dest ...any) error {
 								require.Len(t, dest, 1)
 								schemaName, ok := dest[0].(*string)
 								require.True(t, ok)
@@ -724,7 +731,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return &mocks.Rows{
 							CloseFn: func() {},
 							NextFn:  func(i uint) bool { return i == 1 },
-							ScanFn: func(dest ...any) error {
+							ScanFn: func(i uint, dest ...any) error {
 								return errTest
 							},
 							ErrFn: func() error { return nil },
@@ -765,7 +772,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return &mocks.Rows{
 							CloseFn: func() {},
 							NextFn:  func(i uint) bool { return i == 1 },
-							ScanFn: func(dest ...any) error {
+							ScanFn: func(i uint, dest ...any) error {
 								require.Len(t, dest, 1)
 								schemaName, ok := dest[0].(*string)
 								require.True(t, ok)
@@ -779,7 +786,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						return &mocks.Rows{
 							CloseFn: func() {},
 							NextFn:  func(i uint) bool { return i == 1 },
-							ScanFn: func(dest ...any) error {
+							ScanFn: func(i uint, dest ...any) error {
 								require.Len(t, dest, 2)
 								schemaName, ok := dest[0].(*string)
 								require.True(t, ok)
@@ -1149,7 +1156,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				}
 			}),
 			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
-				require.Equal(t, append(append(rolesDumpFiltered, schemaDump...), sequenceDump...), dump)
+				require.Equal(t, string(restoreFullDump), string(dump))
 				return "", nil
 			},
 			schemalogStore: &schemalogmocks.Store{
@@ -1167,25 +1174,32 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			t.Parallel()
 
 			sg := SnapshotGenerator{
-				sourceURL:              "source-url",
-				targetURL:              "target-url",
-				connBuilder:            func(ctx context.Context, s string) (pglib.Querier, error) { return tc.conn, nil },
-				pgDumpFn:               tc.pgdumpFn,
-				pgDumpAllFn:            tc.pgdumpallFn,
-				pgRestoreFn:            tc.pgrestoreFn,
-				schemalogStore:         tc.schemalogStore,
-				logger:                 log.NewNoopLogger(),
-				includeGlobalDBObjects: true,
-				generator:              tc.generator,
-				role:                   tc.role,
-				noOwner:                tc.noOwner,
-				noPrivileges:           tc.noPrivileges,
-				rolesSnapshotMode:      tc.rolesSnapshotMode,
-				cleanTargetDB:          tc.cleanTargetDB,
+				sourceURL:      "source-url",
+				targetURL:      "target-url",
+				connBuilder:    func(ctx context.Context, s string) (pglib.Querier, error) { return tc.conn, nil },
+				pgDumpFn:       tc.pgdumpFn,
+				pgDumpAllFn:    tc.pgdumpallFn,
+				pgRestoreFn:    tc.pgrestoreFn,
+				schemalogStore: tc.schemalogStore,
+				logger:         log.NewNoopLogger(),
+				generator:      tc.generator,
+				roleSQLParser:  &roleSQLParser{},
+				optionGenerator: &optionGenerator{
+					sourceURL:              "source-url",
+					targetURL:              "target-url",
+					includeGlobalDBObjects: true,
+					role:                   tc.role,
+					noOwner:                tc.noOwner,
+					noPrivileges:           tc.noPrivileges,
+					rolesSnapshotMode:      tc.rolesSnapshotMode,
+					cleanTargetDB:          tc.cleanTargetDB,
+					connBuilder:            func(ctx context.Context, s string) (pglib.Querier, error) { return tc.conn, nil },
+				},
 			}
 
 			if tc.connBuilder != nil {
 				sg.connBuilder = tc.connBuilder
+				sg.optionGenerator.connBuilder = tc.connBuilder
 			}
 
 			err := sg.CreateSnapshot(context.Background(), tc.snapshot)
@@ -1442,7 +1456,7 @@ func TestSnapshotGenerator_syncSchemaLog(t *testing.T) {
 							NextFn: func(i uint) bool {
 								return i < 2
 							},
-							ScanFn: func(dest ...any) error {
+							ScanFn: func(i uint, dest ...any) error {
 								schema, ok := dest[0].(*string)
 								require.True(t, ok)
 								if *schema == "" {
@@ -1530,7 +1544,7 @@ func TestSnapshotGenerator_syncSchemaLog(t *testing.T) {
 							NextFn: func(i uint) bool {
 								return i < 2
 							},
-							ScanFn: func(dest ...any) error {
+							ScanFn: func(i uint, dest ...any) error {
 								return errTest
 							},
 							ErrFn: func() error { return nil },

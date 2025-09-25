@@ -27,23 +27,18 @@ import (
 // SnapshotGenerator generates postgres schema snapshots using pg_dump and
 // pg_restore
 type SnapshotGenerator struct {
-	sourceURL              string
-	targetURL              string
-	pgDumpFn               pglib.PGDumpFn
-	pgDumpAllFn            pglib.PGDumpAllFn
-	pgRestoreFn            pglib.PGRestoreFn
-	schemalogStore         schemalog.Store
-	connBuilder            pglib.QuerierBuilder
-	cleanTargetDB          bool
-	createTargetDB         bool
-	includeGlobalDBObjects bool
-	role                   string
-	rolesSnapshotMode      string
-	noOwner                bool
-	noPrivileges           bool
-	logger                 loglib.Logger
-	generator              generator.SnapshotGenerator
-	dumpDebugFile          string // if set, the dump will be written to this file for debugging purposes
+	sourceURL       string
+	targetURL       string
+	pgDumpFn        pglib.PGDumpFn
+	pgDumpAllFn     pglib.PGDumpAllFn
+	pgRestoreFn     pglib.PGRestoreFn
+	schemalogStore  schemalog.Store
+	connBuilder     pglib.QuerierBuilder
+	logger          loglib.Logger
+	generator       generator.SnapshotGenerator
+	dumpDebugFile   string // if set, the dump will be written to this file for debugging purposes
+	roleSQLParser   *roleSQLParser
+	optionGenerator *optionGenerator
 }
 
 type Config struct {
@@ -75,7 +70,7 @@ type dump struct {
 	cleanupPart           []byte
 	indicesAndConstraints []byte
 	sequences             []string
-	roles                 map[string]struct{}
+	roles                 map[string]role
 }
 
 const (
@@ -87,21 +82,16 @@ const (
 // uses pg_dump and pg_restore to sync the schema of two postgres databases
 func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*SnapshotGenerator, error) {
 	sg := &SnapshotGenerator{
-		sourceURL:              c.SourcePGURL,
-		targetURL:              c.TargetPGURL,
-		pgDumpFn:               pglib.RunPGDump,
-		pgDumpAllFn:            pglib.RunPGDumpAll,
-		pgRestoreFn:            pglib.RunPGRestore,
-		connBuilder:            pglib.ConnBuilder,
-		cleanTargetDB:          c.CleanTargetDB,
-		createTargetDB:         c.CreateTargetDB,
-		includeGlobalDBObjects: c.IncludeGlobalDBObjects,
-		role:                   c.Role,
-		rolesSnapshotMode:      c.RolesSnapshotMode,
-		noOwner:                c.NoOwner,
-		noPrivileges:           c.NoPrivileges,
-		logger:                 loglib.NewNoopLogger(),
-		dumpDebugFile:          c.DumpDebugFile,
+		sourceURL:       c.SourcePGURL,
+		targetURL:       c.TargetPGURL,
+		pgDumpFn:        pglib.RunPGDump,
+		pgDumpAllFn:     pglib.RunPGDumpAll,
+		pgRestoreFn:     pglib.RunPGRestore,
+		connBuilder:     pglib.ConnBuilder,
+		logger:          loglib.NewNoopLogger(),
+		dumpDebugFile:   c.DumpDebugFile,
+		roleSQLParser:   &roleSQLParser{},
+		optionGenerator: newOptionGenerator(pglib.ConnBuilder, c),
 	}
 
 	if err := sg.initialiseSchemaLogStore(ctx); err != nil {
@@ -191,15 +181,20 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return err
 	}
 
+	// the cleanup part will drop all the objects before we execute the roles dump,
+	// and this will allow us to drop the roles safely, in case `clean_target_db` is enabled.
+	preDataDump := dump.cleanupPart
+	preDataDump = append(preDataDump, rolesDump...)
+	preDataDump = append(preDataDump, dump.filtered...)
+
+	postDataDump := sequenceDump
+	postDataDump = append(postDataDump, dump.indicesAndConstraints...)
+
 	// if there's no further snapshotting happening, we can apply the full dump,
-	// no need to apply the constraints/indices separately.
+	// no need to wait to apply the constraints/indices.
 	if s.generator == nil {
-		// the cleanup part will drop all the objects before we execute the roles dump,
-		// and this will allow us to drop the roles safely, in case `clean_target_db` is enabled.
-		dumpsToRestore := dump.cleanupPart
-		dumpsToRestore = append(dumpsToRestore, rolesDump...)
-		dumpsToRestore = append(dumpsToRestore, dump.full...)
-		dumpsToRestore = append(dumpsToRestore, sequenceDump...)
+		dumpsToRestore := preDataDump
+		dumpsToRestore = append(dumpsToRestore, postDataDump...)
 		return s.restoreDump(ctx, dumpSchemas, dumpsToRestore)
 	}
 
@@ -207,7 +202,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	// then call the wrapped snapshot generator, and apply the indices and constraints last.
 	// This will make the data snapshot faster, since there will be no
 	// constraints to be updated/checked on each insert.
-	if err := s.restoreDump(ctx, dumpSchemas, append(dump.cleanupPart, append(rolesDump, dump.filtered...)...)); err != nil {
+	if err := s.restoreDump(ctx, dumpSchemas, preDataDump); err != nil {
 		return err
 	}
 
@@ -217,7 +212,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 
 	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
 	// apply the indices and constraints when the wrapped generator has finished
-	return s.restoreDump(ctx, dumpSchemas, append(dump.indicesAndConstraints, sequenceDump...))
+	return s.restoreDump(ctx, dumpSchemas, postDataDump)
 }
 
 func (s *SnapshotGenerator) Close() error {
@@ -233,7 +228,7 @@ func (s *SnapshotGenerator) Close() error {
 }
 
 func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[string][]string, excludedTables map[string][]string) (*dump, error) {
-	pgdumpOpts, err := s.pgdumpOptions(ctx, schemaTables, excludedTables)
+	pgdumpOpts, err := s.optionGenerator.pgdumpOptions(ctx, schemaTables, excludedTables)
 	if err != nil {
 		return nil, fmt.Errorf("preparing pg_dump options: %w", err)
 	}
@@ -265,15 +260,9 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 }
 
 func (s *SnapshotGenerator) dumpSequenceValues(ctx context.Context, sequences []string) ([]byte, error) {
-	if len(sequences) == 0 {
+	opts := s.optionGenerator.pgdumpSequenceDataOptions(sequences)
+	if opts == nil {
 		return nil, nil
-	}
-
-	opts := &pglib.PGDumpOptions{
-		ConnectionString: s.sourceURL,
-		Format:           "p",
-		DataOnly:         true,
-		Tables:           sequences,
 	}
 
 	s.logger.Debug("dumping sequence data", loglib.Fields{"pg_dump_options": opts.ToArgs(), "sequences": sequences})
@@ -286,23 +275,13 @@ func (s *SnapshotGenerator) dumpSequenceValues(ctx context.Context, sequences []
 	return d, nil
 }
 
-func (s *SnapshotGenerator) dumpRoles(ctx context.Context, roles map[string]struct{}) ([]byte, error) {
-	if s.rolesSnapshotMode == "disabled" {
+func (s *SnapshotGenerator) dumpRoles(ctx context.Context, rolesInSchemaDump map[string]role) ([]byte, error) {
+	opts := s.optionGenerator.pgdumpRolesOptions()
+	if opts == nil {
 		return nil, nil
 	}
-	opts := &pglib.PGDumpAllOptions{
-		ConnectionString: s.sourceURL,
-		RolesOnly:        true,
-		Clean:            s.cleanTargetDB,
-		Role:             s.role,
-		NoOwner:          s.noOwner,
-		NoPrivileges:     s.noPrivileges,
-	}
 
-	if s.rolesSnapshotMode == "no_passwords" {
-		opts.NoPasswords = true
-	}
-
+	// 1. dump all roles in the database
 	s.logger.Debug("dumping roles", loglib.Fields{"pg_dumpall_options": opts.ToArgs()})
 	d, err := s.pgDumpAllFn(ctx, *opts)
 	if err != nil {
@@ -310,12 +289,25 @@ func (s *SnapshotGenerator) dumpRoles(ctx context.Context, roles map[string]stru
 		return nil, fmt.Errorf("dumping roles: %w", err)
 	}
 
-	rolesToAdd := s.parseDump(d).roles
-	for role := range rolesToAdd {
-		roles[role] = struct{}{}
+	// 2. extract the role names from the dump
+	rolesInRoleDump := s.roleSQLParser.extractRoleNamesFromDump(d)
+
+	s.logger.Debug("dumped roles", loglib.Fields{"roles in schema dump": rolesInSchemaDump, "roles in role dump": rolesInRoleDump})
+
+	// 3. add any dependencies found in the role dump for the schema dump roles
+	for _, role := range rolesInRoleDump {
+		if _, found := rolesInSchemaDump[role.name]; !found {
+			// if the role is not in the schema dump, we don't need to include its dependencies
+			continue
+		}
+		for _, dep := range role.roleDependencies {
+			rolesInSchemaDump[dep.name] = dep
+		}
 	}
 
-	filteredRolesDump := filterRolesDump(d, roles)
+	// 4. filter the dump statements to include only the roles found in the
+	// schema dump and their dependencies
+	filteredRolesDump := s.filterRolesDump(d, rolesInSchemaDump)
 	s.dumpToFile(s.rolesDumpFile(), opts, filteredRolesDump)
 
 	return filteredRolesDump, nil
@@ -333,7 +325,7 @@ func (s *SnapshotGenerator) restoreDump(ctx context.Context, schemaTables map[st
 		}
 	}
 
-	_, err := s.pgRestoreFn(ctx, s.pgrestoreOptions(), dump)
+	_, err := s.pgRestoreFn(ctx, s.optionGenerator.pgrestoreOptions(), dump)
 	pgrestoreErr := &pglib.PGRestoreErrors{}
 	if err != nil {
 		switch {
@@ -342,7 +334,7 @@ func (s *SnapshotGenerator) restoreDump(ctx context.Context, schemaTables map[st
 				return err
 			}
 			ignoredErrors := pgrestoreErr.GetIgnoredErrors()
-			s.logger.Warn(nil, fmt.Sprintf("restore: %d errors ignored", len(ignoredErrors)), loglib.Fields{"errors_ignored": ignoredErrors})
+			s.logger.Warn(err, fmt.Sprintf("restore: %d errors ignored", len(ignoredErrors)), loglib.Fields{"errors_ignored": ignoredErrors})
 		default:
 			return err
 		}
@@ -399,168 +391,6 @@ func (s *SnapshotGenerator) createSchemaIfNotExists(ctx context.Context, schemaN
 	return err
 }
 
-func (s *SnapshotGenerator) pgrestoreOptions() pglib.PGRestoreOptions {
-	return pglib.PGRestoreOptions{
-		ConnectionString: s.targetURL,
-		Clean:            s.cleanTargetDB,
-		Format:           "p",
-		Create:           s.createTargetDB,
-	}
-}
-
-func (s *SnapshotGenerator) pgdumpOptions(ctx context.Context, schemaTables map[string][]string, excludedTables map[string][]string) (*pglib.PGDumpOptions, error) {
-	schemas := make([]string, 0, len(schemaTables))
-	for schema := range schemaTables {
-		schemas = append(schemas, schema)
-	}
-	opts := &pglib.PGDumpOptions{
-		ConnectionString: s.sourceURL,
-		Format:           "p",
-		SchemaOnly:       true,
-		Schemas:          schemas,
-		Clean:            s.cleanTargetDB,
-		Create:           s.createTargetDB,
-		NoOwner:          s.noOwner,
-		NoPrivileges:     s.noPrivileges,
-		Role:             s.role,
-	}
-
-	switch {
-	case hasWildcardSchema(schemaTables):
-		// no need to filter schemas, since we are including all of them
-		opts.Schemas = nil
-	case s.includeGlobalDBObjects:
-		// instead of using the schema filter, we use the exclude schemas filter
-		// to make sure extensions and other database global objects are
-		// created. pg_dump will not include them when using the schema filter,
-		// since they do not belong to the schema.
-		var err error
-		opts.ExcludeSchemas, err = s.pgdumpExcludedSchemas(ctx, schemas)
-		if err != nil {
-			return nil, err
-		}
-		opts.Schemas = nil
-	}
-
-	// we use the excluded tables flag to make sure we still dump non table
-	// objects for the schema in question. If we use the tables filter, only
-	// those tables are dumped, and any related non table objects will not be
-	// dumped, causing the restore to fail due to missing related objects.
-	for schema, tables := range schemaTables {
-		if hasWildcardTable(tables) {
-			// if there's the wildcard table, we don't need to add excluded
-			// tables, since they are all included.
-			continue
-		}
-		var err error
-		opts.ExcludeTables, err = s.pgdumpExcludedTables(ctx, schema, tables)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	for schema, tables := range excludedTables {
-		for _, table := range tables {
-			if !slices.Contains(opts.ExcludeTables, pglib.QuoteQualifiedIdentifier(schema, table)) {
-				opts.ExcludeTables = append(opts.ExcludeTables, pglib.QuoteQualifiedIdentifier(schema, table))
-			}
-		}
-	}
-
-	return opts, nil
-}
-
-const (
-	selectTablesQuery       = "SELECT schemaname,tablename FROM pg_tables WHERE tablename NOT IN (%s)"
-	selectSchemaTablesQuery = "SELECT schemaname,tablename FROM pg_tables WHERE schemaname = '%s' AND tablename NOT IN (%s)"
-)
-
-func (s *SnapshotGenerator) pgdumpExcludedTables(ctx context.Context, schemaName string, includeTables []string) ([]string, error) {
-	conn, err := s.connBuilder(ctx, s.sourceURL)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close(ctx)
-
-	paramRefs := make([]string, 0, len(includeTables))
-	tableParams := make([]any, 0, len(includeTables))
-	for i, table := range includeTables {
-		tableParams = append(tableParams, table)
-		paramRefs = append(paramRefs, fmt.Sprintf("$%d", i+1))
-	}
-
-	var query string
-	switch schemaName {
-	case wildcard:
-		query = fmt.Sprintf(selectTablesQuery, strings.Join(paramRefs, ","))
-	default:
-		// if the schema is not wildcard, we need to filter by schema name
-		query = fmt.Sprintf(selectSchemaTablesQuery, schemaName, strings.Join(paramRefs, ","))
-	}
-
-	// get all tables in the schema that are not in the include list
-	rows, err := conn.Query(ctx, query, tableParams...)
-	if err != nil {
-		return nil, fmt.Errorf("retrieving tables from schema: %w", err)
-	}
-	defer rows.Close()
-
-	excludeTables := []string{}
-	for rows.Next() {
-		schemaName, tableName := "", ""
-		if err := rows.Scan(&schemaName, &tableName); err != nil {
-			return nil, fmt.Errorf("scanning table name: %w", err)
-		}
-		excludeTables = append(excludeTables, pglib.QuoteQualifiedIdentifier(schemaName, tableName))
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return excludeTables, nil
-}
-
-const selectSchemasQuery = "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN (%s)"
-
-func (s *SnapshotGenerator) pgdumpExcludedSchemas(ctx context.Context, includeSchemas []string) ([]string, error) {
-	conn, err := s.connBuilder(ctx, s.sourceURL)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close(ctx)
-
-	paramRefs := make([]string, 0, len(includeSchemas))
-	schemaParams := make([]any, 0, len(includeSchemas))
-	for i, schema := range includeSchemas {
-		schemaParams = append(schemaParams, schema)
-		paramRefs = append(paramRefs, fmt.Sprintf("$%d", i+1))
-	}
-
-	// get all schemas in the database that are not in the snapshot request
-	query := fmt.Sprintf(selectSchemasQuery, strings.Join(paramRefs, ","))
-	rows, err := conn.Query(ctx, query, schemaParams...)
-	if err != nil {
-		return nil, fmt.Errorf("retrieving schemas: %w", err)
-	}
-	defer rows.Close()
-
-	excludeSchemas := []string{}
-	for rows.Next() {
-		schema := ""
-		if err := rows.Scan(&schema); err != nil {
-			return nil, fmt.Errorf("scanning schema name: %w", err)
-		}
-		excludeSchemas = append(excludeSchemas, pglib.QuoteIdentifier(schema))
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return excludeSchemas, nil
-}
-
 func (s *SnapshotGenerator) initialiseSchemaLogStore(ctx context.Context) error {
 	exists, err := s.schemalogExists(ctx)
 	if err != nil {
@@ -601,7 +431,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	indicesAndConstraints := strings.Builder{}
 	filteredDump := strings.Builder{}
 	sequenceNames := []string{}
-	roleNames := make(map[string]struct{})
+	dumpRoles := make(map[string]role)
 	alterTable := ""
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -640,58 +470,6 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		case strings.HasPrefix(line, "ALTER TABLE") && !strings.HasSuffix(line, ";"):
 			// keep it in case the alter table is provided in two lines (pg_dump format)
 			alterTable = line
-		case strings.HasPrefix(line, "ALTER") && strings.Contains(line, "OWNER TO"):
-			roleNames[getRoleNameAfterClause(line, " OWNER TO ")] = struct{}{}
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
-		case strings.HasPrefix(line, "GRANT "):
-			roleName := getRoleNameAfterClause(line, "GRANT ")
-			_, secondPart, _ := strings.Cut(line, roleName)
-			if strings.HasPrefix(secondPart, " TO ") {
-				// GRANT <rolename> TO <rolename2>;
-				roleName2 := getRoleNameAfterClause(secondPart, " TO ")
-				roleNames[roleName] = struct{}{}
-				roleNames[roleName2] = struct{}{}
-			} else if strings.Contains(line, " ON ") {
-				// GRANT <privileges> ON <object> TO <rolename>;
-				roleNames[getRoleNameAfterClause(line, " TO ")] = struct{}{}
-			}
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
-		case strings.HasPrefix(line, "REVOKE "):
-			roleNames[getRoleNameAfterClause(line, " FROM ")] = struct{}{}
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
-		case strings.HasPrefix(line, "SET ROLE "),
-			strings.HasPrefix(line, "SET SESSION ROLE "),
-			strings.HasPrefix(line, "SET LOCAL ROLE "):
-			roleNames[getRoleNameAfterClause(line, " ROLE ")] = struct{}{}
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
-		case strings.HasPrefix(line, "SET ") && strings.Contains(line, " SESSION AUTHORIZATION "):
-			roleName := getRoleNameAfterClause(line, " SESSION AUTHORIZATION ")
-			if roleName != "DEFAULT" {
-				roleNames[roleName] = struct{}{}
-			}
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
-		case strings.HasPrefix(line, "ALTER DEFAULT PRIVILEGES FOR ROLE "):
-			roleName := getRoleNameAfterClause(line, "ALTER DEFAULT PRIVILEGES FOR ROLE ")
-			roleNames[roleName] = struct{}{}
-			_, afterRole, _ := strings.Cut(line, roleName)
-			_, afterRevoke, isRevokeStmt := strings.Cut(afterRole, " REVOKE ")
-			if isRevokeStmt {
-				// ALTER DEFAULT PRIVILEGES FOR ROLE <rolename> [IN SCHEMA <schemaname>] REVOKE <privileges> ON <objecttype> FROM <rolename2>;
-				_, afterOn, _ := strings.Cut(afterRevoke, " ON ")
-				roleNames[getRoleNameAfterClause(afterOn, " FROM ")] = struct{}{}
-			} else {
-				// ALTER DEFAULT PRIVILEGES FOR ROLE <rolename> [IN SCHEMA <schemaname>] GRANT <privileges> ON <objecttype> TO <rolename2>;
-				_, afterGrant, _ := strings.Cut(afterRole, " GRANT ")
-				_, afterOn, _ := strings.Cut(afterGrant, " ON ")
-				roleNames[getRoleNameAfterClause(afterOn, " TO ")] = struct{}{}
-			}
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
 		case strings.HasPrefix(line, "CREATE SEQUENCE"):
 			qualifiedName, err := pglib.NewQualifiedName(strings.TrimPrefix(line, "CREATE SEQUENCE "))
 			if err == nil {
@@ -699,68 +477,77 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			}
 			filteredDump.WriteString(line)
 			filteredDump.WriteString("\n")
+		case isRoleStatement(line):
+			roles := s.roleSQLParser.extractRoleNamesFromLine(line)
+			if hasExcludedRole(roles) {
+				// if any of the roles is excluded or predefined, skip the whole line
+				continue
+			}
+
+			for _, role := range roles {
+				dumpRoles[role.name] = role
+			}
+
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
+
 		default:
 			filteredDump.WriteString(line)
 			filteredDump.WriteString("\n")
 		}
+
 	}
 
-	delete(roleNames, "postgres") // remove the postgres role from the list, since it is not needed and can cause issues
 	return &dump{
 		full:                  d,
 		filtered:              []byte(filteredDump.String()),
 		indicesAndConstraints: []byte(indicesAndConstraints.String()),
 		sequences:             sequenceNames,
-		roles:                 roleNames,
+		roles:                 dumpRoles,
 	}
 }
 
-func filterRolesDump(rolesDump []byte, roles map[string]struct{}) []byte {
+func (s *SnapshotGenerator) filterRolesDump(rolesDump []byte, keepRoles map[string]role) []byte {
 	scanner := bufio.NewScanner(bytes.NewReader(rolesDump))
 	scanner.Split(bufio.ScanLines)
 	var filteredDump strings.Builder
-	for scanner.Scan() {
-		line := scanner.Text()
-		roleName := ""
-		switch {
-		case strings.HasPrefix(line, "DROP ROLE IF EXISTS "):
-			roleName = getRoleNameAfterClause(line, "DROP ROLE IF EXISTS ")
-		case strings.HasPrefix(line, "DROP ROLE "):
-			roleName = getRoleNameAfterClause(line, "DROP ROLE ")
-		case strings.HasPrefix(line, "CREATE ROLE "), strings.HasPrefix(line, "ALTER ROLE "), strings.HasPrefix(line, "COMMENT ON ROLE "):
-			roleName = getRoleNameAfterClause(line, " ROLE ")
-		}
-		if roleName != "" {
-			if _, ok := roles[roleName]; !ok {
-				// skip the role if it is not in the roles map
-				continue
+
+	skipLine := func(lineRoles []role) bool {
+		for _, role := range lineRoles {
+			_, roleFound := keepRoles[role.name]
+			if !roleFound || isPredefinedRole(role.name) || isExcludedRole(role.name) {
+				return true
 			}
 		}
+		return false
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		lineRoles := s.roleSQLParser.extractRoleNamesFromLine(line)
+		if skipLine(lineRoles) {
+			continue
+		}
+
+		// remove role attributes that require superuser privileges to be set
+		// when the value is the same as the default.
+		line = removeDefaultRoleAttributes(line)
+
 		filteredDump.WriteString(line)
 		filteredDump.WriteString("\n")
 	}
+
+	for _, role := range keepRoles {
+		if isPredefinedRole(role.name) || isExcludedRole(role.name) || !role.isOwner {
+			continue
+		}
+		// add a line to grant the role to the current user to avoid permission
+		// issues when granting ownership (OWNER TO) when using non superuser
+		// roles to restore the dump
+		filteredDump.WriteString(fmt.Sprintf("GRANT %s TO CURRENT_USER;\n", pglib.QuoteIdentifier(role.name)))
+	}
+
 	return []byte(filteredDump.String())
-}
-
-func getRoleNameAfterClause(line string, clause string) string {
-	_, roleName, found := strings.Cut(line, clause)
-	if !found {
-		return ""
-	}
-
-	if strings.HasPrefix(roleName, "\"") {
-		endIndexRelative := strings.Index(roleName[1:], "\"")
-		if endIndexRelative != -1 {
-			endIndexAbsolute := endIndexRelative + 1 // +1 to account for the leading quote
-			roleName = roleName[:endIndexAbsolute+1]
-		}
-	} else {
-		endIndex := strings.Index(roleName, " ")
-		if endIndex != -1 {
-			roleName = roleName[:endIndex]
-		}
-	}
-	return strings.TrimSuffix(roleName, ";")
 }
 
 type options interface {

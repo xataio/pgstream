@@ -108,6 +108,11 @@ func initialSnapshotFlagBinding(cmd *cobra.Command) {
 		viper.GetString("source.postgres.mode") == "snapshot_and_replication" &&
 		!viper.IsSet("target.postgres.bulk_ingest.enabled") {
 		viper.Set("target.postgres.bulk_ingest.enabled", true)
+
+		// if bulk ingest is enabled, default to disabling triggers if not set
+		if !viper.IsSet("target.postgres.disable_triggers") {
+			viper.Set("target.postgres.disable_triggers", true)
+		}
 	}
 
 	// if the source and target are postgres, with replication + initial snapshot
@@ -116,6 +121,11 @@ func initialSnapshotFlagBinding(cmd *cobra.Command) {
 		(viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_TABLES") != "" || viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES") != "") &&
 		viper.GetString("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED") == "" {
 		viper.Set("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED", true)
+
+		// if bulk ingest is enabled, default to disabling triggers if not set
+		if !viper.IsSet("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS") {
+			viper.Set("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS", true)
+		}
 	}
 }
 
