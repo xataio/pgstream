@@ -49,7 +49,7 @@ const (
 func NewStatusChecker() *StatusChecker {
 	return &StatusChecker{
 		connBuilder:     pglib.ConnBuilder,
-		configParser:    pgx.ParseConfig,
+		configParser:    pglib.ParseConfig,
 		migratorBuilder: func(pgURL string) (migrator, error) { return newPGMigrator(pgURL) },
 		ruleValidatorBuilder: func(ctx context.Context, pgURL string, requiredTables []string) (ruleValidator, error) {
 			validator, err := transformer.NewPostgresTransformerParser(ctx, pgURL, builder.NewTransformerBuilder(), requiredTables)

@@ -14,7 +14,7 @@ type Conn struct {
 }
 
 func NewConn(ctx context.Context, url string) (*Conn, error) {
-	pgCfg, err := pgx.ParseConfig(url)
+	pgCfg, err := ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing postgres connection string: %w", mapError(err))
 	}

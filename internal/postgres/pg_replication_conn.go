@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/jackc/pglogrepl"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 )
@@ -37,7 +36,7 @@ type IdentifySystemResult pglogrepl.IdentifySystemResult
 var ErrUnsupportedCopyDataMessage = errors.New("unsupported copy data message")
 
 func NewReplicationConn(ctx context.Context, url string) (*ReplicationConn, error) {
-	pgCfg, err := pgx.ParseConfig(url)
+	pgCfg, err := ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing postgres connection string: %w", err)
 	}
