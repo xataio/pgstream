@@ -206,7 +206,7 @@ func TestStore_GetSnapshotRequestsBySchema(t *testing.T) {
 					return &postgresmocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
-						ScanFn: func(dest ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							require.Len(t, dest, 4)
 							schemaName, ok := dest[0].(*string)
 							require.True(t, ok)
@@ -256,7 +256,7 @@ func TestStore_GetSnapshotRequestsBySchema(t *testing.T) {
 					return &postgresmocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
-						ScanFn: func(dest ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							return errTest
 						},
 					}, nil
@@ -329,7 +329,7 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 					return &postgresmocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
-						ScanFn: func(dest ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							require.Len(t, dest, 4)
 							schemaName, ok := dest[0].(*string)
 							require.True(t, ok)
@@ -378,7 +378,7 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 					return &postgresmocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
-						ScanFn: func(dest ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							return errTest
 						},
 					}, nil

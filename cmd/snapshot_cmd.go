@@ -61,6 +61,11 @@ func snapshotFlagBinding(cmd *cobra.Command, args []string) error {
 	// if the target is postgres, default to using bulk ingest if not set
 	if viper.GetString("target.postgres.url") != "" && viper.GetString("target.postgres.bulk_ingest.enabled") == "" {
 		viper.Set("target.postgres.bulk_ingest.enabled", true)
+
+		// if bulk ingest is enabled, default to disabling triggers if not set
+		if !viper.IsSet("target.postgres.disable_triggers") {
+			viper.Set("target.postgres.disable_triggers", true)
+		}
 	}
 
 	// to be able to overwrite configuration with flags when env config file is
@@ -80,6 +85,11 @@ func snapshotFlagBinding(cmd *cobra.Command, args []string) error {
 	if viper.GetString("PGSTREAM_POSTGRES_WRITER_TARGET_URL") != "" &&
 		viper.GetString("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED") == "" {
 		viper.Set("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED", true)
+
+		// if bulk ingest is enabled, default to disabling triggers if not set
+		if !viper.IsSet("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS") {
+			viper.Set("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS", true)
+		}
 	}
 
 	return targetFlagBinding(cmd)

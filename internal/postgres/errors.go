@@ -32,6 +32,14 @@ func (e *ErrConstraintViolation) Error() string {
 	return fmt.Sprintf("constraint violation: %s", e.Details)
 }
 
+type ErrPermissionDenied struct {
+	Details string
+}
+
+func (e *ErrPermissionDenied) Error() string {
+	return fmt.Sprintf("permission denied: %s", e.Details)
+}
+
 type ErrSyntaxError struct {
 	Details string
 }
@@ -77,6 +85,13 @@ func mapError(err error) error {
 				Details: pgErr.Message,
 			}
 		}
+
+		if pgErr.Code == "42501" {
+			return &ErrPermissionDenied{
+				Details: pgErr.Message,
+			}
+		}
+
 		// Class 22 — Data Exception
 		if strings.HasPrefix(pgErr.Code, "22") {
 			return &ErrDataException{

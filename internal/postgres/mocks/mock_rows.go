@@ -12,10 +12,11 @@ type Rows struct {
 	ErrFn               func() error
 	FieldDescriptionsFn func() []pgconn.FieldDescription
 	NextFn              func(i uint) bool
-	ScanFn              func(dest ...any) error
+	ScanFn              func(i uint, dest ...any) error
 	ValuesFn            func() ([]any, error)
 	RawValuesFn         func() [][]byte
 	nextCalls           uint
+	scanCalls           uint
 }
 
 func (m *Rows) Close() {
@@ -40,7 +41,8 @@ func (m *Rows) Next() bool {
 }
 
 func (m *Rows) Scan(dest ...any) error {
-	return m.ScanFn(dest...)
+	m.scanCalls++
+	return m.ScanFn(m.scanCalls, dest...)
 }
 
 func (m *Rows) Values() ([]any, error) {

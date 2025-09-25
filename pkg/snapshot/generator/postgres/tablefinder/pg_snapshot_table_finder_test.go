@@ -57,7 +57,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname=$1", query)
 					require.Equal(t, []any{testSchema}, args)
 					return &pgmocks.Rows{
-						ScanFn: func(dest ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							require.Len(t, dest, 1)
 							table, ok := dest[0].(*string)
 							require.True(t, ok)
@@ -91,7 +91,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname=$1", query)
 					require.Equal(t, []any{testSchema}, args)
 					return &pgmocks.Rows{
-						ScanFn: func(dest ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							require.Len(t, dest, 1)
 							table, ok := dest[0].(*string)
 							require.True(t, ok)
@@ -126,7 +126,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 					case "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')":
 						require.Empty(t, args)
 						return &pgmocks.Rows{
-							ScanFn: func(dest ...any) error {
+							ScanFn: func(i uint, dest ...any) error {
 								require.Len(t, dest, 1)
 								schema, ok := dest[0].(*string)
 								require.True(t, ok)
@@ -141,7 +141,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 						require.Len(t, args, 1)
 						require.Equal(t, testSchema, args[0])
 						return &pgmocks.Rows{
-							ScanFn: func(dest ...any) error {
+							ScanFn: func(i uint, dest ...any) error {
 								require.Len(t, dest, 1)
 								table, ok := dest[0].(*string)
 								require.True(t, ok)
@@ -181,7 +181,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 					case "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')":
 						require.Empty(t, args)
 						return &pgmocks.Rows{
-							ScanFn: func(dest ...any) error {
+							ScanFn: func(i uint, dest ...any) error {
 								require.Len(t, dest, 1)
 								schema, ok := dest[0].(*string)
 								require.True(t, ok)
@@ -196,7 +196,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 						require.Len(t, args, 1)
 						require.Equal(t, testSchema, args[0])
 						return &pgmocks.Rows{
-							ScanFn: func(dest ...any) error {
+							ScanFn: func(i uint, dest ...any) error {
 								require.Len(t, dest, 1)
 								table, ok := dest[0].(*string)
 								require.True(t, ok)
@@ -275,7 +275,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname=$1", query)
 					require.Equal(t, []any{testSchema}, args)
 					return &pgmocks.Rows{
-						ScanFn: func(dest ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							return errTest
 						},
 						NextFn:  func(i uint) bool { return i == 1 },

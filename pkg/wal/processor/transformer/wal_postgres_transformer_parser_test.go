@@ -51,7 +51,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 					return &pgmocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
-						ScanFn: func(dest ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							require.Len(t, dest, 1)
 							tableName, ok := dest[0].(*string)
 							require.True(t, ok)
@@ -64,7 +64,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 					return &pgmocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
-						ScanFn: func(dest ...any) error {
+						ScanFn: func(i uint, dest ...any) error {
 							require.Len(t, dest, 1)
 							schemaName, ok := dest[0].(*string)
 							require.True(t, ok)
