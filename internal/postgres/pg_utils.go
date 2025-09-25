@@ -209,15 +209,16 @@ func escapeConnectionURL(rawURL string) (string, error) {
 	userInfo := matches[2]    // "username:password"
 	hostAndPath := matches[3] // "host:port/database?params"
 
-	// Find the last colon in userInfo to split username and password
-	lastColonIndex := strings.LastIndex(userInfo, ":")
-	if lastColonIndex == -1 {
+	// Find the first colon in userInfo to split username and password. This
+	// replicates the behaviour of psql
+	firstColonIndex := strings.Index(userInfo, ":")
+	if firstColonIndex == -1 {
 		// No password, return as-is
 		return rawURL, nil
 	}
 
-	username := userInfo[:lastColonIndex]
-	password := userInfo[lastColonIndex+1:]
+	username := userInfo[:firstColonIndex]
+	password := userInfo[firstColonIndex+1:]
 	if username == "" {
 		return "", errInvalidURL
 	}

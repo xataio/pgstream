@@ -296,9 +296,9 @@ func Test_escapeConnectionURL(t *testing.T) {
 			wantErr:  nil,
 		},
 		{
-			name:     "url with username with colons",
-			rawURL:   "postgres://user:name:with:colons:p^ss@localhost:5432/mydb",
-			expected: "postgres://user:name:with:colons:p%5Ess@localhost:5432/mydb",
+			name:     "url with password with colons",
+			rawURL:   "postgres://user:password:with:colons:p^ss@localhost:5432/mydb",
+			expected: "postgres://user:password%3Awith%3Acolons%3Ap%5Ess@localhost:5432/mydb",
 			wantErr:  nil,
 		},
 		{
