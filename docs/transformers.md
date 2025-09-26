@@ -8,6 +8,99 @@ pgstream integrates with existing transformer open source libraries, such as [gr
 
 ## Supported transformers
 
+### PostgreSQL Anonymizer
+
+ <details>
+  <summary>pg_anonymizer</summary>
+
+**Description:** Integrates with the [PostgreSQL Anonymizer](https://postgresql-anonymizer.readthedocs.io/en/stable/) extension to provide advanced data anonymization using built-in anonymizer functions.
+
+⚠️ This transformer requires a PostgreSQL database connection to execute transformations, which may impact performance compared to other transformers in this document that generate values locally without database queries.
+
+| Supported PostgreSQL types                                                                                    |
+| ------------------------------------------------------------------------------------------------------------- |
+| Dependent on [anonymizer function](https://postgresql-anonymizer.readthedocs.io/en/stable/masking_functions/) |
+
+| Parameter         | Type   | Default                      | Required | Values                                                                                                                                                                           |
+| ----------------- | ------ | ---------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| anon_function     | string | N/A                          | Yes      | Any valid anon.\* [function](https://postgresql-anonymizer.readthedocs.io/en/stable/masking_functions/). If no parameters are required, it can be provided with or without `()`. |
+| postgres_url      | string | pgsteram source Postgres URL | Yes      | PostgreSQL connection URL where the function is run. Defaults to pgstream source URL when configured.                                                                            |
+| salt              | string | ""                           | No       | Salt for `anon.pseudo_` and `anon.digest` functions                                                                                                                              |
+| hash_algorithm    | string | sha256                       | No       | Hash algorithm for `anon.digest`. One of md5, sha224, sha256, sha384, sha512                                                                                                     |
+| interval          | string | N/A                          | No       | Time interval for `anon.dnoise` function                                                                                                                                         |
+| ratio             | string | N/A                          | No       | Noise ratio for `anon.noise` function                                                                                                                                            |
+| sigma             | string | N/A                          | No       | Blur sigma for `anon.image_blur` function                                                                                                                                        |
+| mask              | string | N/A                          | No       | Mask character for `anon.partial` function                                                                                                                                       |
+| mask_prefix_count | int    | 0                            | No       | Prefix count for `anon.partial` function                                                                                                                                         |
+| mask_suffix_count | int    | 0                            | No       | Suffix count for `anon.partial` function                                                                                                                                         |
+
+Notes:
+
+- The transformer executes functions directly in PostgreSQL, ensuring compatibility with all anonymizer features
+- Deterministic functions (pseudo\_\*, hash, digest) produce consistent output for the same input
+- Functions that don't require parameters (like anon.fake\_\*()) can be used without additional configuration
+
+**Prerequisites:**
+
+- PostgreSQL Anonymizer extension must be installed and enabled on the source (or the configured url)
+- Extension must be loaded in `shared_preload_libraries`
+- Run `SELECT anon.init();`in order to use the faking functions
+
+**Supported Functions:**
+
+- [Adding noise](https://postgresql-anonymizer.readthedocs.io/en/stable/masking_functions/#adding-noise)
+- [Randomization](https://postgresql-anonymizer.readthedocs.io/en/stable/masking_functions/#randomization)
+- [Faking](https://postgresql-anonymizer.readthedocs.io/en/stable/masking_functions/#faking)
+- [Advanced faking](https://postgresql-anonymizer.readthedocs.io/en/stable/masking_functions/#advanced-faking)
+- [Pseudoanonymization](https://postgresql-anonymizer.readthedocs.io/en/stable/masking_functions/#pseudonymization)
+- [Generic hashing](https://postgresql-anonymizer.readthedocs.io/en/stable/masking_functions/#generic-hashing)
+- [Partial scrambling](https://postgresql-anonymizer.readthedocs.io/en/stable/masking_functions/#partial-scrambling)
+- [Image blurring](https://postgresql-anonymizer.readthedocs.io/en/stable/masking_functions/#image-bluring)
+
+**Unsupported Functions:**
+
+- [Conditional masking](https://postgresql-anonymizer.readthedocs.io/en/stable/masking_functions/#conditional-masking)
+- [Generalization](https://postgresql-anonymizer.readthedocs.io/en/stable/masking_functions/#generalization)
+
+**Example Configurations:**
+
+```yaml
+transformations:
+  table_transformers:
+    - schema: public
+      table: users
+      column_transformers:
+        first_name:
+          name: pg_anonymizer
+          parameters:
+            anon_function: anon.fake_first_name()
+        id:
+          name: pg_anonymizer
+          parameters:
+            anon_function: anon.digest
+            salt: salt
+            hash_algorithm: md5
+```
+
+**Input-Output Examples:**
+
+| Input Value        | Function Configuration                                                               | Output Value                          |
+| ------------------ | ------------------------------------------------------------------------------------ | ------------------------------------- |
+| `John`             | `anon_function: anon.fake_first_name()`                                              | `Michael` (random)                    |
+| `john@test.com`    | `anon_function: anon.pseudo_email, salt: "key123"`                                   | `alice@test.com` (deterministic)      |
+| `1234567890`       | `anon_function: anon.partial, mask: "*", mask_prefix_count: 3, mask_suffix_count: 3` | `123****890`                          |
+| `sensitive_data`   | `anon_function: anon.digest, salt: "key", hash_algorithm: "sha256"`                  | `a1b2c3d4e5f6...` (hash)              |
+| `100.50`           | `anon_function: anon.noise, ratio: "0.1"`                                            | `95.23` (with 10% noise)              |
+| `2023-01-15`       | `anon_function: anon.dnoise, interval: "1 day"`                                      | `2023-01-16` (±1 day noise)           |
+| `password123`      | `anon_function: anon.hash`                                                           | `ef92b778bafe771e89245b89ecbc08a4...` |
+| `Alice Smith`      | `anon_function: anon.pseudo_first_name, salt: "s1"`                                  | `Bob Smith` (deterministic)           |
+| `user@company.com` | `anon_function: anon.partial_email`                                                  | `u***@company.com`                    |
+| `42`               | `anon_function: anon.random_int_between(1, 100)`                                     | `73` (random between 1-100)           |
+| `/path/image.jpg`  | `anon_function: anon.image_blur, sigma: "2.5"`                                       | Blurred image data                    |
+| Any value          | `anon_function: anon.fake_company()`                                                 | `Acme Corporation` (random)           |
+
+</details>
+
 ### Greenmask
 
  <details>
