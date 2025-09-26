@@ -136,6 +136,10 @@ func (t *FullNameTransformer) Type() transformers.TransformerType {
 	return transformers.NeosyncFullName
 }
 
+func (t *FullNameTransformer) Close() error {
+	return nil
+}
+
 func FullNameTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: fullNameCompatibleTypes,

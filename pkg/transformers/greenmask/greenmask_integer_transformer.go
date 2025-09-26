@@ -166,6 +166,10 @@ func (t *IntegerTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskInteger
 }
 
+func (t *IntegerTransformer) Close() error {
+	return nil
+}
+
 func IntegerTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: integerCompatibleTypes,

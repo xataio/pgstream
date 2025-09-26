@@ -104,6 +104,10 @@ func (t *LastNameTransformer) Type() transformers.TransformerType {
 	return transformers.NeosyncLastName
 }
 
+func (t *LastNameTransformer) Close() error {
+	return nil
+}
+
 func LastNameTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: lastNameCompatibleTypes,

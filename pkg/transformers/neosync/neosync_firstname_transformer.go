@@ -105,6 +105,10 @@ func (t *FirstNameTransformer) Type() transformers.TransformerType {
 	return transformers.NeosyncFirstName
 }
 
+func (t *FirstNameTransformer) Close() error {
+	return nil
+}
+
 func FirstNameTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: firstNameCompatibleTypes,

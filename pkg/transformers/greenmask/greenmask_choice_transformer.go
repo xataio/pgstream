@@ -96,6 +96,10 @@ func (t *ChoiceTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskChoice
 }
 
+func (t *ChoiceTransformer) Close() error {
+	return nil
+}
+
 func ChoiceTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: choiceCompatibleTypes,

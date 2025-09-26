@@ -128,6 +128,10 @@ func (t *UTCTimestampTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskUTCTimestamp
 }
 
+func (t *UTCTimestampTransformer) Close() error {
+	return nil
+}
+
 func UTCTimestampTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: utcTimestampCompatibleTypes,
