@@ -16,6 +16,7 @@ type Transformer interface {
 
 type Value struct {
 	TransformValue any
+	TransformType  string
 	DynamicValues  map[string]any
 }
 
@@ -55,6 +56,7 @@ const (
 	Template               TransformerType = "template"
 	JSON                   TransformerType = "json"
 	Hstore                 TransformerType = "hstore"
+	PGAnonymizer           TransformerType = "pg_anonymizer"
 )
 
 type SupportedDataType string
@@ -112,9 +114,10 @@ var (
 	ErrUnknownParameter         = errors.New("unknown parameter provided to transformer")
 )
 
-func NewValue(transformValue any, dynamicValues map[string]any) Value {
+func NewValue(transformValue any, transformType string, dynamicValues map[string]any) Value {
 	return Value{
 		TransformValue: transformValue,
+		TransformType:  transformType,
 		DynamicValues:  dynamicValues,
 	}
 }

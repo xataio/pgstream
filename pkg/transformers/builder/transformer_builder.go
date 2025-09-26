@@ -176,6 +176,12 @@ var TransformersMap = map[transformers.TransformerType]struct {
 			return neosync.NewEmailTransformer(cfg.Parameters)
 		},
 	},
+	transformers.PGAnonymizer: {
+		Definition: transformers.PGAnonymizerTransformerDefinition(),
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return transformers.NewPGAnonymizerTransformer(cfg.Parameters)
+		},
+	},
 }
 
 func (b *TransformerBuilder) New(cfg *transformers.Config) (t transformers.Transformer, err error) {

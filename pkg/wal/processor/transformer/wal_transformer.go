@@ -141,7 +141,7 @@ func (t *Transformer) getTransformValue(column *wal.Column, columns []wal.Column
 		}
 		values[col.Name] = col.Value
 	}
-	return transformers.NewValue(column.Value, values)
+	return transformers.NewValue(column.Value, column.Type, values)
 }
 
 func schemaTableKey(schema, table string) string {
