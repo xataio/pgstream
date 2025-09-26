@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 )
 
@@ -116,6 +117,12 @@ var (
 		"sha384": {},
 		"sha512": {},
 	}
+)
+
+const (
+	dateFormat        = "2006-01-02"
+	timestampTZFormat = "2006-01-02T15:04:05.000Z"
+	timestampFormat   = "2006-01-02T15:04:05.000"
 )
 
 var (
@@ -275,7 +282,9 @@ func (t *PGAnonymizerTransformer) getAnonFunction(value any, valueType string) s
 
 	case strings.HasPrefix(t.anonFn, "anon.dnoise"):
 		// receives a polymorphic type, so we need to cast the value
-		return fmt.Sprintf("%s('%v'::%s, '%s')", fnName, value, valueType, t.interval)
+		// Format the value properly for PostgreSQL date/timestamp types
+		formattedValue := t.formatValueForPostgres(value, valueType)
+		return fmt.Sprintf("%s('%v'::%s, '%s')", fnName, formattedValue, valueType, t.interval)
 
 	case strings.HasPrefix(t.anonFn, "anon.image_blur"):
 		return fmt.Sprintf("%s('%v', %s)", fnName, value, t.sigma)
@@ -341,6 +350,27 @@ func (t *PGAnonymizerTransformer) validateAnonFunction() error {
 	}
 
 	return nil
+}
+
+func (t *PGAnonymizerTransformer) formatValueForPostgres(value any, valueType string) string {
+	switch valueType {
+	case "date":
+		var d pgtype.Date
+		if err := d.Scan(value); err == nil {
+			return d.Time.Format(dateFormat)
+		}
+	case "timestamp", "timestamp without time zone":
+		var ts pgtype.Timestamp
+		if err := ts.Scan(value); err == nil {
+			return ts.Time.Format(timestampFormat)
+		}
+	case "timestamptz", "timestamp with time zone":
+		var ts pgtype.Timestamptz
+		if err := ts.Scan(value); err == nil {
+			return ts.Time.Format(timestampTZFormat)
+		}
+	}
+	return fmt.Sprintf("%v", value)
 }
 
 func PGAnonymizerTransformerDefinition() *Definition {
