@@ -123,6 +123,10 @@ func (t *DateTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskDate
 }
 
+func (t *DateTransformer) Close() error {
+	return nil
+}
+
 func DateTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: dateCompatibleTypes,

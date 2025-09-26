@@ -151,6 +151,10 @@ func (t *MaskingTransformer) Type() TransformerType {
 	return Masking
 }
 
+func (t *MaskingTransformer) Close() error {
+	return nil
+}
+
 func MaskingTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: maskingCompatibleTypes,

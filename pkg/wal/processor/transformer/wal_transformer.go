@@ -91,6 +91,13 @@ func (t *Transformer) Name() string {
 }
 
 func (t *Transformer) Close() error {
+	for _, transformer := range t.transformerMap {
+		for _, colTransformer := range transformer {
+			if err := colTransformer.Close(); err != nil {
+				t.logger.Error(err, "closing transformer")
+			}
+		}
+	}
 	return t.processor.Close()
 }
 
@@ -141,7 +148,7 @@ func (t *Transformer) getTransformValue(column *wal.Column, columns []wal.Column
 		}
 		values[col.Name] = col.Value
 	}
-	return transformers.NewValue(column.Value, values)
+	return transformers.NewValue(column.Value, column.Type, values)
 }
 
 func schemaTableKey(schema, table string) string {

@@ -66,6 +66,10 @@ func (t *TemplateTransformer) Type() TransformerType {
 	return Template
 }
 
+func (t *TemplateTransformer) Close() error {
+	return nil
+}
+
 func TemplateTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: templateCompatibleTypes,

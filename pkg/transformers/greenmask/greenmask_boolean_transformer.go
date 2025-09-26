@@ -70,6 +70,10 @@ func (bt *BooleanTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskBoolean
 }
 
+func (bt *BooleanTransformer) Close() error {
+	return nil
+}
+
 func BooleanTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: booleanCompatibleTypes,

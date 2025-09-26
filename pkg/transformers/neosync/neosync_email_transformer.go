@@ -150,6 +150,10 @@ func (t *EmailTransformer) Type() transformers.TransformerType {
 	return transformers.NeosyncEmail
 }
 
+func (t *EmailTransformer) Close() error {
+	return nil
+}
+
 func EmailTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: emailCompatibleTypes,

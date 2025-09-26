@@ -113,6 +113,10 @@ func (fnt *FirstNameTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskFirstName
 }
 
+func (fnt *FirstNameTransformer) Close() error {
+	return nil
+}
+
 func FirstNameTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: firstNameCompatibleTypes,

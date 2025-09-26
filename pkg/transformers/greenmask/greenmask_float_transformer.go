@@ -116,6 +116,10 @@ func (ft *FloatTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskFloat
 }
 
+func (ft *FloatTransformer) Close() error {
+	return nil
+}
+
 func FloatTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: floatCompatibleTypes,

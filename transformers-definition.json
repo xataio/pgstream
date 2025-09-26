@@ -697,6 +697,91 @@
       ]
     },
     {
+      "name": "pg_anonymizer",
+      "supported_types": [
+        "all"
+      ],
+      "parameters": [
+        {
+          "name": "anon_function",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        },
+        {
+          "name": "postgres_url",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        },
+        {
+          "name": "salt",
+          "supported_type": "string",
+          "default": "",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "hash_algorithm",
+          "supported_type": "string",
+          "default": "sha256",
+          "dynamic": false,
+          "required": false,
+          "values": [
+            "md5",
+            "sha224",
+            "sha256",
+            "sha384",
+            "sha512"
+          ]
+        },
+        {
+          "name": "interval",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "ratio",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "sigma",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "mask",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "mask_prefix_count",
+          "supported_type": "int",
+          "default": 0,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "mask_suffix_count",
+          "supported_type": "int",
+          "default": 0,
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
       "name": "phone_number",
       "supported_types": [
         "string",

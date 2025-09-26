@@ -17,6 +17,7 @@ import (
 
 type PostgresTransformerParser struct {
 	conn           pglib.Querier
+	connURL        string
 	builder        transformerBuilder
 	pgtypeMap      *pglib.Mapper
 	requiredTables []string
@@ -38,6 +39,7 @@ func NewPostgresTransformerParser(ctx context.Context, pgURL string, builder tra
 	}
 	return &PostgresTransformerParser{
 		conn:           pool,
+		connURL:        pgURL,
 		builder:        builder,
 		pgtypeMap:      pglib.NewMapper(pool),
 		requiredTables: requiredTables,
@@ -75,9 +77,15 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 		for colName, transformerRules := range table.ColumnRules {
 			cfg := transformerRulesToConfig(transformerRules)
 
-			// skip if noop transformer
-			if cfg.Name == "" || cfg.Name == "noop" {
+			switch cfg.Name {
+			case "", "noop":
 				continue
+			case transformers.PGAnonymizer:
+				// pg_anonymizer transformer requires a connection pool, set
+				// the source PG URL if not provided
+				if cfg.Parameters["postgres_url"] == nil {
+					cfg.Parameters["postgres_url"] = v.connURL
+				}
 			}
 
 			// build the transformer

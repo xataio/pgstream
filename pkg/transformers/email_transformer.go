@@ -172,6 +172,10 @@ func (st *EmailTransformer) Type() TransformerType {
 	return Email
 }
 
+func (st *EmailTransformer) Close() error {
+	return nil
+}
+
 func EmailTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: emailCompatibleTypes,

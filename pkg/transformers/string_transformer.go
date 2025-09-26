@@ -58,6 +58,10 @@ func (st *StringTransformer) Type() TransformerType {
 	return String
 }
 
+func (st *StringTransformer) Close() error {
+	return nil
+}
+
 func StringTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: stringCompatibleTypes,

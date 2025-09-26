@@ -206,7 +206,7 @@ func TestFirstNameTransformer_Transform(t *testing.T) {
 			transformer, err := NewFirstNameTransformer(tc.params, tc.dynamicParams)
 			require.NoError(t, err)
 
-			got, err := transformer.Transform(context.Background(), transformers.NewValue(tc.value, tc.dynamicValues))
+			got, err := transformer.Transform(context.Background(), transformers.NewValue(tc.value, "text", tc.dynamicValues))
 			require.Equal(t, err, tc.wantErr)
 			if err != nil {
 				return
