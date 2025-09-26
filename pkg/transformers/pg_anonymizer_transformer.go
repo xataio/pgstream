@@ -126,10 +126,11 @@ const (
 )
 
 var (
-	errAnonFunctionNotFound = fmt.Errorf("pg_anonymizer_transformer: anon_function parameter not found")
-	errPGURLNotFound        = fmt.Errorf("pg_anonymizer_transformer: postgres_url parameter not found")
+	errAnonFunctionNotFound = errors.New("pg_anonymizer_transformer: anon_function parameter not found")
+	errPGURLNotFound        = errors.New("pg_anonymizer_transformer: postgres_url parameter not found")
 
 	// Validation errors
+	errAnonFunctionNotAllowed      = errors.New("pg_anonymizer_transformer: anon_function is not allowed")
 	errAnonFunctionInvalid         = errors.New("pg_anonymizer_transformer: anon_function must start with 'anon.'")
 	errDigestHashAlgorithmRequired = errors.New("pg_anonymizer_transformer: hash_algorithm is required for anon.digest function")
 	errDigestSaltRequired          = errors.New("pg_anonymizer_transformer: salt is required for anon.digest function")
@@ -140,6 +141,20 @@ var (
 	errPartialSuffixInvalid        = errors.New("pg_anonymizer_transformer: mask_suffix_count must be non-negative for anon.partial function")
 	errImageBlurSigmaRequired      = errors.New("pg_anonymizer_transformer: sigma is required for anon.image_blur function")
 )
+
+var allowedFunctionPrefixes = []string{
+	"anon.fake_",
+	"anon.pseudo_",
+	"anon.random_",
+	"anon.hash",
+	"anon.digest",
+	"anon.noise",
+	"anon.dnoise",
+	"anon.image_blur",
+	"anon.partial",
+	"anon.lorem_ipsum",
+	"anon.dummy",
+}
 
 // NewPGAnonymizerTransformer creates a new transformer that supports pg_anonymizer functions.
 // Unsupported functions:
@@ -172,15 +187,25 @@ func NewPGAnonymizerTransformer(params ParameterValues) (*PGAnonymizerTransforme
 	if err != nil {
 		return nil, fmt.Errorf("pg_anonymizer_transformer: interval must be a string: %w", err)
 	}
+	if interval != "" && !isValidInterval(interval) {
+		return nil, fmt.Errorf("pg_anonymizer_transformer: interval must be a valid PostgreSQL interval: %w", ErrInvalidParameters)
+	}
 
 	ratio, err := FindParameterWithDefault(params, "ratio", "")
 	if err != nil {
 		return nil, fmt.Errorf("pg_anonymizer_transformer: ratio must be a string: %w", err)
 	}
 
+	if ratio != "" && !isValidNumeric(ratio) {
+		return nil, fmt.Errorf("pg_anonymizer_transformer: ratio must be a numeric value: %w", ErrInvalidParameters)
+	}
+
 	sigma, err := FindParameterWithDefault(params, "sigma", "")
 	if err != nil {
 		return nil, fmt.Errorf("pg_anonymizer_transformer: sigma must be a string: %w", err)
+	}
+	if sigma != "" && !isValidNumeric(sigma) {
+		return nil, fmt.Errorf("pg_anonymizer_transformer: sigma must be a numeric value: %w", ErrInvalidParameters)
 	}
 
 	mask, err := FindParameterWithDefault(params, "mask", "")
@@ -303,6 +328,10 @@ func (t *PGAnonymizerTransformer) validateAnonFunction() error {
 		return errAnonFunctionInvalid
 	}
 
+	if !isAllowedFunction(t.anonFn) {
+		return errAnonFunctionNotAllowed
+	}
+
 	if strings.HasPrefix(t.anonFn, "anon.digest") {
 		if t.hashAlgorithm == "" {
 			return errDigestHashAlgorithmRequired
@@ -371,4 +400,30 @@ func PGAnonymizerTransformerDefinition() *Definition {
 		SupportedTypes: pgAnonymizerCompatibleTypes,
 		Parameters:     pgAnonymizerParams,
 	}
+}
+
+func isAllowedFunction(anonFn string) bool {
+	for _, prefix := range allowedFunctionPrefixes {
+		if strings.HasPrefix(anonFn, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func isValidInterval(interval string) bool {
+	var i pgtype.Interval
+	if err := i.Scan(interval); err != nil {
+		return false
+	}
+	return true
+}
+
+func isValidNumeric(value string) bool {
+	// Allow only numeric values (integer or float)
+	var n pgtype.Numeric
+	if err := n.Scan(value); err != nil {
+		return false
+	}
+	return true
 }

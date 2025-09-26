@@ -67,7 +67,7 @@ func TestNewPGAnonymizerTransformer(t *testing.T) {
 			expectedErr: "pg_anonymizer_transformer: unsupported hash_algorithm: invalid_algorithm",
 		},
 		{
-			name: "invalid anon_function - does not start with anon.",
+			name: "validation error",
 			params: ParameterValues{
 				"anon_function": "invalid_function",
 				"postgres_url":  "postgres://user:pass@localhost/db",
@@ -75,30 +75,119 @@ func TestNewPGAnonymizerTransformer(t *testing.T) {
 			expectedErr: "pg_anonymizer_transformer: anon_function must start with 'anon.'",
 		},
 		{
-			name: "digest function without salt",
+			name: "invalid interval format",
 			params: ParameterValues{
-				"anon_function": "anon.digest",
+				"anon_function": "anon.pseudo_email",
 				"postgres_url":  "postgres://user:pass@localhost/db",
+				"interval":      "invalid_interval",
 			},
-			expectedErr: "pg_anonymizer_transformer: salt is required for anon.digest function",
+			expectedErr: "pg_anonymizer_transformer: interval must be a valid PostgreSQL interval",
 		},
 		{
-			name: "noise function without ratio",
+			name: "invalid ratio format",
 			params: ParameterValues{
-				"anon_function": "anon.noise",
+				"anon_function": "anon.pseudo_email",
 				"postgres_url":  "postgres://user:pass@localhost/db",
+				"ratio":         "not_a_number",
 			},
-			expectedErr: "pg_anonymizer_transformer: ratio is required for anon.noise function",
+			expectedErr: "pg_anonymizer_transformer: ratio must be a numeric value",
 		},
 		{
-			name: "partial function with negative prefix count",
+			name: "invalid sigma format",
 			params: ParameterValues{
-				"anon_function":     "anon.partial",
+				"anon_function": "anon.pseudo_email",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"sigma":         "not_a_number",
+			},
+			expectedErr: "pg_anonymizer_transformer: sigma must be a numeric value",
+		},
+		{
+			name: "non-string anon_function parameter",
+			params: ParameterValues{
+				"anon_function": 123,
+				"postgres_url":  "postgres://user:pass@localhost/db",
+			},
+			expectedErr: "pg_anonymizer_transformer: anon_function must be a string",
+		},
+		{
+			name: "non-string postgres_url parameter",
+			params: ParameterValues{
+				"anon_function": "anon.pseudo_email",
+				"postgres_url":  123,
+			},
+			expectedErr: "pg_anonymizer_transformer: postgres_url must be a string",
+		},
+		{
+			name: "non-string salt parameter",
+			params: ParameterValues{
+				"anon_function": "anon.pseudo_email",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"salt":          123,
+			},
+			expectedErr: "pg_anonymizer_transformer: salt must be a string",
+		},
+		{
+			name: "non-string hash_algorithm parameter",
+			params: ParameterValues{
+				"anon_function":  "anon.pseudo_email",
+				"postgres_url":   "postgres://user:pass@localhost/db",
+				"hash_algorithm": 123,
+			},
+			expectedErr: "pg_anonymizer_transformer: hash_algorithm must be a string",
+		},
+		{
+			name: "non-string interval parameter",
+			params: ParameterValues{
+				"anon_function": "anon.pseudo_email",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"interval":      123,
+			},
+			expectedErr: "pg_anonymizer_transformer: interval must be a string",
+		},
+		{
+			name: "non-string ratio parameter",
+			params: ParameterValues{
+				"anon_function": "anon.pseudo_email",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"ratio":         123,
+			},
+			expectedErr: "pg_anonymizer_transformer: ratio must be a string",
+		},
+		{
+			name: "non-string sigma parameter",
+			params: ParameterValues{
+				"anon_function": "anon.pseudo_email",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"sigma":         123,
+			},
+			expectedErr: "pg_anonymizer_transformer: sigma must be a string",
+		},
+		{
+			name: "non-string mask parameter",
+			params: ParameterValues{
+				"anon_function": "anon.pseudo_email",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"mask":          123,
+			},
+			expectedErr: "pg_anonymizer_transformer: mask must be a string",
+		},
+		{
+			name: "non-integer mask_prefix_count parameter",
+			params: ParameterValues{
+				"anon_function":     "anon.pseudo_email",
 				"postgres_url":      "postgres://user:pass@localhost/db",
-				"mask":              "***",
-				"mask_prefix_count": -1,
+				"mask_prefix_count": "not_an_integer",
 			},
-			expectedErr: "pg_anonymizer_transformer: mask_prefix_count must be non-negative for anon.partial function",
+			expectedErr: "pg_anonymizer_transformer: mask_prefix_count must be an integer",
+		},
+		{
+			name: "non-integer mask_suffix_count parameter",
+			params: ParameterValues{
+				"anon_function":     "anon.pseudo_email",
+				"postgres_url":      "postgres://user:pass@localhost/db",
+				"mask_suffix_count": "not_an_integer",
+			},
+			expectedErr: "pg_anonymizer_transformer: mask_suffix_count must be an integer",
 		},
 	}
 
@@ -191,6 +280,7 @@ func TestPGAnonymizerTransformer_Transform(t *testing.T) {
 				anonFn: tc.anonFn,
 				conn:   tc.conn,
 			}
+			defer require.NoError(t, transformer.Close())
 
 			got, err := transformer.Transform(context.Background(), tc.value)
 			require.ErrorIs(t, err, tc.wantErr)
@@ -497,6 +587,13 @@ func TestPGAnonymizerTransformer_validateAnonFunction(t *testing.T) {
 				sigma:  "2.5",
 			},
 			wantErr: nil,
+		},
+		{
+			name: "function not allowed",
+			transformer: &PGAnonymizerTransformer{
+				anonFn: "anon.unknown_function",
+			},
+			wantErr: errAnonFunctionNotAllowed,
 		},
 	}
 
