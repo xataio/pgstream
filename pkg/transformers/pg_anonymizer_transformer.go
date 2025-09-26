@@ -231,10 +231,10 @@ func NewPGAnonymizerTransformer(params ParameterValues) (*PGAnonymizerTransforme
 }
 
 func (t *PGAnonymizerTransformer) Transform(ctx context.Context, value Value) (any, error) {
-	anonFn := t.getAnonFunction(value.TransformValue, value.TransformType)
+	query, args := t.buildParameterizedQuery(value.TransformValue, value.TransformType)
 
 	var transformedValue any
-	err := t.conn.QueryRow(ctx, fmt.Sprintf("SELECT %s", anonFn)).Scan(&transformedValue)
+	err := t.conn.QueryRow(ctx, query, args...).Scan(&transformedValue)
 	if err != nil {
 		return nil, fmt.Errorf("pg_anonymizer_transformer: failed to call anonymizer function: %w", err)
 	}
@@ -253,54 +253,47 @@ func (t *PGAnonymizerTransformer) Close() error {
 	return t.conn.Close(context.Background())
 }
 
-func (t *PGAnonymizerTransformer) getAnonFunction(value any, valueType string) string {
+func (t *PGAnonymizerTransformer) buildParameterizedQuery(value any, valueType string) (string, []any) {
 	fnName, _, _ := strings.Cut(t.anonFn, "(")
+
 	switch {
 	case strings.HasPrefix(t.anonFn, "anon.pseudo_"):
-		// for pseudo functions, we need to cast the value, since it
-		// receives a polymorphic type and would otherwise error
-		fnValue := fmt.Sprintf("'%v'::%s", value, valueType)
-
-		// pseudo anon function takes an optional salt parameter
+		// for pseudo functions, we need to cast the value
 		if t.salt != "" {
-			return fmt.Sprintf("%s(%s, '%v')", fnName, fnValue, t.salt)
+			return fmt.Sprintf("SELECT %s($1::%s, $2)", fnName, valueType), []any{value, t.salt}
 		}
-		return fmt.Sprintf("%s(%s)", fnName, fnValue)
+		return fmt.Sprintf("SELECT %s($1::%s)", fnName, valueType), []any{value}
 
 	case strings.HasPrefix(t.anonFn, "anon.random_hash"),
 		strings.HasPrefix(t.anonFn, "anon.hash"),
 		strings.HasPrefix(t.anonFn, "anon.partial_email"):
-		// functions that take a value parameter
-		return fmt.Sprintf("%s('%v')", fnName, value)
+		return fmt.Sprintf("SELECT %s($1)", fnName), []any{value}
 
 	case strings.HasPrefix(t.anonFn, "anon.digest"):
-		// anon.digest(value, salt, algorithm)
-		return fmt.Sprintf("%s('%v', '%v', '%s')", fnName, value, t.salt, t.hashAlgorithm)
+		return fmt.Sprintf("SELECT %s($1, $2, $3)", fnName), []any{value, t.salt, t.hashAlgorithm}
 
 	case strings.HasPrefix(t.anonFn, "anon.noise"):
-		return fmt.Sprintf("%s(%v, %s)", fnName, value, t.ratio)
+		// Convert ratio string to float for proper parameter binding
+		return fmt.Sprintf("SELECT %s($1, $2::numeric)", fnName), []any{value, t.ratio}
 
 	case strings.HasPrefix(t.anonFn, "anon.dnoise"):
-		// receives a polymorphic type, so we need to cast the value
 		// Format the value properly for PostgreSQL date/timestamp types
 		formattedValue := t.formatValueForPostgres(value, valueType)
-		return fmt.Sprintf("%s('%v'::%s, '%s')", fnName, formattedValue, valueType, t.interval)
+		return fmt.Sprintf("SELECT %s($1::%s, $2::interval)", fnName, valueType), []any{formattedValue, t.interval}
 
 	case strings.HasPrefix(t.anonFn, "anon.image_blur"):
-		return fmt.Sprintf("%s('%v', %s)", fnName, value, t.sigma)
+		return fmt.Sprintf("SELECT %s($1, $2::numeric)", fnName), []any{value, t.sigma}
 
 	case strings.HasPrefix(t.anonFn, "anon.partial"):
-		return fmt.Sprintf("%s('%v', %d, '%s', %d)", fnName, value, t.maskPrefixCount, t.mask, t.maskSuffixCount)
+		return fmt.Sprintf("SELECT %s($1, $2, $3, $4)", fnName), []any{value, t.maskPrefixCount, t.mask, t.maskSuffixCount}
 
 	default:
 		// functions that do not take any parameters (constant input)
-
-		// make sure the function has parentheses if the user did not provide
-		// them
-		if !strings.Contains(t.anonFn, "(") {
-			return fmt.Sprintf("%s()", t.anonFn)
+		fnCall := t.anonFn
+		if !strings.Contains(fnCall, "(") {
+			fnCall = fmt.Sprintf("%s()", fnCall)
 		}
-		return t.anonFn
+		return fmt.Sprintf("SELECT %s", fnCall), []any{}
 	}
 }
 

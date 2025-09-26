@@ -142,7 +142,8 @@ func TestPGAnonymizerTransformer_Transform(t *testing.T) {
 			anonFn: "anon.random_hash",
 			conn: &pglibmocks.Querier{
 				QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-					require.Equal(t, "SELECT anon.random_hash('value')", query)
+					require.Equal(t, "SELECT anon.random_hash($1)", query)
+					require.Equal(t, []any{"value"}, args)
 					return &pglibmocks.Row{
 						ScanFn: func(dest ...any) error {
 							require.Len(t, dest, 1)
@@ -166,7 +167,6 @@ func TestPGAnonymizerTransformer_Transform(t *testing.T) {
 			anonFn: "anon.random_hash",
 			conn: &pglibmocks.Querier{
 				QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-					require.Equal(t, "SELECT anon.random_hash('value')", query)
 					return &pglibmocks.Row{
 						ScanFn: func(dest ...any) error {
 							return errTest
@@ -199,7 +199,7 @@ func TestPGAnonymizerTransformer_Transform(t *testing.T) {
 	}
 }
 
-func TestPGAnonymizerTransformer_getAnonFunction(t *testing.T) {
+func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -208,7 +208,8 @@ func TestPGAnonymizerTransformer_getAnonFunction(t *testing.T) {
 		value       any
 		valueType   string
 
-		wantFn string
+		wantQuery string
+		wantArgs  []any
 	}{
 		{
 			name: "pseudo function with salt",
@@ -218,7 +219,8 @@ func TestPGAnonymizerTransformer_getAnonFunction(t *testing.T) {
 			},
 			value:     "test@example.com",
 			valueType: "text",
-			wantFn:    "anon.pseudo_email('test@example.com'::text, 'mysalt')",
+			wantQuery: "SELECT anon.pseudo_email($1::text, $2)",
+			wantArgs:  []any{"test@example.com", "mysalt"},
 		},
 		{
 			name: "pseudo function without salt",
@@ -228,7 +230,8 @@ func TestPGAnonymizerTransformer_getAnonFunction(t *testing.T) {
 			},
 			value:     "555-1234",
 			valueType: "varchar",
-			wantFn:    "anon.pseudo_phone('555-1234'::varchar)",
+			wantQuery: "SELECT anon.pseudo_phone($1::varchar)",
+			wantArgs:  []any{"555-1234"},
 		},
 		{
 			name: "random_hash function",
@@ -237,7 +240,8 @@ func TestPGAnonymizerTransformer_getAnonFunction(t *testing.T) {
 			},
 			value:     "sensitive_data",
 			valueType: "text",
-			wantFn:    "anon.random_hash('sensitive_data')",
+			wantQuery: "SELECT anon.random_hash($1)",
+			wantArgs:  []any{"sensitive_data"},
 		},
 		{
 			name: "hash function",
@@ -246,7 +250,8 @@ func TestPGAnonymizerTransformer_getAnonFunction(t *testing.T) {
 			},
 			value:     "password123",
 			valueType: "text",
-			wantFn:    "anon.hash('password123')",
+			wantQuery: "SELECT anon.hash($1)",
+			wantArgs:  []any{"password123"},
 		},
 		{
 			name: "partial_email function",
@@ -255,7 +260,8 @@ func TestPGAnonymizerTransformer_getAnonFunction(t *testing.T) {
 			},
 			value:     "user@domain.com",
 			valueType: "text",
-			wantFn:    "anon.partial_email('user@domain.com')",
+			wantQuery: "SELECT anon.partial_email($1)",
+			wantArgs:  []any{"user@domain.com"},
 		},
 		{
 			name: "digest function",
@@ -266,7 +272,8 @@ func TestPGAnonymizerTransformer_getAnonFunction(t *testing.T) {
 			},
 			value:     "data",
 			valueType: "text",
-			wantFn:    "anon.digest('data', 'salt123', 'sha256')",
+			wantQuery: "SELECT anon.digest($1, $2, $3)",
+			wantArgs:  []any{"data", "salt123", "sha256"},
 		},
 		{
 			name: "noise function",
@@ -276,7 +283,8 @@ func TestPGAnonymizerTransformer_getAnonFunction(t *testing.T) {
 			},
 			value:     100,
 			valueType: "integer",
-			wantFn:    "anon.noise(100, 0.1)",
+			wantQuery: "SELECT anon.noise($1, $2::numeric)",
+			wantArgs:  []any{100, "0.1"},
 		},
 		{
 			name: "dnoise function",
@@ -286,7 +294,8 @@ func TestPGAnonymizerTransformer_getAnonFunction(t *testing.T) {
 			},
 			value:     "2023-01-01",
 			valueType: "date",
-			wantFn:    "anon.dnoise('2023-01-01'::date, '1 day')",
+			wantQuery: "SELECT anon.dnoise($1::date, $2::interval)",
+			wantArgs:  []any{"2023-01-01", "1 day"},
 		},
 		{
 			name: "image_blur function",
@@ -296,7 +305,8 @@ func TestPGAnonymizerTransformer_getAnonFunction(t *testing.T) {
 			},
 			value:     "image_data",
 			valueType: "bytea",
-			wantFn:    "anon.image_blur('image_data', 2.5)",
+			wantQuery: "SELECT anon.image_blur($1, $2::numeric)",
+			wantArgs:  []any{"image_data", "2.5"},
 		},
 		{
 			name: "partial function",
@@ -308,7 +318,8 @@ func TestPGAnonymizerTransformer_getAnonFunction(t *testing.T) {
 			},
 			value:     "sensitive",
 			valueType: "text",
-			wantFn:    "anon.partial('sensitive', 2, '***', 3)",
+			wantQuery: "SELECT anon.partial($1, $2, $3, $4)",
+			wantArgs:  []any{"sensitive", 2, "***", 3},
 		},
 		{
 			name: "constant function without parameters",
@@ -317,7 +328,8 @@ func TestPGAnonymizerTransformer_getAnonFunction(t *testing.T) {
 			},
 			value:     "any_value",
 			valueType: "text",
-			wantFn:    "anon.random_string(10)",
+			wantQuery: "SELECT anon.random_string(10)",
+			wantArgs:  []any{},
 		},
 		{
 			name: "constant function without parenthesis or parameters",
@@ -326,7 +338,8 @@ func TestPGAnonymizerTransformer_getAnonFunction(t *testing.T) {
 			},
 			value:     "any_value",
 			valueType: "text",
-			wantFn:    "anon.fake_first_name()",
+			wantQuery: "SELECT anon.fake_first_name()",
+			wantArgs:  []any{},
 		},
 	}
 
@@ -334,8 +347,9 @@ func TestPGAnonymizerTransformer_getAnonFunction(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotFn := tc.transformer.getAnonFunction(tc.value, tc.valueType)
-			require.Equal(t, tc.wantFn, gotFn)
+			gotQuery, gotArgs := tc.transformer.buildParameterizedQuery(tc.value, tc.valueType)
+			require.Equal(t, tc.wantQuery, gotQuery)
+			require.Equal(t, tc.wantArgs, gotArgs)
 		})
 	}
 }
