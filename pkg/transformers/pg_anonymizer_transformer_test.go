@@ -268,6 +268,50 @@ func TestNewPGAnonymizerTransformer(t *testing.T) {
 				"locale":        "fr_FR",
 			},
 		},
+		{
+			name: "non-string count parameter",
+			params: ParameterValues{
+				"anon_function": "anon.lorem_ipsum",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"count":         123,
+			},
+			expectedErr: "pg_anonymizer_transformer: count must be a string",
+		},
+		{
+			name: "non-string unit parameter",
+			params: ParameterValues{
+				"anon_function": "anon.lorem_ipsum",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"unit":          123,
+			},
+			expectedErr: "pg_anonymizer_transformer: unit must be a string",
+		},
+		{
+			name: "invalid unit parameter",
+			params: ParameterValues{
+				"anon_function": "anon.lorem_ipsum",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"unit":          "invalid_unit",
+			},
+			expectedErr: "pg_anonymizer_transformer: unit must be one of 'character', 'word', or 'paragraph'",
+		},
+		{
+			name: "valid unit parameter - character",
+			params: ParameterValues{
+				"anon_function": "anon.lorem_ipsum",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"unit":          "character",
+				"count":         "10",
+			},
+		},
+		{
+			name: "count parameter provided",
+			params: ParameterValues{
+				"anon_function": "anon.random_string",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"count":         "10",
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -493,11 +537,11 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 		{
 			name: "constant function without parameters",
 			transformer: &PGAnonymizerTransformer{
-				anonFn: "anon.random_string(10)",
+				anonFn: "anon.random_date()",
 			},
 			value:     "any_value",
 			valueType: "text",
-			wantQuery: "SELECT anon.random_string(10)",
+			wantQuery: "SELECT anon.random_date()",
 			wantArgs:  []any{},
 		},
 		{
@@ -663,6 +707,64 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 			valueType: "text",
 			wantQuery: "SELECT anon.fake_company()",
 			wantArgs:  []any{},
+		},
+		{
+			name: "lorem_ipsum function with count",
+			transformer: &PGAnonymizerTransformer{
+				anonFn: "anon.lorem_ipsum",
+				count:  "5",
+				unit:   "word",
+			},
+			value:     "any_value",
+			valueType: "text",
+			wantQuery: "SELECT anon.lorem_ipsum(word := $1)",
+			wantArgs:  []any{"5"},
+		},
+		{
+			name: "lorem_ipsum function with count and character unit",
+			transformer: &PGAnonymizerTransformer{
+				anonFn: "anon.lorem_ipsum",
+				count:  "100",
+				unit:   "character",
+			},
+			value:     "any_value",
+			valueType: "text",
+			wantQuery: "SELECT anon.lorem_ipsum(character := $1)",
+			wantArgs:  []any{"100"},
+		},
+		{
+			name: "lorem_ipsum function with count and paragraph unit",
+			transformer: &PGAnonymizerTransformer{
+				anonFn: "anon.lorem_ipsum",
+				count:  "3",
+				unit:   "paragraph",
+			},
+			value:     "any_value",
+			valueType: "text",
+			wantQuery: "SELECT anon.lorem_ipsum(paragraph := $1)",
+			wantArgs:  []any{"3"},
+		},
+		{
+			name: "random_string function",
+			transformer: &PGAnonymizerTransformer{
+				anonFn: "anon.random_string",
+				count:  "10",
+			},
+			value:     "any_value",
+			valueType: "text",
+			wantQuery: "SELECT anon.random_string($1)",
+			wantArgs:  []any{"10"},
+		},
+		{
+			name: "random_phone function",
+			transformer: &PGAnonymizerTransformer{
+				anonFn: "anon.random_phone",
+				count:  "15",
+			},
+			value:     "any_value",
+			valueType: "text",
+			wantQuery: "SELECT anon.random_phone($1)",
+			wantArgs:  []any{"15"},
 		},
 	}
 
@@ -869,6 +971,38 @@ func TestPGAnonymizerTransformer_validateAnonFunction(t *testing.T) {
 				anonFn: "anon.unknown_function",
 			},
 			wantErr: errAnonFunctionNotAllowed,
+		},
+		{
+			name: "random_string function - missing count",
+			transformer: &PGAnonymizerTransformer{
+				anonFn: "anon.random_string",
+				count:  "",
+			},
+			wantErr: ErrInvalidParameters,
+		},
+		{
+			name: "random_string function - valid count",
+			transformer: &PGAnonymizerTransformer{
+				anonFn: "anon.random_string",
+				count:  "10",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "random_phone function - missing count",
+			transformer: &PGAnonymizerTransformer{
+				anonFn: "anon.random_phone",
+				count:  "",
+			},
+			wantErr: ErrInvalidParameters,
+		},
+		{
+			name: "random_phone function - valid count",
+			transformer: &PGAnonymizerTransformer{
+				anonFn: "anon.random_phone",
+				count:  "15",
+			},
+			wantErr: nil,
 		},
 	}
 

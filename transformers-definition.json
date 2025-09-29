@@ -815,6 +815,25 @@
             "zh_CN",
             "zh_TW"
           ]
+        },
+        {
+          "name": "count",
+          "supported_type": "string",
+          "default": "",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "unit",
+          "supported_type": "string",
+          "default": "paragraph",
+          "dynamic": false,
+          "required": false,
+          "values": [
+            "character",
+            "word",
+            "paragraph"
+          ]
         }
       ]
     },

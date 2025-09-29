@@ -27,6 +27,8 @@ type PGAnonymizerTransformer struct {
 	rangeLowerBound string
 	rangeBounds     string
 	locale          string
+	count           string
+	unit            string
 }
 
 var (
@@ -149,6 +151,25 @@ var (
 				"zh_TW",
 			},
 		},
+		{
+			Name:          "count",
+			SupportedType: "string",
+			Default:       "",
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "unit",
+			SupportedType: "string",
+			Default:       "paragraph",
+			Dynamic:       false,
+			Required:      false,
+			Values: []any{
+				"character",
+				"word",
+				"paragraph",
+			},
+		},
 	}
 
 	supportedHashAlgorithms = map[string]struct{}{
@@ -199,6 +220,7 @@ var allowedFunctionPrefixes = []string{
 
 // NewPGAnonymizerTransformer creates a new transformer that supports pg_anonymizer functions.
 // Unsupported functions:
+// - destruction ('MASKED WITH VALUE ”CONFIDENTIAL” )
 // - anon.ternary (conditional masking)
 // - anon.generalize... (data generalization - only makes sense with views)
 func NewPGAnonymizerTransformer(params ParameterValues) (*PGAnonymizerTransformer, error) {
@@ -288,6 +310,20 @@ func NewPGAnonymizerTransformer(params ParameterValues) (*PGAnonymizerTransforme
 		return nil, fmt.Errorf("pg_anonymizer_transformer: locale must be a string: %w", err)
 	}
 
+	count, err := FindParameterWithDefault(params, "count", "")
+	if err != nil {
+		return nil, fmt.Errorf("pg_anonymizer_transformer: count must be a string: %w", err)
+	}
+
+	unit, err := FindParameterWithDefault(params, "unit", "paragraph")
+	if err != nil {
+		return nil, fmt.Errorf("pg_anonymizer_transformer: unit must be a string: %w", err)
+	}
+
+	if unit != "character" && unit != "word" && unit != "paragraph" {
+		return nil, fmt.Errorf("pg_anonymizer_transformer: unit must be one of 'character', 'word', or 'paragraph': %w", ErrInvalidParameters)
+	}
+
 	url, found, err := FindParameter[string](params, "postgres_url")
 	if err != nil {
 		return nil, fmt.Errorf("pg_anonymizer_transformer: postgres_url must be a string: %w", err)
@@ -316,6 +352,8 @@ func NewPGAnonymizerTransformer(params ParameterValues) (*PGAnonymizerTransforme
 		rangeLowerBound: rangeLowerBound,
 		rangeBounds:     rangeBounds,
 		locale:          locale,
+		count:           count,
+		unit:            unit,
 	}
 
 	if err := t.validateAnonFunction(); err != nil {
@@ -397,16 +435,27 @@ func (t *PGAnonymizerTransformer) buildParameterizedQuery(value any, valueType s
 		strings.HasPrefix(t.anonFn, "anon.random_in_enum"):
 
 		return fmt.Sprintf("SELECT %s($1)", fnName), []any{t.rangeBounds}
+
 	case strings.HasPrefix(t.anonFn, "anon.dummy") && strings.HasSuffix(fnName, "_locale"):
 		return fmt.Sprintf("SELECT %s($1)", fnName), []any{t.locale}
 
-	default:
-		// functions that do not take any parameters (constant input)
-		fnCall := t.anonFn
-		if !strings.Contains(fnCall, "(") {
-			fnCall = fmt.Sprintf("%s()", fnCall)
+	case strings.HasPrefix(t.anonFn, "anon.lorem_ipsum"):
+		if t.count != "" {
+			return fmt.Sprintf("SELECT %s(%s := $1)", fnName, t.unit), []any{t.count}
 		}
-		return fmt.Sprintf("SELECT %s", fnCall), []any{}
+		return fmt.Sprintf("SELECT %s()", fnName), []any{}
+
+	case strings.HasPrefix(t.anonFn, "anon.random_string"),
+		strings.HasPrefix(t.anonFn, "anon.random_phone"):
+		return fmt.Sprintf("SELECT %s($1)", fnName), []any{t.count}
+
+	default:
+		// functions that do not take any parameters
+		if strings.HasSuffix(t.anonFn, "()") {
+			return fmt.Sprintf("SELECT %s", t.anonFn), []any{}
+		}
+
+		return fmt.Sprintf("SELECT %s()", fnName), []any{}
 	}
 }
 
@@ -433,16 +482,12 @@ func (t *PGAnonymizerTransformer) validateAnonFunction() error {
 		}
 	}
 
-	if strings.HasPrefix(t.anonFn, "anon.noise") {
-		if t.ratio == "" {
-			return errNoiseRatioRequired
-		}
+	if strings.HasPrefix(t.anonFn, "anon.noise") && t.ratio == "" {
+		return errNoiseRatioRequired
 	}
 
-	if strings.HasPrefix(t.anonFn, "anon.dnoise") {
-		if t.interval == "" {
-			return errDnoiseIntervalRequired
-		}
+	if strings.HasPrefix(t.anonFn, "anon.dnoise") && t.interval == "" {
+		return errDnoiseIntervalRequired
 	}
 
 	if strings.HasPrefix(t.anonFn, "anon.partial") {
@@ -457,10 +502,8 @@ func (t *PGAnonymizerTransformer) validateAnonFunction() error {
 		}
 	}
 
-	if strings.HasPrefix(t.anonFn, "anon.image_blur") {
-		if t.sigma == "" {
-			return errImageBlurSigmaRequired
-		}
+	if strings.HasPrefix(t.anonFn, "anon.image_blur") && t.sigma == "" {
+		return errImageBlurSigmaRequired
 	}
 
 	if strings.HasPrefix(t.anonFn, "anon.random_") && strings.Contains(t.anonFn, "between") {
@@ -474,6 +517,10 @@ func (t *PGAnonymizerTransformer) validateAnonFunction() error {
 		if t.rangeBounds == "" {
 			return fmt.Errorf("pg_anonymizer_transformer: range is required for %s function: %w", t.anonFn, ErrInvalidParameters)
 		}
+	}
+
+	if (strings.HasPrefix(t.anonFn, "anon.random_string") || strings.HasPrefix(t.anonFn, "anon.random_phone")) && t.count == "" {
+		return fmt.Errorf("pg_anonymizer_transformer: count is required for %s function: %w", t.anonFn, ErrInvalidParameters)
 	}
 
 	return nil
