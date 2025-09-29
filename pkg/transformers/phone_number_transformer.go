@@ -175,6 +175,10 @@ func (t *PhoneNumberTransformer) Type() TransformerType {
 	return PhoneNumber
 }
 
+func (t *PhoneNumberTransformer) Close() error {
+	return nil
+}
+
 func PhoneNumberTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: phoneNumberCompatibleTypes,

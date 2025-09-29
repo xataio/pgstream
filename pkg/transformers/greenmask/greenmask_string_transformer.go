@@ -108,6 +108,10 @@ func (st *StringTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskString
 }
 
+func (st *StringTransformer) Close() error {
+	return nil
+}
+
 func StringTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: stringCompatibleTypes,

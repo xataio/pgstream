@@ -697,6 +697,154 @@
       ]
     },
     {
+      "name": "pg_anonymizer",
+      "supported_types": [
+        "all"
+      ],
+      "parameters": [
+        {
+          "name": "anon_function",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        },
+        {
+          "name": "postgres_url",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        },
+        {
+          "name": "salt",
+          "supported_type": "string",
+          "default": "",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "hash_algorithm",
+          "supported_type": "string",
+          "default": "sha256",
+          "dynamic": false,
+          "required": false,
+          "values": [
+            "md5",
+            "sha224",
+            "sha256",
+            "sha384",
+            "sha512"
+          ]
+        },
+        {
+          "name": "interval",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "ratio",
+          "supported_type": "float",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "sigma",
+          "supported_type": "float",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "mask",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "mask_prefix_count",
+          "supported_type": "int",
+          "default": 0,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "mask_suffix_count",
+          "supported_type": "int",
+          "default": 0,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "min",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "max",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "range",
+          "supported_type": "string",
+          "default": "",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "locale",
+          "supported_type": "string",
+          "default": "en_US",
+          "dynamic": false,
+          "required": false,
+          "values": [
+            "ar_SA",
+            "en_US",
+            "fr_FR",
+            "ja_JP",
+            "pt_BR",
+            "zh_CN",
+            "zh_TW"
+          ]
+        },
+        {
+          "name": "count",
+          "supported_type": "int",
+          "default": 0,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "unit",
+          "supported_type": "string",
+          "default": "paragraph",
+          "dynamic": false,
+          "required": false,
+          "values": [
+            "character",
+            "word",
+            "paragraph"
+          ]
+        },
+        {
+          "name": "prefix",
+          "supported_type": "string",
+          "default": "",
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
       "name": "phone_number",
       "supported_types": [
         "string",

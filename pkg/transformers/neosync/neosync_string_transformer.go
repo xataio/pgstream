@@ -88,6 +88,10 @@ func (t *StringTransformer) Type() transformers.TransformerType {
 	return transformers.NeosyncString
 }
 
+func (t *StringTransformer) Close() error {
+	return nil
+}
+
 func StringTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: stringCompatibleTypes,

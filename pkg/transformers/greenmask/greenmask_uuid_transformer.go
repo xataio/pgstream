@@ -72,6 +72,10 @@ func (ut *UUIDTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskUUID
 }
 
+func (ut *UUIDTransformer) Close() error {
+	return nil
+}
+
 func UUIDTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: uuidCompatibleTypes,

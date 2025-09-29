@@ -68,6 +68,10 @@ func (i *Transformer) Type() transformers.TransformerType {
 	return i.inner.Type()
 }
 
+func (i *Transformer) Close() error {
+	return i.inner.Close()
+}
+
 func (i *Transformer) initMetrics() error {
 	if i.meter == nil {
 		return nil

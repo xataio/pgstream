@@ -124,6 +124,10 @@ func (jt *JSONTransformer) Type() TransformerType {
 	return JSON
 }
 
+func (jt *JSONTransformer) Close() error {
+	return nil
+}
+
 func JSONTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: jsonCompatibleTypes,

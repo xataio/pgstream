@@ -24,3 +24,7 @@ func (m *Transformer) CompatibleTypes() []transformers.SupportedDataType {
 func (m *Transformer) Type() transformers.TransformerType {
 	return transformers.TransformerType("mock")
 }
+
+func (m *Transformer) Close() error {
+	return nil
+}
