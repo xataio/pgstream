@@ -834,6 +834,13 @@
             "word",
             "paragraph"
           ]
+        },
+        {
+          "name": "prefix",
+          "supported_type": "string",
+          "default": "",
+          "dynamic": false,
+          "required": false
         }
       ]
     },

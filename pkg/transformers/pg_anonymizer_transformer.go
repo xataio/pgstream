@@ -29,6 +29,7 @@ type PGAnonymizerTransformer struct {
 	locale          string
 	count           int
 	unit            string
+	prefix          string
 }
 
 var (
@@ -169,6 +170,13 @@ var (
 				"word",
 				"paragraph",
 			},
+		},
+		{
+			Name:          "prefix",
+			SupportedType: "string",
+			Default:       "",
+			Dynamic:       false,
+			Required:      false,
 		},
 	}
 
@@ -317,6 +325,11 @@ func NewPGAnonymizerTransformer(params ParameterValues) (*PGAnonymizerTransforme
 		return nil, fmt.Errorf("pg_anonymizer_transformer: unit must be one of 'characters', 'words', or 'paragraphs': %w", ErrInvalidParameters)
 	}
 
+	prefix, err := FindParameterWithDefault(params, "prefix", "")
+	if err != nil {
+		return nil, fmt.Errorf("pg_anonymizer_transformer: prefix must be a string: %w", err)
+	}
+
 	url, found, err := FindParameter[string](params, "postgres_url")
 	if err != nil {
 		return nil, fmt.Errorf("pg_anonymizer_transformer: postgres_url must be a string: %w", err)
@@ -347,6 +360,7 @@ func NewPGAnonymizerTransformer(params ParameterValues) (*PGAnonymizerTransforme
 		locale:          locale,
 		count:           count,
 		unit:            unit,
+		prefix:          prefix,
 	}
 
 	if err := t.validateAnonFunction(); err != nil {
@@ -422,9 +436,14 @@ func (t *PGAnonymizerTransformer) buildParameterizedQuery(value any, valueType s
 
 		return fmt.Sprintf("SELECT %s($1)", fnName), []any{t.rangeStr}
 
-	case "anon.random_string",
-		"anon.random_phone":
+	case "anon.random_string":
 		return fmt.Sprintf("SELECT %s($1)", fnName), []any{t.count}
+
+	case "anon.random_phone":
+		if t.prefix != "" {
+			return fmt.Sprintf("SELECT %s($1)", fnName), []any{t.prefix}
+		}
+		return fmt.Sprintf("SELECT %s()", fnName), nil
 
 	case "anon.random_date_between",
 		"anon.random_int_between",

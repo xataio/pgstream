@@ -650,6 +650,17 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 			wantArgs:  []any{"NULL::COLOR"},
 		},
 		{
+			name: "random_in function",
+			transformer: &PGAnonymizerTransformer{
+				anonFn:   "anon.random_in",
+				rangeStr: "ARRAY['red', 'green', 'blue']",
+			},
+			value:     "any_value",
+			valueType: "color_enum",
+			wantQuery: "SELECT anon.random_in(ARRAY['red', 'green', 'blue'])",
+			wantArgs:  nil,
+		},
+		{
 			name: "dummy function with locale",
 			transformer: &PGAnonymizerTransformer{
 				anonFn: "anon.dummy_first_name_locale",
@@ -741,12 +752,22 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 			name: "random_phone function",
 			transformer: &PGAnonymizerTransformer{
 				anonFn: "anon.random_phone",
-				count:  15,
+			},
+			value:     "any_value",
+			valueType: "text",
+			wantQuery: "SELECT anon.random_phone()",
+			wantArgs:  nil,
+		},
+		{
+			name: "random_phone function with prefix",
+			transformer: &PGAnonymizerTransformer{
+				anonFn: "anon.random_phone",
+				prefix: "+15",
 			},
 			value:     "any_value",
 			valueType: "text",
 			wantQuery: "SELECT anon.random_phone($1)",
-			wantArgs:  []any{15},
+			wantArgs:  []any{"+15"},
 		},
 	}
 
