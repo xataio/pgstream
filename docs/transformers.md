@@ -87,6 +87,27 @@ transformations:
             anon_function: anon.digest
             salt: salt
             hash_algorithm: md5
+        phone:
+          name: pg_anonymizer
+          parameters:
+            anon_function: anon.random_phone
+            prefix: "+1-555-"
+        api_key:
+          name: pg_anonymizer
+          parameters:
+            anon_function: anon.random_string
+            count: 32
+        content:
+          name: pg_anonymizer
+          parameters:
+            anon_function: anon.lorem_ipsum
+            unit: "words"
+            count: 50
+        status:
+          name: pg_anonymizer
+          parameters:
+            anon_function: anon.random_in
+            range: "ARRAY['active', 'inactive', 'pending']"
 ```
 
 **Input-Output Examples:**
@@ -97,14 +118,20 @@ transformations:
 | `john@test.com`    | `anon_function: anon.pseudo_email, salt: "key123"`                                   | `alice@test.com` (deterministic)      |
 | `1234567890`       | `anon_function: anon.partial, mask: "*", mask_prefix_count: 3, mask_suffix_count: 3` | `123****890`                          |
 | `sensitive_data`   | `anon_function: anon.digest, salt: "key", hash_algorithm: "sha256"`                  | `a1b2c3d4e5f6...` (hash)              |
-| `100.50`           | `anon_function: anon.noise, ratio: "0.1"`                                            | `95.23` (with 10% noise)              |
+| `100.50`           | `anon_function: anon.noise, ratio: 0.1`                                              | `95.23` (with 10% noise)              |
 | `2023-01-15`       | `anon_function: anon.dnoise, interval: "1 day"`                                      | `2023-01-16` (±1 day noise)           |
 | `password123`      | `anon_function: anon.hash`                                                           | `ef92b778bafe771e89245b89ecbc08a4...` |
 | `Alice Smith`      | `anon_function: anon.pseudo_first_name, salt: "s1"`                                  | `Bob Smith` (deterministic)           |
 | `user@company.com` | `anon_function: anon.partial_email`                                                  | `u***@company.com`                    |
 | `42`               | `anon_function: anon.random_int_between(1, 100)`                                     | `73` (random between 1-100)           |
-| `/path/image.jpg`  | `anon_function: anon.image_blur, sigma: "2.5"`                                       | Blurred image data                    |
+| `/path/image.jpg`  | `anon_function: anon.image_blur, sigma: 2.5`                                         | Blurred image data                    |
 | Any value          | `anon_function: anon.fake_company()`                                                 | `Acme Corporation` (random)           |
+| `25`               | `anon_function: anon.random_int_between, min: "18", max: "65"`                       | `42` (random between 18-65)           |
+| Any value          | `anon_function: anon.random_in, range: "ARRAY['A', 'B', 'C']"`                       | `B` (random from array)               |
+| Any value          | `anon_function: anon.lorem_ipsum, unit: "words", count: 5`                           | `Lorem ipsum dolor sit amet`          |
+| Any value          | `anon_function: anon.random_string, count: 8`                                        | `aB3xY9z1` (random string)            |
+| Any value          | `anon_function: anon.random_phone, prefix: "+1-555-"`                                | `+1-555-123-4567`                     |
+| `John`             | `anon_function: anon.fake_first_name_locale, locale: "fr_FR"`                        | `Pierre` (French name)                |
 
 </details>
 
