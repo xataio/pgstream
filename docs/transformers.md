@@ -21,18 +21,25 @@ pgstream integrates with existing transformer open source libraries, such as [gr
 | ------------------------------------------------------------------------------------------------------------- |
 | Dependent on [anonymizer function](https://postgresql-anonymizer.readthedocs.io/en/stable/masking_functions/) |
 
-| Parameter         | Type   | Default                      | Required | Values                                                                                                                                                                           |
-| ----------------- | ------ | ---------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| anon_function     | string | N/A                          | Yes      | Any valid anon.\* [function](https://postgresql-anonymizer.readthedocs.io/en/stable/masking_functions/). If no parameters are required, it can be provided with or without `()`. |
-| postgres_url      | string | pgsteram source Postgres URL | Yes      | PostgreSQL connection URL where the function is run. Defaults to pgstream source URL when configured.                                                                            |
-| salt              | string | ""                           | No       | Salt for `anon.pseudo_` and `anon.digest` functions                                                                                                                              |
-| hash_algorithm    | string | sha256                       | No       | Hash algorithm for `anon.digest`. One of md5, sha224, sha256, sha384, sha512                                                                                                     |
-| interval          | string | N/A                          | No       | Time interval for `anon.dnoise` function                                                                                                                                         |
-| ratio             | string | N/A                          | No       | Noise ratio for `anon.noise` function                                                                                                                                            |
-| sigma             | string | N/A                          | No       | Blur sigma for `anon.image_blur` function                                                                                                                                        |
-| mask              | string | N/A                          | No       | Mask character for `anon.partial` function                                                                                                                                       |
-| mask_prefix_count | int    | 0                            | No       | Prefix count for `anon.partial` function                                                                                                                                         |
-| mask_suffix_count | int    | 0                            | No       | Suffix count for `anon.partial` function                                                                                                                                         |
+| Parameter         | Type   | Default    | Required | Values                                                                                       |
+| ----------------- | ------ | ---------- | -------- | -------------------------------------------------------------------------------------------- |
+| anon_function     | string | N/A        | Yes      | Any valid anon.\* function                                                                   |
+| postgres_url      | string | N/A        | Yes      | PostgreSQL connection URL                                                                    |
+| salt              | string | ""         | No       | Salt for deterministic functions                                                             |
+| hash_algorithm    | string | sha256     | No       | Algorithm for anon.digest. One of md5, sha224, sha256, sha384, sha512                        |
+| interval          | string | N/A        | No       | Time interval for anon.dnoise function                                                       |
+| ratio             | float  | N/A        | No       | Noise ratio for anon.noise function                                                          |
+| sigma             | float  | N/A        | No       | Blur sigma for anon.image_blur function                                                      |
+| mask              | string | N/A        | No       | Mask character for anon.partial function                                                     |
+| mask_prefix_count | int    | 0          | No       | Prefix count for anon.partial function                                                       |
+| mask_suffix_count | int    | 0          | No       | Suffix count for anon.partial function                                                       |
+| min               | string | N/A        | No       | Minimum value for anon.random\_\*\_between functions                                         |
+| max               | string | N/A        | No       | Maximum value for anon.random\_\*\_between functions                                         |
+| range             | string | ""         | No       | Range for anon.random_in\_\* functions                                                       |
+| locale            | string | en_US      | No       | Locale for dummy supported functions. One of ar_SA, en_US, fr_FR, ja_JP, pt_BR, zh_CN, zh_TW |
+| count             | int    | 0          | No       | Count parameter for functions like anon.random_string and anon.lorem_ipsum                   |
+| unit              | string | paragraphs | No       | Unit for anon.lorem_ipsum function. One of characters, words, paragraphs                     |
+| prefix            | string | ""         | No       | Prefix for anon.random_phone function                                                        |
 
 Notes:
 
