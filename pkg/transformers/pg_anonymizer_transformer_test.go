@@ -189,6 +189,85 @@ func TestNewPGAnonymizerTransformer(t *testing.T) {
 			},
 			expectedErr: "pg_anonymizer_transformer: mask_suffix_count must be an integer",
 		},
+		{
+			name: "non-string range_lower_bound parameter",
+			params: ParameterValues{
+				"anon_function":     "anon.pseudo_email",
+				"postgres_url":      "postgres://user:pass@localhost/db",
+				"range_lower_bound": 123,
+			},
+			expectedErr: "pg_anonymizer_transformer: range_lower_bound must be a string",
+		},
+		{
+			name: "non-string range_upper_bound parameter",
+			params: ParameterValues{
+				"anon_function":     "anon.pseudo_email",
+				"postgres_url":      "postgres://user:pass@localhost/db",
+				"range_upper_bound": 123,
+			},
+			expectedErr: "pg_anonymizer_transformer: range_upper_bound must be a string",
+		},
+		{
+			name: "non-string range parameter",
+			params: ParameterValues{
+				"anon_function": "anon.pseudo_email",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"range":         123,
+			},
+			expectedErr: "pg_anonymizer_transformer: range must be a string",
+		},
+		{
+			name: "non-string locale parameter",
+			params: ParameterValues{
+				"anon_function": "anon.pseudo_email",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"locale":        123,
+			},
+			expectedErr: "pg_anonymizer_transformer: locale must be a string",
+		},
+		{
+			name: "only range_lower_bound provided",
+			params: ParameterValues{
+				"anon_function":     "anon.pseudo_email",
+				"postgres_url":      "postgres://user:pass@localhost/db",
+				"range_lower_bound": "1",
+			},
+			expectedErr: "pg_anonymizer_transformer: both range_lower_bound and range_upper_bound must be provided together",
+		},
+		{
+			name: "only range_upper_bound provided",
+			params: ParameterValues{
+				"anon_function":     "anon.pseudo_email",
+				"postgres_url":      "postgres://user:pass@localhost/db",
+				"range_upper_bound": "100",
+			},
+			expectedErr: "pg_anonymizer_transformer: both range_lower_bound and range_upper_bound must be provided together",
+		},
+		{
+			name: "both range bounds provided",
+			params: ParameterValues{
+				"anon_function":     "anon.pseudo_email",
+				"postgres_url":      "postgres://user:pass@localhost/db",
+				"range_lower_bound": "1",
+				"range_upper_bound": "100",
+			},
+		},
+		{
+			name: "range parameter provided",
+			params: ParameterValues{
+				"anon_function": "anon.pseudo_email",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"range":         "[1,100)",
+			},
+		},
+		{
+			name: "locale parameter provided",
+			params: ParameterValues{
+				"anon_function": "anon.pseudo_email",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"locale":        "fr_FR",
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -431,6 +510,160 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 			wantQuery: "SELECT anon.fake_first_name()",
 			wantArgs:  []any{},
 		},
+		{
+			name: "random_date_between function",
+			transformer: &PGAnonymizerTransformer{
+				anonFn:          "anon.random_date_between",
+				rangeLowerBound: "2023-01-01",
+				rangeUpperBound: "2023-12-31",
+			},
+			value:     "any_value",
+			valueType: "date",
+			wantQuery: "SELECT anon.random_date_between($1, $2)",
+			wantArgs:  []any{"2023-01-01", "2023-12-31"},
+		},
+		{
+			name: "random_int_between function",
+			transformer: &PGAnonymizerTransformer{
+				anonFn:          "anon.random_int_between",
+				rangeLowerBound: "1",
+				rangeUpperBound: "100",
+			},
+			value:     "any_value",
+			valueType: "integer",
+			wantQuery: "SELECT anon.random_int_between($1, $2)",
+			wantArgs:  []any{"1", "100"},
+		},
+		{
+			name: "random_bigint_between function",
+			transformer: &PGAnonymizerTransformer{
+				anonFn:          "anon.random_bigint_between",
+				rangeLowerBound: "1000000",
+				rangeUpperBound: "9999999",
+			},
+			value:     "any_value",
+			valueType: "bigint",
+			wantQuery: "SELECT anon.random_bigint_between($1, $2)",
+			wantArgs:  []any{"1000000", "9999999"},
+		},
+		{
+			name: "random_in_int4range function",
+			transformer: &PGAnonymizerTransformer{
+				anonFn:      "anon.random_in_int4range",
+				rangeBounds: "[1,100)",
+			},
+			value:     "any_value",
+			valueType: "int4range",
+			wantQuery: "SELECT anon.random_in_int4range($1)",
+			wantArgs:  []any{"[1,100)"},
+		},
+		{
+			name: "random_in_int8range function",
+			transformer: &PGAnonymizerTransformer{
+				anonFn:      "anon.random_in_int8range",
+				rangeBounds: "[1000000,9999999)",
+			},
+			value:     "any_value",
+			valueType: "int8range",
+			wantQuery: "SELECT anon.random_in_int8range($1)",
+			wantArgs:  []any{"[1000000,9999999)"},
+		},
+		{
+			name: "random_in_daterange function",
+			transformer: &PGAnonymizerTransformer{
+				anonFn:      "anon.random_in_daterange",
+				rangeBounds: "[2023-01-01,2023-12-31)",
+			},
+			value:     "any_value",
+			valueType: "daterange",
+			wantQuery: "SELECT anon.random_in_daterange($1)",
+			wantArgs:  []any{"[2023-01-01,2023-12-31)"},
+		},
+		{
+			name: "random_in_numrange function",
+			transformer: &PGAnonymizerTransformer{
+				anonFn:      "anon.random_in_numrange",
+				rangeBounds: "[0.0,1.0)",
+			},
+			value:     "any_value",
+			valueType: "numrange",
+			wantQuery: "SELECT anon.random_in_numrange($1)",
+			wantArgs:  []any{"[0.0,1.0)"},
+		},
+		{
+			name: "random_in_tsrange function",
+			transformer: &PGAnonymizerTransformer{
+				anonFn:      "anon.random_in_tsrange",
+				rangeBounds: "[2023-01-01 00:00:00,2023-12-31 23:59:59)",
+			},
+			value:     "any_value",
+			valueType: "tsrange",
+			wantQuery: "SELECT anon.random_in_tsrange($1)",
+			wantArgs:  []any{"[2023-01-01 00:00:00,2023-12-31 23:59:59)"},
+		},
+		{
+			name: "random_in_tstzrange function",
+			transformer: &PGAnonymizerTransformer{
+				anonFn:      "anon.random_in_tstzrange",
+				rangeBounds: "[2023-01-01 00:00:00+00,2023-12-31 23:59:59+00)",
+			},
+			value:     "any_value",
+			valueType: "tstzrange",
+			wantQuery: "SELECT anon.random_in_tstzrange($1)",
+			wantArgs:  []any{"[2023-01-01 00:00:00+00,2023-12-31 23:59:59+00)"},
+		},
+		{
+			name: "random_in_enum function",
+			transformer: &PGAnonymizerTransformer{
+				anonFn:      "anon.random_in_enum",
+				rangeBounds: "NULL::COLOR",
+			},
+			value:     "any_value",
+			valueType: "color_enum",
+			wantQuery: "SELECT anon.random_in_enum($1)",
+			wantArgs:  []any{"NULL::COLOR"},
+		},
+		{
+			name: "dummy function with locale",
+			transformer: &PGAnonymizerTransformer{
+				anonFn: "anon.dummy_first_name_locale",
+				locale: "fr_FR",
+			},
+			value:     "any_value",
+			valueType: "text",
+			wantQuery: "SELECT anon.dummy_first_name_locale($1)",
+			wantArgs:  []any{"fr_FR"},
+		},
+		{
+			name: "lorem_ipsum function",
+			transformer: &PGAnonymizerTransformer{
+				anonFn: "anon.lorem_ipsum",
+			},
+			value:     "any_value",
+			valueType: "text",
+			wantQuery: "SELECT anon.lorem_ipsum()",
+			wantArgs:  []any{},
+		},
+		{
+			name: "dummy function",
+			transformer: &PGAnonymizerTransformer{
+				anonFn: "anon.dummy_last_name",
+			},
+			value:     "any_value",
+			valueType: "text",
+			wantQuery: "SELECT anon.dummy_last_name()",
+			wantArgs:  []any{},
+		},
+		{
+			name: "fake function",
+			transformer: &PGAnonymizerTransformer{
+				anonFn: "anon.fake_company",
+			},
+			value:     "any_value",
+			valueType: "text",
+			wantQuery: "SELECT anon.fake_company()",
+			wantArgs:  []any{},
+		},
 	}
 
 	for _, tc := range tests {
@@ -587,6 +820,48 @@ func TestPGAnonymizerTransformer_validateAnonFunction(t *testing.T) {
 				sigma:  "2.5",
 			},
 			wantErr: nil,
+		},
+		{
+			name: "function contains semicolon - invalid",
+			transformer: &PGAnonymizerTransformer{
+				anonFn: "anon.pseudo_email; DROP TABLE users;",
+			},
+			wantErr: errAnonFunctionInvalid,
+		},
+		{
+			name: "random_date_between function - missing lower bound",
+			transformer: &PGAnonymizerTransformer{
+				anonFn:          "anon.random_date_between",
+				rangeLowerBound: "",
+				rangeUpperBound: "2023-12-31",
+			},
+			wantErr: ErrInvalidParameters,
+		},
+		{
+			name: "random_date_between function - missing upper bound",
+			transformer: &PGAnonymizerTransformer{
+				anonFn:          "anon.random_date_between",
+				rangeLowerBound: "2023-01-01",
+				rangeUpperBound: "",
+			},
+			wantErr: ErrInvalidParameters,
+		},
+		{
+			name: "random_int_between function - valid bounds",
+			transformer: &PGAnonymizerTransformer{
+				anonFn:          "anon.random_int_between",
+				rangeLowerBound: "1",
+				rangeUpperBound: "100",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "random_in_enum function - missing range",
+			transformer: &PGAnonymizerTransformer{
+				anonFn:      "anon.random_in_enum",
+				rangeBounds: "",
+			},
+			wantErr: ErrInvalidParameters,
 		},
 		{
 			name: "function not allowed",

@@ -23,6 +23,10 @@ type PGAnonymizerTransformer struct {
 	mask            string
 	maskPrefixCount int
 	maskSuffixCount int
+	rangeUpperBound string
+	rangeLowerBound string
+	rangeBounds     string
+	locale          string
 }
 
 var (
@@ -108,6 +112,43 @@ var (
 			Dynamic:       false,
 			Required:      false,
 		},
+		{
+			Name:          "range_upper_bound",
+			SupportedType: "string",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "range_lower_bound",
+			SupportedType: "string",
+			Default:       nil,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "range",
+			SupportedType: "string",
+			Default:       "",
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
+			Name:          "locale",
+			SupportedType: "string",
+			Default:       "en_US",
+			Dynamic:       false,
+			Required:      false,
+			Values: []any{
+				"ar_SA",
+				"en_US",
+				"fr_FR",
+				"ja_JP",
+				"pt_BR",
+				"zh_CN",
+				"zh_TW",
+			},
+		},
 	}
 
 	supportedHashAlgorithms = map[string]struct{}{
@@ -131,7 +172,7 @@ var (
 
 	// Validation errors
 	errAnonFunctionNotAllowed      = errors.New("pg_anonymizer_transformer: anon_function is not allowed")
-	errAnonFunctionInvalid         = errors.New("pg_anonymizer_transformer: anon_function must start with 'anon.'")
+	errAnonFunctionInvalid         = errors.New("pg_anonymizer_transformer: anon_function must start with 'anon.' and contain no semicolons")
 	errDigestHashAlgorithmRequired = errors.New("pg_anonymizer_transformer: hash_algorithm is required for anon.digest function")
 	errDigestSaltRequired          = errors.New("pg_anonymizer_transformer: salt is required for anon.digest function")
 	errNoiseRatioRequired          = errors.New("pg_anonymizer_transformer: ratio is required for anon.noise function")
@@ -223,6 +264,30 @@ func NewPGAnonymizerTransformer(params ParameterValues) (*PGAnonymizerTransforme
 		return nil, fmt.Errorf("pg_anonymizer_transformer: mask_suffix_count must be an integer: %w", err)
 	}
 
+	rangeLowerBound, err := FindParameterWithDefault(params, "range_lower_bound", "")
+	if err != nil {
+		return nil, fmt.Errorf("pg_anonymizer_transformer: range_lower_bound must be a string: %w", err)
+	}
+
+	rangeUpperBound, err := FindParameterWithDefault(params, "range_upper_bound", "")
+	if err != nil {
+		return nil, fmt.Errorf("pg_anonymizer_transformer: range_upper_bound must be a string: %w", err)
+	}
+
+	if (rangeLowerBound != "" && rangeUpperBound == "") || (rangeLowerBound == "" && rangeUpperBound != "") {
+		return nil, fmt.Errorf("pg_anonymizer_transformer: both range_lower_bound and range_upper_bound must be provided together: %w", ErrInvalidParameters)
+	}
+
+	rangeBounds, err := FindParameterWithDefault(params, "range", "")
+	if err != nil {
+		return nil, fmt.Errorf("pg_anonymizer_transformer: range must be a string: %w", err)
+	}
+
+	locale, err := FindParameterWithDefault(params, "locale", "en_US")
+	if err != nil {
+		return nil, fmt.Errorf("pg_anonymizer_transformer: locale must be a string: %w", err)
+	}
+
 	url, found, err := FindParameter[string](params, "postgres_url")
 	if err != nil {
 		return nil, fmt.Errorf("pg_anonymizer_transformer: postgres_url must be a string: %w", err)
@@ -247,6 +312,10 @@ func NewPGAnonymizerTransformer(params ParameterValues) (*PGAnonymizerTransforme
 		mask:            mask,
 		maskPrefixCount: maskPrefixCount,
 		maskSuffixCount: maskSuffixCount,
+		rangeUpperBound: rangeUpperBound,
+		rangeLowerBound: rangeLowerBound,
+		rangeBounds:     rangeBounds,
+		locale:          locale,
 	}
 
 	if err := t.validateAnonFunction(); err != nil {
@@ -278,6 +347,7 @@ func (t *PGAnonymizerTransformer) Close() error {
 	return t.conn.Close(context.Background())
 }
 
+// parsing the function name and building the parameterized query ensures safety against SQL injection
 func (t *PGAnonymizerTransformer) buildParameterizedQuery(value any, valueType string) (string, []any) {
 	fnName, _, _ := strings.Cut(t.anonFn, "(")
 
@@ -312,6 +382,24 @@ func (t *PGAnonymizerTransformer) buildParameterizedQuery(value any, valueType s
 	case strings.HasPrefix(t.anonFn, "anon.partial"):
 		return fmt.Sprintf("SELECT %s($1, $2, $3, $4)", fnName), []any{value, t.maskPrefixCount, t.mask, t.maskSuffixCount}
 
+	case strings.HasPrefix(t.anonFn, "anon.random_date_between"),
+		strings.HasPrefix(t.anonFn, "anon.random_int_between"),
+		strings.HasPrefix(t.anonFn, "anon.random_bigint_between"):
+
+		return fmt.Sprintf("SELECT %s($1, $2)", fnName), []any{t.rangeLowerBound, t.rangeUpperBound}
+
+	case strings.HasPrefix(t.anonFn, "anon.random_in_int4range"),
+		strings.HasPrefix(t.anonFn, "anon.random_in_int8range"),
+		strings.HasPrefix(t.anonFn, "anon.random_in_daterange"),
+		strings.HasPrefix(t.anonFn, "anon.random_in_numrange"),
+		strings.HasPrefix(t.anonFn, "anon.random_in_tsrange"),
+		strings.HasPrefix(t.anonFn, "anon.random_in_tstzrange"),
+		strings.HasPrefix(t.anonFn, "anon.random_in_enum"):
+
+		return fmt.Sprintf("SELECT %s($1)", fnName), []any{t.rangeBounds}
+	case strings.HasPrefix(t.anonFn, "anon.dummy") && strings.HasSuffix(fnName, "_locale"):
+		return fmt.Sprintf("SELECT %s($1)", fnName), []any{t.locale}
+
 	default:
 		// functions that do not take any parameters (constant input)
 		fnCall := t.anonFn
@@ -325,6 +413,10 @@ func (t *PGAnonymizerTransformer) buildParameterizedQuery(value any, valueType s
 func (t *PGAnonymizerTransformer) validateAnonFunction() error {
 	// basic validation to check if the function starts with "anon."
 	if len(t.anonFn) < 5 || t.anonFn[:5] != "anon." {
+		return errAnonFunctionInvalid
+	}
+
+	if strings.Contains(t.anonFn, ";") {
 		return errAnonFunctionInvalid
 	}
 
@@ -368,6 +460,19 @@ func (t *PGAnonymizerTransformer) validateAnonFunction() error {
 	if strings.HasPrefix(t.anonFn, "anon.image_blur") {
 		if t.sigma == "" {
 			return errImageBlurSigmaRequired
+		}
+	}
+
+	if strings.HasPrefix(t.anonFn, "anon.random_") && strings.Contains(t.anonFn, "between") {
+		if t.rangeLowerBound == "" || t.rangeUpperBound == "" {
+			return fmt.Errorf("pg_anonymizer_transformer: both range_lower_bound and range_upper_bound are required for %s function: %w", t.anonFn, ErrInvalidParameters)
+		}
+	}
+
+	if (strings.HasPrefix(t.anonFn, "anon.random_in_") && strings.Contains(t.anonFn, "range")) ||
+		strings.HasPrefix(t.anonFn, "anon.random_in_enum") {
+		if t.rangeBounds == "" {
+			return fmt.Errorf("pg_anonymizer_transformer: range is required for %s function: %w", t.anonFn, ErrInvalidParameters)
 		}
 	}
 
