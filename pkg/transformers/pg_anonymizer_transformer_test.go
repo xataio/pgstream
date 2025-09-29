@@ -36,8 +36,8 @@ func TestNewPGAnonymizerTransformer(t *testing.T) {
 				"salt":              "mysalt",
 				"hash_algorithm":    "sha256",
 				"interval":          "1 day",
-				"ratio":             "0.1",
-				"sigma":             "2.5",
+				"ratio":             0.1,
+				"sigma":             2.5,
 				"mask":              "***",
 				"mask_prefix_count": 2,
 				"mask_suffix_count": 3,
@@ -84,24 +84,6 @@ func TestNewPGAnonymizerTransformer(t *testing.T) {
 			expectedErr: "pg_anonymizer_transformer: interval must be a valid PostgreSQL interval",
 		},
 		{
-			name: "invalid ratio format",
-			params: ParameterValues{
-				"anon_function": "anon.pseudo_email",
-				"postgres_url":  "postgres://user:pass@localhost/db",
-				"ratio":         "not_a_number",
-			},
-			expectedErr: "pg_anonymizer_transformer: ratio must be a numeric value",
-		},
-		{
-			name: "invalid sigma format",
-			params: ParameterValues{
-				"anon_function": "anon.pseudo_email",
-				"postgres_url":  "postgres://user:pass@localhost/db",
-				"sigma":         "not_a_number",
-			},
-			expectedErr: "pg_anonymizer_transformer: sigma must be a numeric value",
-		},
-		{
 			name: "non-string anon_function parameter",
 			params: ParameterValues{
 				"anon_function": 123,
@@ -145,22 +127,22 @@ func TestNewPGAnonymizerTransformer(t *testing.T) {
 			expectedErr: "pg_anonymizer_transformer: interval must be a string",
 		},
 		{
-			name: "non-string ratio parameter",
+			name: "non-float ratio parameter",
 			params: ParameterValues{
 				"anon_function": "anon.pseudo_email",
 				"postgres_url":  "postgres://user:pass@localhost/db",
-				"ratio":         123,
+				"ratio":         "123.45",
 			},
-			expectedErr: "pg_anonymizer_transformer: ratio must be a string",
+			expectedErr: "pg_anonymizer_transformer: ratio must be a float",
 		},
 		{
-			name: "non-string sigma parameter",
+			name: "non-float sigma parameter",
 			params: ParameterValues{
 				"anon_function": "anon.pseudo_email",
 				"postgres_url":  "postgres://user:pass@localhost/db",
-				"sigma":         123,
+				"sigma":         "123.45",
 			},
-			expectedErr: "pg_anonymizer_transformer: sigma must be a string",
+			expectedErr: "pg_anonymizer_transformer: sigma must be a float",
 		},
 		{
 			name: "non-string mask parameter",
@@ -190,22 +172,22 @@ func TestNewPGAnonymizerTransformer(t *testing.T) {
 			expectedErr: "pg_anonymizer_transformer: mask_suffix_count must be an integer",
 		},
 		{
-			name: "non-string range_lower_bound parameter",
+			name: "non-string min parameter",
 			params: ParameterValues{
-				"anon_function":     "anon.pseudo_email",
-				"postgres_url":      "postgres://user:pass@localhost/db",
-				"range_lower_bound": 123,
+				"anon_function": "anon.pseudo_email",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"min":           123,
 			},
-			expectedErr: "pg_anonymizer_transformer: range_lower_bound must be a string",
+			expectedErr: "pg_anonymizer_transformer: min must be a string",
 		},
 		{
-			name: "non-string range_upper_bound parameter",
+			name: "non-string max parameter",
 			params: ParameterValues{
-				"anon_function":     "anon.pseudo_email",
-				"postgres_url":      "postgres://user:pass@localhost/db",
-				"range_upper_bound": 123,
+				"anon_function": "anon.pseudo_email",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"max":           123,
 			},
-			expectedErr: "pg_anonymizer_transformer: range_upper_bound must be a string",
+			expectedErr: "pg_anonymizer_transformer: max must be a string",
 		},
 		{
 			name: "non-string range parameter",
@@ -226,30 +208,30 @@ func TestNewPGAnonymizerTransformer(t *testing.T) {
 			expectedErr: "pg_anonymizer_transformer: locale must be a string",
 		},
 		{
-			name: "only range_lower_bound provided",
+			name: "only min provided",
 			params: ParameterValues{
-				"anon_function":     "anon.pseudo_email",
-				"postgres_url":      "postgres://user:pass@localhost/db",
-				"range_lower_bound": "1",
+				"anon_function": "anon.pseudo_email",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"min":           "1",
 			},
-			expectedErr: "pg_anonymizer_transformer: both range_lower_bound and range_upper_bound must be provided together",
+			expectedErr: "pg_anonymizer_transformer: both min and max must be provided together",
 		},
 		{
-			name: "only range_upper_bound provided",
+			name: "only max provided",
 			params: ParameterValues{
-				"anon_function":     "anon.pseudo_email",
-				"postgres_url":      "postgres://user:pass@localhost/db",
-				"range_upper_bound": "100",
+				"anon_function": "anon.pseudo_email",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"max":           "100",
 			},
-			expectedErr: "pg_anonymizer_transformer: both range_lower_bound and range_upper_bound must be provided together",
+			expectedErr: "pg_anonymizer_transformer: both min and max must be provided together",
 		},
 		{
 			name: "both range bounds provided",
 			params: ParameterValues{
-				"anon_function":     "anon.pseudo_email",
-				"postgres_url":      "postgres://user:pass@localhost/db",
-				"range_lower_bound": "1",
-				"range_upper_bound": "100",
+				"anon_function": "anon.pseudo_email",
+				"postgres_url":  "postgres://user:pass@localhost/db",
+				"min":           "1",
+				"max":           "100",
 			},
 		},
 		{
@@ -269,13 +251,13 @@ func TestNewPGAnonymizerTransformer(t *testing.T) {
 			},
 		},
 		{
-			name: "non-string count parameter",
+			name: "non-int count parameter",
 			params: ParameterValues{
 				"anon_function": "anon.lorem_ipsum",
 				"postgres_url":  "postgres://user:pass@localhost/db",
-				"count":         123,
+				"count":         "123",
 			},
-			expectedErr: "pg_anonymizer_transformer: count must be a string",
+			expectedErr: "pg_anonymizer_transformer: count must be an integer",
 		},
 		{
 			name: "non-string unit parameter",
@@ -293,15 +275,15 @@ func TestNewPGAnonymizerTransformer(t *testing.T) {
 				"postgres_url":  "postgres://user:pass@localhost/db",
 				"unit":          "invalid_unit",
 			},
-			expectedErr: "pg_anonymizer_transformer: unit must be one of 'character', 'word', or 'paragraph'",
+			expectedErr: "pg_anonymizer_transformer: unit must be one of 'characters', 'words', or 'paragraphs'",
 		},
 		{
-			name: "valid unit parameter - character",
+			name: "valid unit parameter - characters",
 			params: ParameterValues{
 				"anon_function": "anon.lorem_ipsum",
 				"postgres_url":  "postgres://user:pass@localhost/db",
-				"unit":          "character",
-				"count":         "10",
+				"unit":          "characters",
+				"count":         10,
 			},
 		},
 		{
@@ -309,7 +291,7 @@ func TestNewPGAnonymizerTransformer(t *testing.T) {
 			params: ParameterValues{
 				"anon_function": "anon.random_string",
 				"postgres_url":  "postgres://user:pass@localhost/db",
-				"count":         "10",
+				"count":         10,
 			},
 		},
 	}
@@ -492,12 +474,12 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 			name: "noise function",
 			transformer: &PGAnonymizerTransformer{
 				anonFn: "anon.noise",
-				ratio:  "0.1",
+				ratio:  0.1,
 			},
 			value:     100,
 			valueType: "integer",
-			wantQuery: "SELECT anon.noise($1, $2::numeric)",
-			wantArgs:  []any{100, "0.1"},
+			wantQuery: "SELECT anon.noise($1::integer, $2)",
+			wantArgs:  []any{100, 0.1},
 		},
 		{
 			name: "dnoise function",
@@ -514,12 +496,12 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 			name: "image_blur function",
 			transformer: &PGAnonymizerTransformer{
 				anonFn: "anon.image_blur",
-				sigma:  "2.5",
+				sigma:  2.5,
 			},
 			value:     "image_data",
 			valueType: "bytea",
-			wantQuery: "SELECT anon.image_blur($1, $2::numeric)",
-			wantArgs:  []any{"image_data", "2.5"},
+			wantQuery: "SELECT anon.image_blur($1, $2)",
+			wantArgs:  []any{"image_data", 2.5},
 		},
 		{
 			name: "partial function",
@@ -557,9 +539,9 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 		{
 			name: "random_date_between function",
 			transformer: &PGAnonymizerTransformer{
-				anonFn:          "anon.random_date_between",
-				rangeLowerBound: "2023-01-01",
-				rangeUpperBound: "2023-12-31",
+				anonFn: "anon.random_date_between",
+				min:    "2023-01-01",
+				max:    "2023-12-31",
 			},
 			value:     "any_value",
 			valueType: "date",
@@ -569,9 +551,9 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 		{
 			name: "random_int_between function",
 			transformer: &PGAnonymizerTransformer{
-				anonFn:          "anon.random_int_between",
-				rangeLowerBound: "1",
-				rangeUpperBound: "100",
+				anonFn: "anon.random_int_between",
+				min:    "1",
+				max:    "100",
 			},
 			value:     "any_value",
 			valueType: "integer",
@@ -581,9 +563,9 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 		{
 			name: "random_bigint_between function",
 			transformer: &PGAnonymizerTransformer{
-				anonFn:          "anon.random_bigint_between",
-				rangeLowerBound: "1000000",
-				rangeUpperBound: "9999999",
+				anonFn: "anon.random_bigint_between",
+				min:    "1000000",
+				max:    "9999999",
 			},
 			value:     "any_value",
 			valueType: "bigint",
@@ -593,8 +575,8 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 		{
 			name: "random_in_int4range function",
 			transformer: &PGAnonymizerTransformer{
-				anonFn:      "anon.random_in_int4range",
-				rangeBounds: "[1,100)",
+				anonFn:   "anon.random_in_int4range",
+				rangeStr: "[1,100)",
 			},
 			value:     "any_value",
 			valueType: "int4range",
@@ -604,8 +586,8 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 		{
 			name: "random_in_int8range function",
 			transformer: &PGAnonymizerTransformer{
-				anonFn:      "anon.random_in_int8range",
-				rangeBounds: "[1000000,9999999)",
+				anonFn:   "anon.random_in_int8range",
+				rangeStr: "[1000000,9999999)",
 			},
 			value:     "any_value",
 			valueType: "int8range",
@@ -615,8 +597,8 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 		{
 			name: "random_in_daterange function",
 			transformer: &PGAnonymizerTransformer{
-				anonFn:      "anon.random_in_daterange",
-				rangeBounds: "[2023-01-01,2023-12-31)",
+				anonFn:   "anon.random_in_daterange",
+				rangeStr: "[2023-01-01,2023-12-31)",
 			},
 			value:     "any_value",
 			valueType: "daterange",
@@ -626,8 +608,8 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 		{
 			name: "random_in_numrange function",
 			transformer: &PGAnonymizerTransformer{
-				anonFn:      "anon.random_in_numrange",
-				rangeBounds: "[0.0,1.0)",
+				anonFn:   "anon.random_in_numrange",
+				rangeStr: "[0.0,1.0)",
 			},
 			value:     "any_value",
 			valueType: "numrange",
@@ -637,8 +619,8 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 		{
 			name: "random_in_tsrange function",
 			transformer: &PGAnonymizerTransformer{
-				anonFn:      "anon.random_in_tsrange",
-				rangeBounds: "[2023-01-01 00:00:00,2023-12-31 23:59:59)",
+				anonFn:   "anon.random_in_tsrange",
+				rangeStr: "[2023-01-01 00:00:00,2023-12-31 23:59:59)",
 			},
 			value:     "any_value",
 			valueType: "tsrange",
@@ -648,8 +630,8 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 		{
 			name: "random_in_tstzrange function",
 			transformer: &PGAnonymizerTransformer{
-				anonFn:      "anon.random_in_tstzrange",
-				rangeBounds: "[2023-01-01 00:00:00+00,2023-12-31 23:59:59+00)",
+				anonFn:   "anon.random_in_tstzrange",
+				rangeStr: "[2023-01-01 00:00:00+00,2023-12-31 23:59:59+00)",
 			},
 			value:     "any_value",
 			valueType: "tstzrange",
@@ -659,8 +641,8 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 		{
 			name: "random_in_enum function",
 			transformer: &PGAnonymizerTransformer{
-				anonFn:      "anon.random_in_enum",
-				rangeBounds: "NULL::COLOR",
+				anonFn:   "anon.random_in_enum",
+				rangeStr: "NULL::COLOR",
 			},
 			value:     "any_value",
 			valueType: "color_enum",
@@ -712,59 +694,59 @@ func TestPGAnonymizerTransformer_buildParameterizedQuery(t *testing.T) {
 			name: "lorem_ipsum function with count",
 			transformer: &PGAnonymizerTransformer{
 				anonFn: "anon.lorem_ipsum",
-				count:  "5",
+				count:  5,
 				unit:   "word",
 			},
 			value:     "any_value",
 			valueType: "text",
 			wantQuery: "SELECT anon.lorem_ipsum(word := $1)",
-			wantArgs:  []any{"5"},
+			wantArgs:  []any{5},
 		},
 		{
 			name: "lorem_ipsum function with count and character unit",
 			transformer: &PGAnonymizerTransformer{
 				anonFn: "anon.lorem_ipsum",
-				count:  "100",
+				count:  100,
 				unit:   "character",
 			},
 			value:     "any_value",
 			valueType: "text",
 			wantQuery: "SELECT anon.lorem_ipsum(character := $1)",
-			wantArgs:  []any{"100"},
+			wantArgs:  []any{100},
 		},
 		{
 			name: "lorem_ipsum function with count and paragraph unit",
 			transformer: &PGAnonymizerTransformer{
 				anonFn: "anon.lorem_ipsum",
-				count:  "3",
+				count:  3,
 				unit:   "paragraph",
 			},
 			value:     "any_value",
 			valueType: "text",
 			wantQuery: "SELECT anon.lorem_ipsum(paragraph := $1)",
-			wantArgs:  []any{"3"},
+			wantArgs:  []any{3},
 		},
 		{
 			name: "random_string function",
 			transformer: &PGAnonymizerTransformer{
 				anonFn: "anon.random_string",
-				count:  "10",
+				count:  10,
 			},
 			value:     "any_value",
 			valueType: "text",
 			wantQuery: "SELECT anon.random_string($1)",
-			wantArgs:  []any{"10"},
+			wantArgs:  []any{10},
 		},
 		{
 			name: "random_phone function",
 			transformer: &PGAnonymizerTransformer{
 				anonFn: "anon.random_phone",
-				count:  "15",
+				count:  15,
 			},
 			value:     "any_value",
 			valueType: "text",
 			wantQuery: "SELECT anon.random_phone($1)",
-			wantArgs:  []any{"15"},
+			wantArgs:  []any{15},
 		},
 	}
 
@@ -839,17 +821,9 @@ func TestPGAnonymizerTransformer_validateAnonFunction(t *testing.T) {
 			name: "noise function - missing ratio",
 			transformer: &PGAnonymizerTransformer{
 				anonFn: "anon.noise",
-				ratio:  "",
+				ratio:  0,
 			},
 			wantErr: errNoiseRatioRequired,
-		},
-		{
-			name: "noise function - valid",
-			transformer: &PGAnonymizerTransformer{
-				anonFn: "anon.noise",
-				ratio:  "0.1",
-			},
-			wantErr: nil,
 		},
 		{
 			name: "dnoise function - missing interval",
@@ -911,17 +885,9 @@ func TestPGAnonymizerTransformer_validateAnonFunction(t *testing.T) {
 			name: "image_blur function - missing sigma",
 			transformer: &PGAnonymizerTransformer{
 				anonFn: "anon.image_blur",
-				sigma:  "",
+				sigma:  0,
 			},
 			wantErr: errImageBlurSigmaRequired,
-		},
-		{
-			name: "image_blur function - valid",
-			transformer: &PGAnonymizerTransformer{
-				anonFn: "anon.image_blur",
-				sigma:  "2.5",
-			},
-			wantErr: nil,
 		},
 		{
 			name: "function contains semicolon - invalid",
@@ -933,35 +899,35 @@ func TestPGAnonymizerTransformer_validateAnonFunction(t *testing.T) {
 		{
 			name: "random_date_between function - missing lower bound",
 			transformer: &PGAnonymizerTransformer{
-				anonFn:          "anon.random_date_between",
-				rangeLowerBound: "",
-				rangeUpperBound: "2023-12-31",
+				anonFn: "anon.random_date_between",
+				min:    "",
+				max:    "2023-12-31",
 			},
 			wantErr: ErrInvalidParameters,
 		},
 		{
 			name: "random_date_between function - missing upper bound",
 			transformer: &PGAnonymizerTransformer{
-				anonFn:          "anon.random_date_between",
-				rangeLowerBound: "2023-01-01",
-				rangeUpperBound: "",
+				anonFn: "anon.random_date_between",
+				min:    "2023-01-01",
+				max:    "",
 			},
 			wantErr: ErrInvalidParameters,
 		},
 		{
 			name: "random_int_between function - valid bounds",
 			transformer: &PGAnonymizerTransformer{
-				anonFn:          "anon.random_int_between",
-				rangeLowerBound: "1",
-				rangeUpperBound: "100",
+				anonFn: "anon.random_int_between",
+				min:    "1",
+				max:    "100",
 			},
 			wantErr: nil,
 		},
 		{
 			name: "random_in_enum function - missing range",
 			transformer: &PGAnonymizerTransformer{
-				anonFn:      "anon.random_in_enum",
-				rangeBounds: "",
+				anonFn:   "anon.random_in_enum",
+				rangeStr: "",
 			},
 			wantErr: ErrInvalidParameters,
 		},
@@ -976,7 +942,7 @@ func TestPGAnonymizerTransformer_validateAnonFunction(t *testing.T) {
 			name: "random_string function - missing count",
 			transformer: &PGAnonymizerTransformer{
 				anonFn: "anon.random_string",
-				count:  "",
+				count:  0,
 			},
 			wantErr: ErrInvalidParameters,
 		},
@@ -984,7 +950,7 @@ func TestPGAnonymizerTransformer_validateAnonFunction(t *testing.T) {
 			name: "random_string function - valid count",
 			transformer: &PGAnonymizerTransformer{
 				anonFn: "anon.random_string",
-				count:  "10",
+				count:  10,
 			},
 			wantErr: nil,
 		},
@@ -992,7 +958,7 @@ func TestPGAnonymizerTransformer_validateAnonFunction(t *testing.T) {
 			name: "random_phone function - missing count",
 			transformer: &PGAnonymizerTransformer{
 				anonFn: "anon.random_phone",
-				count:  "",
+				count:  0,
 			},
 			wantErr: ErrInvalidParameters,
 		},
@@ -1000,7 +966,7 @@ func TestPGAnonymizerTransformer_validateAnonFunction(t *testing.T) {
 			name: "random_phone function - valid count",
 			transformer: &PGAnonymizerTransformer{
 				anonFn: "anon.random_phone",
-				count:  "15",
+				count:  15,
 			},
 			wantErr: nil,
 		},

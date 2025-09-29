@@ -746,14 +746,14 @@
         },
         {
           "name": "ratio",
-          "supported_type": "string",
+          "supported_type": "float",
           "default": null,
           "dynamic": false,
           "required": false
         },
         {
           "name": "sigma",
-          "supported_type": "string",
+          "supported_type": "float",
           "default": null,
           "dynamic": false,
           "required": false
@@ -780,14 +780,14 @@
           "required": false
         },
         {
-          "name": "range_upper_bound",
+          "name": "min",
           "supported_type": "string",
           "default": null,
           "dynamic": false,
           "required": false
         },
         {
-          "name": "range_lower_bound",
+          "name": "max",
           "supported_type": "string",
           "default": null,
           "dynamic": false,
@@ -818,8 +818,8 @@
         },
         {
           "name": "count",
-          "supported_type": "string",
-          "default": "",
+          "supported_type": "int",
+          "default": 0,
           "dynamic": false,
           "required": false
         },
