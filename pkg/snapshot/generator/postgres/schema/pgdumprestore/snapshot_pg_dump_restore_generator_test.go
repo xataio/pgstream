@@ -1326,7 +1326,9 @@ func TestSnapshotGenerator_parseDump(t *testing.T) {
 	wantConstraintsBytes, err := os.ReadFile("test/test_dump_constraints.sql")
 	require.NoError(t, err)
 
-	sg := &SnapshotGenerator{}
+	sg := &SnapshotGenerator{
+		excludedSecurityLabels: []string{"anon"},
+	}
 	dump := sg.parseDump(dumpBytes)
 
 	filteredStr := strings.Trim(string(dump.filtered), "\n")

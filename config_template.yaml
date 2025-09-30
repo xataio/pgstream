@@ -13,6 +13,7 @@ source:
     snapshot: # when mode is snapshot or snapshot_and_replication
       mode: full # options are data_and, schema or data
       tables: ["test", "test_schema.Test", "another_schema.*"] # tables to snapshot, can be a list of table names or a pattern
+      excluded_tables: ["test_schema.Test"] # tables to exclude for snapshot, wildcards are not supported
       recorder:
         repeatable_snapshots: true # whether to repeat snapshots that have already been taken. Defaults to false
         postgres_url: "postgresql://user:password@localhost:5432/mytargetdatabase" # URL of the database where the snapshot status is recorded
@@ -27,7 +28,11 @@ source:
           clean_target_db: true # whether to clean the target database before restoring. Defaults to false
           create_target_db: true # whether to create the database on the target postgres. Defaults to false
           include_global_db_objects: true # whether to include database global objects, such as extensions or triggers, on the schema snapshot. Defaults to false
+          no_owner: false # whether to remove ownership commands from the dump. Defaults to false
+          no_privileges: false # whether to prevent dumping privilege commands (grant/revoke). Defaults to false
           role: postgres # role name to be used to create the dump
+          roles_snapshot_mode: # enabled by default. Can be set to disabled to disable roles snapshotting, or can be set to no_passwords to exclude role passwords
+          exclude_security_labels: ["anon"] # list of providers whose security labels will be excluded from the snapshot. Wildcard supported.
           dump_file: pg_dump.sql # name of the file where the contents of the schema pg_dump command and output will be written for debugging purposes.
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"

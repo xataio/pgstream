@@ -208,6 +208,11 @@ CREATE TABLE musicbrainz."Alternative_medium" (
     CONSTRAINT alternative_medium_name_check CHECK (((name)::text <> ''::text))
 );
 
+
+SECURITY LABEL FOR anon ON COLUMN public.test_anonymizer_functions.first_name IS 'MASKED WITH FUNCTION anon.fake_first_name()';
+SECURITY LABEL FOR anon ON COLUMN public.test_anonymizer_functions.last_name IS 'MASKED WITH FUNCTION anon.fake_last_name()';
+SECURITY LABEL FOR selinux ON TABLE mytable IS 'system_u:object_r:sepgsql_table_t:s0';
+
 --
 -- Name: alternative_medium_id_seq; Type: SEQUENCE; Schema: musicbrainz; Owner: postgres
 --
