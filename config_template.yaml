@@ -125,6 +125,8 @@ modifiers:
       - "excluded_schema.test"
       - "another_excluded_schema.*"
   transformations:
+    infer_from_security_labels: false # whether to infer anonymization rules from Postgres `anon` security labels. Requires a live connection to the source database. Defaults to false
+    dump_inferred_rules: false # if set, dumps the inferred anonymization rules to a file in YAML format for debugging purposes. The file will be named `inferred_anon_transformation_rules.yaml` and will be created in the directory where pgstream is run. Defaults to false
     validation_mode: relaxed
     table_transformers:
       - schema: public

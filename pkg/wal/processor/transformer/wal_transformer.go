@@ -31,8 +31,10 @@ type transformerBuilder interface {
 }
 
 type Config struct {
-	TransformerRules []TableRules
-	ValidationMode   string
+	InferFromSecurityLabels bool
+	DumpInferredRules       bool
+	TransformerRules        []TableRules
+	ValidationMode          string
 }
 
 type Option func(t *Transformer)
@@ -55,7 +57,10 @@ func New(ctx context.Context, cfg *Config, processor processor.Processor, builde
 	}
 
 	var err error
-	t.transformerMap, err = t.parser(ctx, Rules{cfg.TransformerRules, cfg.ValidationMode})
+	t.transformerMap, err = t.parser(ctx, Rules{
+		Transformers:   cfg.TransformerRules,
+		ValidationMode: cfg.ValidationMode,
+	})
 	if err != nil {
 		return nil, err
 	}
