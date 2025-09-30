@@ -20,6 +20,9 @@ type Rows struct {
 }
 
 func (m *Rows) Close() {
+	if m.CloseFn == nil {
+		return
+	}
 	m.CloseFn()
 }
 
