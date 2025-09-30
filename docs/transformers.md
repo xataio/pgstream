@@ -1111,11 +1111,13 @@ transformations:
 
 ### Transformation rules
 
-The rules for the transformers are defined in a dedicated yaml file, with the following format:
+The rules for the transformers are defined in a dedicated yaml file with the following format:
 
 ```yaml
 transformations:
-  validation_mode: <validation_mode> # Validation mode for the transformation rules. Can be one of strict, relaxed or table_level. Defaults to relaxed if not provided
+  infer_from_security_labels: false # whether to infer anonymization rules from Postgres `anon` security labels. Requires a live connection to the source database. Defaults to false
+  dump_inferred_rules: false # if set, dumps the inferred anonymization rules to a file in YAML format for debugging purposes. The file will be named `inferred_anon_transformation_rules.yaml` and will be created in the directory where pgstream is run. Defaults to false
+  validation_mode: <validation_mode> # Validation mode for the transformation rules. Can be one of strict, relaxed or table_level. Defaults to relaxed if not provided.
   table_transformers: # List of table transformations
     - schema: <schema_name> # Name of the table schema
       table: <table_name> # Name of the table
@@ -1127,10 +1129,14 @@ transformations:
             <transformer_parameter>: <transformer_parameter_value>
 ```
 
+When the `infer_from_security_labels` option is enabled, the table transformers will be parsed from the source Postgres [`SECURITY LABELS`](https://www.postgresql.org/docs/current/sql-security-label.html) for the [`anon` extension](https://postgresql-anonymizer.readthedocs.io/en/stable/declare_masking_rules/). If the option is not enabled, the table transformers need to be explicitly provided.
+
 Below is a complete example of a transformation rules YAML file:
 
 ```yaml
 transformations:
+  infer_from_security_labels: false # whether to infer anonymization rules from Postgres `anon` security labels. Requires a live connection to the source database. Defaults to false
+  dump_inferred_rules: false # if set, dumps the inferred anonymization rules to a file in YAML format for debugging purposes. The file will be named `inferred_anon_transformation_rules.yaml` and will be created in the directory where pgstream is run. Defaults to false
   validation_mode: table_level
   table_transformers:
     - schema: public
