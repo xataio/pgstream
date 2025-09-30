@@ -77,6 +77,14 @@ func (s *Schema) getTableByName(tableName string) (Table, bool) {
 	return Table{}, false
 }
 
+func (s *Schema) TableNames() []string {
+	names := make([]string, 0, len(s.Tables))
+	for _, t := range s.Tables {
+		names = append(names, t.Name)
+	}
+	return names
+}
+
 func (t *Table) IsEqual(other *Table) bool {
 	switch {
 	case t == nil && other == nil:

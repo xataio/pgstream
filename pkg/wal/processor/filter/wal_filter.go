@@ -161,7 +161,7 @@ func (f *Filter) updateSchemaEvent(event *wal.Event) {
 
 	f.logger.Debug("filtered schema", loglib.Fields{
 		"schema_name": logEntry.SchemaName,
-		"tables":      logEntry.Schema.Tables,
+		"tables":      logEntry.Schema.TableNames(),
 	})
 
 	for i, c := range event.Data.Columns {
