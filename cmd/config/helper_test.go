@@ -192,7 +192,9 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 				},
 			},
 			Transformer: &transformer.Config{
-				ValidationMode: "relaxed",
+				InferFromSecurityLabels: false,
+				DumpInferredRules:       false,
+				ValidationMode:          "relaxed",
 				TransformerRules: []transformer.TableRules{
 					{
 						Schema:         "public",

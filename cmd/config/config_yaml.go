@@ -244,8 +244,10 @@ type FilterConfig struct {
 }
 
 type TransformationsConfig struct {
-	TransformerRules []TableTransformersConfig `mapstructure:"table_transformers" yaml:"table_transformers"`
-	ValidationMode   string                    `mapstructure:"validation_mode" yaml:"validation_mode"`
+	InferFromSecurityLabels bool                      `mapstructure:"infer_from_security_labels" yaml:"infer_from_security_labels"`
+	DumpInferredRules       bool                      `mapstructure:"dump_inferred_rules" yaml:"dump_inferred_rules"`
+	TransformerRules        []TableTransformersConfig `mapstructure:"table_transformers" yaml:"table_transformers"`
+	ValidationMode          string                    `mapstructure:"validation_mode" yaml:"validation_mode"`
 }
 type TableTransformersConfig struct {
 	Schema         string                              `mapstructure:"schema" yaml:"schema"`
@@ -686,13 +688,9 @@ func (c YAMLConfig) parseFilterConfig() *filter.Config {
 }
 
 func (c TransformationsConfig) parseTransformationConfig() (*transformer.Config, error) {
-	if c.TransformerRules == nil {
+	if c.TransformerRules == nil && !c.InferFromSecurityLabels {
 		// transformation configuration provided, but no rules defined
 		return nil, errTableTransformersNotProvided
-	}
-	if len(c.TransformerRules) == 0 {
-		// no transformers configured
-		return nil, nil
 	}
 
 	var globalValidationMode string
@@ -703,6 +701,20 @@ func (c TransformationsConfig) parseTransformationConfig() (*transformer.Config,
 		globalValidationMode = relaxedValidationMode
 	default:
 		return nil, errUnsupportedTransformationValidationMode
+	}
+
+	if c.InferFromSecurityLabels {
+		return &transformer.Config{
+			InferFromSecurityLabels: true,
+			DumpInferredRules:       c.DumpInferredRules,
+			TransformerRules:        nil,
+			ValidationMode:          globalValidationMode,
+		}, nil
+	}
+
+	if len(c.TransformerRules) == 0 {
+		// no transformers configured
+		return nil, nil
 	}
 
 	rules := make([]transformer.TableRules, 0, len(c.TransformerRules))
