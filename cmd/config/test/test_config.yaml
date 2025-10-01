@@ -115,6 +115,8 @@ modifiers:
      - "excluded_schema.test"
      - "another_excluded_schema.*"
   transformations:
+    infer_from_security_labels: false
+    dump_inferred_rules: false
     validation_mode: relaxed
     table_transformers:
       - schema: public

@@ -188,12 +188,29 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 		// if a source pg url is provided, use it to validate the transformer
 		pgURL := config.SourcePostgresURL()
 		if pgURL != "" {
+			var parser transformer.ParseFn
 			pgParser, err := transformer.NewPostgresTransformerParser(ctx, pgURL, transformerBuilder, config.RequiredTables())
 			if err != nil {
 				return nil, nil, fmt.Errorf("creating transformer validator: %w", err)
 			}
 			closerAgg.addCloserFn(pgParser.Close)
-			opts = append(opts, transformer.WithParser(pgParser.ParseAndValidate))
+			parser = pgParser.ParseAndValidate
+
+			// wrap the parser to add inferred rules if enabled. This requires a
+			// live connection to the source db and will query the security
+			// labels to build the rules. This is only supported for postgres
+			// sources
+			if config.Processor.Transformer.InferFromSecurityLabels {
+				logger.Info("inferring transformation rules from postgres anon security labels...")
+				anonRuleParser, err := transformer.NewAnonRuleParser(ctx, pgURL, config.Processor.Transformer.DumpInferredRules, logger, parser)
+				if err != nil {
+					return nil, nil, fmt.Errorf("creating anon rule parser: %w", err)
+				}
+				closerAgg.addCloserFn(anonRuleParser.Close)
+				parser = anonRuleParser.ParseAndValidate
+			}
+
+			opts = append(opts, transformer.WithParser(parser))
 		}
 		processor, err = transformer.New(ctx, config.Processor.Transformer, processor, transformerBuilder, opts...)
 		if err != nil {
