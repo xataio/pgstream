@@ -27,18 +27,19 @@ import (
 // SnapshotGenerator generates postgres schema snapshots using pg_dump and
 // pg_restore
 type SnapshotGenerator struct {
-	sourceURL       string
-	targetURL       string
-	pgDumpFn        pglib.PGDumpFn
-	pgDumpAllFn     pglib.PGDumpAllFn
-	pgRestoreFn     pglib.PGRestoreFn
-	schemalogStore  schemalog.Store
-	connBuilder     pglib.QuerierBuilder
-	logger          loglib.Logger
-	generator       generator.SnapshotGenerator
-	dumpDebugFile   string // if set, the dump will be written to this file for debugging purposes
-	roleSQLParser   *roleSQLParser
-	optionGenerator *optionGenerator
+	sourceURL              string
+	targetURL              string
+	pgDumpFn               pglib.PGDumpFn
+	pgDumpAllFn            pglib.PGDumpAllFn
+	pgRestoreFn            pglib.PGRestoreFn
+	schemalogStore         schemalog.Store
+	connBuilder            pglib.QuerierBuilder
+	logger                 loglib.Logger
+	generator              generator.SnapshotGenerator
+	dumpDebugFile          string
+	excludedSecurityLabels []string
+	roleSQLParser          *roleSQLParser
+	optionGenerator        *optionGenerator
 }
 
 type Config struct {
@@ -60,6 +61,8 @@ type Config struct {
 	NoPrivileges bool
 	// if set, the dump will be written to this file for debugging purposes
 	DumpDebugFile string
+	// if set, security label providers that will be excluded from the dump
+	ExcludedSecurityLabels []string
 }
 
 type Option func(s *SnapshotGenerator)
@@ -82,16 +85,17 @@ const (
 // uses pg_dump and pg_restore to sync the schema of two postgres databases
 func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*SnapshotGenerator, error) {
 	sg := &SnapshotGenerator{
-		sourceURL:       c.SourcePGURL,
-		targetURL:       c.TargetPGURL,
-		pgDumpFn:        pglib.RunPGDump,
-		pgDumpAllFn:     pglib.RunPGDumpAll,
-		pgRestoreFn:     pglib.RunPGRestore,
-		connBuilder:     pglib.ConnBuilder,
-		logger:          loglib.NewNoopLogger(),
-		dumpDebugFile:   c.DumpDebugFile,
-		roleSQLParser:   &roleSQLParser{},
-		optionGenerator: newOptionGenerator(pglib.ConnBuilder, c),
+		sourceURL:              c.SourcePGURL,
+		targetURL:              c.TargetPGURL,
+		pgDumpFn:               pglib.RunPGDump,
+		pgDumpAllFn:            pglib.RunPGDumpAll,
+		pgRestoreFn:            pglib.RunPGRestore,
+		connBuilder:            pglib.ConnBuilder,
+		logger:                 loglib.NewNoopLogger(),
+		dumpDebugFile:          c.DumpDebugFile,
+		excludedSecurityLabels: c.ExcludedSecurityLabels,
+		roleSQLParser:          &roleSQLParser{},
+		optionGenerator:        newOptionGenerator(pglib.ConnBuilder, c),
 	}
 
 	if err := sg.initialiseSchemaLogStore(ctx); err != nil {
@@ -255,6 +259,8 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 		}
 		parsedDump.cleanupPart = getDumpsDiff(d, dumpWithoutClean)
 	}
+
+	s.dumpToFile(s.getDumpFileName("-filtered"), pgdumpOpts, parsedDump.filtered)
 
 	return parsedDump, nil
 }
@@ -436,6 +442,10 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
+		case strings.HasPrefix(line, "SECURITY LABEL") &&
+			isSecurityLabelForExcludedProvider(line, s.excludedSecurityLabels):
+			// skip security labels if configured to do so for the specified providers
+			continue
 		case alterTable != "":
 			// check if the previous alter table line is split in two lines and matches a constraint
 			if strings.Contains(line, "ADD CONSTRAINT") {
@@ -613,4 +623,16 @@ func getDumpsDiff(d1, d2 []byte) []byte {
 	}
 
 	return []byte(diff.String())
+}
+
+func isSecurityLabelForExcludedProvider(line string, excludedProviders []string) bool {
+	if slices.Contains(excludedProviders, wildcard) {
+		return true
+	}
+	for _, provider := range excludedProviders {
+		if strings.Contains(line, fmt.Sprintf("SECURITY LABEL FOR %s ", provider)) {
+			return true
+		}
+	}
+	return false
 }

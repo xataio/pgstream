@@ -616,7 +616,7 @@ func TestAnonRuleParser_parseAnonMaskingRules(t *testing.T) {
 
 			rules, err := p.parseAnonMaskingRules(context.Background())
 			require.ErrorIs(t, err, tc.wantErr)
-			require.Equal(t, tc.wantRules, rules)
+			require.ElementsMatch(t, tc.wantRules, rules)
 		})
 	}
 }

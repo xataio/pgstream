@@ -68,6 +68,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 							NoOwner:                true,
 							NoPrivileges:           true,
 							DumpDebugFile:          "pg_dump.sql",
+							ExcludedSecurityLabels: []string{"anon"},
 						},
 					},
 					Recorder: &builder.SnapshotRecorderConfig{
