@@ -68,6 +68,10 @@ func NewHstoreTransformer(params ParameterValues) (*HstoreTransformer, error) {
 	}, nil
 }
 
+func (t *HstoreTransformer) PostCreate(_ any) error {
+	return nil // TODO: implement
+}
+
 func (t *HstoreTransformer) Transform(_ context.Context, value Value) (any, error) {
 	var err error
 	var toTransform pgtype.Hstore

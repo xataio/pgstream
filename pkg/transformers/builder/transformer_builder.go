@@ -204,5 +204,58 @@ func (b *TransformerBuilder) New(cfg *transformers.Config) (t transformers.Trans
 	if err := transformers.ValidateParameters(cfg.Parameters, paramNames); err != nil {
 		return nil, err
 	}
-	return transformer.BuildFn(cfg)
+	tr, err := transformer.BuildFn(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	postCreateParam, err := b.getPostCreateParam(tr)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tr.PostCreate(postCreateParam); err != nil {
+		return nil, err
+	}
+	return tr, nil
+}
+
+func (b *TransformerBuilder) getPostCreateParam(tr transformers.Transformer) (any, error) {
+	switch tr.Type() {
+	case transformers.Template:
+		templateTr, ok := tr.(*transformers.TemplateTransformer)
+		if !ok {
+			return nil, fmt.Errorf("expected TemplateTransformer, got %T", tr)
+		}
+		funcMap, err := b.getTemplatePostCreateParam(templateTr.RequiredTransformers)
+		if err != nil {
+			return nil, err
+		}
+		return funcMap, nil
+	case transformers.JSON, transformers.Hstore:
+		// do the same
+	}
+	return nil, nil
+}
+
+func (b *TransformerBuilder) getTemplatePostCreateParam(required map[string]transformers.Config) (map[string]any, error) {
+	funcMap := make(map[string]any, len(required))
+	for name, config := range required {
+		if config.Name == transformers.Template {
+			// TODO: do check the same for json and hstore
+			return nil, fmt.Errorf("recursive template transformer is not allowed")
+		}
+		tr, err := b.New(&config)
+		if err != nil {
+			return nil, err
+		}
+		funcMap[name] = func(val any) (any, error) {
+			res, err := tr.Transform(nil, transformers.Value{TransformValue: val})
+			if err != nil {
+				return nil, fmt.Errorf("error executing transformer %s: %w", name, err)
+			}
+			return res, nil
+		}
+	}
+	return funcMap, nil
 }

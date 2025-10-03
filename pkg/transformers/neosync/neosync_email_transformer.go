@@ -142,6 +142,10 @@ func NewEmailTransformer(params transformers.ParameterValues) (*EmailTransformer
 	}, nil
 }
 
+func (t *EmailTransformer) PostCreate(param any) error {
+	return nil
+}
+
 func (t *EmailTransformer) CompatibleTypes() []transformers.SupportedDataType {
 	return emailCompatibleTypes
 }

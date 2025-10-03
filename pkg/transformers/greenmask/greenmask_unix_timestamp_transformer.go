@@ -90,6 +90,10 @@ func NewUnixTimestampTransformer(params transformers.ParameterValues) (*UnixTime
 	}, nil
 }
 
+func (t *UnixTimestampTransformer) PostCreate(param any) error {
+	return nil
+}
+
 func (t *UnixTimestampTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskUnixTimestamp
 }

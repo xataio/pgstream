@@ -130,6 +130,10 @@ func NewMaskingTransformer(params ParameterValues) (*MaskingTransformer, error) 
 	}, nil
 }
 
+func (t *MaskingTransformer) PostCreate(_ any) error {
+	return nil
+}
+
 // Transform applies the masking function to the input value and returns the masked value.
 func (t *MaskingTransformer) Transform(_ context.Context, value Value) (any, error) {
 	switch val := value.TransformValue.(type) {

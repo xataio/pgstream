@@ -72,6 +72,10 @@ func NewJSONTransformer(params ParameterValues) (*JSONTransformer, error) {
 	}, nil
 }
 
+func (jt *JSONTransformer) PostCreate(_ any) error {
+	return nil // TODO: implement
+}
+
 func (jt *JSONTransformer) Transform(_ context.Context, value Value) (any, error) {
 	var err error
 	var toTransform []byte

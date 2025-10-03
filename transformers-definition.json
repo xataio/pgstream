@@ -906,6 +906,13 @@
           "default": null,
           "dynamic": false,
           "required": true
+        },
+        {
+          "name": "functions",
+          "supported_type": "array",
+          "default": null,
+          "dynamic": false,
+          "required": false
         }
       ]
     }

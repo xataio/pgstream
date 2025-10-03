@@ -148,6 +148,10 @@ func NewEmailTransformer(params ParameterValues) (*EmailTransformer, error) {
 	}, nil
 }
 
+func (st *EmailTransformer) PostCreate(_ any) error {
+	return nil
+}
+
 func (st *EmailTransformer) Transform(_ context.Context, v Value) (any, error) {
 	switch str := v.TransformValue.(type) {
 	case string:

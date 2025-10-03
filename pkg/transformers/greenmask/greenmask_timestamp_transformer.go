@@ -105,6 +105,10 @@ func NewUTCTimestampTransformer(params transformers.ParameterValues) (*UTCTimest
 	}, nil
 }
 
+func (t *UTCTimestampTransformer) PostCreate(param any) error {
+	return nil
+}
+
 func (t *UTCTimestampTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {

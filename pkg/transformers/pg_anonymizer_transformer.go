@@ -369,6 +369,10 @@ func NewPGAnonymizerTransformer(params ParameterValues) (*PGAnonymizerTransforme
 	return t, nil
 }
 
+func (t *PGAnonymizerTransformer) PostCreate(_ any) error {
+	return nil
+}
+
 func (t *PGAnonymizerTransformer) Transform(ctx context.Context, value Value) (any, error) {
 	query, args := t.buildParameterizedQuery(value.TransformValue, value.TransformType)
 

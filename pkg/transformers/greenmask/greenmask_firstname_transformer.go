@@ -64,6 +64,10 @@ func NewFirstNameTransformer(params, dynamicParams transformers.ParameterValues)
 	}, nil
 }
 
+func (fnt *FirstNameTransformer) PostCreate(param any) error {
+	return nil
+}
+
 func (fnt *FirstNameTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {
