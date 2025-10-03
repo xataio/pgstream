@@ -9,7 +9,6 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/Masterminds/sprig/v3"
 	greenmasktoolkit "github.com/eminano/greenmask/pkg/toolkit"
 )
 
@@ -43,7 +42,7 @@ func NewTemplateTransformer(params ParameterValues) (*TemplateTransformer, error
 		return nil, errTemplateMustBeProvided
 	}
 
-	tmpl, err := template.New("").Funcs(greenmasktoolkit.FuncMap()).Funcs(sprig.FuncMap()).Parse(templateStr)
+	tmpl, err := template.New("").Funcs(greenmasktoolkit.FuncMap()).Parse(templateStr)
 	if err != nil {
 		return nil, fmt.Errorf("template_transformer: error parsing template: %w", err)
 	}

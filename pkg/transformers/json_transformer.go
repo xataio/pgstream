@@ -10,7 +10,6 @@ import (
 	"slices"
 	"text/template"
 
-	"github.com/Masterminds/sprig/v3"
 	greenmasktoolkit "github.com/eminano/greenmask/pkg/toolkit"
 	"github.com/xataio/pgstream/internal/json"
 )
@@ -58,7 +57,6 @@ func NewJSONTransformer(params ParameterValues) (*JSONTransformer, error) {
 		if o.valueTemplate != "" {
 			tmpl, err := template.New(fmt.Sprintf("op[%d] %s %s", idx, o.operation, o.path)).
 				Funcs(greenmasktoolkit.FuncMap()).
-				Funcs(sprig.FuncMap()).
 				Parse(o.valueTemplate)
 			if err != nil {
 				return nil, fmt.Errorf("json_transformer: error parsing template op[%d] with path \"%s\": %w", idx, o.path, err)
