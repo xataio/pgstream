@@ -47,6 +47,10 @@ func NewTransformer(t transformers.Transformer, instrumentation *otel.Instrument
 	return transformer, nil
 }
 
+func (i *Transformer) PostCreate(param any) error {
+	return i.inner.PostCreate(param)
+}
+
 func (i *Transformer) Transform(ctx context.Context, v transformers.Value) (res any, err error) {
 	ctx, span := otel.StartSpan(ctx, i.tracer, "transformer.Transform", trace.WithAttributes(i.typeAttribute()))
 	defer otel.CloseSpan(span, err)

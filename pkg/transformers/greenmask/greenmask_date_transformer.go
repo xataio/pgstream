@@ -94,6 +94,10 @@ func NewDateTransformer(params transformers.ParameterValues) (*DateTransformer, 
 	}, nil
 }
 
+func (t *DateTransformer) PostCreate(param any) error {
+	return nil
+}
+
 func (t *DateTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {

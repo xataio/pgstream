@@ -40,6 +40,10 @@ func NewBooleanTransformer(params transformers.ParameterValues) (*BooleanTransfo
 	}, nil
 }
 
+func (bt *BooleanTransformer) PostCreate(param any) error {
+	return nil
+}
+
 func (bt *BooleanTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {

@@ -13,6 +13,10 @@ type Transformer struct {
 	CompatibleTypesFn func() []transformers.SupportedDataType
 }
 
+func (m *Transformer) PostCreate(param any) error {
+	return nil
+}
+
 func (m *Transformer) Transform(_ context.Context, val transformers.Value) (any, error) {
 	return m.TransformFn(val)
 }

@@ -115,6 +115,10 @@ func NewPhoneNumberTransformer(params, dynamicParams ParameterValues) (*PhoneNum
 	}, nil
 }
 
+func (t *PhoneNumberTransformer) PostCreate(_ any) error {
+	return nil
+}
+
 func (t *PhoneNumberTransformer) Transform(_ context.Context, value Value) (any, error) {
 	switch v := value.TransformValue.(type) {
 	case string:

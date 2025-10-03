@@ -97,6 +97,10 @@ func NewFullNameTransformer(params transformers.ParameterValues) (*FullNameTrans
 	}, nil
 }
 
+func (t *FullNameTransformer) PostCreate(param any) error {
+	return nil
+}
+
 func (t *FullNameTransformer) Transform(ctx context.Context, value transformers.Value) (any, error) {
 	var retVal string
 	maxLength := t.maxLength
