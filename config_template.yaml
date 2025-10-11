@@ -22,6 +22,8 @@ source:
         schema_workers: 4 # number of schema tables to be snapshotted in parallel. Defaults to 4
         table_workers: 4 # number of workers to snapshot a table in parallel. Defaults to 4
         batch_bytes: 83886080 # bytes to read per batch (defaults to 80MiB)
+        ignore_row_processing_errors: false # if true, log errors during row processing and continue. Defaults to false. Warning: can result in consistency errors.
+        log_row_on_error: false # if true, log the row data as JSON when an error occurs. Defaults to false
       schema: # when mode is full or schema
         mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
         pgdump_pgrestore:

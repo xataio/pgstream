@@ -87,9 +87,11 @@ type SnapshotRecorderConfig struct {
 }
 
 type SnapshotDataConfig struct {
-	SchemaWorkers int    `mapstructure:"schema_workers" yaml:"schema_workers"`
-	TableWorkers  int    `mapstructure:"table_workers" yaml:"table_workers"`
-	BatchBytes    uint64 `mapstructure:"batch_bytes" yaml:"batch_bytes"`
+	SchemaWorkers             int    `mapstructure:"schema_workers" yaml:"schema_workers"`
+	TableWorkers              int    `mapstructure:"table_workers" yaml:"table_workers"`
+	BatchBytes                uint64 `mapstructure:"batch_bytes" yaml:"batch_bytes"`
+	IgnoreRowProcessingErrors bool   `mapstructure:"ignore_row_processing_errors" yaml:"ignore_row_processing_errors"`
+	LogRowOnError             bool   `mapstructure:"log_row_on_error" yaml:"log_row_on_error"`
 }
 
 type SnapshotSchemaConfig struct {
@@ -493,6 +495,8 @@ func (c *YAMLConfig) parseDataSnapshotConfig() pgsnapshotgenerator.Config {
 		cfg.BatchBytes = snapshotCfg.Data.BatchBytes
 		cfg.SchemaWorkers = uint(snapshotCfg.Data.SchemaWorkers)
 		cfg.TableWorkers = uint(snapshotCfg.Data.TableWorkers)
+		cfg.IgnoreRowProcessingErrors = snapshotCfg.Data.IgnoreRowProcessingErrors
+		cfg.LogRowOnError = snapshotCfg.Data.LogRowOnError
 	}
 
 	return cfg
