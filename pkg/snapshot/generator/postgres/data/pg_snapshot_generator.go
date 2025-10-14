@@ -374,21 +374,19 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID 
 						"table":  table.name,
 						"error":  err.Error(),
 					}
+
 					if sg.logRowOnError {
 						if rowJSON, jsonErr := jsonlib.Marshal(row); jsonErr == nil {
 							logFields["row"] = string(rowJSON)
 						}
 					}
 
+					sg.logger.Error(err, "processing snapshot row", logFields)
+
 					if sg.ignoreRowProcessingErrors {
-						sg.logger.Error(err, "processing snapshot row", logFields)
 						continue
 					}
 
-					// Log with row data before returning error if configured
-					if sg.logRowOnError {
-						sg.logger.Error(err, "processing snapshot row", logFields)
-					}
 					return fmt.Errorf("processing snapshot row: %w", err)
 				}
 			}
