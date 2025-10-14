@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -1242,6 +1243,485 @@ func TestTablePageInfo_calculateBatchPageSize(t *testing.T) {
 
 			tc.tableInfo.calculateBatchPageSize(tc.bytes)
 			require.Equal(t, tc.wantPageSize, tc.tableInfo.batchPageSize, "wanted page size %d, got %d", tc.wantPageSize, tc.tableInfo.batchPageSize)
+		})
+	}
+}
+
+func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
+	t.Parallel()
+
+	testTable := "test-table"
+	testSchema := "test-schema"
+	testSnapshotID := "test-snapshot-id"
+	testUUID := uuid.New().String()
+	quotedSchemaTable := pglib.QuoteQualifiedIdentifier(testSchema, testTable)
+
+	testColumns := []snapshot.Column{
+		{Name: "id", Type: "uuid", Value: testUUID},
+		{Name: "name", Type: "text", Value: "alice"},
+	}
+
+	testRow := &snapshot.Row{
+		Schema:  testSchema,
+		Table:   testTable,
+		Columns: testColumns,
+	}
+
+	testPageRange := pageRange{start: 0, end: 5}
+	errTest := errors.New("test error")
+
+	tests := []struct {
+		name      string
+		querier   pglib.Querier
+		table     *table
+		pageRange pageRange
+		processor snapshot.RowsProcessor
+
+		wantRows []*snapshot.Row
+		wantErr  error
+	}{
+		{
+			name: "ok - single row",
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+							require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+							return pglib.CommandTag{}, nil
+						},
+						QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+							require.Equal(t, fmt.Sprintf(pageRangeQuery, quotedSchemaTable, 0, 5), query)
+							return &pgmocks.Rows{
+								CloseFn: func() {},
+								NextFn:  func(i uint) bool { return i == 1 },
+								FieldDescriptionsFn: func() []pgconn.FieldDescription {
+									return []pgconn.FieldDescription{
+										{Name: "id", DataTypeOID: pgtype.UUIDOID},
+										{Name: "name", DataTypeOID: pgtype.TextOID},
+									}
+								},
+								ValuesFn: func() ([]any, error) {
+									return []any{testUUID, "alice"}, nil
+								},
+								ErrFn: func() error { return nil },
+							}, nil
+						},
+					}
+					return f(&mockTx)
+				},
+			},
+			table: &table{
+				schema:  testSchema,
+				name:    testTable,
+				rowSize: 512,
+			},
+			pageRange: testPageRange,
+			processor: &mocks.RowsProcessor{
+				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+					return nil
+				},
+			},
+			wantRows: []*snapshot.Row{testRow},
+			wantErr:  nil,
+		},
+		{
+			name: "ok - multiple rows",
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+							require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+							return pglib.CommandTag{}, nil
+						},
+						QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+							return &pgmocks.Rows{
+								CloseFn: func() {},
+								NextFn:  func(i uint) bool { return i <= 2 },
+								FieldDescriptionsFn: func() []pgconn.FieldDescription {
+									return []pgconn.FieldDescription{
+										{Name: "id", DataTypeOID: pgtype.UUIDOID},
+										{Name: "name", DataTypeOID: pgtype.TextOID},
+									}
+								},
+								ValuesFn: func() ([]any, error) {
+									return []any{testUUID, "alice"}, nil
+								},
+								ErrFn: func() error { return nil },
+							}, nil
+						},
+					}
+					return f(&mockTx)
+				},
+			},
+			table: &table{
+				schema:  testSchema,
+				name:    testTable,
+				rowSize: 512,
+			},
+			pageRange: testPageRange,
+			processor: &mocks.RowsProcessor{
+				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+					return nil
+				},
+			},
+			wantRows: []*snapshot.Row{testRow, testRow},
+			wantErr:  nil,
+		},
+		{
+			name: "ok - no rows",
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+							require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+							return pglib.CommandTag{}, nil
+						},
+						QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+							return &pgmocks.Rows{
+								CloseFn: func() {},
+								NextFn:  func(i uint) bool { return false },
+								FieldDescriptionsFn: func() []pgconn.FieldDescription {
+									return []pgconn.FieldDescription{}
+								},
+								ValuesFn: func() ([]any, error) {
+									return []any{}, nil
+								},
+								ErrFn: func() error { return nil },
+							}, nil
+						},
+					}
+					return f(&mockTx)
+				},
+			},
+			table: &table{
+				schema:  testSchema,
+				name:    testTable,
+				rowSize: 512,
+			},
+			pageRange: testPageRange,
+			processor: &mocks.RowsProcessor{
+				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+					return nil
+				},
+			},
+			wantRows: []*snapshot.Row{},
+			wantErr:  nil,
+		},
+		{
+			name: "ok - with progress tracking",
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+							require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+							return pglib.CommandTag{}, nil
+						},
+						QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+							return &pgmocks.Rows{
+								CloseFn: func() {},
+								NextFn:  func(i uint) bool { return i == 1 },
+								FieldDescriptionsFn: func() []pgconn.FieldDescription {
+									return []pgconn.FieldDescription{
+										{Name: "id", DataTypeOID: pgtype.UUIDOID},
+										{Name: "name", DataTypeOID: pgtype.TextOID},
+									}
+								},
+								ValuesFn: func() ([]any, error) {
+									return []any{testUUID, "alice"}, nil
+								},
+								ErrFn: func() error { return nil },
+							}, nil
+						},
+					}
+					return f(&mockTx)
+				},
+			},
+			table: &table{
+				schema:  testSchema,
+				name:    testTable,
+				rowSize: 512,
+			},
+			pageRange: testPageRange,
+			processor: &mocks.RowsProcessor{
+				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+					return nil
+				},
+			},
+			wantRows: []*snapshot.Row{testRow},
+			wantErr:  nil,
+		},
+		{
+			name: "error - setting transaction snapshot",
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+							require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+							return pglib.CommandTag{}, errTest
+						},
+					}
+					return f(&mockTx)
+				},
+			},
+			table: &table{
+				schema:  testSchema,
+				name:    testTable,
+				rowSize: 512,
+			},
+			pageRange: testPageRange,
+			processor: &mocks.RowsProcessor{
+				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+					return nil
+				},
+			},
+			wantRows: []*snapshot.Row{},
+			wantErr:  fmt.Errorf("setting transaction snapshot: %w", errTest),
+		},
+		{
+			name: "error - querying table rows",
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+							require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+							return pglib.CommandTag{}, nil
+						},
+						QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+							return nil, errTest
+						},
+					}
+					return f(&mockTx)
+				},
+			},
+			table: &table{
+				schema:  testSchema,
+				name:    testTable,
+				rowSize: 512,
+			},
+			pageRange: testPageRange,
+			processor: &mocks.RowsProcessor{
+				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+					return nil
+				},
+			},
+			wantRows: []*snapshot.Row{},
+			wantErr:  fmt.Errorf("querying table rows: %w", errTest),
+		},
+		{
+			name: "error - retrieving row values",
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+							require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+							return pglib.CommandTag{}, nil
+						},
+						QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+							return &pgmocks.Rows{
+								CloseFn: func() {},
+								NextFn:  func(i uint) bool { return i == 1 },
+								FieldDescriptionsFn: func() []pgconn.FieldDescription {
+									return []pgconn.FieldDescription{}
+								},
+								ValuesFn: func() ([]any, error) {
+									return nil, errTest
+								},
+								ErrFn: func() error { return nil },
+							}, nil
+						},
+					}
+					return f(&mockTx)
+				},
+			},
+			table: &table{
+				schema:  testSchema,
+				name:    testTable,
+				rowSize: 512,
+			},
+			pageRange: testPageRange,
+			processor: &mocks.RowsProcessor{
+				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+					return nil
+				},
+			},
+			wantRows: []*snapshot.Row{},
+			wantErr:  fmt.Errorf("retrieving rows values: %w", errTest),
+		},
+		{
+			name: "error - rows error",
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+							require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+							return pglib.CommandTag{}, nil
+						},
+						QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+							return &pgmocks.Rows{
+								CloseFn: func() {},
+								NextFn:  func(i uint) bool { return false },
+								FieldDescriptionsFn: func() []pgconn.FieldDescription {
+									return []pgconn.FieldDescription{}
+								},
+								ValuesFn: func() ([]any, error) {
+									return []any{}, nil
+								},
+								ErrFn: func() error { return errTest },
+							}, nil
+						},
+					}
+					return f(&mockTx)
+				},
+			},
+			table: &table{
+				schema:  testSchema,
+				name:    testTable,
+				rowSize: 512,
+			},
+			pageRange: testPageRange,
+			processor: &mocks.RowsProcessor{
+				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+					return nil
+				},
+			},
+			wantRows: []*snapshot.Row{},
+			wantErr:  errTest,
+		},
+		{
+			name: "error - processing row fails and ignoreRowProcessingErrors is false",
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+							require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+							return pglib.CommandTag{}, nil
+						},
+						QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+							return &pgmocks.Rows{
+								CloseFn: func() {},
+								NextFn:  func(i uint) bool { return i == 1 },
+								FieldDescriptionsFn: func() []pgconn.FieldDescription {
+									return []pgconn.FieldDescription{
+										{Name: "id", DataTypeOID: pgtype.UUIDOID},
+									}
+								},
+								ValuesFn: func() ([]any, error) {
+									return []any{testUUID}, nil
+								},
+								ErrFn: func() error { return nil },
+							}, nil
+						},
+					}
+					return f(&mockTx)
+				},
+			},
+			table: &table{
+				schema:  testSchema,
+				name:    testTable,
+				rowSize: 512,
+			},
+			pageRange: testPageRange,
+			processor: &mocks.RowsProcessor{
+				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+					return errTest
+				},
+			},
+			wantRows: []*snapshot.Row{},
+			wantErr:  fmt.Errorf("processing snapshot row: %w", errTest),
+		},
+		{
+			name: "ok - processing row fails but ignoreRowProcessingErrors is true",
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+							require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+							return pglib.CommandTag{}, nil
+						},
+						QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+							return &pgmocks.Rows{
+								CloseFn: func() {},
+								NextFn:  func(i uint) bool { return i <= 2 },
+								FieldDescriptionsFn: func() []pgconn.FieldDescription {
+									return []pgconn.FieldDescription{
+										{Name: "id", DataTypeOID: pgtype.UUIDOID},
+									}
+								},
+								ValuesFn: func() ([]any, error) {
+									return []any{testUUID}, nil
+								},
+								ErrFn: func() error { return nil },
+							}, nil
+						},
+					}
+					return f(&mockTx)
+				},
+			},
+			table: &table{
+				schema:  testSchema,
+				name:    testTable,
+				rowSize: 512,
+			},
+			pageRange: testPageRange,
+			processor: &mocks.RowsProcessor{
+				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+					return errTest
+				},
+			},
+			wantRows: []*snapshot.Row{},
+			wantErr:  nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rowChan := make(chan *snapshot.Row, 10)
+			progressBar := &progressmocks.Bar{
+				Add64Fn: func(n int64) error {
+					require.Equal(t, tc.table.rowSize, n)
+					return nil
+				},
+			}
+
+			sg := SnapshotGenerator{
+				logger: zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
+					LogLevel: "debug",
+				})),
+				conn:   tc.querier,
+				mapper: pglib.NewMapper(tc.querier),
+				rowsProcessor: &mocks.RowsProcessor{
+					ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+						if tc.processor != nil {
+							if err := tc.processor.ProcessRow(ctx, row); err != nil {
+								return err
+							}
+						}
+						rowChan <- row
+						return nil
+					},
+				},
+				progressTracking:          tc.name == "ok - with progress tracking",
+				progressBars:              synclib.NewStringMap[progress.Bar](),
+				ignoreRowProcessingErrors: strings.Contains(tc.name, "ignoreRowProcessingErrors is true"),
+				logRowOnError:             true,
+			}
+
+			if sg.progressTracking {
+				sg.progressBars.Set(tc.table.schema, progressBar)
+			}
+
+			err := sg.snapshotTableRange(context.Background(), testSnapshotID, tc.table, tc.pageRange)
+			require.Equal(t, tc.wantErr, err)
+			close(rowChan)
+
+			rows := []*snapshot.Row{}
+			for row := range rowChan {
+				rows = append(rows, row)
+			}
+			diff := cmp.Diff(rows, tc.wantRows)
+			require.Empty(t, diff, fmt.Sprintf("got: \n%v, \nwant \n%v, \ndiff: \n%s", rows, tc.wantRows, diff))
 		})
 	}
 }
