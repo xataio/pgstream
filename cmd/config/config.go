@@ -115,7 +115,7 @@ func getRolesSnapshotMode(mode string) (string, error) {
 	case enabledRolesSnapshotMode, disabledRolesSnapshotMode, noPasswordsRolesSnapshotMode:
 		return mode, nil
 	case "":
-		return enabledRolesSnapshotMode, nil
+		return noPasswordsRolesSnapshotMode, nil
 	default:
 		return "", errUnsupportedRolesSnapshotMode
 	}
