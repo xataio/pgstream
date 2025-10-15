@@ -89,6 +89,10 @@ func NewFloatTransformer(params transformers.ParameterValues) (*FloatTransformer
 	}, nil
 }
 
+func (ft *FloatTransformer) PostCreate(param any) error {
+	return nil
+}
+
 func (ft *FloatTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {

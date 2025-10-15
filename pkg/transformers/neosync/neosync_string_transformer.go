@@ -80,6 +80,10 @@ func NewStringTransformer(params transformers.ParameterValues) (*StringTransform
 	}, nil
 }
 
+func (t *StringTransformer) PostCreate(param any) error {
+	return nil
+}
+
 func (t *StringTransformer) CompatibleTypes() []transformers.SupportedDataType {
 	return stringCompatibleTypes
 }

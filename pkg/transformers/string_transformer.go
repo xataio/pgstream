@@ -27,6 +27,10 @@ func NewStringTransformer(params ParameterValues) (*StringTransformer, error) {
 	return &StringTransformer{}, nil
 }
 
+func (st *StringTransformer) PostCreate(_ any) error {
+	return nil
+}
+
 func (st *StringTransformer) Transform(_ context.Context, v Value) (any, error) {
 	switch str := v.TransformValue.(type) {
 	case string:

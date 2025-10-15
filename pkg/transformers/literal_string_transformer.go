@@ -42,6 +42,10 @@ func NewLiteralStringTransformer(params ParameterValues) (*LiteralStringTransfor
 	}, nil
 }
 
+func (lst *LiteralStringTransformer) PostCreate(_ any) error {
+	return nil
+}
+
 func (lst *LiteralStringTransformer) Transform(_ context.Context, value Value) (any, error) {
 	return lst.literal, nil
 }

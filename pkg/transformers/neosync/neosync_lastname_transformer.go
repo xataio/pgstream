@@ -85,6 +85,10 @@ func NewLastNameTransformer(params transformers.ParameterValues) (*LastNameTrans
 	}, nil
 }
 
+func (t *LastNameTransformer) PostCreate(param any) error {
+	return nil
+}
+
 func (t *LastNameTransformer) Transform(ctx context.Context, value transformers.Value) (any, error) {
 	transformedValue, err := t.transformer.Transform(ctx, value)
 	if err != nil {

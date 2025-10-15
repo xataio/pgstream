@@ -68,6 +68,10 @@ func NewChoiceTransformer(params transformers.ParameterValues) (*ChoiceTransform
 	}, nil
 }
 
+func (t *ChoiceTransformer) PostCreate(param any) error {
+	return nil
+}
+
 func (t *ChoiceTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {

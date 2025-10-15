@@ -85,6 +85,10 @@ func NewStringTransformer(params transformers.ParameterValues) (*StringTransform
 	}, nil
 }
 
+func (st *StringTransformer) PostCreate(param any) error {
+	return nil
+}
+
 func (st *StringTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
 	switch val := value.TransformValue.(type) {

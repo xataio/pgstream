@@ -12,6 +12,7 @@ type Transformer interface {
 	Transform(context.Context, Value) (any, error)
 	CompatibleTypes() []SupportedDataType
 	Type() TransformerType
+	PostCreate(any) error
 	Close() error
 }
 
