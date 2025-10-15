@@ -87,11 +87,9 @@ type SnapshotRecorderConfig struct {
 }
 
 type SnapshotDataConfig struct {
-	SchemaWorkers             int    `mapstructure:"schema_workers" yaml:"schema_workers"`
-	TableWorkers              int    `mapstructure:"table_workers" yaml:"table_workers"`
-	BatchBytes                uint64 `mapstructure:"batch_bytes" yaml:"batch_bytes"`
-	IgnoreRowProcessingErrors bool   `mapstructure:"ignore_row_processing_errors" yaml:"ignore_row_processing_errors"`
-	LogRowOnError             bool   `mapstructure:"log_row_on_error" yaml:"log_row_on_error"`
+	SchemaWorkers int    `mapstructure:"schema_workers" yaml:"schema_workers"`
+	TableWorkers  int    `mapstructure:"table_workers" yaml:"table_workers"`
+	BatchBytes    uint64 `mapstructure:"batch_bytes" yaml:"batch_bytes"`
 }
 
 type SnapshotSchemaConfig struct {
@@ -188,10 +186,11 @@ type SearchConfig struct {
 }
 
 type BatchConfig struct {
-	Timeout       int `mapstructure:"timeout" yaml:"timeout"`
-	Size          int `mapstructure:"size" yaml:"size"`
-	MaxBytes      int `mapstructure:"max_bytes" yaml:"max_bytes"`
-	MaxQueueBytes int `mapstructure:"max_queue_bytes" yaml:"max_queue_bytes"`
+	Timeout          int  `mapstructure:"timeout" yaml:"timeout"`
+	Size             int  `mapstructure:"size" yaml:"size"`
+	MaxBytes         int  `mapstructure:"max_bytes" yaml:"max_bytes"`
+	MaxQueueBytes    int  `mapstructure:"max_queue_bytes" yaml:"max_queue_bytes"`
+	IgnoreSendErrors bool `mapstructure:"ignore_send_errors" yaml:"ignore_send_errors"`
 }
 
 type BulkIngestConfig struct {
@@ -495,8 +494,6 @@ func (c *YAMLConfig) parseDataSnapshotConfig() pgsnapshotgenerator.Config {
 		cfg.BatchBytes = snapshotCfg.Data.BatchBytes
 		cfg.SchemaWorkers = uint(snapshotCfg.Data.SchemaWorkers)
 		cfg.TableWorkers = uint(snapshotCfg.Data.TableWorkers)
-		cfg.IgnoreRowProcessingErrors = snapshotCfg.Data.IgnoreRowProcessingErrors
-		cfg.LogRowOnError = snapshotCfg.Data.LogRowOnError
 	}
 
 	return cfg
@@ -839,9 +836,10 @@ func (bc *BatchConfig) parseBatchConfig() batch.Config {
 		return batch.Config{}
 	}
 	return batch.Config{
-		BatchTimeout:  time.Duration(bc.Timeout) * time.Millisecond,
-		MaxBatchBytes: int64(bc.MaxBytes),
-		MaxQueueBytes: int64(bc.MaxQueueBytes),
-		MaxBatchSize:  int64(bc.Size),
+		BatchTimeout:     time.Duration(bc.Timeout) * time.Millisecond,
+		MaxBatchBytes:    int64(bc.MaxBytes),
+		MaxQueueBytes:    int64(bc.MaxQueueBytes),
+		MaxBatchSize:     int64(bc.Size),
+		IgnoreSendErrors: bc.IgnoreSendErrors,
 	}
 }

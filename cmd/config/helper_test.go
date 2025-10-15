@@ -110,10 +110,11 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 				BatchWriter: postgres.Config{
 					URL: "postgresql://user:password@localhost:5432/mytargetdatabase",
 					BatchConfig: batch.Config{
-						MaxBatchSize:  100,
-						BatchTimeout:  time.Second,
-						MaxBatchBytes: 1572864,
-						MaxQueueBytes: 204800,
+						MaxBatchSize:     100,
+						BatchTimeout:     time.Second,
+						MaxBatchBytes:    1572864,
+						MaxQueueBytes:    204800,
+						IgnoreSendErrors: true,
 					},
 					DisableTriggers:   false,
 					OnConflictAction:  "nothing",
@@ -141,10 +142,11 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 						},
 					},
 					Batch: batch.Config{
-						MaxBatchSize:  100,
-						BatchTimeout:  time.Second,
-						MaxBatchBytes: 1572864,
-						MaxQueueBytes: 204800,
+						MaxBatchSize:     100,
+						BatchTimeout:     time.Second,
+						MaxBatchBytes:    1572864,
+						MaxQueueBytes:    204800,
+						IgnoreSendErrors: true,
 					},
 				},
 			},
@@ -154,10 +156,11 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 				},
 				Indexer: search.IndexerConfig{
 					Batch: batch.Config{
-						MaxBatchSize:  100,
-						BatchTimeout:  time.Second,
-						MaxBatchBytes: 1572864,
-						MaxQueueBytes: 204800,
+						MaxBatchSize:     100,
+						BatchTimeout:     time.Second,
+						MaxBatchBytes:    1572864,
+						MaxQueueBytes:    204800,
+						IgnoreSendErrors: true,
 					},
 				},
 				Retrier: search.StoreRetryConfig{

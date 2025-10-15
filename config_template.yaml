@@ -22,8 +22,6 @@ source:
         schema_workers: 4 # number of schema tables to be snapshotted in parallel. Defaults to 4
         table_workers: 4 # number of workers to snapshot a table in parallel. Defaults to 4
         batch_bytes: 83886080 # bytes to read per batch (defaults to 80MiB)
-        ignore_row_processing_errors: false # if true, log errors during row processing and continue. Defaults to false. Warning: can result in consistency errors.
-        log_row_on_error: false # if true, log the row data as JSON when an error occurs. Defaults to false
       schema: # when mode is full or schema
         mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
         pgdump_pgrestore:
@@ -66,6 +64,7 @@ target:
       size: 100 # number of messages in a batch. Defaults to 20000
       max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB without bulk enabled, 80MiB with bulk ingest.
       max_queue_bytes: 104857600 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
+      ignore_send_errors: false # if true, log and ignore errors during batch sending. Warning: can result in consistency errors.
     schema_log_store_url: "postgresql://user:password@localhost:5432/mydatabase" # url to the postgres database where the schema log is stored to be used when performing schema change diffs
     disable_triggers: false # whether to disable triggers on the target database. Defaults to false
     on_conflict_action: "nothing" # options are update, nothing or error. Defaults to error
@@ -87,6 +86,7 @@ target:
       size: 100 # number of messages in a batch. Defaults to 100
       max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB
       max_queue_bytes: 104857600 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
+      ignore_send_errors: false # if true, log and ignore errors during batch sending. Warning: can result in consistency errors.
   search:
     engine: "elasticsearch" # options are elasticsearch or opensearch
     url: "http://localhost:9200" # URL of the search engine
@@ -95,6 +95,7 @@ target:
       size: 100 # number of messages in a batch. Defaults to 100
       max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB
       max_queue_bytes: 104857600 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
+      ignore_send_errors: false # if true, log and ignore errors during batch sending. Warning: can result in consistency errors.
     backoff:
       exponential:
         max_retries: 5 # maximum number of retries

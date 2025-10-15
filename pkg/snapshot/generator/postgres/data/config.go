@@ -18,12 +18,6 @@ type Config struct {
 	// TableWorkers represents the number of concurrent workers per table. Each
 	// worker will process a different page range in parallel. Defaults to 4.
 	TableWorkers uint
-	// IgnoreRowProcessingErrors when set to true, will log errors encountered
-	// during row processing and continue instead of failing. Defaults to false.
-	IgnoreRowProcessingErrors bool
-	// LogRowOnError when set to true, will log the row data as JSON when a row
-	// processing error occurs. Defaults to false.
-	LogRowOnError bool
 }
 
 const (
