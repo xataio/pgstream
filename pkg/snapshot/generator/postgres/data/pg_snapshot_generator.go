@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	jsonlib "github.com/xataio/pgstream/internal/json"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
 	"github.com/xataio/pgstream/internal/progress"
@@ -41,9 +40,6 @@ type SnapshotGenerator struct {
 	progressTracking   bool
 	progressBars       *synclib.StringMap[progress.Bar]
 	progressBarBuilder func(totalBytes int64, description string) progress.Bar
-
-	ignoreRowProcessingErrors bool
-	logRowOnError             bool
 }
 
 type mapper interface {
@@ -84,16 +80,14 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, rowsProcessor snapsh
 	}
 
 	sg := &SnapshotGenerator{
-		logger:                    loglib.NewNoopLogger(),
-		mapper:                    pglib.NewMapper(conn),
-		conn:                      conn,
-		rowsProcessor:             rowsProcessor,
-		batchBytes:                cfg.batchBytes(),
-		tableWorkers:              cfg.tableWorkers(),
-		schemaWorkers:             cfg.schemaWorkers(),
-		snapshotWorkers:           cfg.snapshotWorkers(),
-		ignoreRowProcessingErrors: cfg.IgnoreRowProcessingErrors,
-		logRowOnError:             cfg.LogRowOnError,
+		logger:          loglib.NewNoopLogger(),
+		mapper:          pglib.NewMapper(conn),
+		conn:            conn,
+		rowsProcessor:   rowsProcessor,
+		batchBytes:      cfg.batchBytes(),
+		tableWorkers:    cfg.tableWorkers(),
+		schemaWorkers:   cfg.schemaWorkers(),
+		snapshotWorkers: cfg.snapshotWorkers(),
 	}
 
 	sg.tableSnapshotGenerator = sg.snapshotTable
@@ -369,24 +363,6 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID 
 					Columns: columns,
 				}
 				if err := sg.rowsProcessor.ProcessRow(ctx, row); err != nil {
-					logFields := loglib.Fields{
-						"schema": table.schema,
-						"table":  table.name,
-						"error":  err.Error(),
-					}
-
-					if sg.logRowOnError {
-						if rowJSON, jsonErr := jsonlib.Marshal(row); jsonErr == nil {
-							logFields["row"] = string(rowJSON)
-						}
-					}
-
-					sg.logger.Error(err, "processing snapshot row", logFields)
-
-					if sg.ignoreRowProcessingErrors {
-						continue
-					}
-
 					return fmt.Errorf("processing snapshot row: %w", err)
 				}
 			}

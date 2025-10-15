@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -1588,7 +1587,7 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 			wantErr:  errTest,
 		},
 		{
-			name: "error - processing row fails and ignoreRowProcessingErrors is false",
+			name: "error - processing row fails",
 			querier: &pgmocks.Querier{
 				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
 					mockTx := pgmocks.Tx{
@@ -1629,48 +1628,6 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 			wantRows: []*snapshot.Row{},
 			wantErr:  fmt.Errorf("processing snapshot row: %w", errTest),
 		},
-		{
-			name: "ok - processing row fails but ignoreRowProcessingErrors is true",
-			querier: &pgmocks.Querier{
-				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
-					mockTx := pgmocks.Tx{
-						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
-							require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
-							return pglib.CommandTag{}, nil
-						},
-						QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-							return &pgmocks.Rows{
-								CloseFn: func() {},
-								NextFn:  func(i uint) bool { return i <= 2 },
-								FieldDescriptionsFn: func() []pgconn.FieldDescription {
-									return []pgconn.FieldDescription{
-										{Name: "id", DataTypeOID: pgtype.UUIDOID},
-									}
-								},
-								ValuesFn: func() ([]any, error) {
-									return []any{testUUID}, nil
-								},
-								ErrFn: func() error { return nil },
-							}, nil
-						},
-					}
-					return f(&mockTx)
-				},
-			},
-			table: &table{
-				schema:  testSchema,
-				name:    testTable,
-				rowSize: 512,
-			},
-			pageRange: testPageRange,
-			processor: &mocks.RowsProcessor{
-				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
-					return errTest
-				},
-			},
-			wantRows: []*snapshot.Row{},
-			wantErr:  nil,
-		},
 	}
 
 	for _, tc := range tests {
@@ -1702,10 +1659,8 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 						return nil
 					},
 				},
-				progressTracking:          tc.name == "ok - with progress tracking",
-				progressBars:              synclib.NewStringMap[progress.Bar](),
-				ignoreRowProcessingErrors: strings.Contains(tc.name, "ignoreRowProcessingErrors is true"),
-				logRowOnError:             true,
+				progressTracking: tc.name == "ok - with progress tracking",
+				progressBars:     synclib.NewStringMap[progress.Bar](),
 			}
 
 			if sg.progressTracking {

@@ -49,8 +49,6 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE")
-	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_IGNORE_ROW_PROCESSING_ERRORS")
-	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_LOG_ROW_ON_ERROR")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_ROLE")
@@ -221,13 +219,11 @@ func parseSnapshotConfig(pgURL string) (*snapshotbuilder.SnapshotListenerConfig,
 
 	cfg := &snapshotbuilder.SnapshotListenerConfig{
 		Generator: pgsnapshotgenerator.Config{
-			URL:                       pgURL,
-			BatchBytes:                viper.GetUint64("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES"),
-			SchemaWorkers:             viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS"),
-			TableWorkers:              viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS"),
-			SnapshotWorkers:           viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS"),
-			IgnoreRowProcessingErrors: viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_IGNORE_ROW_PROCESSING_ERRORS"),
-			LogRowOnError:             viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_LOG_ROW_ON_ERROR"),
+			URL:             pgURL,
+			BatchBytes:      viper.GetUint64("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES"),
+			SchemaWorkers:   viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS"),
+			TableWorkers:    viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS"),
+			SnapshotWorkers: viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS"),
 		},
 		Adapter: adapter.SnapshotConfig{
 			Tables:         viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES"),
