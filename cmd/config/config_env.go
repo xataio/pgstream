@@ -64,6 +64,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_BYTES")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_SIZE")
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_IGNORE_SEND_ERRORS")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS")
@@ -86,6 +87,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT")
 	viper.BindEnv("PGSTREAM_KAFKA_WRITER_BATCH_BYTES")
 	viper.BindEnv("PGSTREAM_KAFKA_WRITER_BATCH_SIZE")
+	viper.BindEnv("PGSTREAM_KAFKA_WRITER_BATCH_IGNORE_SEND_ERRORS")
 	viper.BindEnv("PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES")
 
 	viper.BindEnv("PGSTREAM_OPENSEARCH_STORE_URL")
@@ -94,6 +96,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT")
 	viper.BindEnv("PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES")
 	viper.BindEnv("PGSTREAM_SEARCH_INDEXER_BATCH_BYTES")
+	viper.BindEnv("PGSTREAM_SEARCH_INDEXER_BATCH_IGNORE_SEND_ERRORS")
 	viper.BindEnv("PGSTREAM_SEARCH_STORE_EXP_BACKOFF_INITIAL_INTERVAL")
 	viper.BindEnv("PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_INTERVAL")
 	viper.BindEnv("PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_RETRIES")
@@ -350,10 +353,11 @@ func parseKafkaWriterConfig(kafkaServers []string, kafkaTopic string) *kafkaproc
 			TLS: parseTLSConfig("PGSTREAM_KAFKA"),
 		},
 		Batch: batch.Config{
-			BatchTimeout:  viper.GetDuration("PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT"),
-			MaxBatchBytes: viper.GetInt64("PGSTREAM_KAFKA_WRITER_BATCH_BYTES"),
-			MaxBatchSize:  viper.GetInt64("PGSTREAM_KAFKA_WRITER_BATCH_SIZE"),
-			MaxQueueBytes: viper.GetInt64("PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES"),
+			BatchTimeout:     viper.GetDuration("PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT"),
+			MaxBatchBytes:    viper.GetInt64("PGSTREAM_KAFKA_WRITER_BATCH_BYTES"),
+			MaxBatchSize:     viper.GetInt64("PGSTREAM_KAFKA_WRITER_BATCH_SIZE"),
+			MaxQueueBytes:    viper.GetInt64("PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES"),
+			IgnoreSendErrors: viper.GetBool("PGSTREAM_KAFKA_WRITER_BATCH_IGNORE_SEND_ERRORS"),
 		},
 	}
 }
@@ -368,10 +372,11 @@ func parseSearchProcessorConfig() *stream.SearchProcessorConfig {
 	return &stream.SearchProcessorConfig{
 		Indexer: search.IndexerConfig{
 			Batch: batch.Config{
-				MaxBatchSize:  viper.GetInt64("PGSTREAM_SEARCH_INDEXER_BATCH_SIZE"),
-				BatchTimeout:  viper.GetDuration("PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT"),
-				MaxQueueBytes: viper.GetInt64("PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES"),
-				MaxBatchBytes: viper.GetInt64("PGSTREAM_SEARCH_INDEXER_BATCH_BYTES"),
+				MaxBatchSize:     viper.GetInt64("PGSTREAM_SEARCH_INDEXER_BATCH_SIZE"),
+				BatchTimeout:     viper.GetDuration("PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT"),
+				MaxQueueBytes:    viper.GetInt64("PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES"),
+				MaxBatchBytes:    viper.GetInt64("PGSTREAM_SEARCH_INDEXER_BATCH_BYTES"),
+				IgnoreSendErrors: viper.GetBool("PGSTREAM_SEARCH_INDEXER_BATCH_IGNORE_SEND_ERRORS"),
 			},
 		},
 		Store: store.Config{
@@ -420,10 +425,11 @@ func parsePostgresProcessorConfig() *stream.PostgresProcessorConfig {
 		BatchWriter: postgres.Config{
 			URL: targetPostgresURL,
 			BatchConfig: batch.Config{
-				BatchTimeout:  viper.GetDuration("PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT"),
-				MaxBatchBytes: viper.GetInt64("PGSTREAM_POSTGRES_WRITER_BATCH_BYTES"),
-				MaxBatchSize:  viper.GetInt64("PGSTREAM_POSTGRES_WRITER_BATCH_SIZE"),
-				MaxQueueBytes: viper.GetInt64("PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES"),
+				BatchTimeout:     viper.GetDuration("PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT"),
+				MaxBatchBytes:    viper.GetInt64("PGSTREAM_POSTGRES_WRITER_BATCH_BYTES"),
+				MaxBatchSize:     viper.GetInt64("PGSTREAM_POSTGRES_WRITER_BATCH_SIZE"),
+				MaxQueueBytes:    viper.GetInt64("PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES"),
+				IgnoreSendErrors: viper.GetBool("PGSTREAM_POSTGRES_WRITER_BATCH_IGNORE_SEND_ERRORS"),
 			},
 			SchemaLogStore: pgschemalog.Config{
 				URL: viper.GetString("PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL"),

@@ -73,6 +73,7 @@ target:
       size: 100 # number of messages in a batch. Defaults to 20000
       max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB without bulk enabled, 80MiB with bulk ingest.
       max_queue_bytes: 104857600 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
+      ignore_send_errors: false # if true, log and ignore errors during batch sending. Warning: can result in consistency errors.
     schema_log_store_url: "postgresql://user:password@localhost:5432/mydatabase" # url to the postgres database where the schema log is stored to be used when performing schema change diffs
     disable_triggers: false # whether to disable triggers on the target database. Defaults to false
     on_conflict_action: "nothing" # options are update, nothing or error. Defaults to error
@@ -94,6 +95,7 @@ target:
       size: 100 # number of messages in a batch. Defaults to 100
       max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB
       max_queue_bytes: 104857600 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
+      ignore_send_errors: false # if true, log and ignore errors during batch sending. Warning: can result in consistency errors.
   search:
     engine: "elasticsearch" # options are elasticsearch or opensearch
     url: "http://localhost:9200" # URL of the search engine
@@ -102,6 +104,7 @@ target:
       size: 100 # number of messages in a batch. Defaults to 100
       max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB
       max_queue_bytes: 104857600 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
+      ignore_send_errors: false # if true, log and ignore errors during batch sending. Warning: can result in consistency errors.
     backoff:
       exponential:
         max_retries: 5 # maximum number of retries
@@ -213,21 +216,22 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 <details>
   <summary>Kafka Batch Writer</summary>
 
-| Environment Variable                    | Default | Required         | Description                                                                                         |
-| --------------------------------------- | ------- | ---------------- | --------------------------------------------------------------------------------------------------- |
-| PGSTREAM_KAFKA_WRITER_SERVERS           | N/A     | Yes              | URLs for the Kafka servers to connect to.                                                           |
-| PGSTREAM_KAFKA_TOPIC_NAME               | N/A     | Yes              | Name of the Kafka topic to write to.                                                                |
-| PGSTREAM_KAFKA_TOPIC_PARTITIONS         | 1       | No               | Number of partitions created for the Kafka topic if auto create is enabled.                         |
-| PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR | 1       | No               | Replication factor used when creating the Kafka topic if auto create is enabled.                    |
-| PGSTREAM_KAFKA_TOPIC_AUTO_CREATE        | False   | No               | Auto creation of configured Kafka topic if it doesn't exist.                                        |
-| PGSTREAM_KAFKA_TLS_ENABLED              | False   | No               | Enable TLS connection to the Kafka servers.                                                         |
-| PGSTREAM_KAFKA_TLS_CA_CERT_FILE         | ""      | When TLS enabled | Path to the CA PEM certificate to use for Kafka TLS authentication.                                 |
-| PGSTREAM_KAFKA_TLS_CLIENT_CERT_FILE     | ""      | No               | Path to the client PEM certificate to use for Kafka TLS client authentication.                      |
-| PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE      | ""      | No               | Path to the client PEM private key to use for Kafka TLS client authentication.                      |
-| PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT     | 1s      | No               | Max time interval at which the batch sending to Kafka is triggered.                                 |
-| PGSTREAM_KAFKA_WRITER_BATCH_BYTES       | 1572864 | No               | Max size in bytes for a given batch. When this size is reached, the batch is sent to Kafka.         |
-| PGSTREAM_KAFKA_WRITER_BATCH_SIZE        | 100     | No               | Max number of messages to be sent per batch. When this size is reached, the batch is sent to Kafka. |
-| PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES   | 100MiB  | No               | Max memory used by the Kafka batch writer for inflight batches.                                     |
+| Environment Variable                           | Default | Required         | Description                                                                                         |
+| ---------------------------------------------- | ------- | ---------------- | --------------------------------------------------------------------------------------------------- |
+| PGSTREAM_KAFKA_WRITER_SERVERS                  | N/A     | Yes              | URLs for the Kafka servers to connect to.                                                           |
+| PGSTREAM_KAFKA_TOPIC_NAME                      | N/A     | Yes              | Name of the Kafka topic to write to.                                                                |
+| PGSTREAM_KAFKA_TOPIC_PARTITIONS                | 1       | No               | Number of partitions created for the Kafka topic if auto create is enabled.                         |
+| PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR        | 1       | No               | Replication factor used when creating the Kafka topic if auto create is enabled.                    |
+| PGSTREAM_KAFKA_TOPIC_AUTO_CREATE               | False   | No               | Auto creation of configured Kafka topic if it doesn't exist.                                        |
+| PGSTREAM_KAFKA_TLS_ENABLED                     | False   | No               | Enable TLS connection to the Kafka servers.                                                         |
+| PGSTREAM_KAFKA_TLS_CA_CERT_FILE                | ""      | When TLS enabled | Path to the CA PEM certificate to use for Kafka TLS authentication.                                 |
+| PGSTREAM_KAFKA_TLS_CLIENT_CERT_FILE            | ""      | No               | Path to the client PEM certificate to use for Kafka TLS client authentication.                      |
+| PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE             | ""      | No               | Path to the client PEM private key to use for Kafka TLS client authentication.                      |
+| PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT            | 1s      | No               | Max time interval at which the batch sending to Kafka is triggered.                                 |
+| PGSTREAM_KAFKA_WRITER_BATCH_BYTES              | 1572864 | No               | Max size in bytes for a given batch. When this size is reached, the batch is sent to Kafka.         |
+| PGSTREAM_KAFKA_WRITER_BATCH_SIZE               | 100     | No               | Max number of messages to be sent per batch. When this size is reached, the batch is sent to Kafka. |
+| PGSTREAM_KAFKA_WRITER_BATCH_IGNORE_SEND_ERRORS | False   | No               | Whether to ignore errors encountered while sending batches to the target.                           |
+| PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES          | 100MiB  | No               | Max memory used by the Kafka batch writer for inflight batches.                                     |
 
 </details>
 
@@ -240,6 +244,7 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 | PGSTREAM_ELASTICSEARCH_STORE_URL                   | N/A     | Yes      | URL for the elasticsearch store to connect to (at least one of the URLs must be provided).                     |
 | PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT              | 1s      | No       | Max time interval at which the batch sending to the search store is triggered.                                 |
 | PGSTREAM_SEARCH_INDEXER_BATCH_SIZE                 | 100     | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to the search store. |
+| PGSTREAM_SEARCH_INDEXER_BATCH_IGNORE_SEND_ERRORS   | False   | No       | Whether to ignore errors encountered while sending batches to the target.                                      |
 | PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES            | 100MiB  | No       | Max memory used by the search batch indexer for inflight batches.                                              |
 | PGSTREAM_SEARCH_STORE_EXP_BACKOFF_INITIAL_INTERVAL | 1s      | No       | Initial interval for the exponential backoff policy to be applied to the search store operation retries.       |
 | PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_INTERVAL     | 1min    | No       | Max interval for the exponential backoff policy to be applied to the search store operation retries.           |
@@ -273,17 +278,18 @@ One of exponential/constant backoff policies can be provided for the search stor
 <details>
   <summary>Postgres Batch Writer</summary>
 
-| Environment Variable                         | Default                         | Required | Description                                                                                                                                                                                                    |
-| -------------------------------------------- | ------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PGSTREAM_POSTGRES_WRITER_TARGET_URL          | N/A                             | Yes      | URL for the PostgreSQL store to connect to                                                                                                                                                                     |
-| PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT       | 30s                             | No       | Max time interval at which the batch sending to PostgreSQL is triggered.                                                                                                                                       |
-| PGSTREAM_POSTGRES_WRITER_BATCH_SIZE          | 20000                           | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                       |
-| PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES     | 100MiB                          | No       | Max memory used by the postgres batch writer for inflight batches.                                                                                                                                             |
-| PGSTREAM_POSTGRES_WRITER_BATCH_BYTES         | 1.5MiB, 80MiB with bulk enabled | No       | Max size in bytes for a given batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                               |
-| PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL | N/A                             | No       | URL of the store where the pgstream schemalog table which keeps track of schema changes is.                                                                                                                    |
-| PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS    | False(run), True(snapshot)      | No       | Option to disable triggers on the target PostgreSQL database while performing the snaphot/replication streaming. It defaults to false when using the run command, and to true when using the snapshot command. |
-| PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION  | error                           | No       | Action to apply to inserts on conflict. Options are `nothing`, `update` or `error`.                                                                                                                            |
-| PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED | False(run), True(snapshot)      | No       | Wether to use COPY FROM on insert only workloads. It defaults to false when using the run command, and to true when using the snapshot command.                                                                |
+| Environment Variable                              | Default                         | Required | Description                                                                                                                                                                                                    |
+| ------------------------------------------------- | ------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PGSTREAM_POSTGRES_WRITER_TARGET_URL               | N/A                             | Yes      | URL for the PostgreSQL store to connect to                                                                                                                                                                     |
+| PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT            | 30s                             | No       | Max time interval at which the batch sending to PostgreSQL is triggered.                                                                                                                                       |
+| PGSTREAM_POSTGRES_WRITER_BATCH_SIZE               | 20000                           | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                       |
+| PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES          | 100MiB                          | No       | Max memory used by the postgres batch writer for inflight batches.                                                                                                                                             |
+| PGSTREAM_POSTGRES_WRITER_BATCH_BYTES              | 1.5MiB, 80MiB with bulk enabled | No       | Max size in bytes for a given batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                               |
+| PGSTREAM_POSTGRES_WRITER_BATCH_IGNORE_SEND_ERRORS | False                           | No       | Whether to ignore errors encountered while sending events to the target.                                                                                                                                       |
+| PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL      | N/A                             | No       | URL of the store where the pgstream schemalog table which keeps track of schema changes is.                                                                                                                    |
+| PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS         | False(run), True(snapshot)      | No       | Option to disable triggers on the target PostgreSQL database while performing the snaphot/replication streaming. It defaults to false when using the run command, and to true when using the snapshot command. |
+| PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION       | error                           | No       | Action to apply to inserts on conflict. Options are `nothing`, `update` or `error`.                                                                                                                            |
+| PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED      | False(run), True(snapshot)      | No       | Wether to use COPY FROM on insert only workloads. It defaults to false when using the run command, and to true when using the snapshot command.                                                                |
 
 </details>
 

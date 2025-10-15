@@ -186,10 +186,11 @@ type SearchConfig struct {
 }
 
 type BatchConfig struct {
-	Timeout       int `mapstructure:"timeout" yaml:"timeout"`
-	Size          int `mapstructure:"size" yaml:"size"`
-	MaxBytes      int `mapstructure:"max_bytes" yaml:"max_bytes"`
-	MaxQueueBytes int `mapstructure:"max_queue_bytes" yaml:"max_queue_bytes"`
+	Timeout          int  `mapstructure:"timeout" yaml:"timeout"`
+	Size             int  `mapstructure:"size" yaml:"size"`
+	MaxBytes         int  `mapstructure:"max_bytes" yaml:"max_bytes"`
+	MaxQueueBytes    int  `mapstructure:"max_queue_bytes" yaml:"max_queue_bytes"`
+	IgnoreSendErrors bool `mapstructure:"ignore_send_errors" yaml:"ignore_send_errors"`
 }
 
 type BulkIngestConfig struct {
@@ -835,9 +836,10 @@ func (bc *BatchConfig) parseBatchConfig() batch.Config {
 		return batch.Config{}
 	}
 	return batch.Config{
-		BatchTimeout:  time.Duration(bc.Timeout) * time.Millisecond,
-		MaxBatchBytes: int64(bc.MaxBytes),
-		MaxQueueBytes: int64(bc.MaxQueueBytes),
-		MaxBatchSize:  int64(bc.Size),
+		BatchTimeout:     time.Duration(bc.Timeout) * time.Millisecond,
+		MaxBatchBytes:    int64(bc.MaxBytes),
+		MaxQueueBytes:    int64(bc.MaxQueueBytes),
+		MaxBatchSize:     int64(bc.Size),
+		IgnoreSendErrors: bc.IgnoreSendErrors,
 	}
 }

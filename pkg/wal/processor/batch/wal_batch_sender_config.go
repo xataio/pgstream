@@ -20,6 +20,10 @@ type Config struct {
 	// MaxQueueBytes is the max memory used by the batch writer for inflight
 	// batches. Defaults to 100MiB
 	MaxQueueBytes int64
+	// IgnoreSendErrors indicates whether sending errors should be ignored or
+	// not. If set to true, errors will be logged but the batch will continue
+	// processing. Defaults to false.
+	IgnoreSendErrors bool
 }
 
 const (

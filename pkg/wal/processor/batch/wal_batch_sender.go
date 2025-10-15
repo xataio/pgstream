@@ -19,11 +19,12 @@ type Sender[T Message] struct {
 	// queueBytesSema is used to limit the amount of memory used by the
 	// unbuffered msg channel, optimising the channel performance for variable
 	// size messages, while preventing the process from running oom
-	queueBytesSema synclib.WeightedSemaphore
-	msgChan        chan (*WALMessage[T])
-	once           *sync.Once
-	sendDone       chan (error)
-	sendErr        error
+	queueBytesSema   synclib.WeightedSemaphore
+	msgChan          chan (*WALMessage[T])
+	once             *sync.Once
+	sendDone         chan (error)
+	sendErr          error
+	ignoreSendErrors bool
 
 	maxBatchBytes     int64
 	maxBatchSize      int64
@@ -51,6 +52,7 @@ func NewSender[T Message](ctx context.Context, config *Config, sendfn sendBatchF
 		sendBatchFn:       sendfn,
 		wg:                &sync.WaitGroup{},
 		cancelFn:          func() {},
+		ignoreSendErrors:  config.IgnoreSendErrors,
 	}
 
 	maxQueueBytes, err := config.GetMaxQueueBytes()
@@ -128,6 +130,9 @@ func (s *Sender[T]) send(ctx context.Context) error {
 			s.queueBytesSema.Release(int64(batch.totalBytes))
 			if err != nil {
 				s.logger.Error(err, "failed to send batch")
+				if s.ignoreSendErrors {
+					continue
+				}
 				sendErrChan <- err
 				return
 			}

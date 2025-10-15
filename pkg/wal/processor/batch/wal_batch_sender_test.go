@@ -185,10 +185,11 @@ func TestSender_send(t *testing.T) {
 	errTest := errors.New("oh noes")
 
 	tests := []struct {
-		name      string
-		msgs      []*WALMessage[*mockMessage]
-		semaphore *syncmocks.WeightedSemaphore
-		sendFn    func(doneChan chan<- struct{}) sendBatchFn[*mockMessage]
+		name         string
+		msgs         []*WALMessage[*mockMessage]
+		semaphore    *syncmocks.WeightedSemaphore
+		sendFn       func(doneChan chan<- struct{}) sendBatchFn[*mockMessage]
+		ignoreErrors bool
 
 		wantErr error
 	}{
@@ -248,6 +249,29 @@ func TestSender_send(t *testing.T) {
 			wantErr: context.Canceled,
 		},
 		{
+			name: "ok - error ignored sending batch",
+			msgs: []*WALMessage[*mockMessage]{
+				testWALMsg(1),
+			},
+			semaphore: &syncmocks.WeightedSemaphore{
+				ReleaseFn: func(i uint64, bytes int64) {
+					if i == 0 {
+						require.Equal(t, int64(1), bytes)
+					}
+				},
+			},
+			sendFn: func(doneChan chan<- struct{}) sendBatchFn[*mockMessage] {
+				once := sync.Once{}
+				return func(ctx context.Context, b *Batch[*mockMessage]) error {
+					defer once.Do(func() { doneChan <- struct{}{} })
+					return errTest
+				}
+			},
+			ignoreErrors: true,
+
+			wantErr: context.Canceled,
+		},
+		{
 			name: "error - sending batch",
 			msgs: []*WALMessage[*mockMessage]{
 				testWALMsg(1),
@@ -291,6 +315,7 @@ func TestSender_send(t *testing.T) {
 				sendBatchFn:       tc.sendFn(doneChan),
 				wg:                &sync.WaitGroup{},
 				cancelFn:          func() {},
+				ignoreSendErrors:  tc.ignoreErrors,
 			}
 			defer sender.Close()
 
