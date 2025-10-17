@@ -5,11 +5,11 @@ package postgres
 import "context"
 
 type mockQuerier struct {
-	queryRowFn func(ctx context.Context, query string, args ...any) Row
+	queryRowFn func(ctx context.Context, dest []any, query string, args ...any) error
 }
 
-func (m *mockQuerier) QueryRow(ctx context.Context, query string, args ...any) Row {
-	return m.queryRowFn(ctx, query, args...)
+func (m *mockQuerier) QueryRow(ctx context.Context, dest []any, query string, args ...any) error {
+	return m.queryRowFn(ctx, dest, query, args...)
 }
 
 func (m *mockQuerier) Query(ctx context.Context, query string, args ...any) (Rows, error) {
@@ -38,12 +38,4 @@ func (m *mockQuerier) Ping(ctx context.Context) error {
 
 func (m *mockQuerier) Close(ctx context.Context) error {
 	return nil
-}
-
-type mockRow struct {
-	scanFn func(args ...any) error
-}
-
-func (m *mockRow) Scan(args ...any) error {
-	return m.scanFn(args...)
 }

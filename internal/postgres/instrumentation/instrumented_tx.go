@@ -33,11 +33,11 @@ func (i *Tx) Query(ctx context.Context, query string, args ...any) (rows pglib.R
 	return i.inner.Query(ctx, query, args...)
 }
 
-func (i *Tx) QueryRow(ctx context.Context, query string, args ...any) pglib.Row {
+func (i *Tx) QueryRow(ctx context.Context, dest []any, query string, args ...any) error {
 	queryAttrs := queryAttributes(query)
 	ctx, span := otel.StartSpan(ctx, i.tracer, "tx.QueryRow", trace.WithAttributes(queryAttrs...))
 	defer otel.CloseSpan(span, nil)
-	return i.inner.QueryRow(ctx, query, args...)
+	return i.inner.QueryRow(ctx, dest, query, args...)
 }
 
 func (i *Tx) Exec(ctx context.Context, query string, args ...any) (tag pglib.CommandTag, err error) {

@@ -268,7 +268,7 @@ func (s *StatusChecker) validateSchemaStatus(ctx context.Context, pgURL string) 
 	defer conn.Close(ctx)
 
 	var schemaExists bool
-	err = conn.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgstream')").Scan(&schemaExists)
+	err = conn.QueryRow(ctx, []any{&schemaExists}, "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgstream')")
 	if err != nil && !errors.Is(err, pglib.ErrNoRows) {
 		return nil, fmt.Errorf("checking if pgstream schema exists: %w", err)
 	}
@@ -284,7 +284,7 @@ func (s *StatusChecker) validateSchemaStatus(ctx context.Context, pgURL string) 
 	}
 
 	var schemaLogTableExists bool
-	err = conn.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'pgstream' AND table_name = 'schema_log')").Scan(&schemaLogTableExists)
+	err = conn.QueryRow(ctx, []any{&schemaLogTableExists}, "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'pgstream' AND table_name = 'schema_log')")
 	if err != nil && !errors.Is(err, pglib.ErrNoRows) {
 		return nil, fmt.Errorf("checking if pgstream schema_log table exists: %w", err)
 	}
@@ -334,8 +334,7 @@ func (s *StatusChecker) validateReplicationSlotStatus(ctx context.Context, pgURL
 	defer conn.Close(ctx)
 
 	var name, plugin, database string
-	err = conn.QueryRow(ctx, "SELECT slot_name, plugin, database FROM pg_replication_slots WHERE slot_name = $1", replicationSlotName).
-		Scan(&name, &plugin, &database)
+	err = conn.QueryRow(ctx, []any{&name, &plugin, &database}, "SELECT slot_name, plugin, database FROM pg_replication_slots WHERE slot_name = $1", replicationSlotName)
 	if err != nil && !errors.Is(err, pglib.ErrNoRows) {
 		return nil, fmt.Errorf("retrieving replication slot information: %w", err)
 	}

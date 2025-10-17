@@ -31,9 +31,9 @@ func NewConn(ctx context.Context, url string) (*Conn, error) {
 	return &Conn{conn: conn}, nil
 }
 
-func (c *Conn) QueryRow(ctx context.Context, query string, args ...any) Row {
+func (c *Conn) QueryRow(ctx context.Context, dest []any, query string, args ...any) error {
 	row := c.conn.QueryRow(ctx, query, args...)
-	return &mappedRow{inner: row}
+	return mapError(row.Scan(dest...))
 }
 
 func (c *Conn) Query(ctx context.Context, query string, args ...any) (Rows, error) {

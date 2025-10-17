@@ -423,7 +423,7 @@ func (s *SnapshotGenerator) schemalogExists(ctx context.Context) (bool, error) {
 	// check if the pgstream.schema_log table exists, if not, we can skip the initialisation
 	// of the schemalog store
 	var exists bool
-	err = conn.QueryRow(ctx, existsTableQuery, schemalog.SchemaName, schemalog.TableName).Scan(&exists)
+	err = conn.QueryRow(ctx, []any{&exists}, existsTableQuery, schemalog.SchemaName, schemalog.TableName)
 	if err != nil {
 		return false, fmt.Errorf("checking schemalog table existence: %w", err)
 	}

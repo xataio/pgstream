@@ -50,9 +50,9 @@ func WithMaxConnections(maxConns int32) PoolOption {
 	}
 }
 
-func (c *Pool) QueryRow(ctx context.Context, query string, args ...any) Row {
+func (c *Pool) QueryRow(ctx context.Context, dest []any, query string, args ...any) error {
 	row := c.Pool.QueryRow(ctx, query, args...)
-	return &mappedRow{inner: row}
+	return mapError(row.Scan(dest...))
 }
 
 func (c *Pool) Query(ctx context.Context, query string, args ...any) (Rows, error) {

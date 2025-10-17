@@ -9,15 +9,15 @@ import (
 )
 
 type Tx struct {
-	QueryRowFn    func(ctx context.Context, query string, args ...any) postgres.Row
+	QueryRowFn    func(ctx context.Context, dest []any, query string, args ...any) error
 	QueryFn       func(ctx context.Context, query string, args ...any) (postgres.Rows, error)
 	ExecFn        func(ctx context.Context, i uint, query string, args ...any) (postgres.CommandTag, error)
 	CopyFromFn    func(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
 	execCallCount uint
 }
 
-func (m *Tx) QueryRow(ctx context.Context, query string, args ...any) postgres.Row {
-	return m.QueryRowFn(ctx, query, args...)
+func (m *Tx) QueryRow(ctx context.Context, dest []any, query string, args ...any) error {
+	return m.QueryRowFn(ctx, dest, query, args...)
 }
 
 func (m *Tx) Query(ctx context.Context, query string, args ...any) (postgres.Rows, error) {

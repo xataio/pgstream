@@ -37,15 +37,11 @@ func TestMapper_TypeForOID(t *testing.T) {
 		{
 			name: "ok - custom type not found in custom map, queried from db",
 			querier: &mockQuerier{
-				queryRowFn: func(ctx context.Context, query string, args ...any) Row {
-					return &mockRow{
-						scanFn: func(args ...any) error {
-							str, ok := args[0].(*string)
-							require.True(t, ok)
-							*str = "custom_type"
-							return nil
-						},
-					}
+				queryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+					str, ok := dest[0].(*string)
+					require.True(t, ok)
+					*str = "custom_type"
+					return nil
 				},
 			},
 			oid: 1234,
@@ -70,12 +66,8 @@ func TestMapper_TypeForOID(t *testing.T) {
 		{
 			name: "error - custom type not found in custom map, error querying from db",
 			querier: &mockQuerier{
-				queryRowFn: func(ctx context.Context, query string, args ...any) Row {
-					return &mockRow{
-						scanFn: func(args ...any) error {
-							return errTest
-						},
-					}
+				queryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+					return errTest
 				},
 			},
 			oid: 1234,

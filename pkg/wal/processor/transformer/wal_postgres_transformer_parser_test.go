@@ -77,20 +77,16 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 					return nil, fmt.Errorf("unexpected query: %s", query)
 				}
 			},
-			QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+			QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
 				switch query {
 				case "SELECT typname FROM pg_type WHERE oid = $1":
 					require.Equal(t, 1, len(args))
 					require.Equal(t, citextOID, args[0])
-					return &pgmocks.Row{
-						ScanFn: func(dest ...any) error {
-							require.Len(t, dest, 1)
-							dataTypeName, ok := dest[0].(*string)
-							require.True(t, ok)
-							*dataTypeName = citextTypeName
-							return nil
-						},
-					}
+					require.Len(t, dest, 1)
+					dataTypeName, ok := dest[0].(*string)
+					require.True(t, ok)
+					*dataTypeName = citextTypeName
+					return nil
 				default:
 					return nil
 				}
@@ -99,15 +95,11 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 	}
 
 	testQuerierWithUnknownTypeErr := testQuerier()
-	testQuerierWithUnknownTypeErr.QueryRowFn = func(ctx context.Context, query string, args ...any) pglib.Row {
-		return &pgmocks.Row{
-			ScanFn: func(dest ...any) error {
-				require.Equal(t, query, "SELECT typname FROM pg_type WHERE oid = $1")
-				require.Equal(t, 1, len(args))
-				require.Equal(t, citextOID, args[0])
-				return errors.New("not found")
-			},
-		}
+	testQuerierWithUnknownTypeErr.QueryRowFn = func(ctx context.Context, dest []any, query string, args ...any) error {
+		require.Equal(t, query, "SELECT typname FROM pg_type WHERE oid = $1")
+		require.Equal(t, 1, len(args))
+		require.Equal(t, citextOID, args[0])
+		return errors.New("not found")
 	}
 
 	testPGValidator := PostgresTransformerParser{

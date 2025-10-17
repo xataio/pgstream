@@ -64,46 +64,40 @@ func TestStatusChecker_Status(t *testing.T) {
 
 	validConnBuilder := func(ctx context.Context, pgURL string) (pglib.Querier, error) {
 		return &pgmocks.Querier{
-			QueryRowFn: func(ctx context.Context, sql string, args ...any) pglib.Row {
+			QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
 				switch sql {
 				case "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgstream')":
-					return &pgmocks.Row{ScanFn: func(dest ...any) error {
-						require.Len(t, dest, 1)
-						exists, ok := dest[0].(*bool)
-						require.True(t, ok)
-						*exists = true
-						return nil
-					}}
+					require.Len(t, dest, 1)
+					exists, ok := dest[0].(*bool)
+					require.True(t, ok)
+					*exists = true
+					return nil
 				case "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'pgstream' AND table_name = 'schema_log')":
-					return &pgmocks.Row{ScanFn: func(dest ...any) error {
-						require.Len(t, dest, 1)
-						exists, ok := dest[0].(*bool)
-						require.True(t, ok)
-						*exists = true
-						return nil
-					}}
+					require.Len(t, dest, 1)
+					exists, ok := dest[0].(*bool)
+					require.True(t, ok)
+					*exists = true
+					return nil
 				case "SELECT slot_name, plugin, database FROM pg_replication_slots WHERE slot_name = $1":
 					require.Len(t, args, 1)
 					require.Equal(t, args[0], testReplicationSlot)
-					return &pgmocks.Row{ScanFn: func(dest ...any) error {
-						require.Len(t, dest, 3)
+					require.Len(t, dest, 3)
 
-						name, ok := dest[0].(*string)
-						require.True(t, ok)
-						*name = testReplicationSlot
+					name, ok := dest[0].(*string)
+					require.True(t, ok)
+					*name = testReplicationSlot
 
-						plugin, ok := dest[1].(*string)
-						require.True(t, ok)
-						*plugin = wal2jsonPlugin
+					plugin, ok := dest[1].(*string)
+					require.True(t, ok)
+					*plugin = wal2jsonPlugin
 
-						db, ok := dest[2].(*string)
-						require.True(t, ok)
-						*db = testDB
+					db, ok := dest[2].(*string)
+					require.True(t, ok)
+					*db = testDB
 
-						return nil
-					}}
+					return nil
 				default:
-					return &pgmocks.Row{ScanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %v", sql) }}
+					return fmt.Errorf("unexpected query: %v", sql)
 				}
 			},
 		}, nil
@@ -415,46 +409,40 @@ func TestStatusChecker_initStatus(t *testing.T) {
 			name: "ok",
 			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, sql string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
 						switch sql {
 						case "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgstream')":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 1)
-								exists, ok := dest[0].(*bool)
-								require.True(t, ok)
-								*exists = true
-								return nil
-							}}
+							require.Len(t, dest, 1)
+							exists, ok := dest[0].(*bool)
+							require.True(t, ok)
+							*exists = true
+							return nil
 						case "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'pgstream' AND table_name = 'schema_log')":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 1)
-								exists, ok := dest[0].(*bool)
-								require.True(t, ok)
-								*exists = true
-								return nil
-							}}
+							require.Len(t, dest, 1)
+							exists, ok := dest[0].(*bool)
+							require.True(t, ok)
+							*exists = true
+							return nil
 						case "SELECT slot_name, plugin, database FROM pg_replication_slots WHERE slot_name = $1":
 							require.Len(t, args, 1)
 							require.Equal(t, args[0], testReplicationSlot)
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 3)
+							require.Len(t, dest, 3)
 
-								name, ok := dest[0].(*string)
-								require.True(t, ok)
-								*name = testReplicationSlot
+							name, ok := dest[0].(*string)
+							require.True(t, ok)
+							*name = testReplicationSlot
 
-								plugin, ok := dest[1].(*string)
-								require.True(t, ok)
-								*plugin = wal2jsonPlugin
+							plugin, ok := dest[1].(*string)
+							require.True(t, ok)
+							*plugin = wal2jsonPlugin
 
-								db, ok := dest[2].(*string)
-								require.True(t, ok)
-								*db = testDB
+							db, ok := dest[2].(*string)
+							require.True(t, ok)
+							*db = testDB
 
-								return nil
-							}}
+							return nil
 						default:
-							return &pgmocks.Row{ScanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %v", sql) }}
+							return fmt.Errorf("unexpected query: %v", sql)
 						}
 					},
 				}, nil
@@ -497,14 +485,12 @@ func TestStatusChecker_initStatus(t *testing.T) {
 			name: "error - validating schema",
 			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, sql string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
 						switch sql {
 						case "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgstream')":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								return errTest
-							}}
+							return errTest
 						default:
-							return &pgmocks.Row{ScanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %v", sql) }}
+							return fmt.Errorf("unexpected query: %v", sql)
 						}
 					},
 				}, nil
@@ -524,26 +510,22 @@ func TestStatusChecker_initStatus(t *testing.T) {
 			name: "error - validating migrations",
 			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, sql string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
 						switch sql {
 						case "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgstream')":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 1)
-								exists, ok := dest[0].(*bool)
-								require.True(t, ok)
-								*exists = true
-								return nil
-							}}
+							require.Len(t, dest, 1)
+							exists, ok := dest[0].(*bool)
+							require.True(t, ok)
+							*exists = true
+							return nil
 						case "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'pgstream' AND table_name = 'schema_log')":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 1)
-								exists, ok := dest[0].(*bool)
-								require.True(t, ok)
-								*exists = true
-								return nil
-							}}
+							require.Len(t, dest, 1)
+							exists, ok := dest[0].(*bool)
+							require.True(t, ok)
+							*exists = true
+							return nil
 						default:
-							return &pgmocks.Row{ScanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %v", sql) }}
+							return fmt.Errorf("unexpected query: %v", sql)
 						}
 					},
 				}, nil
@@ -563,30 +545,24 @@ func TestStatusChecker_initStatus(t *testing.T) {
 			name: "error - validating replication slot",
 			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, sql string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
 						switch sql {
 						case "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgstream')":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 1)
-								exists, ok := dest[0].(*bool)
-								require.True(t, ok)
-								*exists = true
-								return nil
-							}}
+							require.Len(t, dest, 1)
+							exists, ok := dest[0].(*bool)
+							require.True(t, ok)
+							*exists = true
+							return nil
 						case "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'pgstream' AND table_name = 'schema_log')":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 1)
-								exists, ok := dest[0].(*bool)
-								require.True(t, ok)
-								*exists = true
-								return nil
-							}}
+							require.Len(t, dest, 1)
+							exists, ok := dest[0].(*bool)
+							require.True(t, ok)
+							*exists = true
+							return nil
 						case "SELECT slot_name, plugin, database FROM pg_replication_slots WHERE slot_name = $1":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								return errTest
-							}}
+							return errTest
 						default:
-							return &pgmocks.Row{ScanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %v", sql) }}
+							return fmt.Errorf("unexpected query: %v", sql)
 						}
 					},
 				}, nil
@@ -779,26 +755,22 @@ func TestStatusChecker_validateSchemaStatus(t *testing.T) {
 			name: "ok - schema and schema_log table exist",
 			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, sql string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
 						switch sql {
 						case "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgstream')":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 1)
-								exists, ok := dest[0].(*bool)
-								require.True(t, ok)
-								*exists = true
-								return nil
-							}}
+							require.Len(t, dest, 1)
+							exists, ok := dest[0].(*bool)
+							require.True(t, ok)
+							*exists = true
+							return nil
 						case "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'pgstream' AND table_name = 'schema_log')":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 1)
-								exists, ok := dest[0].(*bool)
-								require.True(t, ok)
-								*exists = true
-								return nil
-							}}
+							require.Len(t, dest, 1)
+							exists, ok := dest[0].(*bool)
+							require.True(t, ok)
+							*exists = true
+							return nil
 						default:
-							return &pgmocks.Row{ScanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %v", sql) }}
+							return fmt.Errorf("unexpected query: %v", sql)
 						}
 					},
 				}, nil
@@ -814,26 +786,22 @@ func TestStatusChecker_validateSchemaStatus(t *testing.T) {
 			name: "ok - schema exists but schema_log table does not",
 			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, sql string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
 						switch sql {
 						case "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgstream')":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 1)
-								exists, ok := dest[0].(*bool)
-								require.True(t, ok)
-								*exists = true
-								return nil
-							}}
+							require.Len(t, dest, 1)
+							exists, ok := dest[0].(*bool)
+							require.True(t, ok)
+							*exists = true
+							return nil
 						case "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'pgstream' AND table_name = 'schema_log')":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 1)
-								exists, ok := dest[0].(*bool)
-								require.True(t, ok)
-								*exists = false
-								return nil
-							}}
+							require.Len(t, dest, 1)
+							exists, ok := dest[0].(*bool)
+							require.True(t, ok)
+							*exists = false
+							return nil
 						default:
-							return &pgmocks.Row{ScanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %v", sql) }}
+							return fmt.Errorf("unexpected query: %v", sql)
 						}
 					},
 				}, nil
@@ -850,18 +818,16 @@ func TestStatusChecker_validateSchemaStatus(t *testing.T) {
 			name: "ok - schema does not exist",
 			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, sql string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
 						switch sql {
 						case "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgstream')":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 1)
-								exists, ok := dest[0].(*bool)
-								require.True(t, ok)
-								*exists = false
-								return nil
-							}}
+							require.Len(t, dest, 1)
+							exists, ok := dest[0].(*bool)
+							require.True(t, ok)
+							*exists = false
+							return nil
 						default:
-							return &pgmocks.Row{ScanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %v", sql) }}
+							return fmt.Errorf("unexpected query: %v", sql)
 						}
 					},
 				}, nil
@@ -878,14 +844,12 @@ func TestStatusChecker_validateSchemaStatus(t *testing.T) {
 			name: "error - query failure when checking schema existence",
 			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, sql string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
 						switch sql {
 						case "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgstream')":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								return errTest
-							}}
+							return errTest
 						default:
-							return &pgmocks.Row{ScanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %v", sql) }}
+							return fmt.Errorf("unexpected query: %v", sql)
 						}
 					},
 				}, nil
@@ -898,22 +862,18 @@ func TestStatusChecker_validateSchemaStatus(t *testing.T) {
 			name: "error - query failure when checking schema_log table existence",
 			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, sql string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
 						switch sql {
 						case "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgstream')":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 1)
-								exists, ok := dest[0].(*bool)
-								require.True(t, ok)
-								*exists = true
-								return nil
-							}}
+							require.Len(t, dest, 1)
+							exists, ok := dest[0].(*bool)
+							require.True(t, ok)
+							*exists = true
+							return nil
 						case "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'pgstream' AND table_name = 'schema_log')":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								return errTest
-							}}
+							return errTest
 						default:
-							return &pgmocks.Row{ScanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %v", sql) }}
+							return fmt.Errorf("unexpected query: %v", sql)
 						}
 					},
 				}, nil
@@ -1089,30 +1049,28 @@ func TestStatusChecker_validateReplicationSlotStatus(t *testing.T) {
 			name: "ok - valid replication slot status",
 			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, sql string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
 						switch sql {
 						case "SELECT slot_name, plugin, database FROM pg_replication_slots WHERE slot_name = $1":
 							require.Len(t, args, 1)
 							require.Equal(t, args[0], testReplicationSlot)
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 3)
+							require.Len(t, dest, 3)
 
-								name, ok := dest[0].(*string)
-								require.True(t, ok)
-								*name = testReplicationSlot
+							name, ok := dest[0].(*string)
+							require.True(t, ok)
+							*name = testReplicationSlot
 
-								plugin, ok := dest[1].(*string)
-								require.True(t, ok)
-								*plugin = wal2jsonPlugin
+							plugin, ok := dest[1].(*string)
+							require.True(t, ok)
+							*plugin = wal2jsonPlugin
 
-								db, ok := dest[2].(*string)
-								require.True(t, ok)
-								*db = testDB
+							db, ok := dest[2].(*string)
+							require.True(t, ok)
+							*db = testDB
 
-								return nil
-							}}
+							return nil
 						default:
-							return &pgmocks.Row{ScanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %v", sql) }}
+							return fmt.Errorf("unexpected query: %v", sql)
 						}
 					},
 				}, nil
@@ -1133,14 +1091,12 @@ func TestStatusChecker_validateReplicationSlotStatus(t *testing.T) {
 			name: "ok - replication slot does not exist",
 			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, sql string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
 						switch sql {
 						case "SELECT slot_name, plugin, database FROM pg_replication_slots WHERE slot_name = $1":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								return pglib.ErrNoRows
-							}}
+							return pglib.ErrNoRows
 						default:
-							return &pgmocks.Row{ScanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %v", sql) }}
+							return fmt.Errorf("unexpected query: %v", sql)
 						}
 					},
 				}, nil
@@ -1159,28 +1115,26 @@ func TestStatusChecker_validateReplicationSlotStatus(t *testing.T) {
 			name: "ok - replication slot on wrong database",
 			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, sql string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
 						switch sql {
 						case "SELECT slot_name, plugin, database FROM pg_replication_slots WHERE slot_name = $1":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 3)
+							require.Len(t, dest, 3)
 
-								name, ok := dest[0].(*string)
-								require.True(t, ok)
-								*name = testReplicationSlot
+							name, ok := dest[0].(*string)
+							require.True(t, ok)
+							*name = testReplicationSlot
 
-								plugin, ok := dest[1].(*string)
-								require.True(t, ok)
-								*plugin = wal2jsonPlugin
+							plugin, ok := dest[1].(*string)
+							require.True(t, ok)
+							*plugin = wal2jsonPlugin
 
-								db, ok := dest[2].(*string)
-								require.True(t, ok)
-								*db = "wrong_db"
+							db, ok := dest[2].(*string)
+							require.True(t, ok)
+							*db = "wrong_db"
 
-								return nil
-							}}
+							return nil
 						default:
-							return &pgmocks.Row{ScanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %v", sql) }}
+							return fmt.Errorf("unexpected query: %v", sql)
 						}
 					},
 				}, nil
@@ -1202,28 +1156,26 @@ func TestStatusChecker_validateReplicationSlotStatus(t *testing.T) {
 			name: "ok - replication slot using wrong plugin",
 			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, sql string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
 						switch sql {
 						case "SELECT slot_name, plugin, database FROM pg_replication_slots WHERE slot_name = $1":
-							return &pgmocks.Row{ScanFn: func(dest ...any) error {
-								require.Len(t, dest, 3)
+							require.Len(t, dest, 3)
 
-								name, ok := dest[0].(*string)
-								require.True(t, ok)
-								*name = testReplicationSlot
+							name, ok := dest[0].(*string)
+							require.True(t, ok)
+							*name = testReplicationSlot
 
-								plugin, ok := dest[1].(*string)
-								require.True(t, ok)
-								*plugin = "wrong_plugin"
+							plugin, ok := dest[1].(*string)
+							require.True(t, ok)
+							*plugin = "wrong_plugin"
 
-								db, ok := dest[2].(*string)
-								require.True(t, ok)
-								*db = testDB
+							db, ok := dest[2].(*string)
+							require.True(t, ok)
+							*db = testDB
 
-								return nil
-							}}
+							return nil
 						default:
-							return &pgmocks.Row{ScanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %v", sql) }}
+							return fmt.Errorf("unexpected query: %v", sql)
 						}
 					},
 				}, nil
@@ -1245,10 +1197,8 @@ func TestStatusChecker_validateReplicationSlotStatus(t *testing.T) {
 			name: "error - query failure",
 			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, sql string, args ...any) pglib.Row {
-						return &pgmocks.Row{ScanFn: func(dest ...any) error {
-							return errTest
-						}}
+					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
+						return errTest
 					},
 				}, nil
 			},

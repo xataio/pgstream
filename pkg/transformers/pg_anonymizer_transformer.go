@@ -373,7 +373,7 @@ func (t *PGAnonymizerTransformer) Transform(ctx context.Context, value Value) (a
 	query, args := t.buildParameterizedQuery(value.TransformValue, value.TransformType)
 
 	var transformedValue any
-	err := t.conn.QueryRow(ctx, query, args...).Scan(&transformedValue)
+	err := t.conn.QueryRow(ctx, []any{&transformedValue}, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("pg_anonymizer_transformer: failed to call anonymizer function %s: %w", t.anonFn, err)
 	}
