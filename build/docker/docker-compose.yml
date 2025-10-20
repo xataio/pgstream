@@ -54,7 +54,7 @@ services:
       - pgstream-net
 
   opensearch:
-    image: "opensearchproject/opensearch:3.2.0"
+    image: "opensearchproject/opensearch:3.3.0"
     environment:
       - cluster.name=opensearch-cluster-pgstream
       - node.name=opensearch-node-pgstream
