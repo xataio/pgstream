@@ -28,6 +28,8 @@ func NewConnPool(ctx context.Context, url string) (*Pool, error) {
 	pgCfg.MaxConns = maxConns
 	pgCfg.AfterConnect = registerTypesToConnMap
 
+	configureTCPKeepalive(pgCfg.ConnConfig)
+
 	pool, err := pgxpool.NewWithConfig(ctx, pgCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create a postgres connection pool: %w", mapError(err))
