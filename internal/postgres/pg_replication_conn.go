@@ -43,6 +43,8 @@ func NewReplicationConn(ctx context.Context, url string) (*ReplicationConn, erro
 
 	pgCfg.RuntimeParams["replication"] = "database"
 
+	configureTCPKeepalive(pgCfg)
+
 	conn, err := pgconn.ConnectConfig(context.Background(), &pgCfg.Config)
 	if err != nil {
 		return nil, fmt.Errorf("create postgres replication client: %w", mapError(err))
