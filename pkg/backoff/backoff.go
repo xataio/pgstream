@@ -65,9 +65,9 @@ func NewProvider(cfg *Config) Provider {
 }
 
 func NewExponentialBackoff(ctx context.Context, cfg *ExponentialConfig) *ExponentialBackoff {
-	exp := backoff.NewExponentialBackOff()
-	exp.InitialInterval = cfg.InitialInterval
-	exp.MaxElapsedTime = cfg.MaxInterval
+	exp := backoff.NewExponentialBackOff(
+		backoff.WithInitialInterval(cfg.InitialInterval),
+		backoff.WithMaxElapsedTime(cfg.MaxInterval))
 
 	var bo backoff.BackOff = exp
 	if cfg.MaxRetries > 0 {
@@ -140,4 +140,8 @@ func retryNotify(b backoff.BackOff, op Operation, notify Notify) error {
 		return err
 	}
 	return backoff.RetryNotify(boOp, b, backoff.Notify(notify))
+}
+
+func (c *Config) IsSet() bool {
+	return c != nil && (c.Exponential != nil || c.Constant != nil)
 }

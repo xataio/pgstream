@@ -16,6 +16,7 @@ type Handler interface {
 	SyncLSN(ctx context.Context, lsn LSN) error
 	GetReplicationLag(ctx context.Context) (int64, error)
 	GetCurrentLSN(ctx context.Context) (LSN, error)
+	ResetConnection(ctx context.Context) error
 	GetLSNParser() LSNParser
 	Close() error
 }

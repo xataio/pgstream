@@ -19,22 +19,15 @@ type Handler struct {
 	logger    loglib.Logger
 	logFields loglib.Fields
 
-	pgReplicationConn     pgReplicationConn
-	pgReplicationSlotName string
-	pgConnBuilder         func() (pglib.Querier, error)
+	pgReplicationConn        pglib.ReplicationQuerier
+	pgReplicationSlotName    string
+	pgReplicationConnBuilder func() (pglib.ReplicationQuerier, error)
+	pgConnBuilder            func() (pglib.Querier, error)
 
 	excludedTables pglib.SchemaTableMap
 	includedTables pglib.SchemaTableMap
 
 	lsnParser replication.LSNParser
-}
-
-type pgReplicationConn interface {
-	IdentifySystem(ctx context.Context) (pglib.IdentifySystemResult, error)
-	StartReplication(ctx context.Context, cfg pglib.ReplicationConfig) error
-	SendStandbyStatusUpdate(ctx context.Context, lsn uint64) error
-	ReceiveMessage(ctx context.Context) (*pglib.ReplicationMessage, error)
-	Close(ctx context.Context) error
 }
 
 type Config struct {
@@ -69,10 +62,6 @@ var pluginArguments = []string{
 
 // NewHandler returns a new postgres replication handler for the database on input.
 func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, error) {
-	connBuilder := func() (pglib.Querier, error) {
-		return pglib.NewConn(ctx, cfg.PostgresURL)
-	}
-
 	pgReplicationConn, err := pglib.NewReplicationConn(ctx, cfg.PostgresURL)
 	if err != nil {
 		return nil, err
@@ -88,12 +77,20 @@ func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, erro
 		replicationSlotName = pglib.DefaultReplicationSlotName(sysID.DBName)
 	}
 
+	connBuilder := func() (pglib.Querier, error) {
+		return pglib.NewConn(ctx, cfg.PostgresURL)
+	}
+	replicationConnBuilder := func() (pglib.ReplicationQuerier, error) {
+		return pglib.NewReplicationConn(ctx, cfg.PostgresURL)
+	}
+
 	h := &Handler{
-		logger:                loglib.NewNoopLogger(),
-		pgReplicationConn:     pgReplicationConn,
-		pgReplicationSlotName: replicationSlotName,
-		pgConnBuilder:         connBuilder,
-		lsnParser:             &LSNParser{},
+		logger:                   loglib.NewNoopLogger(),
+		pgReplicationConn:        pgReplicationConn,
+		pgReplicationSlotName:    replicationSlotName,
+		pgConnBuilder:            connBuilder,
+		pgReplicationConnBuilder: replicationConnBuilder,
+		lsnParser:                &LSNParser{},
 		logFields: loglib.Fields{
 			logSystemID:    sysID.SystemID,
 			logDBName:      sysID.DBName,
@@ -173,9 +170,8 @@ func (h *Handler) StartReplication(ctx context.Context) error {
 // StartReplicationFromLSN will start the replication process on the configured
 // replication slot from the LSN on input.
 func (h *Handler) StartReplicationFromLSN(ctx context.Context, lsn replication.LSN) error {
-	h.logger.Trace("set start LSN", h.logFields, loglib.Fields{
-		logLSNPosition: h.lsnParser.ToString(lsn),
-	})
+	h.logFields[logLSNPosition] = h.lsnParser.ToString(lsn)
+	h.logger.Trace("set start LSN", h.logFields)
 
 	err := h.pgReplicationConn.StartReplication(
 		ctx, pglib.ReplicationConfig{
@@ -202,7 +198,7 @@ func (h *Handler) ReceiveMessage(ctx context.Context) (*replication.Message, err
 			// ignore errors for excluded tables
 			return nil, nil
 		default:
-			h.logger.Error(err, "receiving message")
+			h.logger.Error(err, "receiving postgres message")
 			return nil, h.mapPostgresError(err)
 		}
 	}
@@ -261,6 +257,19 @@ func (h *Handler) GetCurrentLSN(ctx context.Context) (replication.LSN, error) {
 	return h.lsnParser.FromString(currentLSN)
 }
 
+func (h *Handler) ResetConnection(ctx context.Context) error {
+	conn, err := h.pgReplicationConnBuilder()
+	if err != nil {
+		return err
+	}
+	if h.pgReplicationConn != nil {
+		h.pgReplicationConn.Close(ctx)
+	}
+	h.pgReplicationConn = conn
+
+	return h.StartReplication(ctx)
+}
+
 // GetLSNParser returns a postgres implementation of the LSN parser.
 func (h *Handler) GetLSNParser() replication.LSNParser {
 	return h.lsnParser
@@ -313,7 +322,7 @@ func (h *Handler) verifyReplicationSlotExists(ctx context.Context) error {
 		return fmt.Errorf("retrieving replication slot: %w", err)
 	}
 	if !slotExists {
-		return fmt.Errorf("replication slot %s does not exist", h.pgReplicationSlotName)
+		return fmt.Errorf("replication slot %q does not exist", h.pgReplicationSlotName)
 	}
 	return nil
 }

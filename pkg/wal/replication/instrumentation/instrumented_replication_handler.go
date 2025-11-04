@@ -75,6 +75,10 @@ func (h *Handler) GetLSNParser() replication.LSNParser {
 	return h.inner.GetLSNParser()
 }
 
+func (h *Handler) ResetConnection(ctx context.Context) error {
+	return h.inner.ResetConnection(ctx)
+}
+
 func (h *Handler) Close() error {
 	return h.inner.Close()
 }

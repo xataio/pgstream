@@ -28,6 +28,11 @@ source:
           excluded_security_labels: ["anon"] # list of providers whose security labels will be excluded from the snapshot. Wildcard supported.
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
+    retry_policy:
+      exponential:
+        max_retries: 5 # maximum number of retries
+        initial_interval: 1000 # initial interval in milliseconds
+        max_interval: 60000 # maximum interval in milliseconds
   kafka:
     servers: ["localhost:9092"]
     topic:
