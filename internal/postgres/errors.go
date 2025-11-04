@@ -66,7 +66,7 @@ func (e *ErrRelationAlreadyExists) Error() string {
 
 func mapError(err error) error {
 	if pgconn.Timeout(err) {
-		return ErrConnTimeout
+		return fmt.Errorf("%w: %w", ErrConnTimeout, err)
 	}
 
 	if errors.Is(err, pgx.ErrNoRows) {
