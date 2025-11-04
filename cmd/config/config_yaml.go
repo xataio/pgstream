@@ -69,6 +69,7 @@ type PostgresConfig struct {
 	Mode        string             `mapstructure:"mode" yaml:"mode"`
 	Snapshot    *SnapshotConfig    `mapstructure:"snapshot" yaml:"snapshot"`
 	Replication *ReplicationConfig `mapstructure:"replication" yaml:"replication"`
+	RetryPolicy BackoffConfig      `mapstructure:"retry_policy" yaml:"retry_policy"`
 }
 
 type SnapshotConfig struct {
@@ -408,7 +409,8 @@ func (c *YAMLConfig) parsePostgresListenerConfig() (*stream.PostgresListenerConf
 	}
 
 	streamCfg := &stream.PostgresListenerConfig{
-		URL: c.Source.Postgres.URL,
+		URL:         c.Source.Postgres.URL,
+		RetryPolicy: c.Source.Postgres.RetryPolicy.parseBackoffConfig(),
 	}
 
 	if c.Source.Postgres.Mode == replicationMode || c.Source.Postgres.Mode == snapshotAndReplicationMode {

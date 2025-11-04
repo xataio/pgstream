@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
@@ -35,6 +36,7 @@ type ListenerConfig struct {
 type PostgresListenerConfig struct {
 	URL         string
 	Replication pgreplication.Config
+	RetryPolicy backoff.Config
 	Snapshot    *snapshotbuilder.SnapshotListenerConfig
 }
 

@@ -44,6 +44,13 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 					IncludeTables:       []string{"test", "test_schema.test", "another_schema.*"},
 					ExcludeTables:       []string{"excluded_test", "excluded_schema.test", "another_excluded_schema.*"},
 				},
+				RetryPolicy: backoff.Config{
+					Exponential: &backoff.ExponentialConfig{
+						MaxRetries:      5,
+						InitialInterval: time.Second,
+						MaxInterval:     60 * time.Second,
+					},
+				},
 				Snapshot: &builder.SnapshotListenerConfig{
 					Adapter: adapter.SnapshotConfig{
 						Tables:         []string{"test", "test_schema.Test", "another_schema.*"},

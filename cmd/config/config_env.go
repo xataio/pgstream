@@ -39,6 +39,11 @@ func init() {
 	viper.BindEnv("PGSTREAM_TRACES_SAMPLE_RATIO")
 
 	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_URL")
+	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_EXP_BACKOFF_INITIAL_INTERVAL")
+	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_EXP_BACKOFF_MAX_INTERVAL")
+	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_EXP_BACKOFF_MAX_RETRIES")
+	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_BACKOFF_INTERVAL")
+	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_BACKOFF_MAX_RETRIES")
 	viper.BindEnv("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME")
 
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES")
@@ -194,6 +199,7 @@ func parsePostgresListenerConfig() (*stream.PostgresListenerConfig, error) {
 			PostgresURL:         pgURL,
 			ReplicationSlotName: viper.GetString("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME"),
 		},
+		RetryPolicy: parseBackoffConfig("PGSTREAM_POSTGRES_LISTENER"),
 	}
 
 	if filterConfig := parseFilterConfig(); filterConfig != nil {
