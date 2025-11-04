@@ -22,6 +22,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/replication"
 	replicationinstrumentation "github.com/xataio/pgstream/pkg/wal/replication/instrumentation"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
+	replicationretrier "github.com/xataio/pgstream/pkg/wal/replication/retrier"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -50,6 +51,11 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 			return fmt.Errorf("error setting up postgres replication handler: %w", err)
 		}
 		defer replicationHandler.Close()
+		// add retry layer to the replication handler
+		replicationHandler = replicationretrier.NewHandler(
+			replicationHandler,
+			config.Listener.Postgres.RetryPolicy,
+			replicationretrier.WithLogger(logger))
 	}
 
 	if replicationHandler != nil && instrumentation.IsEnabled() {
