@@ -19,6 +19,8 @@ func NewConn(ctx context.Context, url string) (*Conn, error) {
 		return nil, fmt.Errorf("failed parsing postgres connection string: %w", mapError(err))
 	}
 
+	configureTCPKeepalive(pgCfg)
+
 	conn, err := pgx.ConnectConfig(ctx, pgCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to postgres: %w", mapError(err))
