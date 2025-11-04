@@ -1091,7 +1091,7 @@ transformations:
       table: customers
       column_transformers:
         email:
-          name: at_email
+          name: email
           parameters:
             exclude_domain: "example.com"
             salt: "helloworld"
