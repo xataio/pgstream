@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -226,4 +228,46 @@ func escapeConnectionURL(rawURL string) (string, error) {
 	encodedPassword := url.QueryEscape(password)
 
 	return fmt.Sprintf("%s%s:%s@%s", scheme, username, encodedPassword, hostAndPath), nil
+}
+
+// configureTCPKeepalive configures TCP keepalive and connection timeout settings
+// on a pgx.ConnConfig to prevent connections from hanging indefinitely.
+//
+// TCP Keepalive Settings:
+// - Enable: true - TCP keepalive probes are enabled
+// - Idle: 15s (default) - Time before sending first keepalive probe after connection becomes idle
+// - Interval: 15s (default) - Time between keepalive probes
+// - Count: 9 (default) - Number of unanswered probes before dropping connection
+// - Total detection time: ~150 seconds (15s idle + 15s interval × 9 probes) after connection becomes idle
+//
+// Connection Timeouts:
+// - ConnectTimeout: 90s - Maximum time to establish initial connection (allows time for branch wake-up)
+// - DialTimeout: 90s - Maximum time for TCP dial operation
+//
+// These settings ensure that hung connections are detected and errors are raised
+// within a reasonable timeframe (~2.5 minutes), rather than hanging indefinitely.
+func configureTCPKeepalive(cfg *pgx.ConnConfig) {
+	cfg.ConnectTimeout = 90 * time.Second
+
+	cfg.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		d := &net.Dialer{
+			Timeout: 90 * time.Second, // Timeout for establishing connection (allows for branch wake-up)
+			// KeepAliveConfig uses Go defaults:
+			// - Idle: 15s, Interval: 15s, Count: 9
+			// This gives ~150s detection time for broken connections
+			KeepAliveConfig: net.KeepAliveConfig{
+				Enable:   true,
+				Idle:     15 * time.Second,
+				Interval: 15 * time.Second,
+				Count:    9,
+			},
+		}
+
+		conn, err := d.DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+
+		return conn, nil
+	}
 }
