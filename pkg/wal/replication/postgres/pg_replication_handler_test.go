@@ -20,7 +20,7 @@ func TestHandler_StartReplication(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		replicationConn pgReplicationConn
+		replicationConn pglib.ReplicationQuerier
 		connBuilder     func() (pglib.Querier, error)
 		slotName        string
 
@@ -267,6 +267,7 @@ func TestHandler_StartReplication(t *testing.T) {
 				pgConnBuilder:         tc.connBuilder,
 				pgReplicationSlotName: tc.slotName,
 				lsnParser:             NewLSNParser(),
+				logFields:             log.Fields{},
 			}
 
 			err := h.StartReplication(context.Background())
@@ -282,7 +283,7 @@ func TestHandler_ReceiveMessage(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		replicationConn pgReplicationConn
+		replicationConn pglib.ReplicationQuerier
 		includeTables   []string
 		excludeTables   []string
 
@@ -579,7 +580,7 @@ func TestHandler_verifyReplicationSlotExists(t *testing.T) {
 				}, nil
 			},
 			slotExists: false,
-			wantErr:    fmt.Errorf("replication slot %s does not exist", testSlot),
+			wantErr:    fmt.Errorf("replication slot %q does not exist", testSlot),
 		},
 		{
 			name: "error - building connection",

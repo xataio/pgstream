@@ -14,6 +14,14 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 )
 
+type ReplicationQuerier interface {
+	IdentifySystem(ctx context.Context) (IdentifySystemResult, error)
+	StartReplication(ctx context.Context, cfg ReplicationConfig) error
+	SendStandbyStatusUpdate(ctx context.Context, lsn uint64) error
+	ReceiveMessage(ctx context.Context) (*ReplicationMessage, error)
+	Close(ctx context.Context) error
+}
+
 type ReplicationConn struct {
 	conn *pgconn.PgConn
 }
