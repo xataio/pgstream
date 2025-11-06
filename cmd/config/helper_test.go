@@ -132,6 +132,14 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 					SchemaLogStore: schemalogpg.Config{
 						URL: "postgresql://user:password@localhost:5432/mydatabase",
 					},
+					RetryPolicy: backoff.Config{
+						DisableRetries: true,
+						Exponential: &backoff.ExponentialConfig{
+							MaxRetries:      5,
+							InitialInterval: time.Second,
+							MaxInterval:     60 * time.Second,
+						},
+					},
 				},
 			},
 			Kafka: &stream.KafkaProcessorConfig{

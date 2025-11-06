@@ -3,6 +3,9 @@
 package postgres
 
 import (
+	"time"
+
+	"github.com/xataio/pgstream/pkg/backoff"
 	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 )
@@ -14,4 +17,22 @@ type Config struct {
 	DisableTriggers   bool
 	OnConflictAction  string
 	BulkIngestEnabled bool
+	RetryPolicy       backoff.Config
+}
+
+const (
+	defaultInitialInterval = 500 * time.Millisecond
+	defaultMaxInterval     = 30 * time.Second
+)
+
+func (c *Config) retryPolicy() backoff.Config {
+	if c.RetryPolicy.IsSet() {
+		return c.RetryPolicy
+	}
+	return backoff.Config{
+		Exponential: &backoff.ExponentialConfig{
+			InitialInterval: defaultInitialInterval,
+			MaxInterval:     defaultMaxInterval,
+		},
+	}
 }

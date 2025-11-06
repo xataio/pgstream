@@ -67,6 +67,12 @@ target:
     schema_log_store_url: "postgresql://user:password@localhost:5432/mydatabase"
     bulk_ingest:
       enabled: true # whether to use bulk ingest for the target database
+    retry_policy:
+      disable_retries: true 
+      exponential:
+        max_retries: 5 # maximum number of retries
+        initial_interval: 1000 # initial interval in milliseconds
+        max_interval: 60000 # maximum interval in milliseconds
   kafka:
     servers: ["localhost:9092"]
     topic:

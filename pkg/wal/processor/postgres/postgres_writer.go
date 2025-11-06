@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	pglibretrier "github.com/xataio/pgstream/internal/postgres/retrier"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
@@ -30,14 +31,8 @@ type queryBatchSender interface {
 type WriterOption func(*Writer)
 
 func newWriter(ctx context.Context, config *Config, adapter walAdapter, writerType string, opts ...WriterOption) (*Writer, error) {
-	pgConn, err := pglib.NewConnPool(ctx, config.URL)
-	if err != nil {
-		return nil, err
-	}
-
 	w := &Writer{
 		logger:          loglib.NewNoopLogger(),
-		pgConn:          pgConn,
 		adapter:         adapter,
 		writerType:      writerType,
 		disableTriggers: config.DisableTriggers,
@@ -45,6 +40,20 @@ func newWriter(ctx context.Context, config *Config, adapter walAdapter, writerTy
 
 	for _, opt := range opts {
 		opt(w)
+	}
+
+	var err error
+	if config.RetryPolicy.DisableRetries {
+		w.pgConn, err = pglib.NewConnPool(ctx, config.URL)
+	} else {
+		// unless retries are disabled, wrap the Postgres querier with a retrier
+		// and apply default retry policy if none is set
+		w.pgConn, err = pglibretrier.NewQuerier(ctx, config.retryPolicy(), func(ctx context.Context) (pglib.Querier, error) {
+			return pglib.NewConnPool(ctx, config.URL)
+		}, w.logger)
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	return w, nil
