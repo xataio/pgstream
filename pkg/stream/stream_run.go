@@ -51,11 +51,15 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 			return fmt.Errorf("error setting up postgres replication handler: %w", err)
 		}
 		defer replicationHandler.Close()
-		// add retry layer to the replication handler
-		replicationHandler = replicationretrier.NewHandler(
-			replicationHandler,
-			config.Listener.Postgres.RetryPolicy,
-			replicationretrier.WithLogger(logger))
+		// if retries are not explicitly disabled, wrap the replication handler
+		// with a retrier, which will apply default retry policy if none is set
+		if !config.Listener.Postgres.RetryPolicy.DisableRetries {
+			// add retry layer to the replication handler
+			replicationHandler = replicationretrier.NewHandler(
+				replicationHandler,
+				config.Listener.Postgres.RetryPolicy,
+				replicationretrier.WithLogger(logger))
+		}
 	}
 
 	if replicationHandler != nil && instrumentation.IsEnabled() {
