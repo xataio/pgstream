@@ -59,66 +59,23 @@ func (h *HandlerRetrier) StartReplicationFromLSN(ctx context.Context, lsn replic
 }
 
 func (h *HandlerRetrier) ReceiveMessage(ctx context.Context) (*replication.Message, error) {
-	msg, err := h.inner.ReceiveMessage(ctx)
-	if err == nil || !h.isRetriableError(err) {
-		return msg, err
+	var msg *replication.Message
+	var err error
+	op := func() error {
+		msg, err = h.inner.ReceiveMessage(ctx)
+		return err
 	}
 
-	// only initialise the backoff in case of error
-	bo := h.backoffProvider(ctx)
-	err = bo.RetryNotify(func() error {
-		var err error
-		msg, err = h.inner.ReceiveMessage(ctx)
-		if err == nil {
-			return nil
-		}
-
-		if !h.isRetriableError(err) {
-			return fmt.Errorf("%w: %w", err, backoff.ErrPermanent)
-		}
-
-		if resetErr := h.inner.ResetConnection(ctx); resetErr != nil {
-			h.logger.Error(resetErr, "resetting connection during receive message retry")
-			return err
-		}
-
-		return err
-	}, func(err error, d time.Duration) {
-		h.logger.Warn(err, fmt.Sprintf("replication handler receive message failed, retrying in %s", d))
-	})
-
-	return msg, err
+	if err := h.withRetry(ctx, op); err != nil {
+		return nil, err
+	}
+	return msg, nil
 }
 
 func (h *HandlerRetrier) SyncLSN(ctx context.Context, lsn replication.LSN) error {
-	err := h.inner.SyncLSN(ctx, lsn)
-	if err == nil || !h.isRetriableError(err) {
-		return err
-	}
-
-	// initialise the backoff only in case of error
-	bo := h.backoffProvider(ctx)
-	err = bo.RetryNotify(func() error {
-		err = h.inner.SyncLSN(ctx, lsn)
-		if err == nil {
-			return nil
-		}
-
-		if !h.isRetriableError(err) {
-			return fmt.Errorf("%w: %w", err, backoff.ErrPermanent)
-		}
-
-		if resetErr := h.inner.ResetConnection(ctx); resetErr != nil {
-			h.logger.Error(resetErr, "resetting connection during sync lsn retry")
-			return err
-		}
-
-		return err
-	}, func(err error, d time.Duration) {
-		h.logger.Warn(err, fmt.Sprintf("replication handler sync lsn failed, retrying in %s", d))
+	return h.withRetry(ctx, func() error {
+		return h.inner.SyncLSN(ctx, lsn)
 	})
-
-	return err
 }
 
 func (h *HandlerRetrier) GetReplicationLag(ctx context.Context) (int64, error) {
@@ -139,6 +96,40 @@ func (h *HandlerRetrier) GetLSNParser() replication.LSNParser {
 
 func (h *HandlerRetrier) Close() error {
 	return h.inner.Close()
+}
+
+func (h *HandlerRetrier) withRetry(ctx context.Context, operation func() error) error {
+	err := operation()
+	if err == nil || !h.isRetriableError(err) {
+		return err
+	}
+
+	bo := h.backoffProvider(ctx)
+	err = bo.RetryNotify(func() error {
+		err = operation()
+		if err == nil {
+			return nil
+		}
+
+		if !h.isRetriableError(err) {
+			return fmt.Errorf("%w: %w", err, backoff.ErrPermanent)
+		}
+
+		if connErr := h.inner.ResetConnection(ctx); connErr != nil {
+			return fmt.Errorf("unable to reset connection: %w", connErr)
+		}
+
+		return err
+	}, func(err error, d time.Duration) {
+		h.logger.Warn(err, "retrying replication handler operation after error", loglib.Fields{
+			"retry_delay": d.String(),
+		})
+	})
+
+	if err == nil {
+		h.logger.Info("retried replication handler operation succeeded")
+	}
+	return err
 }
 
 func (h *HandlerRetrier) isRetriableError(err error) bool {

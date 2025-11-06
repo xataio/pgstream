@@ -20,6 +20,7 @@ func TestHandlerRetrier_ReceiveMessage(t *testing.T) {
 
 	retriableErr := errors.New("retriable error")
 	nonRetriableErr := context.Canceled
+	resetConnErr := errors.New("reset connection error")
 
 	tests := []struct {
 		name       string
@@ -99,13 +100,13 @@ func TestHandlerRetrier_ReceiveMessage(t *testing.T) {
 					return nil, retriableErr
 				},
 				ResetConnectionFn: func(ctx context.Context) error {
-					return errors.New("reset connection error")
+					return resetConnErr
 				},
 			},
 			boProvider: newMockBackoffProvider(),
 
 			wantMsg: nil,
-			wantErr: retriableErr,
+			wantErr: resetConnErr,
 		},
 	}
 
@@ -131,6 +132,8 @@ func TestHandlerRetrier_SyncLSN(t *testing.T) {
 
 	retriableErr := errors.New("retriable error")
 	nonRetriableErr := context.Canceled
+	resetConnErr := errors.New("reset connection error")
+
 	testLSN := replication.LSN(12345)
 
 	tests := []struct {
@@ -203,13 +206,13 @@ func TestHandlerRetrier_SyncLSN(t *testing.T) {
 					return retriableErr
 				},
 				ResetConnectionFn: func(ctx context.Context) error {
-					return errors.New("reset connection error")
+					return resetConnErr
 				},
 			},
 			boProvider: newMockBackoffProvider(),
 			lsn:        testLSN,
 
-			wantErr: retriableErr,
+			wantErr: resetConnErr,
 		},
 		{
 			name: "non-retriable error no retry",
