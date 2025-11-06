@@ -62,6 +62,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 						SchemaWorkers:   4,
 						TableWorkers:    4,
 						BatchBytes:      83886080,
+						MaxConnections:  20,
 					},
 					Schema: builder.SchemaSnapshotConfig{
 						DumpRestore: &pgdumprestore.Config{
