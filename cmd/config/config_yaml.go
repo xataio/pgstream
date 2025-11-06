@@ -142,8 +142,9 @@ type TLSConfig struct {
 }
 
 type BackoffConfig struct {
-	Exponential *ExponentialBackoffConfig `mapstructure:"exponential" yaml:"exponential"`
-	Constant    *ConstantBackoffConfig    `mapstructure:"constant" yaml:"constant"`
+	DisableRetries bool                      `mapstructure:"disable_retries" yaml:"disable_retries"`
+	Exponential    *ExponentialBackoffConfig `mapstructure:"exponential" yaml:"exponential"`
+	Constant       *ConstantBackoffConfig    `mapstructure:"constant" yaml:"constant"`
 }
 
 type ExponentialBackoffConfig struct {
@@ -809,8 +810,9 @@ func (t *TLSConfig) parseTLSConfig() tls.Config {
 
 func (bo *BackoffConfig) parseBackoffConfig() backoff.Config {
 	return backoff.Config{
-		Exponential: bo.parseExponentialBackoffConfig(),
-		Constant:    bo.parseConstantBackoffConfig(),
+		DisableRetries: bo.DisableRetries,
+		Exponential:    bo.parseExponentialBackoffConfig(),
+		Constant:       bo.parseConstantBackoffConfig(),
 	}
 }
 

@@ -21,8 +21,9 @@ type (
 )
 
 type Config struct {
-	Exponential *ExponentialConfig
-	Constant    *ConstantConfig
+	DisableRetries bool
+	Exponential    *ExponentialConfig
+	Constant       *ConstantConfig
 }
 
 type ExponentialConfig struct {
@@ -143,5 +144,5 @@ func retryNotify(b backoff.BackOff, op Operation, notify Notify) error {
 }
 
 func (c *Config) IsSet() bool {
-	return c != nil && (c.Exponential != nil || c.Constant != nil)
+	return c != nil && !c.DisableRetries && (c.Exponential != nil || c.Constant != nil)
 }

@@ -44,6 +44,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_EXP_BACKOFF_MAX_RETRIES")
 	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_BACKOFF_INTERVAL")
 	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_BACKOFF_MAX_RETRIES")
+	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_DISABLE_RETRIES")
 	viper.BindEnv("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME")
 
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES")
@@ -87,6 +88,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_KAFKA_COMMIT_EXP_BACKOFF_MAX_RETRIES")
 	viper.BindEnv("PGSTREAM_KAFKA_COMMIT_BACKOFF_INTERVAL")
 	viper.BindEnv("PGSTREAM_KAFKA_COMMIT_BACKOFF_MAX_RETRIES")
+	viper.BindEnv("PGSTREAM_KAFKA_COMMIT_DISABLE_RETRIES")
 	viper.BindEnv("PGSTREAM_KAFKA_TOPIC_PARTITIONS")
 	viper.BindEnv("PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR")
 	viper.BindEnv("PGSTREAM_KAFKA_TOPIC_AUTO_CREATE")
@@ -108,6 +110,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_RETRIES")
 	viper.BindEnv("PGSTREAM_SEARCH_STORE_BACKOFF_INTERVAL")
 	viper.BindEnv("PGSTREAM_SEARCH_STORE_BACKOFF_MAX_RETRIES")
+	viper.BindEnv("PGSTREAM_SEARCH_STORE_DISABLE_RETRIES")
 
 	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_URL")
 	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_ENABLED")
@@ -457,8 +460,9 @@ func parsePostgresProcessorConfig() *stream.PostgresProcessorConfig {
 
 func parseBackoffConfig(prefix string) backoff.Config {
 	return backoff.Config{
-		Exponential: parseExponentialBackoffConfig(prefix),
-		Constant:    parseConstantBackoffConfig(prefix),
+		DisableRetries: viper.GetBool(fmt.Sprintf("%s_DISABLE_RETRIES", prefix)),
+		Exponential:    parseExponentialBackoffConfig(prefix),
+		Constant:       parseConstantBackoffConfig(prefix),
 	}
 }
 
