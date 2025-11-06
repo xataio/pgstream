@@ -14,9 +14,11 @@ type Pool struct {
 	*pgxpool.Pool
 }
 
+type PoolOption func(*pgxpool.Config)
+
 const maxConns = 50
 
-func NewConnPool(ctx context.Context, url string) (*Pool, error) {
+func NewConnPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error) {
 	escapedURL, err := escapeConnectionURL(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to escape connection URL: %w", err)
@@ -30,12 +32,22 @@ func NewConnPool(ctx context.Context, url string) (*Pool, error) {
 
 	configureTCPKeepalive(pgCfg.ConnConfig)
 
+	for _, opt := range opts {
+		opt(pgCfg)
+	}
+
 	pool, err := pgxpool.NewWithConfig(ctx, pgCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create a postgres connection pool: %w", mapError(err))
 	}
 
 	return &Pool{Pool: pool}, nil
+}
+
+func WithMaxConnections(maxConns int32) PoolOption {
+	return func(cfg *pgxpool.Config) {
+		cfg.MaxConns = maxConns
+	}
 }
 
 func (c *Pool) QueryRow(ctx context.Context, query string, args ...any) Row {
