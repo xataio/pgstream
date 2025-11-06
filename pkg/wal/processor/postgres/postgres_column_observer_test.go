@@ -139,7 +139,7 @@ func TestPGColumnObserver_getGeneratedColumnNames(t *testing.T) {
 
 			o := &pgColumnObserver{
 				pgConn:                tc.pgConn,
-				generatedTableColumns: synclib.NewStringMapFromMap(tc.tableColumns),
+				generatedTableColumns: synclib.NewMapFromMap(tc.tableColumns),
 			}
 
 			colNames, err := o.getGeneratedColumnNames(context.TODO(), "test_schema", "test_table")

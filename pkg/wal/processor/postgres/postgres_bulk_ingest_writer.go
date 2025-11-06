@@ -22,7 +22,7 @@ import (
 type BulkIngestWriter struct {
 	*Writer
 
-	batchSenderMap     *synclib.StringMap[queryBatchSender]
+	batchSenderMap     *synclib.Map[string, queryBatchSender]
 	batchSenderBuilder func(ctx context.Context) (queryBatchSender, error)
 }
 
@@ -48,7 +48,7 @@ func NewBulkIngestWriter(ctx context.Context, config *Config, opts ...WriterOpti
 
 	biw := &BulkIngestWriter{
 		Writer:         w,
-		batchSenderMap: synclib.NewStringMap[queryBatchSender](),
+		batchSenderMap: synclib.NewMap[string, queryBatchSender](),
 	}
 
 	biw.batchSenderBuilder = func(ctx context.Context) (queryBatchSender, error) {
