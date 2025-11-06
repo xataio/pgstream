@@ -47,7 +47,7 @@ source:
       client_cert: "/path/to/client.crt" # path to client certificate
       client_key: "/path/to/client.key" # path to client key
     backoff:
-      disable_retries: true 
+      disable_retries: true
       exponential:
         max_retries: 5 # maximum number of retries
         initial_interval: 1000 # initial interval in milliseconds
@@ -68,7 +68,7 @@ target:
     bulk_ingest:
       enabled: true # whether to use bulk ingest for the target database
     retry_policy:
-      disable_retries: true 
+      disable_retries: true
       exponential:
         max_retries: 5 # maximum number of retries
         initial_interval: 1000 # initial interval in milliseconds
@@ -100,7 +100,7 @@ target:
       max_queue_bytes: 204800 # max size of memory guard queue in bytes (100MiB)
       ignore_send_errors: true # whether to ignore errors when sending a batch
     backoff:
-      disable_retries: true 
+      disable_retries: true
       exponential:
         max_retries: 5 # maximum number of retries
         initial_interval: 1000 # initial interval in milliseconds
