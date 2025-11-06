@@ -1140,7 +1140,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				batchBytes:       1024 * 1024, // 1MB
 				snapshotWorkers:  1,
 				progressTracking: tc.progressBar != nil,
-				progressBars:     synclib.NewStringMap[progress.Bar](),
+				progressBars:     synclib.NewMap[string, progress.Bar](),
 				progressBarBuilder: func(totalBytes int64, description string) progress.Bar {
 					return tc.progressBar
 				},
@@ -1660,7 +1660,7 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 					},
 				},
 				progressTracking: tc.name == "ok - with progress tracking",
-				progressBars:     synclib.NewStringMap[progress.Bar](),
+				progressBars:     synclib.NewMap[string, progress.Bar](),
 			}
 
 			if sg.progressTracking {

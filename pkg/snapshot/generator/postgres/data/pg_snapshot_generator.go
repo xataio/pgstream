@@ -38,7 +38,7 @@ type SnapshotGenerator struct {
 	tableSnapshotGenerator snapshotTableFn
 
 	progressTracking   bool
-	progressBars       *synclib.StringMap[progress.Bar]
+	progressBars       *synclib.Map[string, progress.Bar]
 	progressBarBuilder func(totalBytes int64, description string) progress.Bar
 }
 
@@ -124,7 +124,7 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 func WithProgressTracking() Option {
 	return func(sg *SnapshotGenerator) {
 		sg.progressTracking = true
-		sg.progressBars = synclib.NewStringMap[progress.Bar]()
+		sg.progressBars = synclib.NewMap[string, progress.Bar]()
 		sg.progressBarBuilder = func(totalBytes int64, description string) progress.Bar {
 			return progress.NewBytesBar(totalBytes, description)
 		}

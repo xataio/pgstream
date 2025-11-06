@@ -190,7 +190,7 @@ func TestBulkIngestWriter_ProcessWALEvent(t *testing.T) {
 					logger:  loglib.NewNoopLogger(),
 					adapter: tc.adapter,
 				},
-				batchSenderMap:     synclib.NewStringMapFromMap(tc.batchSenderMap),
+				batchSenderMap:     synclib.NewMapFromMap(tc.batchSenderMap),
 				batchSenderBuilder: tc.batchSenderBuilder,
 			}
 

@@ -16,7 +16,7 @@ import (
 // DDL event is received through the WAL.
 type pgColumnObserver struct {
 	pgConn                pglib.Querier
-	generatedTableColumns *synclib.StringMap[[]string]
+	generatedTableColumns *synclib.Map[string, []string]
 }
 
 // newPGColumnObserver returns a postgres that checks column names for tables.
@@ -29,7 +29,7 @@ func newPGColumnObserver(ctx context.Context, pgURL string) (*pgColumnObserver, 
 	}
 	return &pgColumnObserver{
 		pgConn:                pgConn,
-		generatedTableColumns: synclib.NewStringMap[[]string](),
+		generatedTableColumns: synclib.NewMap[string, []string](),
 	}, nil
 }
 
