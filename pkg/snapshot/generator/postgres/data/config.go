@@ -18,6 +18,10 @@ type Config struct {
 	// TableWorkers represents the number of concurrent workers per table. Each
 	// worker will process a different page range in parallel. Defaults to 4.
 	TableWorkers uint
+	// MaxConnections represents the maximum number of connections that the
+	// snapshot generator can open to Postgres. This setting is optional.
+	// Defaults to 50
+	MaxConnections uint
 }
 
 const (
@@ -25,6 +29,7 @@ const (
 	defaultSchemaWorkers   = 4
 	defaultSnapshotWorkers = 1
 	defaultBatchBytes      = 80 * 1024 * 1024 // 80 MiB
+	defaultMaxConnections  = 50
 )
 
 func (c *Config) batchBytes() uint64 {
@@ -53,4 +58,11 @@ func (c *Config) snapshotWorkers() uint {
 		return c.SnapshotWorkers
 	}
 	return defaultSnapshotWorkers
+}
+
+func (c *Config) maxConnections() uint {
+	if c.MaxConnections > 0 {
+		return c.MaxConnections
+	}
+	return defaultMaxConnections
 }

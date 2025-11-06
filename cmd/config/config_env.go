@@ -52,6 +52,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_TABLES")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_MAX_CONNECTIONS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG")
@@ -233,6 +234,7 @@ func parseSnapshotConfig(pgURL string) (*snapshotbuilder.SnapshotListenerConfig,
 			SchemaWorkers:   viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS"),
 			TableWorkers:    viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS"),
 			SnapshotWorkers: viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS"),
+			MaxConnections:  viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_MAX_CONNECTIONS"),
 		},
 		Adapter: adapter.SnapshotConfig{
 			Tables:         viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES"),

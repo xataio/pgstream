@@ -74,7 +74,7 @@ type snapshotTableFn func(ctx context.Context, snapshotID string, table *table) 
 type Option func(sg *SnapshotGenerator)
 
 func NewSnapshotGenerator(ctx context.Context, cfg *Config, rowsProcessor snapshot.RowsProcessor, opts ...Option) (*SnapshotGenerator, error) {
-	conn, err := pglib.NewConnPool(ctx, cfg.URL)
+	conn, err := pglib.NewConnPool(ctx, cfg.URL, pglib.WithMaxConnections(int32(cfg.maxConnections())))
 	if err != nil {
 		return nil, err
 	}
