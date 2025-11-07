@@ -48,16 +48,20 @@ func TestHandler_StartReplication(t *testing.T) {
 			},
 			connBuilder: func() (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
 						switch query {
 						case "select restart_lsn from pg_replication_slots where slot_name=$1":
-							return &mockRow{scanFn: func(args ...any) error { return errors.New("restart lsn should not be called") }}
+							return errors.New("restart lsn should not be called")
 						case "select confirmed_flush_lsn from pg_replication_slots where slot_name=$1":
-							return &mockRow{lsn: testLSNStr}
+							require.Len(t, dest, 1)
+							lsn, ok := dest[0].(*string)
+							require.True(t, ok)
+							*lsn = testLSNStr
+							return nil
 						default:
-							return &mockRow{scanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %s", query) }}
+							return fmt.Errorf("unexpected query: %s", query)
 						}
 					},
 					CloseFn: func(ctx context.Context) error { return nil },
@@ -89,16 +93,24 @@ func TestHandler_StartReplication(t *testing.T) {
 			},
 			connBuilder: func() (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
 						switch query {
 						case "select restart_lsn from pg_replication_slots where slot_name=$1":
-							return &mockRow{lsn: testLSNStr}
+							require.Len(t, dest, 1)
+							lsn, ok := dest[0].(*string)
+							require.True(t, ok)
+							*lsn = testLSNStr
+							return nil
 						case "select confirmed_flush_lsn from pg_replication_slots where slot_name=$1":
-							return &mockRow{lsn: "0/0"}
+							require.Len(t, dest, 1)
+							lsn, ok := dest[0].(*string)
+							require.True(t, ok)
+							*lsn = "0/0"
+							return nil
 						default:
-							return &mockRow{scanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %s", query) }}
+							return fmt.Errorf("unexpected query: %s", query)
 						}
 					},
 					CloseFn: func(ctx context.Context) error { return nil },
@@ -137,14 +149,14 @@ func TestHandler_StartReplication(t *testing.T) {
 			},
 			connBuilder: func() (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
 						switch query {
 						case "select confirmed_flush_lsn from pg_replication_slots where slot_name=$1":
-							return &mockRow{scanFn: func(args ...any) error { return errTest }}
+							return errTest
 						default:
-							return &mockRow{scanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %s", query) }}
+							return fmt.Errorf("unexpected query: %s", query)
 						}
 					},
 					CloseFn: func(ctx context.Context) error { return nil },
@@ -166,16 +178,20 @@ func TestHandler_StartReplication(t *testing.T) {
 			},
 			connBuilder: func() (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
 						switch query {
 						case "select restart_lsn from pg_replication_slots where slot_name=$1":
-							return &mockRow{scanFn: func(args ...any) error { return errTest }}
+							return errTest
 						case "select confirmed_flush_lsn from pg_replication_slots where slot_name=$1":
-							return &mockRow{lsn: "0/0"}
+							require.Len(t, dest, 1)
+							lsn, ok := dest[0].(*string)
+							require.True(t, ok)
+							*lsn = "0/0"
+							return nil
 						default:
-							return &mockRow{scanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %s", query) }}
+							return fmt.Errorf("unexpected query: %s", query)
 						}
 					},
 					CloseFn: func(ctx context.Context) error { return nil },
@@ -200,14 +216,18 @@ func TestHandler_StartReplication(t *testing.T) {
 			},
 			connBuilder: func() (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
 						switch query {
 						case "select confirmed_flush_lsn from pg_replication_slots where slot_name=$1":
-							return &mockRow{lsn: testLSNStr}
+							require.Len(t, dest, 1)
+							lsn, ok := dest[0].(*string)
+							require.True(t, ok)
+							*lsn = testLSNStr
+							return nil
 						default:
-							return &mockRow{scanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %s", query) }}
+							return fmt.Errorf("unexpected query: %s", query)
 						}
 					},
 					CloseFn: func(ctx context.Context) error { return nil },
@@ -238,14 +258,18 @@ func TestHandler_StartReplication(t *testing.T) {
 			},
 			connBuilder: func() (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
 						switch query {
 						case "select confirmed_flush_lsn from pg_replication_slots where slot_name=$1":
-							return &mockRow{lsn: testLSNStr}
+							require.Len(t, dest, 1)
+							lsn, ok := dest[0].(*string)
+							require.True(t, ok)
+							*lsn = testLSNStr
+							return nil
 						default:
-							return &mockRow{scanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %s", query) }}
+							return fmt.Errorf("unexpected query: %s", query)
 						}
 					},
 					CloseFn: func(ctx context.Context) error { return nil },
@@ -399,14 +423,18 @@ func TestHandler_GetReplicationLag(t *testing.T) {
 			name: "ok",
 			connBuilder: func() (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
 						switch query {
 						case "SELECT (pg_current_wal_lsn() - confirmed_flush_lsn) FROM pg_replication_slots WHERE slot_name=$1":
-							return &mockRow{lag: testLag}
+							require.Len(t, dest, 1)
+							lag, ok := dest[0].(*int64)
+							require.True(t, ok)
+							*lag = testLag
+							return nil
 						default:
-							return &mockRow{scanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %s", query) }}
+							return fmt.Errorf("unexpected query: %s", query)
 						}
 					},
 					CloseFn: func(ctx context.Context) error { return nil },
@@ -429,8 +457,8 @@ func TestHandler_GetReplicationLag(t *testing.T) {
 			name: "error - getting lag",
 			connBuilder: func() (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-						return &mockRow{scanFn: func(args ...any) error { return errTest }}
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+						return errTest
 					},
 					CloseFn: func(ctx context.Context) error { return nil },
 				}, nil
@@ -473,14 +501,18 @@ func TestHandler_GetCurrentLSN(t *testing.T) {
 			name: "ok",
 			connBuilder: func() (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
 						switch query {
 						case "SELECT confirmed_flush_lsn FROM pg_replication_slots WHERE slot_name=$1":
-							return &mockRow{lsn: testLSNStr}
+							require.Len(t, dest, 1)
+							lsn, ok := dest[0].(*string)
+							require.True(t, ok)
+							*lsn = testLSNStr
+							return nil
 						default:
-							return &mockRow{scanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %s", query) }}
+							return fmt.Errorf("unexpected query: %s", query)
 						}
 					},
 					CloseFn: func(ctx context.Context) error { return nil },
@@ -503,8 +535,8 @@ func TestHandler_GetCurrentLSN(t *testing.T) {
 			name: "error - getting current lsn",
 			connBuilder: func() (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-						return &mockRow{scanFn: func(args ...any) error { return errTest }}
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+						return errTest
 					},
 					CloseFn: func(ctx context.Context) error { return nil },
 				}, nil
@@ -546,14 +578,18 @@ func TestHandler_verifyReplicationSlotExists(t *testing.T) {
 			name: "ok - slot exists",
 			connBuilder: func() (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
 						switch query {
 						case "SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name=$1)":
-							return &mockRow{exists: true}
+							require.Len(t, dest, 1)
+							exists, ok := dest[0].(*bool)
+							require.True(t, ok)
+							*exists = true
+							return nil
 						default:
-							return &mockRow{scanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %s", query) }}
+							return fmt.Errorf("unexpected query: %s", query)
 						}
 					},
 					CloseFn: func(ctx context.Context) error { return nil },
@@ -566,14 +602,18 @@ func TestHandler_verifyReplicationSlotExists(t *testing.T) {
 			name: "error - slot does not exist",
 			connBuilder: func() (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
 						require.Len(t, args, 1)
 						require.Equal(t, args[0], testSlot)
 						switch query {
 						case "SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name=$1)":
-							return &mockRow{exists: false}
+							require.Len(t, dest, 1)
+							exists, ok := dest[0].(*bool)
+							require.True(t, ok)
+							*exists = false
+							return nil
 						default:
-							return &mockRow{scanFn: func(args ...any) error { return fmt.Errorf("unexpected query: %s", query) }}
+							return fmt.Errorf("unexpected query: %s", query)
 						}
 					},
 					CloseFn: func(ctx context.Context) error { return nil },
@@ -594,8 +634,8 @@ func TestHandler_verifyReplicationSlotExists(t *testing.T) {
 			name: "error - query execution",
 			connBuilder: func() (pglib.Querier, error) {
 				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-						return &mockRow{scanFn: func(args ...any) error { return errTest }}
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+						return errTest
 					},
 					CloseFn: func(ctx context.Context) error { return nil },
 				}, nil

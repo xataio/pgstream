@@ -46,7 +46,8 @@ source:
           dump_file: pg_dump.sql # name of the file where the contents of the schema pg_dump command and output will be written for debugging purposes.
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
-    retry_policy: # retry policy for postgres connections, one of exponential or constant.
+    retry_policy: # retry policy for postgres connections, one of exponential or constant or disable_retries
+      disable_retries: false
       exponential:
         initial_interval: 500 # initial interval in milliseconds
         max_interval: 10000 # maximum interval in milliseconds
@@ -65,6 +66,7 @@ source:
       client_cert: "/path/to/client.crt" # path to client certificate
       client_key: "/path/to/client.key" # path to client key
     backoff:
+      disable_retries: false
       exponential:
         max_retries: 5 # maximum number of retries
         initial_interval: 1000 # initial interval in milliseconds
@@ -87,6 +89,14 @@ target:
     on_conflict_action: "nothing" # options are update, nothing or error. Defaults to error
     bulk_ingest:
       enabled: true # whether to enable bulk ingest on the target postgres, using COPY FROM (supported for insert only workloads)
+    retry_policy: # retry policy for postgres connections, one of exponential or constant or disable_retries.
+      disable_retries: false
+      exponential:
+        initial_interval: 500 # initial interval in milliseconds
+        max_interval: 10000 # maximum interval in milliseconds
+      constant:
+        max_retries: 5 # maximum number of retries
+        interval: 1000 # interval in milliseconds
   kafka:
     servers: ["localhost:9092"]
     topic:
@@ -114,6 +124,7 @@ target:
       max_queue_bytes: 104857600 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
       ignore_send_errors: false # if true, log and ignore errors during batch sending. Warning: can result in consistency errors.
     backoff:
+      disable_retries: false
       exponential:
         max_retries: 5 # maximum number of retries
         initial_interval: 1000 # initial interval in milliseconds
@@ -181,7 +192,7 @@ Here's a list of all the environment variables that can be used to configure the
 | PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS                | 4                            | No       | Number of concurrent workers that will be used per table by the snapshotting process.                                                                                                                                                                                                                        |
 | PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES                  | 83886080 (80MiB)             | No       | Max batch size in bytes to be read and processed by each table worker at a time. The number of pages in the select queries will be based on this value.                                                                                                                                                      |
 | PGSTREAM_POSTGRES_SNAPSHOT_WORKERS                      | 1                            | No       | Number of schemas that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                            |
-| PGSTREAM_POSTGRES_SNAPSHOT_MAX_CONNECTIONS              | 50                           | No       | Maximum number of Postgres connections that will be opened by the snapshotting process. This value shouldn't be lower than the number of schema/table workers selected.                                                                                                                                     |
+| PGSTREAM_POSTGRES_SNAPSHOT_MAX_CONNECTIONS              | 50                           | No       | Maximum number of Postgres connections that will be opened by the snapshotting process. This value shouldn't be lower than the number of schema/table workers selected.                                                                                                                                      |
 | PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG                | False                        | No       | Forces the use of the `pgstream.schema_log` for the schema snapshot instead of using `pg_dump`/`pg_restore` for Postgres targets.                                                                                                                                                                            |
 | PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB              | False                        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to issue commands to DROP all the objects that will be restored.                                                                                                                                                           |
 | PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS    | False                        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to snapshot all global database objects outside of the selected schema (such as extensions, triggers, etc).                                                                                                                |
@@ -199,8 +210,9 @@ Here's a list of all the environment variables that can be used to configure the
 | PGSTREAM_POSTGRES_LISTENER_EXP_BACKOFF_MAX_RETRIES      | 20                           | No       | Max retries for the exponential backoff policy to be applied to the Postgres connection retries.                                                                                                                                                                                                             |
 | PGSTREAM_POSTGRES_LISTENER_BACKOFF_INTERVAL             | 0                            | No       | Constant interval for the backoff policy to be applied to the Postgres connection retries.                                                                                                                                                                                                                   |
 | PGSTREAM_POSTGRES_LISTENER_BACKOFF_MAX_RETRIES          | 0                            | No       | Max retries for the backoff policy to be applied to the Postgres connection retries.                                                                                                                                                                                                                         |
+| PGSTREAM_POSTGRES_LISTENER_DISABLE_RETRIES              | False                        | No       | Disable any retry policy.                                                                                                                                                                                                                                                                                    |
 
-One of exponential/constant retry policies can be provided for the Postgres connection retry strategy. If none is provided, the exponential defaults apply.
+One of exponential/constant/disable retries retry policies can be provided for the Postgres connection retry strategy. If none is provided, the exponential defaults apply.
 
 </details>
 
@@ -222,6 +234,7 @@ One of exponential/constant retry policies can be provided for the Postgres conn
 | PGSTREAM_KAFKA_COMMIT_EXP_BACKOFF_MAX_RETRIES      | 0        | No               | Max retries for the exponential backoff policy to be applied to the Kafka commit retries.              |
 | PGSTREAM_KAFKA_COMMIT_BACKOFF_INTERVAL             | 0        | No               | Constant interval for the backoff policy to be applied to the Kafka commit retries.                    |
 | PGSTREAM_KAFKA_COMMIT_BACKOFF_MAX_RETRIES          | 0        | No               | Max retries for the backoff policy to be applied to the Kafka commit retries.                          |
+| PGSTREAM_KAFKA_COMMIT_DISABLE_RETRIES              | False    | No               | Disable any retry policy.                                                                              |
 
 One of exponential/constant backoff policies can be provided for the Kafka committing retry strategy. If none is provided, no retries apply.
 
@@ -267,10 +280,11 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 | PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_RETRIES      | 0       | No       | Max retries for the exponential backoff policy to be applied to the search store operation retries.            |
 | PGSTREAM_SEARCH_STORE_BACKOFF_INTERVAL             | 0       | No       | Constant interval for the backoff policy to be applied to the search store operation retries.                  |
 | PGSTREAM_SEARCH_STORE_BACKOFF_MAX_RETRIES          | 0       | No       | Max retries for the backoff policy to be applied to the search store operation retries.                        |
+| PGSTREAM_SEARCH_STORE_DISABLE_RETRIES              | False   | No       | Disable any retry policy.                                                                                      |
 
 One of exponential/constant backoff policies can be provided for the search indexer cleanup retry strategy. If none is provided, no retries apply.
 
-One of exponential/constant backoff policies can be provided for the search store retry strategy. If none is provided, a default exponential backoff policy applies.
+One of exponential/constant/disable retries backoff policies can be provided for the search store retry strategy. If none is provided, a default exponential backoff policy applies.
 
 </details>
 
@@ -294,18 +308,26 @@ One of exponential/constant backoff policies can be provided for the search stor
 <details>
   <summary>Postgres Batch Writer</summary>
 
-| Environment Variable                              | Default                         | Required | Description                                                                                                                                                                                                    |
-| ------------------------------------------------- | ------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PGSTREAM_POSTGRES_WRITER_TARGET_URL               | N/A                             | Yes      | URL for the PostgreSQL store to connect to                                                                                                                                                                     |
-| PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT            | 30s                             | No       | Max time interval at which the batch sending to PostgreSQL is triggered.                                                                                                                                       |
-| PGSTREAM_POSTGRES_WRITER_BATCH_SIZE               | 20000                           | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                       |
-| PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES          | 100MiB                          | No       | Max memory used by the postgres batch writer for inflight batches.                                                                                                                                             |
-| PGSTREAM_POSTGRES_WRITER_BATCH_BYTES              | 1.5MiB, 80MiB with bulk enabled | No       | Max size in bytes for a given batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                               |
-| PGSTREAM_POSTGRES_WRITER_BATCH_IGNORE_SEND_ERRORS | False                           | No       | Whether to ignore errors encountered while sending events to the target.                                                                                                                                       |
-| PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL      | N/A                             | No       | URL of the store where the pgstream schemalog table which keeps track of schema changes is.                                                                                                                    |
-| PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS         | False(run), True(snapshot)      | No       | Option to disable triggers on the target PostgreSQL database while performing the snaphot/replication streaming. It defaults to false when using the run command, and to true when using the snapshot command. |
-| PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION       | error                           | No       | Action to apply to inserts on conflict. Options are `nothing`, `update` or `error`.                                                                                                                            |
-| PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED      | False(run), True(snapshot)      | No       | Wether to use COPY FROM on insert only workloads. It defaults to false when using the run command, and to true when using the snapshot command.                                                                |
+| Environment Variable                                  | Default                         | Required | Description                                                                                                                                                                                                    |
+| ----------------------------------------------------- | ------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PGSTREAM_POSTGRES_WRITER_TARGET_URL                   | N/A                             | Yes      | URL for the PostgreSQL store to connect to                                                                                                                                                                     |
+| PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT                | 30s                             | No       | Max time interval at which the batch sending to PostgreSQL is triggered.                                                                                                                                       |
+| PGSTREAM_POSTGRES_WRITER_BATCH_SIZE                   | 20000                           | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                       |
+| PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES              | 100MiB                          | No       | Max memory used by the postgres batch writer for inflight batches.                                                                                                                                             |
+| PGSTREAM_POSTGRES_WRITER_BATCH_BYTES                  | 1.5MiB, 80MiB with bulk enabled | No       | Max size in bytes for a given batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                               |
+| PGSTREAM_POSTGRES_WRITER_BATCH_IGNORE_SEND_ERRORS     | False                           | No       | Whether to ignore errors encountered while sending events to the target.                                                                                                                                       |
+| PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL          | N/A                             | No       | URL of the store where the pgstream schemalog table which keeps track of schema changes is.                                                                                                                    |
+| PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS             | False(run), True(snapshot)      | No       | Option to disable triggers on the target PostgreSQL database while performing the snaphot/replication streaming. It defaults to false when using the run command, and to true when using the snapshot command. |
+| PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION           | error                           | No       | Action to apply to inserts on conflict. Options are `nothing`, `update` or `error`.                                                                                                                            |
+| PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED          | False(run), True(snapshot)      | No       | Wether to use COPY FROM on insert only workloads. It defaults to false when using the run command, and to true when using the snapshot command.                                                                |
+| PGSTREAM_POSTGRES_WRITER_EXP_BACKOFF_INITIAL_INTERVAL | 500ms                           | No       | Initial interval for the exponential backoff policy to be applied to the Postgres connection retries.                                                                                                          |
+| PGSTREAM_POSTGRES_WRITER_EXP_BACKOFF_MAX_INTERVAL     | 10s                             | No       | Max interval for the exponential backoff policy to be applied to the Postgres connection retries.                                                                                                              |
+| PGSTREAM_POSTGRES_WRITER_EXP_BACKOFF_MAX_RETRIES      | 20                              | No       | Max retries for the exponential backoff policy to be applied to the Postgres connection retries.                                                                                                               |
+| PGSTREAM_POSTGRES_WRITER_BACKOFF_INTERVAL             | 0                               | No       | Constant interval for the backoff policy to be applied to the Postgres connection retries.                                                                                                                     |
+| PGSTREAM_POSTGRES_WRITER_BACKOFF_MAX_RETRIES          | 0                               | No       | Max retries for the backoff policy to be applied to the Postgres connection retries.                                                                                                                           |
+| PGSTREAM_POSTGRES_WRITER_DISABLE_RETRIES              | False                           | No       | Disable any retry policy.                                                                                                                                                                                      |
+
+One of exponential/constant/disable retries retry policies can be provided for the Postgres connection retry strategy. If none is provided, the exponential defaults apply.
 
 </details>
 

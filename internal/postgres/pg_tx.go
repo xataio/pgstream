@@ -10,7 +10,7 @@ import (
 
 type Tx interface {
 	Query(ctx context.Context, query string, args ...any) (Rows, error)
-	QueryRow(ctx context.Context, query string, args ...any) Row
+	QueryRow(ctx context.Context, dest []any, query string, args ...any) error
 	Exec(ctx context.Context, query string, args ...any) (CommandTag, error)
 	CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
 }
@@ -40,9 +40,9 @@ type Txn struct {
 	pgx.Tx
 }
 
-func (t *Txn) QueryRow(ctx context.Context, query string, args ...any) Row {
+func (t *Txn) QueryRow(ctx context.Context, dest []any, query string, args ...any) error {
 	row := t.Tx.QueryRow(ctx, query, args...)
-	return &mappedRow{inner: row}
+	return mapError(row.Scan(dest...))
 }
 
 func (t *Txn) Query(ctx context.Context, query string, args ...any) (Rows, error) {

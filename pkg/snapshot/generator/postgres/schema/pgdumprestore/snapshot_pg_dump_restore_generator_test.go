@@ -1227,18 +1227,14 @@ func TestSnapshotGenerator_schemalogExists(t *testing.T) {
 			name: "ok - schemalog exists",
 			connBuilder: func(ctx context.Context, s string) (pglib.Querier, error) {
 				return &mocks.Querier{
-					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
 						require.Equal(t, "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2)", query)
 						require.Equal(t, []any{schemalog.SchemaName, schemalog.TableName}, args)
-						return &mocks.Row{
-							ScanFn: func(args ...any) error {
-								require.Len(t, args, 1)
-								exists, ok := args[0].(*bool)
-								require.True(t, ok, fmt.Sprintf("exists, expected *bool, got %T", args[0]))
-								*exists = true
-								return nil
-							},
-						}
+						require.Len(t, dest, 1)
+						exists, ok := dest[0].(*bool)
+						require.True(t, ok, fmt.Sprintf("exists, expected *bool, got %T", dest[0]))
+						*exists = true
+						return nil
 					},
 				}, nil
 			},
@@ -1250,18 +1246,14 @@ func TestSnapshotGenerator_schemalogExists(t *testing.T) {
 			name: "ok - schemalog does not exist",
 			connBuilder: func(ctx context.Context, s string) (pglib.Querier, error) {
 				return &mocks.Querier{
-					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
 						require.Equal(t, "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2)", query)
 						require.Equal(t, []any{schemalog.SchemaName, schemalog.TableName}, args)
-						return &mocks.Row{
-							ScanFn: func(args ...any) error {
-								require.Len(t, args, 1)
-								exists, ok := args[0].(*bool)
-								require.True(t, ok, fmt.Sprintf("exists, expected *bool, got %T", args[0]))
-								*exists = false
-								return nil
-							},
-						}
+						require.Len(t, dest, 1)
+						exists, ok := dest[0].(*bool)
+						require.True(t, ok, fmt.Sprintf("exists, expected *bool, got %T", dest[0]))
+						*exists = false
+						return nil
 					},
 				}, nil
 			},
@@ -1282,14 +1274,10 @@ func TestSnapshotGenerator_schemalogExists(t *testing.T) {
 			name: "error - scanning",
 			connBuilder: func(ctx context.Context, s string) (pglib.Querier, error) {
 				return &mocks.Querier{
-					QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
 						require.Equal(t, "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2)", query)
 						require.Equal(t, []any{schemalog.SchemaName, schemalog.TableName}, args)
-						return &mocks.Row{
-							ScanFn: func(args ...any) error {
-								return errTest
-							},
-						}
+						return errTest
 					},
 				}, nil
 			},

@@ -11,7 +11,7 @@ import (
 
 type Querier interface {
 	Query(ctx context.Context, query string, args ...any) (Rows, error)
-	QueryRow(ctx context.Context, query string, args ...any) Row
+	QueryRow(ctx context.Context, dest []any, query string, args ...any) error
 	Exec(ctx context.Context, query string, args ...any) (CommandTag, error)
 	ExecInTx(ctx context.Context, fn func(tx Tx) error) error
 	ExecInTxWithOptions(ctx context.Context, fn func(tx Tx) error, txOpts TxOptions) error
@@ -30,13 +30,4 @@ type Rows interface {
 
 type CommandTag struct {
 	pgconn.CommandTag
-}
-
-type mappedRow struct {
-	inner Row
-}
-
-func (mr *mappedRow) Scan(dest ...any) error {
-	err := mr.inner.Scan(dest...)
-	return mapError(err)
 }

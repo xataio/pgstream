@@ -7,7 +7,6 @@ import (
 	"errors"
 	"testing"
 
-	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 
 	"github.com/stretchr/testify/require"
@@ -335,18 +334,14 @@ func TestPGAnonymizerTransformer_Transform(t *testing.T) {
 			name:   "successful transformation",
 			anonFn: "anon.random_hash",
 			conn: &pglibmocks.Querier{
-				QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+				QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
 					require.Equal(t, "SELECT anon.random_hash($1)", query)
 					require.Equal(t, []any{"value"}, args)
-					return &pglibmocks.Row{
-						ScanFn: func(dest ...any) error {
-							require.Len(t, dest, 1)
-							if ptr, ok := dest[0].(*any); ok {
-								*ptr = testHash
-							}
-							return nil
-						},
-					}
+					require.Len(t, dest, 1)
+					ptr, ok := dest[0].(*any)
+					require.True(t, ok)
+					*ptr = testHash
+					return nil
 				},
 			},
 			value: Value{
@@ -360,12 +355,8 @@ func TestPGAnonymizerTransformer_Transform(t *testing.T) {
 			name:   "error executing anon function",
 			anonFn: "anon.random_hash",
 			conn: &pglibmocks.Querier{
-				QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-					return &pglibmocks.Row{
-						ScanFn: func(dest ...any) error {
-							return errTest
-						},
-					}
+				QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+					return errTest
 				},
 			},
 			value: Value{

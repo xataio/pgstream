@@ -47,7 +47,6 @@ type Option func(h *Handler)
 const (
 	logLSNPosition = "position"
 	logSlotName    = "slot_name"
-	logTimeline    = "timeline"
 	logDBName      = "db_name"
 	logSystemID    = "system_id"
 )
@@ -235,7 +234,7 @@ func (h *Handler) GetReplicationLag(ctx context.Context) (int64, error) {
 
 	var lag int64
 	lagQuery := `SELECT (pg_current_wal_lsn() - confirmed_flush_lsn) FROM pg_replication_slots WHERE slot_name=$1`
-	if err := conn.QueryRow(ctx, lagQuery, h.pgReplicationSlotName).Scan(&lag); err != nil {
+	if err := conn.QueryRow(ctx, []any{&lag}, lagQuery, h.pgReplicationSlotName); err != nil {
 		return -1, err
 	}
 
@@ -250,7 +249,7 @@ func (h *Handler) GetCurrentLSN(ctx context.Context) (replication.LSN, error) {
 	defer conn.Close(ctx)
 
 	var currentLSN string
-	err = conn.QueryRow(ctx, `SELECT confirmed_flush_lsn FROM pg_replication_slots WHERE slot_name=$1`, h.pgReplicationSlotName).Scan(&currentLSN)
+	err = conn.QueryRow(ctx, []any{&currentLSN}, `SELECT confirmed_flush_lsn FROM pg_replication_slots WHERE slot_name=$1`, h.pgReplicationSlotName)
 	if err != nil {
 		return 0, err
 	}
@@ -287,9 +286,10 @@ func (h *Handler) getRestartLSN(ctx context.Context, conn pglib.Querier, slotNam
 	var restartLSN string
 	err := conn.QueryRow(
 		ctx,
+		[]any{&restartLSN},
 		`select restart_lsn from pg_replication_slots where slot_name=$1`,
 		slotName,
-	).Scan(&restartLSN)
+	)
 	if err != nil {
 		// TODO: improve error message in case the slot doesn't exist
 		return 0, err
@@ -301,7 +301,7 @@ func (h *Handler) getRestartLSN(ctx context.Context, conn pglib.Querier, slotNam
 // that the consumer confirmed it had completed.
 func (h *Handler) getLastSyncedLSN(ctx context.Context, conn pglib.Querier) (replication.LSN, error) {
 	var confirmedFlushLSN string
-	err := conn.QueryRow(ctx, `select confirmed_flush_lsn from pg_replication_slots where slot_name=$1`, h.pgReplicationSlotName).Scan(&confirmedFlushLSN)
+	err := conn.QueryRow(ctx, []any{&confirmedFlushLSN}, `select confirmed_flush_lsn from pg_replication_slots where slot_name=$1`, h.pgReplicationSlotName)
 	if err != nil {
 		return 0, err
 	}
@@ -317,7 +317,7 @@ func (h *Handler) verifyReplicationSlotExists(ctx context.Context) error {
 	}
 	defer conn.Close(context.Background())
 
-	err = conn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name=$1)`, h.pgReplicationSlotName).Scan(&slotExists)
+	err = conn.QueryRow(ctx, []any{&slotExists}, `SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name=$1)`, h.pgReplicationSlotName)
 	if err != nil {
 		return fmt.Errorf("retrieving replication slot: %w", err)
 	}

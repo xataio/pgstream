@@ -55,7 +55,7 @@ func (m *Mapper) queryType(ctx context.Context, oid uint32) (string, error) {
 	}
 
 	var dataType string
-	if err := m.querier.QueryRow(ctx, "SELECT typname FROM pg_type WHERE oid = $1", oid).Scan(&dataType); err != nil {
+	if err := m.querier.QueryRow(ctx, []any{&dataType}, "SELECT typname FROM pg_type WHERE oid = $1", oid); err != nil {
 		return "unknown", fmt.Errorf("selecting type for OID %d: %w", oid, err)
 	}
 

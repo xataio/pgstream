@@ -87,11 +87,11 @@ func Test_pgdump_pgrestore(t *testing.T) {
 		// schema only pgdump, no data should be available but the schema and
 		// selected table should exist.
 		var count int
-		err = targetConn.QueryRow(ctx, fmt.Sprintf("select count(*) from %s.%s", testSchema, testTable1)).Scan(&count)
+		err = targetConn.QueryRow(ctx, []any{&count}, fmt.Sprintf("select count(*) from %s.%s", testSchema, testTable1))
 		require.NoError(t, err)
 		require.Equal(t, 0, count)
 		// test table 2 should not exist
-		err = targetConn.QueryRow(ctx, fmt.Sprintf("select count(*) from %s.%s", testSchema, testTable2)).Scan(&count)
+		err = targetConn.QueryRow(ctx, []any{&count}, fmt.Sprintf("select count(*) from %s.%s", testSchema, testTable2))
 		require.Error(t, err)
 	}
 

@@ -44,14 +44,14 @@ func (s *Store) Insert(ctx context.Context, schemaName string) (*schemalog.LogEn
 	err := s.querier.ExecInTx(ctx, func(tx pglib.Tx) error {
 		nextVersionQuery := fmt.Sprintf(`select coalesce((select version+1 from %s where schema_name = $1 order by version desc limit 1), 1)`, s.table())
 		var nextVersion int
-		err := tx.QueryRow(ctx, nextVersionQuery, schemaName).Scan(&nextVersion)
+		err := tx.QueryRow(ctx, []any{&nextVersion}, nextVersionQuery, schemaName)
 		if err != nil {
 			return fmt.Errorf("query for next schema log version: %w", err)
 		}
 
 		insertQuery := fmt.Sprintf(`insert into %s (version, schema_name, schema) values ($1, $2, pgstream.get_schema($2))
 	returning id, version, schema_name, schema, created_at, acked`, s.table())
-		if err := tx.QueryRow(ctx, insertQuery, nextVersion, schemaName).Scan(&l.ID, &l.Version, &l.SchemaName, &l.Schema, &l.CreatedAt, &l.Acked); err != nil {
+		if err := tx.QueryRow(ctx, []any{&l.ID, &l.Version, &l.SchemaName, &l.Schema, &l.CreatedAt, &l.Acked}, insertQuery, nextVersion, schemaName); err != nil {
 			return mapError(fmt.Errorf("error inserting schema log for schema %s: %w", schemaName, err))
 		}
 
@@ -74,7 +74,7 @@ func (s *Store) FetchLast(ctx context.Context, schemaName string, ackedOnly bool
 	sql := fmt.Sprintf(`select id, version, schema_name, schema, created_at, acked from %s where schema_name = $1 %s order by version desc limit 1`, s.table(), ackCondition)
 
 	l := &schemalog.LogEntry{}
-	err := s.querier.QueryRow(ctx, sql, schemaName).Scan(&l.ID, &l.Version, &l.SchemaName, &l.Schema, &l.CreatedAt, &l.Acked)
+	err := s.querier.QueryRow(ctx, []any{&l.ID, &l.Version, &l.SchemaName, &l.Schema, &l.CreatedAt, &l.Acked}, sql, schemaName)
 	if err != nil {
 		return nil, mapError(fmt.Errorf("error fetching schema log for schema %s: %w", schemaName, err))
 	}
@@ -87,7 +87,7 @@ func (s *Store) Fetch(ctx context.Context, schemaName string, version int) (*sch
 	sql := fmt.Sprintf(`select id, version, schema_name, schema, created_at, acked from %s where schema_name = $1 and version = $2`, s.table())
 
 	l := &schemalog.LogEntry{}
-	err := s.querier.QueryRow(ctx, sql, schemaName, version).Scan(&l.ID, &l.Version, &l.SchemaName, &l.Schema, &l.CreatedAt, &l.Acked)
+	err := s.querier.QueryRow(ctx, []any{&l.ID, &l.Version, &l.SchemaName, &l.Schema, &l.CreatedAt, &l.Acked}, sql, schemaName, version)
 	if err != nil {
 		return nil, mapError(fmt.Errorf("error fetching schema log for schema %s and version %d: %w", schemaName, version, err))
 	}

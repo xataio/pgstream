@@ -443,7 +443,7 @@ WHERE
 func (sg *SnapshotGenerator) getTableInfo(ctx context.Context, schemaName, tableName, snapshotID string) (*tableInfo, error) {
 	tableInfo := &tableInfo{}
 	err := sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
-		if err := tx.QueryRow(ctx, tableInfoQuery, tableName, schemaName).Scan(&tableInfo.pageCount, &tableInfo.avgPageBytes, &tableInfo.avgRowBytes); err != nil {
+		if err := tx.QueryRow(ctx, []any{&tableInfo.pageCount, &tableInfo.avgPageBytes, &tableInfo.avgRowBytes}, tableInfoQuery, tableName, schemaName); err != nil {
 			return fmt.Errorf("getting page information for table %s.%s: %w", schemaName, tableName, err)
 		}
 
@@ -481,7 +481,7 @@ func (sg *SnapshotGenerator) getMissedPages(ctx context.Context, tx pglib.Tx, sc
 	end := start + int(tableInfo.batchPageSize)
 	for {
 		pageRows := 0
-		err := tx.QueryRow(ctx, fmt.Sprintf(pageRangeQueryCount, pglib.QuoteQualifiedIdentifier(schemaName, tableName), start, end)).Scan(&pageRows)
+		err := tx.QueryRow(ctx, []any{&pageRows}, fmt.Sprintf(pageRangeQueryCount, pglib.QuoteQualifiedIdentifier(schemaName, tableName), start, end))
 		if err != nil {
 			return 0, fmt.Errorf("getting missed pages for table %s.%s: %w", schemaName, tableName, err)
 		}
@@ -512,7 +512,7 @@ func (sg *SnapshotGenerator) getSnapshotSchemaTotalBytes(ctx context.Context, sn
 		"schema": schema, "tables": tables, "query": query, "snapshotID": snapshotID,
 	})
 	err := sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
-		err := tx.QueryRow(ctx, query, tableParams...).Scan(&totalBytes)
+		err := tx.QueryRow(ctx, []any{&totalBytes}, query, tableParams...)
 		if err != nil {
 			return fmt.Errorf("retrieving total bytes for schema: %w", err)
 		}
@@ -526,7 +526,7 @@ const exportSnapshotQuery = `SELECT pg_export_snapshot()`
 
 func (sg *SnapshotGenerator) exportSnapshot(ctx context.Context, tx pglib.Tx) (string, error) {
 	var snapshotID string
-	if err := tx.QueryRow(ctx, exportSnapshotQuery).Scan(&snapshotID); err != nil {
+	if err := tx.QueryRow(ctx, []any{&snapshotID}, exportSnapshotQuery); err != nil {
 		return "", fmt.Errorf("exporting snapshot: %w", err)
 	}
 	return snapshotID, nil

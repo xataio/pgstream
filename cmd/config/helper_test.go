@@ -45,6 +45,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 					ExcludeTables:       []string{"excluded_test", "excluded_schema.test", "another_excluded_schema.*"},
 				},
 				RetryPolicy: backoff.Config{
+					DisableRetries: true,
 					Exponential: &backoff.ExponentialConfig{
 						MaxRetries:      5,
 						InitialInterval: time.Second,
@@ -104,6 +105,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 				},
 				Checkpointer: kafkacheckpoint.Config{
 					CommitBackoff: backoff.Config{
+						DisableRetries: true,
 						Exponential: &backoff.ExponentialConfig{
 							MaxRetries:      5,
 							InitialInterval: time.Second,
@@ -129,6 +131,14 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 					BulkIngestEnabled: true,
 					SchemaLogStore: schemalogpg.Config{
 						URL: "postgresql://user:password@localhost:5432/mydatabase",
+					},
+					RetryPolicy: backoff.Config{
+						DisableRetries: true,
+						Exponential: &backoff.ExponentialConfig{
+							MaxRetries:      5,
+							InitialInterval: time.Second,
+							MaxInterval:     60 * time.Second,
+						},
 					},
 				},
 			},
@@ -173,6 +183,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 				},
 				Retrier: search.StoreRetryConfig{
 					Backoff: backoff.Config{
+						DisableRetries: true,
 						Exponential: &backoff.ExponentialConfig{
 							MaxRetries:      5,
 							InitialInterval: time.Second,

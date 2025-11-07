@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/internal/log/zerolog"
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	"github.com/xataio/pgstream/pkg/backoff"
 	kafkalib "github.com/xataio/pgstream/pkg/kafka"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
@@ -234,6 +235,9 @@ func testPostgresProcessorCfg(sourcePGURL string, bulkIngestion bool) stream.Pro
 					URL: sourcePGURL,
 				},
 				BulkIngestEnabled: bulkIngestion,
+				RetryPolicy: backoff.Config{
+					DisableRetries: true,
+				},
 			},
 		},
 		Injector: &injector.Config{

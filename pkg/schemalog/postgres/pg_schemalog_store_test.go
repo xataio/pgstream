@@ -38,13 +38,18 @@ func TestStore_FetchLast(t *testing.T) {
 		{
 			name: "ok - without acked",
 			querier: &pgmocks.Querier{
-				QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
+				QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 					require.Len(t, args, 1)
 					require.Equal(t, args[0], testSchema)
 					require.Equal(t,
 						fmt.Sprintf("select id, version, schema_name, schema, created_at, acked from %q.%q where schema_name = $1  order by version desc limit 1", schemalog.SchemaName, schemalog.TableName),
 						query)
-					return &mockRow{logEntry: testLogEntry}
+
+					require.Len(t, dest, 6)
+					id, ok := dest[0].(*xid.ID)
+					require.True(t, ok, "expected first dest arg to be of type *xid.ID, got %T", dest[0])
+					*id = testLogEntry.ID
+					return nil
 				},
 			},
 
@@ -54,13 +59,17 @@ func TestStore_FetchLast(t *testing.T) {
 		{
 			name: "ok - with acked",
 			querier: &pgmocks.Querier{
-				QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
+				QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 					require.Len(t, args, 1)
 					require.Equal(t, args[0], testSchema)
 					require.Equal(t,
 						fmt.Sprintf("select id, version, schema_name, schema, created_at, acked from %q.%q where schema_name = $1 and acked order by version desc limit 1", schemalog.SchemaName, schemalog.TableName),
 						query)
-					return &mockRow{logEntry: testLogEntry}
+					require.Len(t, dest, 6)
+					id, ok := dest[0].(*xid.ID)
+					require.True(t, ok, "expected first dest arg to be of type *xid.ID, got %T", dest[0])
+					*id = testLogEntry.ID
+					return nil
 				},
 			},
 			ackedOnly: true,
@@ -71,8 +80,8 @@ func TestStore_FetchLast(t *testing.T) {
 		{
 			name: "error - querying rows",
 			querier: &pgmocks.Querier{
-				QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
-					return &mockRow{scanFn: func(...any) error { return errTest }}
+				QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
+					return errTest
 				},
 			},
 
@@ -115,14 +124,18 @@ func TestStore_Fetch(t *testing.T) {
 		{
 			name: "ok",
 			querier: &pgmocks.Querier{
-				QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
+				QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 					require.Len(t, args, 2)
 					require.Equal(t, args[0], testSchema)
 					require.Equal(t, args[1], testVersion)
 					require.Equal(t,
 						fmt.Sprintf("select id, version, schema_name, schema, created_at, acked from %q.%q where schema_name = $1 and version = $2", schemalog.SchemaName, schemalog.TableName),
 						query)
-					return &mockRow{logEntry: testLogEntry}
+					require.Len(t, dest, 6)
+					id, ok := dest[0].(*xid.ID)
+					require.True(t, ok, "expected first dest arg to be of type *xid.ID, got %T", dest[0])
+					*id = testLogEntry.ID
+					return nil
 				},
 			},
 
@@ -132,8 +145,8 @@ func TestStore_Fetch(t *testing.T) {
 		{
 			name: "error - querying rows",
 			querier: &pgmocks.Querier{
-				QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
-					return &mockRow{scanFn: func(...any) error { return errTest }}
+				QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
+					return errTest
 				},
 			},
 
@@ -238,22 +251,22 @@ func TestStore_Insert(t *testing.T) {
 			querier: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					mockTx := &pgmocks.Tx{
-						QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
+						QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 							if strings.HasPrefix(query, "select coalesce") {
-								return &mockRow{
-									version: &initialVersion,
-								}
+								require.Len(t, dest, 1)
+								version, ok := dest[0].(*int)
+								require.True(t, ok, "expected first dest arg to be of type *int, got %T", dest[0])
+								*version = initialVersion
+								return nil
 							}
 							if strings.HasPrefix(query, "insert into") {
-								return &mockRow{
-									logEntry: testLogEntry,
-								}
+								require.Len(t, dest, 6)
+								id, ok := dest[0].(*xid.ID)
+								require.True(t, ok, "expected first dest arg to be of type *xid.ID, got %T", dest[0])
+								*id = testLogEntry.ID
+								return nil
 							}
-							return &mockRow{
-								scanFn: func(args ...any) error {
-									return fmt.Errorf("unexpected query received: %v", query)
-								},
-							}
+							return fmt.Errorf("unexpected query received: %v", query)
 						},
 					}
 					return f(mockTx)
@@ -268,19 +281,11 @@ func TestStore_Insert(t *testing.T) {
 			querier: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					mockTx := &pgmocks.Tx{
-						QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
+						QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 							if strings.HasPrefix(query, "select coalesce") {
-								return &mockRow{
-									scanFn: func(args ...any) error {
-										return errTest
-									},
-								}
+								return errTest
 							}
-							return &mockRow{
-								scanFn: func(args ...any) error {
-									return fmt.Errorf("unexpected query received: %v", query)
-								},
-							}
+							return fmt.Errorf("unexpected query received: %v", query)
 						},
 					}
 					return f(mockTx)
@@ -295,24 +300,18 @@ func TestStore_Insert(t *testing.T) {
 			querier: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					mockTx := &pgmocks.Tx{
-						QueryRowFn: func(_ context.Context, query string, args ...any) pglib.Row {
+						QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 							if strings.HasPrefix(query, "select coalesce") {
-								return &mockRow{
-									version: &initialVersion,
-								}
+								require.Len(t, dest, 1)
+								version, ok := dest[0].(*int)
+								require.True(t, ok, "expected first dest arg to be of type *int, got %T", dest[0])
+								*version = initialVersion
+								return nil
 							}
 							if strings.HasPrefix(query, "insert into") {
-								return &mockRow{
-									scanFn: func(args ...any) error {
-										return errTest
-									},
-								}
+								return errTest
 							}
-							return &mockRow{
-								scanFn: func(args ...any) error {
-									return fmt.Errorf("unexpected query received: %v", query)
-								},
-							}
+							return fmt.Errorf("unexpected query received: %v", query)
 						},
 					}
 					return f(mockTx)

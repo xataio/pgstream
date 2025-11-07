@@ -142,8 +142,9 @@ type TLSConfig struct {
 }
 
 type BackoffConfig struct {
-	Exponential *ExponentialBackoffConfig `mapstructure:"exponential" yaml:"exponential"`
-	Constant    *ConstantBackoffConfig    `mapstructure:"constant" yaml:"constant"`
+	DisableRetries bool                      `mapstructure:"disable_retries" yaml:"disable_retries"`
+	Exponential    *ExponentialBackoffConfig `mapstructure:"exponential" yaml:"exponential"`
+	Constant       *ConstantBackoffConfig    `mapstructure:"constant" yaml:"constant"`
 }
 
 type ExponentialBackoffConfig struct {
@@ -164,6 +165,7 @@ type PostgresTargetConfig struct {
 	SchemaLogStoreURL string            `mapstructure:"schema_log_store_url" yaml:"schema_log_store_url"`
 	DisableTriggers   bool              `mapstructure:"disable_triggers" yaml:"disable_triggers"`
 	OnConflictAction  string            `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
+	RetryPolicy       BackoffConfig     `mapstructure:"retry_policy" yaml:"retry_policy"`
 }
 
 type KafkaTargetConfig struct {
@@ -606,6 +608,7 @@ func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorCon
 			},
 			DisableTriggers:  c.Target.Postgres.DisableTriggers,
 			OnConflictAction: c.Target.Postgres.OnConflictAction,
+			RetryPolicy:      c.Target.Postgres.RetryPolicy.parseBackoffConfig(),
 		},
 	}
 
@@ -809,8 +812,9 @@ func (t *TLSConfig) parseTLSConfig() tls.Config {
 
 func (bo *BackoffConfig) parseBackoffConfig() backoff.Config {
 	return backoff.Config{
-		Exponential: bo.parseExponentialBackoffConfig(),
-		Constant:    bo.parseConstantBackoffConfig(),
+		DisableRetries: bo.DisableRetries,
+		Exponential:    bo.parseExponentialBackoffConfig(),
+		Constant:       bo.parseConstantBackoffConfig(),
 	}
 }
 

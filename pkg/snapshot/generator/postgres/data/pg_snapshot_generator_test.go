@@ -86,23 +86,15 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		return nil
 	}
 
-	validTableInfoQueryRowFn := func(ctx context.Context, query string, args ...any) pglib.Row {
+	validTableInfoQueryRowFn := func(_ context.Context, dest []any, query string, args ...any) error {
 		switch query {
 		case tableInfoQuery:
 			require.Equal(t, []any{testTable1, testSchema}, args)
-			return &pgmocks.Row{
-				ScanFn: validTableInfoScanFn,
-			}
+			return validTableInfoScanFn(dest...)
 		case fmt.Sprintf(pageRangeQueryCount, quotedSchemaTable1, 1, 2):
-			return &pgmocks.Row{
-				ScanFn: validMissedRowsScanFn,
-			}
+			return validMissedRowsScanFn(dest...)
 		default:
-			return &pgmocks.Row{
-				ScanFn: func(args ...any) error {
-					return fmt.Errorf("unexpected call to QueryRowFn: %s", query)
-				},
-			}
+			return fmt.Errorf("unexpected call to QueryRowFn: %s", query)
 		}
 	}
 
@@ -126,17 +118,13 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								require.Equal(t, exportSnapshotQuery, query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
+								require.Len(t, dest, 1)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", dest[0]))
+								*snapshotID = testSnapshotID
+								return nil
 							},
 						}
 						return f(&mockTx)
@@ -194,17 +182,13 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								require.Equal(t, exportSnapshotQuery, query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
+								require.Len(t, dest, 1)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", dest[0]))
+								*snapshotID = testSnapshotID
+								return nil
 							},
 						}
 						return f(&mockTx)
@@ -215,39 +199,25 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
 							},
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								switch query {
 								case tableInfoQuery:
 									require.Equal(t, []any{testTable1, testSchema}, args)
-									return &pgmocks.Row{
-										ScanFn: validTableInfoScanFn,
-									}
+									return validTableInfoScanFn(dest...)
 								case fmt.Sprintf(pageRangeQueryCount, quotedSchemaTable1, 1, 2):
-									return &pgmocks.Row{
-										ScanFn: func(args ...any) error {
-											require.Len(t, args, 1)
-											rowCount, ok := args[0].(*int)
-											require.True(t, ok, fmt.Sprintf("rowCount, expected *int, got %T", args[0]))
-											*rowCount = 1
-											return nil
-										},
-									}
+									require.Len(t, dest, 1)
+									rowCount, ok := dest[0].(*int)
+									require.True(t, ok, fmt.Sprintf("rowCount, expected *int, got %T", dest[0]))
+									*rowCount = 1
+									return nil
 								case fmt.Sprintf(pageRangeQueryCount, quotedSchemaTable1, 2, 3):
-									return &pgmocks.Row{
-										ScanFn: func(args ...any) error {
-											require.Len(t, args, 1)
-											rowCount, ok := args[0].(*int)
-											require.True(t, ok, fmt.Sprintf("rowCount, expected *int, got %T", args[0]))
-											*rowCount = 0
-											return nil
-										},
-									}
+									require.Len(t, dest, 1)
+									rowCount, ok := dest[0].(*int)
+									require.True(t, ok, fmt.Sprintf("rowCount, expected *int, got %T", dest[0]))
+									*rowCount = 0
+									return nil
 								default:
-									return &pgmocks.Row{
-										ScanFn: func(args ...any) error {
-											return fmt.Errorf("unexpected call to QueryRowFn: %s", query)
-										},
-									}
+									return fmt.Errorf("unexpected call to QueryRowFn: %s", query)
 								}
 							},
 						}
@@ -329,17 +299,13 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								require.Equal(t, exportSnapshotQuery, query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
+								require.Len(t, dest, 1)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", dest[0]))
+								*snapshotID = testSnapshotID
+								return nil
 							},
 						}
 						return f(&mockTx)
@@ -350,18 +316,14 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
 							},
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								require.Equal(t, fmt.Sprintf(tablesBytesQuery, testSchema, "$1"), query)
 								require.Equal(t, []any{testTable1}, args)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										totalBytes, ok := args[0].(*int64)
-										require.True(t, ok, fmt.Sprintf("totalBytes, expected *int64, got %T", args[0]))
-										*totalBytes = testTotalBytes
-										return nil
-									},
-								}
+								require.Len(t, dest, 1)
+								totalBytes, ok := dest[0].(*int64)
+								require.True(t, ok, fmt.Sprintf("totalBytes, expected *int64, got %T", dest[0]))
+								*totalBytes = testTotalBytes
+								return nil
 							},
 						}
 						return f(&mockTx)
@@ -423,32 +385,22 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
 					require.Equal(t, txOptions, to)
 					mockTx := pgmocks.Tx{
-						QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+						QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 							if query == exportSnapshotQuery {
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
+								require.Len(t, dest, 1)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", dest[0]))
+								*snapshotID = testSnapshotID
+								return nil
 							}
 							if query == tableInfoQuery {
-								return &pgmocks.Row{
-									ScanFn: validTableInfoScanFn,
-								}
+								return validTableInfoScanFn(dest...)
 							}
 							if query == fmt.Sprintf(pageRangeQueryCount, quotedSchemaTable1, 1, 2) ||
 								query == fmt.Sprintf(pageRangeQueryCount, quotedSchemaTable2, 1, 2) {
-								return &pgmocks.Row{
-									ScanFn: validMissedRowsScanFn,
-								}
+								return validMissedRowsScanFn(dest...)
 							}
-							return &pgmocks.Row{
-								ScanFn: func(args ...any) error { return fmt.Errorf("unexpected call to QueryRowFn: %s", query) },
-							}
+							return fmt.Errorf("unexpected call to QueryRowFn: %s", query)
 						},
 						QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
 							return &pgmocks.Rows{
@@ -488,27 +440,21 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		{
 			name: "ok - unsupported column type",
 			querier: &pgmocks.Querier{
-				QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
-					return &pgmocks.Row{
-						ScanFn: func(args ...any) error { return errTest },
-					}
+				QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
+					return errTest
 				},
 				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
 					require.Equal(t, txOptions, to)
 					switch i {
 					case 1:
 						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								require.Equal(t, exportSnapshotQuery, query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
+								require.Len(t, dest, 1)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", dest[0]))
+								*snapshotID = testSnapshotID
+								return nil
 							},
 						}
 						return f(&mockTx)
@@ -567,17 +513,13 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								require.Equal(t, exportSnapshotQuery, query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
+								require.Len(t, dest, 1)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", dest[0]))
+								*snapshotID = testSnapshotID
+								return nil
 							},
 						}
 						return f(&mockTx)
@@ -628,13 +570,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								require.Equal(t, exportSnapshotQuery, query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										return errTest
-									},
-								}
+								return errTest
 							},
 						}
 						return f(&mockTx)
@@ -655,17 +593,13 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								require.Equal(t, exportSnapshotQuery, query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
+								require.Len(t, dest, 1)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", dest[0]))
+								*snapshotID = testSnapshotID
+								return nil
 							},
 						}
 						return f(&mockTx)
@@ -702,17 +636,13 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								require.Equal(t, exportSnapshotQuery, query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
+								require.Len(t, dest, 1)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", dest[0]))
+								*snapshotID = testSnapshotID
+								return nil
 							},
 						}
 						return f(&mockTx)
@@ -723,14 +653,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
 							},
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								require.Equal(t, tableInfoQuery, query)
 								require.Equal(t, []any{testTable1, testSchema}, args)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										return errTest
-									},
-								}
+								return errTest
 							},
 						}
 						return f(&mockTx)
@@ -758,17 +684,13 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								require.Equal(t, exportSnapshotQuery, query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
+								require.Len(t, dest, 1)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", dest[0]))
+								*snapshotID = testSnapshotID
+								return nil
 							},
 						}
 						return f(&mockTx)
@@ -815,17 +737,13 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								require.Equal(t, exportSnapshotQuery, query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
+								require.Len(t, dest, 1)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", dest[0]))
+								*snapshotID = testSnapshotID
+								return nil
 							},
 						}
 						return f(&mockTx)
@@ -877,17 +795,13 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								require.Equal(t, exportSnapshotQuery, query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
+								require.Len(t, dest, 1)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", dest[0]))
+								*snapshotID = testSnapshotID
+								return nil
 							},
 						}
 						return f(&mockTx)
@@ -943,17 +857,13 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								require.Equal(t, exportSnapshotQuery, query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
+								require.Len(t, dest, 1)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", dest[0]))
+								*snapshotID = testSnapshotID
+								return nil
 							},
 						}
 						return f(&mockTx)
@@ -1007,28 +917,18 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
 					require.Equal(t, txOptions, to)
 					mockTx := pgmocks.Tx{
-						QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+						QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 							if query == exportSnapshotQuery {
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
+								require.Len(t, dest, 1)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", dest[0]))
+								*snapshotID = testSnapshotID
+								return nil
 							}
 							if query == tableInfoQuery {
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										return errTest
-									},
-								}
+								return errTest
 							}
-							return &pgmocks.Row{
-								ScanFn: func(args ...any) error { return fmt.Errorf("unexpected call to QueryRowFn: %s", query) },
-							}
+							return fmt.Errorf("unexpected call to QueryRowFn: %s", query)
 						},
 						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
 							require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
@@ -1065,17 +965,13 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					switch i {
 					case 1:
 						mockTx := pgmocks.Tx{
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								require.Equal(t, exportSnapshotQuery, query)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										require.Len(t, args, 1)
-										snapshotID, ok := args[0].(*string)
-										require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", args[0]))
-										*snapshotID = testSnapshotID
-										return nil
-									},
-								}
+								require.Len(t, dest, 1)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", dest[0]))
+								*snapshotID = testSnapshotID
+								return nil
 							},
 						}
 						return f(&mockTx)
@@ -1086,14 +982,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
 							},
-							QueryRowFn: func(ctx context.Context, query string, args ...any) pglib.Row {
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
 								require.Equal(t, fmt.Sprintf(tablesBytesQuery, testSchema, "$1"), query)
 								require.Equal(t, []any{testTable1}, args)
-								return &pgmocks.Row{
-									ScanFn: func(args ...any) error {
-										return errTest
-									},
-								}
+								return errTest
 							},
 						}
 						return f(&mockTx)

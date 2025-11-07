@@ -67,7 +67,7 @@ func (i *Querier) Query(ctx context.Context, query string, args ...any) (rows pg
 	return i.inner.Query(ctx, query, args...)
 }
 
-func (i *Querier) QueryRow(ctx context.Context, query string, args ...any) pglib.Row {
+func (i *Querier) QueryRow(ctx context.Context, dest []any, query string, args ...any) error {
 	queryAttrs := queryAttributes(query)
 	ctx, span := otel.StartSpan(ctx, i.tracer, "querier.QueryRow", trace.WithAttributes(queryAttrs...))
 	defer otel.CloseSpan(span, nil)
@@ -78,7 +78,7 @@ func (i *Querier) QueryRow(ctx context.Context, query string, args ...any) pglib
 			i.metrics.queryLatency.Record(ctx, int64(time.Since(startTime).Milliseconds()), metric.WithAttributes(queryAttrs...))
 		}()
 	}
-	return i.inner.QueryRow(ctx, query, args...)
+	return i.inner.QueryRow(ctx, dest, query, args...)
 }
 
 func (i *Querier) Exec(ctx context.Context, query string, args ...any) (tag pglib.CommandTag, err error) {
