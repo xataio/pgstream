@@ -1,5 +1,9 @@
 \connect test
 
+DROP TRIGGER IF EXISTS a_del_alternative_release ON musicbrainz.alternative_release;
+
+DROP TRIGGER IF EXISTS a_del_alternative_medium_track ON musicbrainz.alternative_medium_track;
+
 ALTER TABLE ONLY musicbrainz.alternative_medium
     ADD CONSTRAINT alternative_medium_pkey PRIMARY KEY (id);
 

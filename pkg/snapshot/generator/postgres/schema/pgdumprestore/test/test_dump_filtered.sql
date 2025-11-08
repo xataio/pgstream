@@ -21,8 +21,6 @@ SET row_security = off;
 
 ALTER TABLE IF EXISTS ONLY musicbrainz.alternative_medium DROP CONSTRAINT IF EXISTS alternative_medium_fk_medium;
 ALTER TABLE IF EXISTS ONLY musicbrainz.alternative_medium DROP CONSTRAINT IF EXISTS alternative_medium_fk_alternative_release;
-DROP TRIGGER IF EXISTS a_del_alternative_release ON musicbrainz.alternative_release;
-DROP TRIGGER IF EXISTS a_del_alternative_medium_track ON musicbrainz.alternative_medium_track;
 DROP INDEX IF EXISTS musicbrainz.alternative_release_idx_artist_credit;
 DROP INDEX IF EXISTS musicbrainz.alternative_medium_idx_alternative_release;
 ALTER TABLE IF EXISTS ONLY musicbrainz.alternative_medium_track DROP CONSTRAINT IF EXISTS alternative_medium_track_pkey;

@@ -470,6 +470,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			strings.HasPrefix(line, "CREATE UNIQUE INDEX"),
 			strings.HasPrefix(line, "CREATE CONSTRAINT"),
 			strings.HasPrefix(line, "CREATE TRIGGER"),
+			strings.HasPrefix(line, "DROP TRIGGER"),
 			strings.HasPrefix(line, "COMMENT ON CONSTRAINT"),
 			strings.HasPrefix(line, "COMMENT ON INDEX"),
 			strings.HasPrefix(line, "COMMENT ON TRIGGER"):
