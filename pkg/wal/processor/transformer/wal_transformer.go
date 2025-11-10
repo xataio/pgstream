@@ -116,7 +116,6 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 		return nil
 	}
 
-	var allColumnValues map[string]any
 	columns := event.Data.Columns
 	for i, col := range columns {
 		// do not transform nil column values for now
@@ -129,19 +128,12 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 			continue
 		}
 
-		var transformValue transformers.Value
-		// if the transformer is dynamic, we need to provide all column values
+		var dynamicValues map[string]any
 		if columnTransformer.IsDynamic() {
-			// load all column values only if not already done
-			if allColumnValues == nil {
-				allColumnValues = t.getAllColumnValues(event.Data.Columns)
-			}
-			transformValue = transformers.NewValue(col.Value, col.Type, allColumnValues)
-		} else {
-			transformValue = transformers.NewValue(col.Value, col.Type, nil)
+			dynamicValues = t.getDynamicColumnValues(col.Name, event.Data.Columns)
 		}
 
-		newValue, err := columnTransformer.Transform(ctx, transformValue)
+		newValue, err := columnTransformer.Transform(ctx, transformers.NewValue(col.Value, col.Type, dynamicValues))
 		if err != nil {
 			t.logger.Error(err, "transforming column", loglib.Fields{
 				"severity":    "DATALOSS",
@@ -161,9 +153,12 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 	return nil
 }
 
-func (t *Transformer) getAllColumnValues(columns []wal.Column) map[string]any {
+func (t *Transformer) getDynamicColumnValues(excludeColName string, columns []wal.Column) map[string]any {
 	values := make(map[string]any, len(columns))
 	for _, col := range columns {
+		if col.Name == excludeColName {
+			continue
+		}
 		values[col.Name] = col.Value
 	}
 	return values

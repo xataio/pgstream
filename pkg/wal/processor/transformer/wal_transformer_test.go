@@ -194,7 +194,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 				testKey: {
 					"column_1": &transformermocks.Transformer{
 						TransformFn: func(a transformers.Value) (any, error) {
-							require.Equal(t, a.DynamicValues, map[string]any{"column_1": "one", "column_2": 1})
+							require.Equal(t, a.DynamicValues, map[string]any{"column_2": 1})
 							aStr, ok := a.TransformValue.(string)
 							require.True(t, ok)
 							require.Equal(t, "one", aStr)
