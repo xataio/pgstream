@@ -162,11 +162,45 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 				testKey: {
 					"column_1": &transformermocks.Transformer{
 						TransformFn: func(a transformers.Value) (any, error) {
+							require.Nil(t, a.DynamicValues)
 							aStr, ok := a.TransformValue.(string)
 							require.True(t, ok)
 							require.Equal(t, "one", aStr)
 							return "two", nil
 						},
+					},
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - with dynamic transformers for schema table",
+			event: newTestEvent([]wal.Column{
+				{Name: "column_1", Type: "text", Value: "one"},
+				{Name: "column_2", Type: "int", Value: 1},
+			}),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					wantEvent := newTestEvent([]wal.Column{
+						{Name: "column_1", Type: "text", Value: "two"},
+						{Name: "column_2", Type: "int", Value: 1},
+					})
+					require.Equal(t, wantEvent, walEvent)
+					return nil
+				},
+			},
+			transformerMap: map[string]ColumnTransformers{
+				testKey: {
+					"column_1": &transformermocks.Transformer{
+						TransformFn: func(a transformers.Value) (any, error) {
+							require.Equal(t, a.DynamicValues, map[string]any{"column_1": "one", "column_2": 1})
+							aStr, ok := a.TransformValue.(string)
+							require.True(t, ok)
+							require.Equal(t, "one", aStr)
+							return "two", nil
+						},
+						IsDynamicFn: func() bool { return true },
 					},
 				},
 			},
