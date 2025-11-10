@@ -116,6 +116,7 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 		return nil
 	}
 
+	var allColumnValues map[string]any
 	columns := event.Data.Columns
 	for i, col := range columns {
 		// do not transform nil column values for now
@@ -128,7 +129,19 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 			continue
 		}
 
-		newValue, err := columnTransformer.Transform(ctx, t.getTransformValue(&col, event.Data.Columns))
+		var transformValue transformers.Value
+		// if the transformer is dynamic, we need to provide all column values
+		if columnTransformer.IsDynamic() {
+			// load all column values only if not already done
+			if allColumnValues == nil {
+				allColumnValues = t.getAllColumnValues(event.Data.Columns)
+			}
+			transformValue = transformers.NewValue(col.Value, col.Type, allColumnValues)
+		} else {
+			transformValue = transformers.NewValue(col.Value, col.Type, nil)
+		}
+
+		newValue, err := columnTransformer.Transform(ctx, transformValue)
 		if err != nil {
 			t.logger.Error(err, "transforming column", loglib.Fields{
 				"severity":    "DATALOSS",
@@ -145,15 +158,12 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 	return nil
 }
 
-func (t *Transformer) getTransformValue(column *wal.Column, columns []wal.Column) transformers.Value {
-	values := make(map[string]any, len(columns)-1)
+func (t *Transformer) getAllColumnValues(columns []wal.Column) map[string]any {
+	values := make(map[string]any, len(columns))
 	for _, col := range columns {
-		if col.Name == column.Name {
-			continue
-		}
 		values[col.Name] = col.Value
 	}
-	return transformers.NewValue(column.Value, column.Type, values)
+	return values
 }
 
 func schemaTableKey(schema, table string) string {
