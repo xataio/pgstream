@@ -175,6 +175,10 @@ func (t *PhoneNumberTransformer) Type() TransformerType {
 	return PhoneNumber
 }
 
+func (t *PhoneNumberTransformer) IsDynamic() bool {
+	return len(t.dynamicParams) > 0
+}
+
 func (t *PhoneNumberTransformer) Close() error {
 	return nil
 }

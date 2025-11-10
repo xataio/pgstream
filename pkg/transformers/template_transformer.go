@@ -66,6 +66,10 @@ func (t *TemplateTransformer) Type() TransformerType {
 	return Template
 }
 
+func (t *TemplateTransformer) IsDynamic() bool {
+	return true
+}
+
 func (t *TemplateTransformer) Close() error {
 	return nil
 }

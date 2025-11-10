@@ -123,6 +123,10 @@ func (t *DateTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskDate
 }
 
+func (t *DateTransformer) IsDynamic() bool {
+	return false
+}
+
 func (t *DateTransformer) Close() error {
 	return nil
 }

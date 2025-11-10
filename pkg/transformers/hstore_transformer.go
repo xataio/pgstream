@@ -140,6 +140,10 @@ func (t *HstoreTransformer) Type() TransformerType {
 	return Hstore
 }
 
+func (t *HstoreTransformer) IsDynamic() bool {
+	return true
+}
+
 func (t *HstoreTransformer) Close() error {
 	return nil
 }

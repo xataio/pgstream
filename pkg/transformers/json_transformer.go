@@ -124,6 +124,10 @@ func (jt *JSONTransformer) Type() TransformerType {
 	return JSON
 }
 
+func (jt *JSONTransformer) IsDynamic() bool {
+	return true
+}
+
 func (jt *JSONTransformer) Close() error {
 	return nil
 }

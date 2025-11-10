@@ -388,6 +388,10 @@ func (t *PGAnonymizerTransformer) Type() TransformerType {
 	return PGAnonymizer
 }
 
+func (t *PGAnonymizerTransformer) IsDynamic() bool {
+	return false
+}
+
 func (t *PGAnonymizerTransformer) Close() error {
 	return t.conn.Close(context.Background())
 }
