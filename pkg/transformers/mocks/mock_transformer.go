@@ -10,6 +10,7 @@ import (
 
 type Transformer struct {
 	TransformFn       func(transformers.Value) (any, error)
+	IsDynamicFn       func() bool
 	CompatibleTypesFn func() []transformers.SupportedDataType
 }
 
@@ -23,6 +24,13 @@ func (m *Transformer) CompatibleTypes() []transformers.SupportedDataType {
 
 func (m *Transformer) Type() transformers.TransformerType {
 	return transformers.TransformerType("mock")
+}
+
+func (m *Transformer) IsDynamic() bool {
+	if m.IsDynamicFn != nil {
+		return m.IsDynamicFn()
+	}
+	return false
 }
 
 func (m *Transformer) Close() error {

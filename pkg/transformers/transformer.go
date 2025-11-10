@@ -10,6 +10,7 @@ import (
 
 type Transformer interface {
 	Transform(context.Context, Value) (any, error)
+	IsDynamic() bool
 	CompatibleTypes() []SupportedDataType
 	Type() TransformerType
 	Close() error
