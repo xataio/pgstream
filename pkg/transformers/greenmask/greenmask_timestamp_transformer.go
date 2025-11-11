@@ -128,6 +128,10 @@ func (t *UTCTimestampTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskUTCTimestamp
 }
 
+func (t *UTCTimestampTransformer) IsDynamic() bool {
+	return false
+}
+
 func (t *UTCTimestampTransformer) Close() error {
 	return nil
 }

@@ -50,6 +50,10 @@ func (t *transformer[T]) Transform(_ context.Context, value transformers.Value) 
 	return *ret, nil
 }
 
+func (t *transformer[T]) IsDynamic() bool {
+	return false
+}
+
 func findParameter[T any](params transformers.ParameterValues, name string) (*T, error) {
 	var found bool
 	var err error

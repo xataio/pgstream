@@ -155,6 +155,10 @@ func (t *MaskingTransformer) Close() error {
 	return nil
 }
 
+func (t *MaskingTransformer) IsDynamic() bool {
+	return false
+}
+
 func MaskingTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: maskingCompatibleTypes,

@@ -166,6 +166,10 @@ func (t *IntegerTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskInteger
 }
 
+func (t *IntegerTransformer) IsDynamic() bool {
+	return false
+}
+
 func (t *IntegerTransformer) Close() error {
 	return nil
 }

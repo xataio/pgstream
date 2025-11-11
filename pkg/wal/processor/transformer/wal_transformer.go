@@ -128,7 +128,12 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 			continue
 		}
 
-		newValue, err := columnTransformer.Transform(ctx, t.getTransformValue(&col, event.Data.Columns))
+		var dynamicValues map[string]any
+		if columnTransformer.IsDynamic() {
+			dynamicValues = t.getDynamicColumnValues(col.Name, event.Data.Columns)
+		}
+
+		newValue, err := columnTransformer.Transform(ctx, transformers.NewValue(col.Value, col.Type, dynamicValues))
 		if err != nil {
 			t.logger.Error(err, "transforming column", loglib.Fields{
 				"severity":    "DATALOSS",
@@ -138,22 +143,25 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 			})
 			newValue = nil
 		}
-		t.logger.Trace("applying column transformation", loglib.Fields{"column_name": col.Name, "column_type": col.Type, "new_column_value": newValue})
+		// avoid logging large values on the hot path unless trace is enabled
+		if t.logger.IsTraceEnabled() {
+			t.logger.Trace("applying column transformation", loglib.Fields{"column_name": col.Name, "column_type": col.Type, "new_column_value": newValue})
+		}
 		columns[i].Value = newValue
 	}
 
 	return nil
 }
 
-func (t *Transformer) getTransformValue(column *wal.Column, columns []wal.Column) transformers.Value {
-	values := make(map[string]any, len(columns)-1)
+func (t *Transformer) getDynamicColumnValues(excludeColName string, columns []wal.Column) map[string]any {
+	values := make(map[string]any, len(columns))
 	for _, col := range columns {
-		if col.Name == column.Name {
+		if col.Name == excludeColName {
 			continue
 		}
 		values[col.Name] = col.Value
 	}
-	return transformers.NewValue(column.Value, column.Type, values)
+	return values
 }
 
 func schemaTableKey(schema, table string) string {

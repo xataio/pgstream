@@ -96,6 +96,10 @@ func (t *ChoiceTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskChoice
 }
 
+func (t *ChoiceTransformer) IsDynamic() bool {
+	return false
+}
+
 func (t *ChoiceTransformer) Close() error {
 	return nil
 }

@@ -54,6 +54,10 @@ func (lst *LiteralStringTransformer) Type() TransformerType {
 	return LiteralString
 }
 
+func (lst *LiteralStringTransformer) IsDynamic() bool {
+	return false
+}
+
 func (lst *LiteralStringTransformer) Close() error {
 	return nil
 }
