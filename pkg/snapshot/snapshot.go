@@ -2,10 +2,6 @@
 
 package snapshot
 
-import (
-	"context"
-)
-
 type Snapshot struct {
 	SchemaTables         map[string][]string
 	SchemaExcludedTables map[string][]string
@@ -16,25 +12,6 @@ type Request struct {
 	Tables []string
 	Status Status
 	Errors *SchemaErrors
-}
-
-type Row struct {
-	Schema  string
-	Table   string
-	Columns []Column
-}
-
-type Column struct {
-	Name  string
-	Type  string
-	Value any
-}
-
-type RowProcessor func(context.Context, *Row) error
-
-type RowsProcessor interface {
-	ProcessRow(context.Context, *Row) error
-	Close() error
 }
 
 type Status string
