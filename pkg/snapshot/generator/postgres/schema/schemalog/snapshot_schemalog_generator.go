@@ -5,28 +5,33 @@ package schemalog
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/xataio/pgstream/internal/json"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"github.com/xataio/pgstream/pkg/snapshot/generator"
+	"github.com/xataio/pgstream/pkg/wal"
+	"github.com/xataio/pgstream/pkg/wal/processor"
 )
 
 type SnapshotGenerator struct {
 	schemalogStore schemalog.Store
 	marshaler      func(any) ([]byte, error)
-	processRow     snapshot.RowProcessor
+	processor      processor.Processor
 	generator      generator.SnapshotGenerator
 	logger         loglib.Logger
 }
 
 type Option func(*SnapshotGenerator)
 
-func NewSnapshotGenerator(schemalogStore schemalog.Store, processRow snapshot.RowProcessor, opts ...Option) *SnapshotGenerator {
+const zeroLSN = "0/0"
+
+func NewSnapshotGenerator(schemalogStore schemalog.Store, processor processor.Processor, opts ...Option) *SnapshotGenerator {
 	sg := &SnapshotGenerator{
 		schemalogStore: schemalogStore,
-		processRow:     processRow,
+		processor:      processor,
 		marshaler:      json.Marshal,
 		logger:         loglib.NewNoopLogger(),
 	}
@@ -70,12 +75,12 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 				"acked":      logEntry.Acked,
 			})
 
-			row, err := s.logEntryToSnapshotRow(logEntry)
+			event, err := s.logEntryToWalEvent(logEntry)
 			if err != nil {
 				return err
 			}
 
-			return s.processRow(ctx, row)
+			return s.processor.ProcessWALEvent(ctx, event)
 		}()
 		if err != nil {
 			snapshotErrs.AddError(schema, snapshot.NewSchemaErrors(schema, err))
@@ -99,21 +104,27 @@ func (s *SnapshotGenerator) Close() error {
 	return nil
 }
 
-func (s *SnapshotGenerator) logEntryToSnapshotRow(logEntry *schemalog.LogEntry) (*snapshot.Row, error) {
+func (s *SnapshotGenerator) logEntryToWalEvent(logEntry *schemalog.LogEntry) (*wal.Event, error) {
 	schema, err := s.marshaler(logEntry.Schema)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling log entry schema into json: %w", err)
 	}
-	return &snapshot.Row{
-		Schema: schemalog.SchemaName,
-		Table:  schemalog.TableName,
-		Columns: []snapshot.Column{
-			{Name: "id", Type: "pgstream.xid", Value: logEntry.ID},
-			{Name: "version", Type: "bigint", Value: logEntry.Version},
-			{Name: "schema_name", Type: "text", Value: logEntry.SchemaName},
-			{Name: "created_at", Type: "timestamp without time zone", Value: logEntry.CreatedAt},
-			{Name: "schema", Type: "jsonb", Value: string(schema)},
-			{Name: "acked", Type: "boolean", Value: logEntry.Acked},
+	return &wal.Event{
+		CommitPosition: wal.CommitPosition(zeroLSN),
+		Data: &wal.Data{
+			Action:    "I",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Schema:    schemalog.SchemaName,
+			Table:     schemalog.TableName,
+			LSN:       zeroLSN,
+			Columns: []wal.Column{
+				{Name: "id", Type: "pgstream.xid", Value: logEntry.ID},
+				{Name: "version", Type: "bigint", Value: logEntry.Version},
+				{Name: "schema_name", Type: "text", Value: logEntry.SchemaName},
+				{Name: "created_at", Type: "timestamp without time zone", Value: logEntry.CreatedAt},
+				{Name: "schema", Type: "jsonb", Value: string(schema)},
+				{Name: "acked", Type: "boolean", Value: logEntry.Acked},
+			},
 		},
 	}, nil
 }
