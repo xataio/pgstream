@@ -10,12 +10,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	schemalogmocks "github.com/xataio/pgstream/pkg/schemalog/mocks"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	generatormocks "github.com/xataio/pgstream/pkg/snapshot/generator/mocks"
+	"github.com/xataio/pgstream/pkg/wal"
+	processormocks "github.com/xataio/pgstream/pkg/wal/processor/mocks"
 )
 
 func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
@@ -52,16 +56,21 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 
 	testSchemaBytes, err := json.Marshal(testSchemaLog.Schema)
 	require.NoError(t, err)
-	testRow := &snapshot.Row{
-		Schema: schemalog.SchemaName,
-		Table:  schemalog.TableName,
-		Columns: []snapshot.Column{
-			{Name: "id", Type: "pgstream.xid", Value: testXID},
-			{Name: "version", Type: "bigint", Value: int64(1)},
-			{Name: "schema_name", Type: "text", Value: testSchemaName},
-			{Name: "created_at", Type: "timestamp without time zone", Value: now},
-			{Name: "schema", Type: "jsonb", Value: string(testSchemaBytes)},
-			{Name: "acked", Type: "boolean", Value: false},
+	testEvent := &wal.Event{
+		CommitPosition: wal.CommitPosition(wal.ZeroLSN),
+		Data: &wal.Data{
+			Action: "I",
+			LSN:    wal.ZeroLSN,
+			Schema: schemalog.SchemaName,
+			Table:  schemalog.TableName,
+			Columns: []wal.Column{
+				{Name: "id", Type: "pgstream.xid", Value: testXID},
+				{Name: "version", Type: "bigint", Value: int64(1)},
+				{Name: "schema_name", Type: "text", Value: testSchemaName},
+				{Name: "created_at", Type: "timestamp without time zone", Value: now},
+				{Name: "schema", Type: "jsonb", Value: string(testSchemaBytes)},
+				{Name: "acked", Type: "boolean", Value: false},
+			},
 		},
 	}
 
@@ -70,7 +79,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	tests := []struct {
 		name        string
 		schemaStore *schemalogmocks.Store
-		processRow  snapshot.RowProcessor
+		processFn   func(context.Context, *wal.Event) error
 		marshaler   func(any) ([]byte, error)
 		generator   *generatormocks.Generator
 
@@ -84,8 +93,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return testSchemaLog, nil
 				},
 			},
-			processRow: func(ctx context.Context, r *snapshot.Row) error {
-				require.Equal(t, testRow, r)
+			processFn: func(ctx context.Context, e *wal.Event) error {
+				compareEvent(t, testEvent, e)
 				return nil
 			},
 
@@ -98,8 +107,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return testSchemaLog, nil
 				},
 			},
-			processRow: func(ctx context.Context, r *snapshot.Row) error {
-				require.Equal(t, testRow, r)
+			processFn: func(ctx context.Context, e *wal.Event) error {
+				compareEvent(t, testEvent, e)
 				return nil
 			},
 			generator: &generatormocks.Generator{
@@ -120,8 +129,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, errTest
 				},
 			},
-			processRow: func(ctx context.Context, r *snapshot.Row) error {
-				return errors.New("processRow: should not be called")
+			processFn: func(ctx context.Context, r *wal.Event) error {
+				return errors.New("processFn: should not be called")
 			},
 
 			wantErr: snapshot.NewErrors(testSchemaName, errTest),
@@ -134,7 +143,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			processRow: func(ctx context.Context, r *snapshot.Row) error {
+			processFn: func(ctx context.Context, r *wal.Event) error {
 				return errTest
 			},
 
@@ -147,8 +156,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return testSchemaLog, nil
 				},
 			},
-			processRow: func(ctx context.Context, r *snapshot.Row) error {
-				return errors.New("processRow: should not be called")
+			processFn: func(ctx context.Context, r *wal.Event) error {
+				return errors.New("processFn: should not be called")
 			},
 			marshaler: func(a any) ([]byte, error) { return nil, errTest },
 
@@ -165,7 +174,11 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				opts = append(opts, WithSnapshotGenerator(tc.generator))
 			}
 
-			g := NewSnapshotGenerator(tc.schemaStore, tc.processRow, opts...)
+			processor := &processormocks.Processor{
+				ProcessWALEventFn: tc.processFn,
+			}
+
+			g := NewSnapshotGenerator(tc.schemaStore, processor, opts...)
 			defer g.Close()
 
 			if tc.marshaler != nil {
@@ -180,4 +193,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			}
 		})
 	}
+}
+
+func compareEvent(t *testing.T, want, got *wal.Event) {
+	diff := cmp.Diff(got, want,
+		cmpopts.IgnoreFields(wal.Data{}, "Timestamp"))
+	require.Empty(t, diff, fmt.Sprintf("got: \n%v, \nwant \n%v, \ndiff: \n%s", got, want, diff))
 }

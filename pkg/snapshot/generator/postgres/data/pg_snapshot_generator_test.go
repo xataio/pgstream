@@ -20,9 +20,11 @@ import (
 	"github.com/xataio/pgstream/internal/progress"
 	progressmocks "github.com/xataio/pgstream/internal/progress/mocks"
 	synclib "github.com/xataio/pgstream/internal/sync"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/snapshot"
-	"github.com/xataio/pgstream/pkg/snapshot/generator/mocks"
 	"github.com/xataio/pgstream/pkg/wal"
+	"github.com/xataio/pgstream/pkg/wal/processor"
+	processormocks "github.com/xataio/pgstream/pkg/wal/processor/mocks"
 )
 
 func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
@@ -51,16 +53,21 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	testRowBytes := int64(512)
 	testUUID := uuid.New().String()
 	testUUID2 := uuid.New().String()
-	testColumns := []snapshot.Column{
+	testColumns := []wal.Column{
 		{Name: "id", Type: "uuid", Value: testUUID},
 		{Name: "name", Type: "text", Value: "alice"},
 	}
 
-	testRow := func(tableName string, columns []snapshot.Column) *snapshot.Row {
-		return &snapshot.Row{
-			Schema:  testSchema,
-			Table:   tableName,
-			Columns: columns,
+	testEvent := func(tableName string, columns []wal.Column) *wal.Event {
+		return &wal.Event{
+			CommitPosition: wal.CommitPosition(wal.ZeroLSN),
+			Data: &wal.Data{
+				Action:  "I",
+				LSN:     wal.ZeroLSN,
+				Schema:  testSchema,
+				Table:   tableName,
+				Columns: columns,
+			},
 		}
 	}
 
@@ -107,8 +114,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		schemaWorkers uint
 		progressBar   *progressmocks.Bar
 
-		wantRows []*snapshot.Row
-		wantErr  error
+		wantEvents []*wal.Event
+		wantErr    error
 	}{
 		{
 			name: "ok",
@@ -171,8 +178,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr:  nil,
-			wantRows: []*snapshot.Row{testRow(testTable1, testColumns)},
+			wantErr:    nil,
+			wantEvents: []*wal.Event{testEvent(testTable1, testColumns)},
 		},
 		{
 			name: "ok - with missed pages",
@@ -283,9 +290,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			},
 
 			wantErr: nil,
-			wantRows: []*snapshot.Row{
-				testRow(testTable1, testColumns),
-				testRow(testTable1, []snapshot.Column{
+			wantEvents: []*wal.Event{
+				testEvent(testTable1, testColumns),
+				testEvent(testTable1, []wal.Column{
 					{Name: "id", Type: "uuid", Value: testUUID2},
 					{Name: "name", Type: "text", Value: "bob"},
 				}),
@@ -376,8 +383,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr:  nil,
-			wantRows: []*snapshot.Row{testRow(testTable1, testColumns)},
+			wantErr:    nil,
+			wantEvents: []*wal.Event{testEvent(testTable1, testColumns)},
 		},
 		{
 			name: "ok - multiple tables and multiple workers",
@@ -434,8 +441,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			},
 			schemaWorkers: 2,
 
-			wantErr:  nil,
-			wantRows: []*snapshot.Row{testRow(testTable1, testColumns), testRow(testTable2, testColumns)},
+			wantErr:    nil,
+			wantEvents: []*wal.Event{testEvent(testTable1, testColumns), testEvent(testTable2, testColumns)},
 		},
 		{
 			name: "ok - unsupported column type",
@@ -502,8 +509,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr:  nil,
-			wantRows: []*snapshot.Row{testRow(testTable1, testColumns)},
+			wantErr:    nil,
+			wantEvents: []*wal.Event{testEvent(testTable1, testColumns)},
 		},
 		{
 			name: "ok - no data",
@@ -559,8 +566,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr:  nil,
-			wantRows: []*snapshot.Row{},
+			wantErr:    nil,
+			wantEvents: []*wal.Event{},
 		},
 		{
 			name: "error - exporting snapshot",
@@ -582,8 +589,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 
-			wantErr:  snapshot.NewErrors(testSchema, fmt.Errorf("exporting snapshot: %w", errTest)),
-			wantRows: []*snapshot.Row{},
+			wantErr:    snapshot.NewErrors(testSchema, fmt.Errorf("exporting snapshot: %w", errTest)),
+			wantEvents: []*wal.Event{},
 		},
 		{
 			name: "error - setting transaction snapshot before table page count",
@@ -626,7 +633,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					},
 				},
 			},
-			wantRows: []*snapshot.Row{},
+			wantEvents: []*wal.Event{},
 		},
 		{
 			name: "error - getting table page count",
@@ -674,7 +681,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					},
 				},
 			},
-			wantRows: []*snapshot.Row{},
+			wantEvents: []*wal.Event{},
 		},
 		{
 			name: "error - setting transaction snapshot for table range",
@@ -727,7 +734,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					},
 				},
 			},
-			wantRows: []*snapshot.Row{},
+			wantEvents: []*wal.Event{},
 		},
 		{
 			name: "error - querying range data",
@@ -785,7 +792,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					},
 				},
 			},
-			wantRows: []*snapshot.Row{},
+			wantEvents: []*wal.Event{},
 		},
 		{
 			name: "error - getting row values",
@@ -847,7 +854,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					},
 				},
 			},
-			wantRows: []*snapshot.Row{},
+			wantEvents: []*wal.Event{},
 		},
 		{
 			name: "error - rows err",
@@ -909,7 +916,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					},
 				},
 			},
-			wantRows: []*snapshot.Row{},
+			wantEvents: []*wal.Event{},
 		},
 		{
 			name: "error - multiple tables and multiple workers",
@@ -955,7 +962,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					},
 				},
 			},
-			wantRows: []*snapshot.Row{},
+			wantEvents: []*wal.Event{},
 		},
 		{
 			name: "error - adding progress bar",
@@ -1006,7 +1013,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					GlobalErrors: []string{fmt.Sprintf("retrieving total bytes for schema: %v", errTest)},
 				},
 			},
-			wantRows: []*snapshot.Row{},
+			wantEvents: []*wal.Event{},
 		},
 	}
 
@@ -1014,16 +1021,16 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			rowChan := make(chan *snapshot.Row, 10)
+			eventChan := make(chan *wal.Event, 10)
 			sg := SnapshotGenerator{
 				logger: zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
 					LogLevel: "debug",
 				})),
-				conn:   tc.querier,
-				mapper: pglib.NewMapper(tc.querier),
-				rowsProcessor: &mocks.RowsProcessor{
-					ProcessRowFn: func(ctx context.Context, e *snapshot.Row) error {
-						rowChan <- e
+				conn:    tc.querier,
+				adapter: newAdapter(pglib.NewMapper(tc.querier), loglib.NewNoopLogger()),
+				processor: &processormocks.Processor{
+					ProcessWALEventFn: func(ctx context.Context, e *wal.Event) error {
+						eventChan <- e
 						return nil
 					},
 				},
@@ -1050,16 +1057,16 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 
 			err := sg.CreateSnapshot(context.Background(), s)
 			require.Equal(t, tc.wantErr, err)
-			close(rowChan)
+			close(eventChan)
 
-			rows := []*snapshot.Row{}
-			for row := range rowChan {
-				rows = append(rows, row)
+			events := []*wal.Event{}
+			for event := range eventChan {
+				events = append(events, event)
 			}
-			diff := cmp.Diff(rows, tc.wantRows,
+			diff := cmp.Diff(events, tc.wantEvents,
 				cmpopts.IgnoreFields(wal.Data{}, "Timestamp"),
-				cmpopts.SortSlices(func(a, b *snapshot.Row) bool { return a.Table < b.Table }))
-			require.Empty(t, diff, fmt.Sprintf("got: \n%v, \nwant \n%v, \ndiff: \n%s", rows, tc.wantRows, diff))
+				cmpopts.SortSlices(func(a, b *wal.Event) bool { return a.Data.Table < b.Data.Table }))
+			require.Empty(t, diff, fmt.Sprintf("got: \n%v, \nwant \n%v, \ndiff: \n%s", events, tc.wantEvents, diff))
 		})
 	}
 }
@@ -1147,15 +1154,20 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 	testUUID := uuid.New().String()
 	quotedSchemaTable := pglib.QuoteQualifiedIdentifier(testSchema, testTable)
 
-	testColumns := []snapshot.Column{
+	testColumns := []wal.Column{
 		{Name: "id", Type: "uuid", Value: testUUID},
 		{Name: "name", Type: "text", Value: "alice"},
 	}
 
-	testRow := &snapshot.Row{
-		Schema:  testSchema,
-		Table:   testTable,
-		Columns: testColumns,
+	testEvent := &wal.Event{
+		CommitPosition: wal.CommitPosition(wal.ZeroLSN),
+		Data: &wal.Data{
+			Action:  "I",
+			LSN:     wal.ZeroLSN,
+			Schema:  testSchema,
+			Table:   testTable,
+			Columns: testColumns,
+		},
 	}
 
 	testPageRange := pageRange{start: 0, end: 5}
@@ -1166,10 +1178,10 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 		querier   pglib.Querier
 		table     *table
 		pageRange pageRange
-		processor snapshot.RowsProcessor
+		processor processor.Processor
 
-		wantRows []*snapshot.Row
-		wantErr  error
+		wantEvents []*wal.Event
+		wantErr    error
 	}{
 		{
 			name: "ok - single row",
@@ -1207,13 +1219,13 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 				rowSize: 512,
 			},
 			pageRange: testPageRange,
-			processor: &mocks.RowsProcessor{
-				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+			processor: &processormocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, event *wal.Event) error {
 					return nil
 				},
 			},
-			wantRows: []*snapshot.Row{testRow},
-			wantErr:  nil,
+			wantEvents: []*wal.Event{testEvent},
+			wantErr:    nil,
 		},
 		{
 			name: "ok - multiple rows",
@@ -1250,13 +1262,13 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 				rowSize: 512,
 			},
 			pageRange: testPageRange,
-			processor: &mocks.RowsProcessor{
-				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+			processor: &processormocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, event *wal.Event) error {
 					return nil
 				},
 			},
-			wantRows: []*snapshot.Row{testRow, testRow},
-			wantErr:  nil,
+			wantEvents: []*wal.Event{testEvent, testEvent},
+			wantErr:    nil,
 		},
 		{
 			name: "ok - no rows",
@@ -1290,13 +1302,13 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 				rowSize: 512,
 			},
 			pageRange: testPageRange,
-			processor: &mocks.RowsProcessor{
-				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+			processor: &processormocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, event *wal.Event) error {
 					return nil
 				},
 			},
-			wantRows: []*snapshot.Row{},
-			wantErr:  nil,
+			wantEvents: []*wal.Event{},
+			wantErr:    nil,
 		},
 		{
 			name: "ok - with progress tracking",
@@ -1333,13 +1345,13 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 				rowSize: 512,
 			},
 			pageRange: testPageRange,
-			processor: &mocks.RowsProcessor{
-				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+			processor: &processormocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, event *wal.Event) error {
 					return nil
 				},
 			},
-			wantRows: []*snapshot.Row{testRow},
-			wantErr:  nil,
+			wantEvents: []*wal.Event{testEvent},
+			wantErr:    nil,
 		},
 		{
 			name: "error - setting transaction snapshot",
@@ -1360,13 +1372,13 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 				rowSize: 512,
 			},
 			pageRange: testPageRange,
-			processor: &mocks.RowsProcessor{
-				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+			processor: &processormocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, event *wal.Event) error {
 					return nil
 				},
 			},
-			wantRows: []*snapshot.Row{},
-			wantErr:  fmt.Errorf("setting transaction snapshot: %w", errTest),
+			wantEvents: []*wal.Event{},
+			wantErr:    fmt.Errorf("setting transaction snapshot: %w", errTest),
 		},
 		{
 			name: "error - querying table rows",
@@ -1390,13 +1402,13 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 				rowSize: 512,
 			},
 			pageRange: testPageRange,
-			processor: &mocks.RowsProcessor{
-				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+			processor: &processormocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, event *wal.Event) error {
 					return nil
 				},
 			},
-			wantRows: []*snapshot.Row{},
-			wantErr:  fmt.Errorf("querying table rows: %w", errTest),
+			wantEvents: []*wal.Event{},
+			wantErr:    fmt.Errorf("querying table rows: %w", errTest),
 		},
 		{
 			name: "error - retrieving row values",
@@ -1430,13 +1442,13 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 				rowSize: 512,
 			},
 			pageRange: testPageRange,
-			processor: &mocks.RowsProcessor{
-				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+			processor: &processormocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, event *wal.Event) error {
 					return nil
 				},
 			},
-			wantRows: []*snapshot.Row{},
-			wantErr:  fmt.Errorf("retrieving rows values: %w", errTest),
+			wantEvents: []*wal.Event{},
+			wantErr:    fmt.Errorf("retrieving rows values: %w", errTest),
 		},
 		{
 			name: "error - rows error",
@@ -1470,13 +1482,13 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 				rowSize: 512,
 			},
 			pageRange: testPageRange,
-			processor: &mocks.RowsProcessor{
-				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+			processor: &processormocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, event *wal.Event) error {
 					return nil
 				},
 			},
-			wantRows: []*snapshot.Row{},
-			wantErr:  errTest,
+			wantEvents: []*wal.Event{},
+			wantErr:    errTest,
 		},
 		{
 			name: "error - processing row fails",
@@ -1512,13 +1524,13 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 				rowSize: 512,
 			},
 			pageRange: testPageRange,
-			processor: &mocks.RowsProcessor{
-				ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+			processor: &processormocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, event *wal.Event) error {
 					return errTest
 				},
 			},
-			wantRows: []*snapshot.Row{},
-			wantErr:  fmt.Errorf("processing snapshot row: %w", errTest),
+			wantEvents: []*wal.Event{},
+			wantErr:    fmt.Errorf("processing snapshot row: %w", errTest),
 		},
 	}
 
@@ -1526,7 +1538,7 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			rowChan := make(chan *snapshot.Row, 10)
+			eventChan := make(chan *wal.Event, 10)
 			progressBar := &progressmocks.Bar{
 				Add64Fn: func(n int64) error {
 					require.Equal(t, tc.table.rowSize, n)
@@ -1538,16 +1550,16 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 				logger: zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
 					LogLevel: "debug",
 				})),
-				conn:   tc.querier,
-				mapper: pglib.NewMapper(tc.querier),
-				rowsProcessor: &mocks.RowsProcessor{
-					ProcessRowFn: func(ctx context.Context, row *snapshot.Row) error {
+				conn:    tc.querier,
+				adapter: newAdapter(pglib.NewMapper(tc.querier), loglib.NewNoopLogger()),
+				processor: &processormocks.Processor{
+					ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
 						if tc.processor != nil {
-							if err := tc.processor.ProcessRow(ctx, row); err != nil {
+							if err := tc.processor.ProcessWALEvent(ctx, walEvent); err != nil {
 								return err
 							}
 						}
-						rowChan <- row
+						eventChan <- walEvent
 						return nil
 					},
 				},
@@ -1561,14 +1573,16 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 
 			err := sg.snapshotTableRange(context.Background(), testSnapshotID, tc.table, tc.pageRange)
 			require.Equal(t, tc.wantErr, err)
-			close(rowChan)
+			close(eventChan)
 
-			rows := []*snapshot.Row{}
-			for row := range rowChan {
-				rows = append(rows, row)
+			events := []*wal.Event{}
+			for event := range eventChan {
+				events = append(events, event)
 			}
-			diff := cmp.Diff(rows, tc.wantRows)
-			require.Empty(t, diff, fmt.Sprintf("got: \n%v, \nwant \n%v, \ndiff: \n%s", rows, tc.wantRows, diff))
+			diff := cmp.Diff(events, tc.wantEvents,
+				cmpopts.IgnoreFields(wal.Data{}, "Timestamp"),
+				cmpopts.SortSlices(func(a, b *wal.Event) bool { return a.Data.Table < b.Data.Table }))
+			require.Empty(t, diff, fmt.Sprintf("got: \n%v, \nwant \n%v, \ndiff: \n%s", events, tc.wantEvents, diff))
 		})
 	}
 }

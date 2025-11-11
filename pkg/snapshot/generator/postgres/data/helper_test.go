@@ -10,22 +10,26 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
-	"github.com/xataio/pgstream/pkg/snapshot"
+	"github.com/xataio/pgstream/pkg/wal"
 )
 
-type mockRowProcessor struct {
-	rowChan chan *snapshot.Row
-	once    sync.Once
+type mockProcessor struct {
+	eventChan chan *wal.Event
+	once      sync.Once
 }
 
-func (mp *mockRowProcessor) ProcessRow(ctx context.Context, row *snapshot.Row) error {
-	mp.rowChan <- row
+func (mp *mockProcessor) ProcessWALEvent(ctx context.Context, event *wal.Event) error {
+	mp.eventChan <- event
 	return nil
 }
 
-func (mp *mockRowProcessor) Close() error {
-	mp.once.Do(func() { close(mp.rowChan) })
+func (mp *mockProcessor) Close() error {
+	mp.once.Do(func() { close(mp.eventChan) })
 	return nil
+}
+
+func (mp *mockProcessor) Name() string {
+	return "mockProcessor"
 }
 
 func execQuery(t *testing.T, ctx context.Context, pgurl, query string) {

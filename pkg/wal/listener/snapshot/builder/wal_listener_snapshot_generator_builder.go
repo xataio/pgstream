@@ -12,7 +12,6 @@ import (
 	"github.com/xataio/pgstream/pkg/schemalog"
 	schemaloginstrumentation "github.com/xataio/pgstream/pkg/schemalog/instrumentation"
 	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
-	"github.com/xataio/pgstream/pkg/snapshot"
 	"github.com/xataio/pgstream/pkg/snapshot/generator"
 	generatorinstrumentation "github.com/xataio/pgstream/pkg/snapshot/generator/instrumentation"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
@@ -49,8 +48,6 @@ var errSchemaSnapshotNotConfigured = errors.New("no schema snapshot has been con
 // └───────────────────────────────────────────────────┘
 
 func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p listener.Processor, logger loglib.Logger, instrumentation *otel.Instrumentation) (listenersnapshot.Generator, error) {
-	rowsProcessor := adapter.NewProcessEventAdapter(p)
-
 	var g generator.SnapshotGenerator
 	var err error
 
@@ -62,7 +59,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 	if instrumentation.IsEnabled() {
 		opts = append(opts, pgsnapshotgenerator.WithInstrumentation(instrumentation))
 	}
-	g, err = pgsnapshotgenerator.NewSnapshotGenerator(ctx, &cfg.Generator, rowsProcessor, opts...)
+	g, err = pgsnapshotgenerator.NewSnapshotGenerator(ctx, &cfg.Generator, p, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +76,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 	}
 
 	// postgres schema snapshot generator layer
-	g, err = newSchemaSnapshotGenerator(ctx, &cfg.Schema, g, rowsProcessor.ProcessRow, logger, instrumentation)
+	g, err = newSchemaSnapshotGenerator(ctx, &cfg.Schema, g, p, logger, instrumentation)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +104,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 	return adapter.NewSnapshotGeneratorAdapter(&cfg.Adapter, g, adapter.WithLogger(logger)), nil
 }
 
-func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, g generator.SnapshotGenerator, processRow snapshot.RowProcessor, logger loglib.Logger, instrumentation *otel.Instrumentation) (generator.SnapshotGenerator, error) {
+func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, g generator.SnapshotGenerator, processor listener.Processor, logger loglib.Logger, instrumentation *otel.Instrumentation) (generator.SnapshotGenerator, error) {
 	switch {
 	case cfg.SchemaLogStore != nil:
 		// postgres schemalog schema snapshot generator
@@ -123,7 +120,7 @@ func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, 
 		}
 		return schemalogsnapshotgenerator.NewSnapshotGenerator(
 			schemaLogStore,
-			processRow,
+			processor,
 			schemalogsnapshotgenerator.WithSnapshotGenerator(g),
 			schemalogsnapshotgenerator.WithLogger(logger)), nil
 	case cfg.DumpRestore != nil:
