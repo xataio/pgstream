@@ -62,7 +62,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 	if instrumentation.IsEnabled() {
 		opts = append(opts, pgsnapshotgenerator.WithInstrumentation(instrumentation))
 	}
-	g, err = pgsnapshotgenerator.NewSnapshotGenerator(ctx, &cfg.Generator, rowsProcessor, opts...)
+	g, err = pgsnapshotgenerator.NewSnapshotGenerator(ctx, &cfg.Generator, p, opts...)
 	if err != nil {
 		return nil, err
 	}

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
 	"github.com/xataio/pgstream/internal/progress"
@@ -17,13 +16,14 @@ import (
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/snapshot"
+	"github.com/xataio/pgstream/pkg/wal/processor"
 	"golang.org/x/sync/errgroup"
 )
 
 type SnapshotGenerator struct {
-	logger loglib.Logger
-	conn   pglib.Querier
-	mapper mapper
+	logger  loglib.Logger
+	conn    pglib.Querier
+	adapter *adapter
 
 	// workers per snapshot, parallelise the snapshot creation for each schema
 	snapshotWorkers uint
@@ -34,7 +34,7 @@ type SnapshotGenerator struct {
 	batchBytes   uint64
 
 	// Function called for processing produced rows.
-	rowsProcessor          snapshot.RowsProcessor
+	processor              processor.Processor
 	tableSnapshotGenerator snapshotTableFn
 
 	progressTracking   bool
@@ -73,7 +73,7 @@ type snapshotTableFn func(ctx context.Context, snapshotID string, table *table) 
 
 type Option func(sg *SnapshotGenerator)
 
-func NewSnapshotGenerator(ctx context.Context, cfg *Config, rowsProcessor snapshot.RowsProcessor, opts ...Option) (*SnapshotGenerator, error) {
+func NewSnapshotGenerator(ctx context.Context, cfg *Config, processor processor.Processor, opts ...Option) (*SnapshotGenerator, error) {
 	conn, err := pglib.NewConnPool(ctx, cfg.URL, pglib.WithMaxConnections(int32(cfg.maxConnections())))
 	if err != nil {
 		return nil, err
@@ -81,9 +81,9 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, rowsProcessor snapsh
 
 	sg := &SnapshotGenerator{
 		logger:          loglib.NewNoopLogger(),
-		mapper:          pglib.NewMapper(conn),
+		adapter:         newAdapter(pglib.NewMapper(conn)),
 		conn:            conn,
-		rowsProcessor:   rowsProcessor,
+		processor:       processor,
 		batchBytes:      cfg.batchBytes(),
 		tableWorkers:    cfg.tableWorkers(),
 		schemaWorkers:   cfg.schemaWorkers(),
@@ -133,9 +133,9 @@ func WithProgressTracking() Option {
 
 func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) (err error) {
 	defer func() {
-		// make sure we close the rows processor once the snapshot is completed.
+		// make sure we close the processor once the snapshot is completed.
 		// It will wait until all rows are processed before returning.
-		sg.rowsProcessor.Close()
+		sg.processor.Close()
 	}()
 
 	// parallelise the snapshot creation for each schema as configured by the snapshot workers.
@@ -352,17 +352,12 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID 
 					return fmt.Errorf("retrieving rows values: %w", err)
 				}
 
-				columns := sg.toSnapshotColumns(ctx, fieldDescriptions, values)
-				if len(columns) == 0 {
+				event := sg.adapter.rowToWalEvent(ctx, table.schema, table.name, fieldDescriptions, values)
+				if event == nil {
 					continue
 				}
 
-				row := &snapshot.Row{
-					Schema:  table.schema,
-					Table:   table.name,
-					Columns: columns,
-				}
-				if err := sg.rowsProcessor.ProcessRow(ctx, row); err != nil {
+				if err := sg.processor.ProcessWALEvent(ctx, event); err != nil {
 					return fmt.Errorf("processing snapshot row: %w", err)
 				}
 			}
@@ -381,25 +376,6 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID 
 
 		return rows.Err()
 	})
-}
-
-func (sg *SnapshotGenerator) toSnapshotColumns(ctx context.Context, fieldDescriptions []pgconn.FieldDescription, values []any) []snapshot.Column {
-	columns := make([]snapshot.Column, 0, len(fieldDescriptions))
-	for i, value := range values {
-		dataType, err := sg.mapper.TypeForOID(ctx, fieldDescriptions[i].DataTypeOID)
-		if err != nil {
-			sg.logger.Warn(err, "unknown data type OID", loglib.Fields{"data_type_oid": fieldDescriptions[i].DataTypeOID})
-			continue
-		}
-
-		columns = append(columns, snapshot.Column{
-			Name:  fieldDescriptions[i].Name,
-			Type:  dataType,
-			Value: value,
-		})
-	}
-
-	return columns
 }
 
 func (sg *SnapshotGenerator) addProgressBar(ctx context.Context, snapshotID string, schemaTables *schemaTables) error {

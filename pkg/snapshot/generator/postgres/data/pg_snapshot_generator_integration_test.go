@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/internal/testcontainers"
 	"github.com/xataio/pgstream/pkg/snapshot"
+	"github.com/xataio/pgstream/pkg/wal"
 )
 
 func Test_PostgresSnapshotGenerator(t *testing.T) {
@@ -28,8 +29,8 @@ func Test_PostgresSnapshotGenerator(t *testing.T) {
 
 	// use a mock row processor to validate the generator produces the right
 	// rows
-	mockProcessor := &mockRowProcessor{
-		rowChan: make(chan *snapshot.Row),
+	mockProcessor := &mockProcessor{
+		eventChan: make(chan *wal.Event),
 	}
 
 	generator, err := NewSnapshotGenerator(ctx, &Config{URL: pgurl}, mockProcessor)
@@ -53,26 +54,28 @@ func Test_PostgresSnapshotGenerator(t *testing.T) {
 		mockProcessor.Close()
 	}()
 
-	rows := make([]*snapshot.Row, 0, 3)
-	for row := range mockProcessor.rowChan {
-		rows = append(rows, row)
+	rows := make([]*wal.Event, 0, 3)
+	for event := range mockProcessor.eventChan {
+		rows = append(rows, event)
 	}
 
-	wantRows := []*snapshot.Row{
-		newTestRow(testTable, 1, "alice"),
-		newTestRow(testTable, 2, "bob"),
-		newTestRow(testTable, 3, "charlie"),
+	wantEvents := []*wal.Event{
+		newTestEvent(testTable, 1, "alice"),
+		newTestEvent(testTable, 2, "bob"),
+		newTestEvent(testTable, 3, "charlie"),
 	}
-	require.Equal(t, wantRows, rows)
+	require.Equal(t, wantEvents, rows)
 }
 
-func newTestRow(tableName string, id int32, name string) *snapshot.Row {
-	return &snapshot.Row{
-		Schema: "public",
-		Table:  tableName,
-		Columns: []snapshot.Column{
-			{Name: "id", Type: "int4", Value: id},
-			{Name: "name", Type: "text", Value: name},
+func newTestEvent(tableName string, id int32, name string) *wal.Event {
+	return &wal.Event{
+		Data: &wal.Data{
+			Schema: "public",
+			Table:  tableName,
+			Columns: []wal.Column{
+				{Name: "id", Type: "int4", Value: id},
+				{Name: "name", Type: "text", Value: name},
+			},
 		},
 	}
 }
