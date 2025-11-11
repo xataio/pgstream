@@ -45,7 +45,7 @@ func TestQuery_Size(t *testing.T) {
 				sql:  "SELECT * FROM users WHERE id = $1",
 				args: []any{"string", []byte("bytes")},
 			},
-			wantSize: queryStructOverhead + len("SELECT * FROM users WHERE id = $1") + len("string") + stringOverhead + len([]byte("bytes")) + interfaceOverhead + sliceOverhead,
+			wantSize: queryStructOverhead + len("SELECT * FROM users WHERE id = $1") + len("string") + len([]byte("bytes")) + 2*interfaceOverhead + sliceOverhead,
 		},
 		{
 			name: "query with multiple parameters and column names",
