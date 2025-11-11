@@ -59,10 +59,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 
 	testEvent := func(tableName string, columns []wal.Column) *wal.Event {
 		return &wal.Event{
-			CommitPosition: wal.CommitPosition(zeroLSN),
+			CommitPosition: wal.CommitPosition(wal.ZeroLSN),
 			Data: &wal.Data{
 				Action:  "I",
-				LSN:     zeroLSN,
+				LSN:     wal.ZeroLSN,
 				Schema:  testSchema,
 				Table:   tableName,
 				Columns: columns,
@@ -1159,10 +1159,10 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 	}
 
 	testEvent := &wal.Event{
-		CommitPosition: wal.CommitPosition(zeroLSN),
+		CommitPosition: wal.CommitPosition(wal.ZeroLSN),
 		Data: &wal.Data{
 			Action:  "I",
-			LSN:     zeroLSN,
+			LSN:     wal.ZeroLSN,
 			Schema:  testSchema,
 			Table:   testTable,
 			Columns: testColumns,

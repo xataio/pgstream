@@ -26,8 +26,6 @@ type SnapshotGenerator struct {
 
 type Option func(*SnapshotGenerator)
 
-const zeroLSN = "0/0"
-
 func NewSnapshotGenerator(schemalogStore schemalog.Store, processor processor.Processor, opts ...Option) *SnapshotGenerator {
 	sg := &SnapshotGenerator{
 		schemalogStore: schemalogStore,
@@ -110,13 +108,13 @@ func (s *SnapshotGenerator) logEntryToWalEvent(logEntry *schemalog.LogEntry) (*w
 		return nil, fmt.Errorf("marshaling log entry schema into json: %w", err)
 	}
 	return &wal.Event{
-		CommitPosition: wal.CommitPosition(zeroLSN),
+		CommitPosition: wal.CommitPosition(wal.ZeroLSN),
 		Data: &wal.Data{
 			Action:    "I",
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Schema:    schemalog.SchemaName,
 			Table:     schemalog.TableName,
-			LSN:       zeroLSN,
+			LSN:       wal.ZeroLSN,
 			Columns: []wal.Column{
 				{Name: "id", Type: "pgstream.xid", Value: logEntry.ID},
 				{Name: "version", Type: "bigint", Value: logEntry.Version},

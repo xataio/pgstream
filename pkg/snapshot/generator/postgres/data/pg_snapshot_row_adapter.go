@@ -16,8 +16,6 @@ type adapter struct {
 	clock  clockwork.Clock
 }
 
-const zeroLSN = "0/0"
-
 func newAdapter(mapper mapper) *adapter {
 	return &adapter{
 		mapper: mapper,
@@ -32,11 +30,11 @@ func (a *adapter) rowToWalEvent(ctx context.Context, tableSchema, tableName stri
 	return &wal.Event{
 		// use 0 since there's no LSN associated, but it can be used as the
 		// initial version downstream
-		CommitPosition: wal.CommitPosition(zeroLSN),
+		CommitPosition: wal.CommitPosition(wal.ZeroLSN),
 		Data: &wal.Data{
 			Action:    "I",
 			Timestamp: a.clock.Now().UTC().Format(time.RFC3339),
-			LSN:       zeroLSN,
+			LSN:       wal.ZeroLSN,
 			Schema:    tableSchema,
 			Table:     tableName,
 			Columns:   a.toWalEventColumns(ctx, fieldDescriptions, values),

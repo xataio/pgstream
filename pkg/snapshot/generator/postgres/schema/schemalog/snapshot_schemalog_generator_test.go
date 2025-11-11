@@ -57,10 +57,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	testSchemaBytes, err := json.Marshal(testSchemaLog.Schema)
 	require.NoError(t, err)
 	testEvent := &wal.Event{
-		CommitPosition: wal.CommitPosition(zeroLSN),
+		CommitPosition: wal.CommitPosition(wal.ZeroLSN),
 		Data: &wal.Data{
 			Action: "I",
-			LSN:    zeroLSN,
+			LSN:    wal.ZeroLSN,
 			Schema: schemalog.SchemaName,
 			Table:  schemalog.TableName,
 			Columns: []wal.Column{

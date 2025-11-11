@@ -52,6 +52,8 @@ type Column struct {
 	Value any    `json:"value"`
 }
 
+const ZeroLSN = "0/0"
+
 const iso8601Format = "2006-01-02 15:04:05.999999+00"
 
 var validTimeFormats = []string{iso8601Format, time.RFC3339}
