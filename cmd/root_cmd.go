@@ -45,6 +45,7 @@ func Prepare() *cobra.Command {
 	// root cmd
 	rootCmd.PersistentFlags().StringP("config", "c", "", ".env or .yaml config file to use with pgstream if any")
 	rootCmd.PersistentFlags().String("log-level", "debug", "log level for the application. One of trace, debug, info, warn, error, fatal, panic")
+	rootCmd.PersistentFlags().Bool("periodic-goroutine-dump", false, "Enable periodic goroutine stacktrace dumps every 15 minutes")
 
 	// init cmd
 	initCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream setup will be run")
@@ -152,6 +153,7 @@ func withProfiling(fn func(cmd *cobra.Command, args []string) error) func(cmd *c
 func rootFlagBinding(cmd *cobra.Command) {
 	viper.BindPFlag("config", cmd.PersistentFlags().Lookup("config"))
 	viper.BindPFlag("PGSTREAM_LOG_LEVEL", cmd.PersistentFlags().Lookup("log-level"))
+	viper.BindPFlag("PGSTREAM_PERIODIC_GOROUTINE_DUMP", cmd.PersistentFlags().Lookup("periodic-goroutine-dump"))
 }
 
 func version() string {

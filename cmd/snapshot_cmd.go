@@ -5,11 +5,13 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/xataio/pgstream/cmd/config"
 	"github.com/xataio/pgstream/internal/log/zerolog"
+	"github.com/xataio/pgstream/internal/profiling"
 	"github.com/xataio/pgstream/pkg/stream"
 )
 
@@ -30,6 +32,14 @@ func snapshot(ctx context.Context) error {
 	})
 	zerolog.SetGlobalLogger(logger)
 
+	stdLogger := zerolog.NewStdLogger(logger)
+
+	// Start periodic goroutine dump if enabled
+	if viper.GetBool("PGSTREAM_PERIODIC_GOROUTINE_DUMP") {
+		profiling.StartPeriodicGoroutineDump(ctx, 15*time.Minute, stdLogger)
+		stdLogger.Info("periodic goroutine dump enabled (every 15 minutes)")
+	}
+
 	streamConfig, err := config.ParseStreamConfig()
 	if err != nil {
 		return fmt.Errorf("parsing stream config: %w", err)
@@ -41,7 +51,7 @@ func snapshot(ctx context.Context) error {
 	}
 	defer provider.Close()
 
-	return stream.Snapshot(ctx, zerolog.NewStdLogger(logger), streamConfig, provider.NewInstrumentation("snapshot"))
+	return stream.Snapshot(ctx, stdLogger, streamConfig, provider.NewInstrumentation("snapshot"))
 }
 
 func snapshotFlagBinding(cmd *cobra.Command, args []string) error {
