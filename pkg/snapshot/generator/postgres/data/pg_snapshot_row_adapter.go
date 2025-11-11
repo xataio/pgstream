@@ -7,19 +7,19 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jonboulle/clockwork"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
 type adapter struct {
 	mapper mapper
-	clock  clockwork.Clock
+	logger loglib.Logger
 }
 
-func newAdapter(mapper mapper) *adapter {
+func newAdapter(mapper mapper, logger loglib.Logger) *adapter {
 	return &adapter{
 		mapper: mapper,
-		clock:  clockwork.NewRealClock(),
+		logger: logger,
 	}
 }
 
@@ -33,7 +33,7 @@ func (a *adapter) rowToWalEvent(ctx context.Context, tableSchema, tableName stri
 		CommitPosition: wal.CommitPosition(wal.ZeroLSN),
 		Data: &wal.Data{
 			Action:    "I",
-			Timestamp: a.clock.Now().UTC().Format(time.RFC3339),
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			LSN:       wal.ZeroLSN,
 			Schema:    tableSchema,
 			Table:     tableName,
@@ -47,6 +47,7 @@ func (a *adapter) toWalEventColumns(ctx context.Context, fieldDescriptions []pgc
 	for i := range values {
 		dataType, err := a.mapper.TypeForOID(ctx, fieldDescriptions[i].DataTypeOID)
 		if err != nil {
+			a.logger.Warn(err, "unknown data type OID", loglib.Fields{"data_type_oid": fieldDescriptions[i].DataTypeOID})
 			continue
 		}
 

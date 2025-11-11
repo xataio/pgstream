@@ -20,6 +20,7 @@ import (
 	"github.com/xataio/pgstream/internal/progress"
 	progressmocks "github.com/xataio/pgstream/internal/progress/mocks"
 	synclib "github.com/xataio/pgstream/internal/sync"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -1026,7 +1027,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					LogLevel: "debug",
 				})),
 				conn:    tc.querier,
-				adapter: newAdapter(pglib.NewMapper(tc.querier)),
+				adapter: newAdapter(pglib.NewMapper(tc.querier), loglib.NewNoopLogger()),
 				processor: &processormocks.Processor{
 					ProcessWALEventFn: func(ctx context.Context, e *wal.Event) error {
 						eventChan <- e
@@ -1550,7 +1551,7 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 					LogLevel: "debug",
 				})),
 				conn:    tc.querier,
-				adapter: newAdapter(pglib.NewMapper(tc.querier)),
+				adapter: newAdapter(pglib.NewMapper(tc.querier), loglib.NewNoopLogger()),
 				processor: &processormocks.Processor{
 					ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
 						if tc.processor != nil {

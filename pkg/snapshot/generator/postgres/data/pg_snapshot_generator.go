@@ -81,7 +81,6 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, processor processor.
 
 	sg := &SnapshotGenerator{
 		logger:          loglib.NewNoopLogger(),
-		adapter:         newAdapter(pglib.NewMapper(conn)),
 		conn:            conn,
 		processor:       processor,
 		batchBytes:      cfg.batchBytes(),
@@ -95,6 +94,8 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, processor processor.
 	for _, opt := range opts {
 		opt(sg)
 	}
+
+	sg.adapter = newAdapter(pglib.NewMapper(conn), sg.logger)
 
 	return sg, nil
 }
