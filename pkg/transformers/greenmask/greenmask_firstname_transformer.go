@@ -113,6 +113,10 @@ func (fnt *FirstNameTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskFirstName
 }
 
+func (fnt *FirstNameTransformer) IsDynamic() bool {
+	return len(fnt.dynamicParams) > 0
+}
+
 func (fnt *FirstNameTransformer) Close() error {
 	return nil
 }

@@ -70,6 +70,10 @@ func (bt *BooleanTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskBoolean
 }
 
+func (bt *BooleanTransformer) IsDynamic() bool {
+	return false
+}
+
 func (bt *BooleanTransformer) Close() error {
 	return nil
 }

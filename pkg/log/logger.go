@@ -10,6 +10,7 @@ type Logger interface {
 	Error(err error, msg string, fields ...Fields)
 	Panic(msg string, fields ...Fields)
 	WithFields(fields Fields) Logger
+	IsTraceEnabled() bool
 }
 
 type Fields map[string]any
@@ -24,6 +25,10 @@ func (l *NoopLogger) Error(err error, msg string, fields ...Fields) {}
 func (l *NoopLogger) Panic(msg string, fields ...Fields)            {}
 func (l *NoopLogger) WithFields(fields Fields) Logger {
 	return l
+}
+
+func (l *NoopLogger) IsTraceEnabled() bool {
+	return false
 }
 
 const ModuleField = "module"

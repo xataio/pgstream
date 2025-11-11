@@ -26,10 +26,16 @@ func NewLogger(zl *zerolog.Logger) *Logger {
 }
 
 func (l *Logger) Trace(msg string, fields ...loglib.Fields) {
+	if !l.IsTraceEnabled() {
+		return
+	}
 	withFields(l.zerologger.Trace(), append(fields, l.fields)...).Msg(msg)
 }
 
 func (l *Logger) Debug(msg string, fields ...loglib.Fields) {
+	if !l.IsDebugEnabled() {
+		return
+	}
 	withFields(l.zerologger.Debug(), append(fields, l.fields)...).Msg(msg)
 }
 
@@ -54,6 +60,14 @@ func (l *Logger) WithFields(fields loglib.Fields) loglib.Logger {
 		zerologger: l.zerologger,
 		fields:     loglib.MergeFields(l.fields, fields),
 	}
+}
+
+func (l *Logger) IsDebugEnabled() bool {
+	return l.zerologger.GetLevel() <= zerolog.DebugLevel
+}
+
+func (l *Logger) IsTraceEnabled() bool {
+	return l.zerologger.GetLevel() <= zerolog.TraceLevel
 }
 
 func withFields(event *zerolog.Event, fieldMaps ...loglib.Fields) *zerolog.Event {

@@ -148,31 +148,35 @@ func NewEmailTransformer(params ParameterValues) (*EmailTransformer, error) {
 	}, nil
 }
 
-func (st *EmailTransformer) Transform(_ context.Context, v Value) (any, error) {
+func (et *EmailTransformer) Transform(_ context.Context, v Value) (any, error) {
 	switch str := v.TransformValue.(type) {
 	case string:
-		return st.transform(str), nil
+		return et.transform(str), nil
 	case []byte:
-		return st.transform(string(str)), nil
+		return et.transform(string(str)), nil
 	default:
-		return v, fmt.Errorf("expected string, got %T: %w", v, ErrUnsupportedValueType)
+		return v, fmt.Errorf("expected string, got %T: %w", v.TransformValue, ErrUnsupportedValueType)
 	}
 }
 
-func (st *EmailTransformer) transform(str string) string {
-	b := scrambleEmail([]byte(str), st.excludeDomain, st.replacementDomain, st.salt)
+func (et *EmailTransformer) transform(str string) string {
+	b := scrambleEmail([]byte(str), et.excludeDomain, et.replacementDomain, et.salt)
 	return string(b)
 }
 
-func (st *EmailTransformer) CompatibleTypes() []SupportedDataType {
+func (et *EmailTransformer) CompatibleTypes() []SupportedDataType {
 	return emailCompatibleTypes
 }
 
-func (st *EmailTransformer) Type() TransformerType {
+func (et *EmailTransformer) Type() TransformerType {
 	return Email
 }
 
-func (st *EmailTransformer) Close() error {
+func (et *EmailTransformer) IsDynamic() bool {
+	return false
+}
+
+func (et *EmailTransformer) Close() error {
 	return nil
 }
 

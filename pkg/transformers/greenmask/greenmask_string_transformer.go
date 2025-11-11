@@ -108,6 +108,10 @@ func (st *StringTransformer) Type() transformers.TransformerType {
 	return transformers.GreenmaskString
 }
 
+func (st *StringTransformer) IsDynamic() bool {
+	return false
+}
+
 func (st *StringTransformer) Close() error {
 	return nil
 }

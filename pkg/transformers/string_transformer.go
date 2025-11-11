@@ -58,6 +58,10 @@ func (st *StringTransformer) Type() TransformerType {
 	return String
 }
 
+func (st *StringTransformer) IsDynamic() bool {
+	return false
+}
+
 func (st *StringTransformer) Close() error {
 	return nil
 }
