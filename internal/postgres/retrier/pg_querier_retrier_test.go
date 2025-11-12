@@ -5,6 +5,7 @@ package retrier
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -505,6 +506,70 @@ func TestQuerier_withRetry(t *testing.T) {
 
 			gotErr := q.withRetry(context.Background(), mockOp.Do)
 			require.ErrorIs(t, gotErr, tc.wantErr)
+		})
+	}
+}
+
+func TestQuerier_isRetriableError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		err             error
+		wantIsRetriable bool
+	}{
+		{
+			name:            "context canceled",
+			err:             context.Canceled,
+			wantIsRetriable: false,
+		},
+		{
+			name:            "permission denied error",
+			err:             &postgres.ErrPermissionDenied{},
+			wantIsRetriable: false,
+		},
+		{
+			name:            "constraint violation error",
+			err:             &postgres.ErrConstraintViolation{},
+			wantIsRetriable: false,
+		},
+		{
+			name:            "generic error",
+			err:             errors.New("generic error"),
+			wantIsRetriable: true,
+		},
+		{
+			name:            "wrapped context canceled",
+			err:             fmt.Errorf("operation failed: %w", context.Canceled),
+			wantIsRetriable: false,
+		},
+		{
+			name:            "wrapped permission denied",
+			err:             fmt.Errorf("operation failed: %w", &postgres.ErrPermissionDenied{}),
+			wantIsRetriable: false,
+		},
+		{
+			name:            "wrapped constraint violation",
+			err:             fmt.Errorf("operation failed: %w", &postgres.ErrConstraintViolation{}),
+			wantIsRetriable: false,
+		},
+		{
+			name:            "wrapped generic error",
+			err:             fmt.Errorf("operation failed: %w", errors.New("generic error")),
+			wantIsRetriable: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			q := &Querier{
+				logger: loglib.NewNoopLogger(),
+			}
+
+			got := q.isRetriableError(tc.err)
+			require.Equal(t, tc.wantIsRetriable, got)
 		})
 	}
 }

@@ -152,6 +152,18 @@ func (q *Querier) resetConn(ctx context.Context) error {
 }
 
 func (q *Querier) isRetriableError(err error) bool {
+	mappedErr := postgres.MapError(err)
+
+	permissionDenied := &postgres.ErrPermissionDenied{}
+	if errors.As(mappedErr, &permissionDenied) {
+		return false
+	}
+
+	constraintViolation := &postgres.ErrConstraintViolation{}
+	if errors.As(mappedErr, &constraintViolation) {
+		return false
+	}
+
 	// for now retry errors that are not context cancellation
 	return !errors.Is(err, context.Canceled)
 }
