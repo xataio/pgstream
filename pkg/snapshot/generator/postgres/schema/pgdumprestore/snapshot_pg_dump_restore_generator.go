@@ -553,7 +553,7 @@ func (s *SnapshotGenerator) filterRolesDump(rolesDump []byte, keepRoles map[stri
 	}
 
 	for _, role := range keepRoles {
-		if isPredefinedRole(role.name) || isExcludedRole(role.name) || !role.isOwner {
+		if isPredefinedRole(role.name) || isExcludedRole(role.name) || !role.isOwner() {
 			continue
 		}
 		// add a line to grant the role to the current user to avoid permission

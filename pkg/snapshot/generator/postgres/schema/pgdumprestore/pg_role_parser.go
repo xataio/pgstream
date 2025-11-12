@@ -11,9 +11,9 @@ import (
 type roleSQLParser struct{}
 
 type role struct {
-	name             string
-	roleDependencies map[string]role
-	isOwner          bool
+	name                 string
+	roleDependencies     map[string]role
+	schemasWithOwnership map[string]struct{}
 }
 
 type roleOption func(r *role)
@@ -65,7 +65,9 @@ var (
 
 func newRole(name string, opts ...roleOption) role {
 	r := role{
-		name: name,
+		name:                 name,
+		schemasWithOwnership: make(map[string]struct{}),
+		roleDependencies:     make(map[string]role),
 	}
 	for _, opt := range opts {
 		opt(&r)
@@ -73,21 +75,34 @@ func newRole(name string, opts ...roleOption) role {
 	return r
 }
 
-func withOwner() roleOption {
+func withOwner(schema ...string) roleOption {
 	return func(r *role) {
-		r.isOwner = true
+		if len(schema) == 0 {
+			return
+		}
+		for _, s := range schema {
+			if s != "" {
+				r.schemasWithOwnership[s] = struct{}{}
+			}
+		}
 	}
 }
 
 func withRoleDeps(deps ...string) roleOption {
 	return func(r *role) {
-		r.roleDependencies = make(map[string]role)
+		if len(deps) == 0 {
+			return
+		}
 		for _, dep := range deps {
 			if dep != "" {
 				r.roleDependencies[dep] = newRole(dep)
 			}
 		}
 	}
+}
+
+func (r *role) isOwner() bool {
+	return len(r.schemasWithOwnership) > 0
 }
 
 func (p *roleSQLParser) extractRoleNamesFromDump(rolesDump []byte) map[string]role {
@@ -114,8 +129,8 @@ func (p *roleSQLParser) extractRoleNamesFromDump(rolesDump []byte) map[string]ro
 			}
 			existingRole.roleDependencies[depName] = depRole
 		}
-		if r.isOwner {
-			existingRole.isOwner = true
+		if r.isOwner() {
+			existingRole.schemasWithOwnership = r.schemasWithOwnership
 		}
 		roleMap[r.name] = existingRole
 	}
@@ -135,7 +150,7 @@ func (p *roleSQLParser) extractRoleNamesFromLine(line string) []role {
 		roles = append(roles, newRole(getRoleNameAfterClause(line, " ROLE ")))
 
 	case strings.HasPrefix(line, "ALTER") && strings.Contains(line, "OWNER TO"):
-		roles = append(roles, newRole(getRoleNameAfterClause(line, " OWNER TO "), withOwner()))
+		roles = append(roles, newRole(getRoleNameAfterClause(line, " OWNER TO "), withOwner(extractSchemaFromOwnerLine(line))))
 
 	case strings.HasPrefix(line, "GRANT "):
 		grantorRole := ""
@@ -180,12 +195,12 @@ func (p *roleSQLParser) extractRoleNamesFromLine(line string) []role {
 		if isRevokeStmt {
 			// ALTER DEFAULT PRIVILEGES FOR ROLE <rolename> [IN SCHEMA <schemaname>] REVOKE <privileges> ON <objecttype> FROM <rolename2>;
 			_, afterOn, _ := strings.Cut(afterRevoke, " ON ")
-			roles = append(roles, role{name: getRoleNameAfterClause(afterOn, " FROM ")})
+			roles = append(roles, newRole(getRoleNameAfterClause(afterOn, " FROM ")))
 		} else {
 			// ALTER DEFAULT PRIVILEGES FOR ROLE <rolename> [IN SCHEMA <schemaname>] GRANT <privileges> ON <objecttype> TO <rolename2>;
 			_, afterGrant, _ := strings.Cut(afterRole, " GRANT ")
 			_, afterOn, _ := strings.Cut(afterGrant, " ON ")
-			roles = append(roles, role{name: getRoleNameAfterClause(afterOn, " TO ")})
+			roles = append(roles, newRole(getRoleNameAfterClause(afterOn, " TO ")))
 		}
 	}
 
@@ -265,4 +280,57 @@ func removeDefaultRoleAttributes(line string) string {
 	line = strings.Replace(line, "NOREPLICATION", "", 1)
 	line = strings.Replace(line, "NOBYPASSRLS", "", 1)
 	return line
+}
+
+func extractSchemaFromOwnerLine(line string) string {
+	// Example lines:
+	// ALTER TABLE public.test2 OWNER TO pgstreamsource;
+	// ALTER SEQUENCE public.my_seq OWNER TO pgstreamsource;
+	// ALTER VIEW public.my_view OWNER TO pgstreamsource;
+	// ALTER MATERIALIZED VIEW public.my_mview OWNER TO pgstreamsource;
+	// ALTER FUNCTION public.my_func(integer) OWNER TO pgstreamsource;
+	// ALTER PROCEDURE public.my_proc(text) OWNER TO pgstreamsource;
+	// ALTER TYPE public.my_type OWNER TO pgstreamsource;
+	// ALTER DOMAIN public.my_domain OWNER TO pgstreamsource;
+	// ALTER SCHEMA myschema OWNER TO pgstreamsource;
+	// ALTER DATABASE mydb OWNER TO pgstreamsource;
+
+	// Find the object identifier (between ALTER <TYPE> and OWNER TO)
+	ownerToIdx := strings.Index(line, " OWNER TO ")
+	if ownerToIdx == -1 {
+		return ""
+	}
+
+	beforeOwner := line[:ownerToIdx]
+
+	// Split by spaces to find the object name
+	// Format: ALTER [MATERIALIZED] <TYPE> <object_name> [...]
+	parts := strings.Fields(beforeOwner)
+	if len(parts) < 3 {
+		return ""
+	}
+
+	// Handle "ALTER MATERIALIZED VIEW" (3 words before object name)
+	var objectName string
+	if len(parts) >= 4 && parts[1] == "MATERIALIZED" && parts[2] == "VIEW" {
+		objectName = parts[3]
+	} else {
+		// Standard case: ALTER <TYPE> <object_name>
+		objectName = parts[2]
+	}
+
+	// Extract schema from qualified name (schema.object)
+	schemaParts := strings.SplitN(objectName, ".", 2)
+	if len(schemaParts) == 2 {
+		// Qualified name like "public.test2"
+		return schemaParts[0]
+	}
+
+	// For ALTER SCHEMA statements, the object name IS the schema
+	if len(parts) >= 2 && parts[1] == "SCHEMA" {
+		return objectName
+	}
+
+	// Unqualified name or database-level object (no schema)
+	return ""
 }
