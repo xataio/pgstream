@@ -321,6 +321,7 @@ var (
 	errInvalidInjectorConfig                   = errors.New("injector config can't infer schemalog url from source postgres url, schemalog_url must be provided")
 	errInvalidSnapshotRecorderConfig           = errors.New("snapshot recorder config requires a postgres url")
 	errInvalidSampleRatio                      = errors.New("trace sample ratio must be a value between 0.0 and 1.0")
+	errSchemaSnapshotNotConfigured             = errors.New("schema snapshot config must be provided when snapshot mode is 'full' or 'schema'")
 )
 
 func (c *InstrumentationConfig) toOtelConfig() (*otel.Config, error) {
@@ -485,6 +486,9 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 		if err != nil {
 			return nil, err
 		}
+		if streamCfg.Schema == nil {
+			return nil, errSchemaSnapshotNotConfigured
+		}
 	}
 
 	return streamCfg, nil
@@ -492,18 +496,19 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 
 func (c *YAMLConfig) parseDataSnapshotConfig() *pgsnapshotgenerator.Config {
 	snapshotCfg := c.Source.Postgres.Snapshot
-	if snapshotCfg.Data == nil {
-		return nil
-	}
-
-	return &pgsnapshotgenerator.Config{
+	streamCfg := &pgsnapshotgenerator.Config{
 		URL:             c.Source.Postgres.URL,
 		SnapshotWorkers: uint(snapshotCfg.SnapshotWorkers),
-		BatchBytes:      snapshotCfg.Data.BatchBytes,
-		SchemaWorkers:   uint(snapshotCfg.Data.SchemaWorkers),
-		TableWorkers:    uint(snapshotCfg.Data.TableWorkers),
-		MaxConnections:  snapshotCfg.Data.MaxConnections,
 	}
+
+	if snapshotCfg.Data != nil {
+		streamCfg.BatchBytes = snapshotCfg.Data.BatchBytes
+		streamCfg.SchemaWorkers = uint(snapshotCfg.Data.SchemaWorkers)
+		streamCfg.TableWorkers = uint(snapshotCfg.Data.TableWorkers)
+		streamCfg.MaxConnections = snapshotCfg.Data.MaxConnections
+	}
+
+	return streamCfg
 }
 
 func (c *YAMLConfig) parseSchemaSnapshotConfig() (*snapshotbuilder.SchemaSnapshotConfig, error) {

@@ -249,6 +249,9 @@ func parseSnapshotConfig(pgURL string) (*snapshotbuilder.SnapshotListenerConfig,
 		if err != nil {
 			return nil, err
 		}
+		if schemaSnapshotCfg == nil {
+			return nil, errSchemaSnapshotNotConfigured
+		}
 	}
 
 	var dataSnapshotCfg *pgsnapshotgenerator.Config
