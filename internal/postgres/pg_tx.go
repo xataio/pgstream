@@ -42,17 +42,17 @@ type Txn struct {
 
 func (t *Txn) QueryRow(ctx context.Context, dest []any, query string, args ...any) error {
 	row := t.Tx.QueryRow(ctx, query, args...)
-	return mapError(row.Scan(dest...))
+	return MapError(row.Scan(dest...))
 }
 
 func (t *Txn) Query(ctx context.Context, query string, args ...any) (Rows, error) {
 	rows, err := t.Tx.Query(ctx, query, args...)
-	return rows, mapError(err)
+	return rows, MapError(err)
 }
 
 func (t *Txn) Exec(ctx context.Context, query string, args ...any) (CommandTag, error) {
 	tag, err := t.Tx.Exec(ctx, query, args...)
-	return CommandTag{tag}, mapError(err)
+	return CommandTag{tag}, MapError(err)
 }
 
 func (t *Txn) CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error) {

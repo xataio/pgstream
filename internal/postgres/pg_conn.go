@@ -16,14 +16,14 @@ type Conn struct {
 func NewConn(ctx context.Context, url string) (*Conn, error) {
 	pgCfg, err := ParseConfig(url)
 	if err != nil {
-		return nil, fmt.Errorf("failed parsing postgres connection string: %w", mapError(err))
+		return nil, fmt.Errorf("failed parsing postgres connection string: %w", MapError(err))
 	}
 
 	configureTCPKeepalive(pgCfg)
 
 	conn, err := pgx.ConnectConfig(ctx, pgCfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to postgres: %w", mapError(err))
+		return nil, fmt.Errorf("failed to connect to postgres: %w", MapError(err))
 	}
 
 	registerTypesToConnMap(ctx, conn)
@@ -33,17 +33,17 @@ func NewConn(ctx context.Context, url string) (*Conn, error) {
 
 func (c *Conn) QueryRow(ctx context.Context, dest []any, query string, args ...any) error {
 	row := c.conn.QueryRow(ctx, query, args...)
-	return mapError(row.Scan(dest...))
+	return MapError(row.Scan(dest...))
 }
 
 func (c *Conn) Query(ctx context.Context, query string, args ...any) (Rows, error) {
 	rows, err := c.conn.Query(ctx, query, args...)
-	return rows, mapError(err)
+	return rows, MapError(err)
 }
 
 func (c *Conn) Exec(ctx context.Context, query string, args ...any) (CommandTag, error) {
 	tag, err := c.conn.Exec(ctx, query, args...)
-	return CommandTag{tag}, mapError(err)
+	return CommandTag{tag}, MapError(err)
 }
 
 func (c *Conn) ExecInTx(ctx context.Context, fn func(Tx) error) error {
@@ -53,12 +53,12 @@ func (c *Conn) ExecInTx(ctx context.Context, fn func(Tx) error) error {
 func (c *Conn) ExecInTxWithOptions(ctx context.Context, fn func(Tx) error, opts TxOptions) error {
 	tx, err := c.conn.BeginTx(ctx, toTxOptions(opts))
 	if err != nil {
-		return mapError(err)
+		return MapError(err)
 	}
 
 	if err := fn(&Txn{Tx: tx}); err != nil {
 		tx.Rollback(ctx)
-		return mapError(err)
+		return MapError(err)
 	}
 
 	return tx.Commit(ctx)
@@ -80,9 +80,9 @@ func (c *Conn) CopyFrom(ctx context.Context, tableName string, columnNames []str
 }
 
 func (c *Conn) Ping(ctx context.Context) error {
-	return mapError(c.conn.Ping(ctx))
+	return MapError(c.conn.Ping(ctx))
 }
 
 func (c *Conn) Close(ctx context.Context) error {
-	return mapError(c.conn.Close(ctx))
+	return MapError(c.conn.Close(ctx))
 }

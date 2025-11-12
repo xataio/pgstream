@@ -25,7 +25,7 @@ func NewConnPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, er
 	}
 	pgCfg, err := pgxpool.ParseConfig(escapedURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed parsing postgres connection string: %w", mapError(err))
+		return nil, fmt.Errorf("failed parsing postgres connection string: %w", MapError(err))
 	}
 	pgCfg.MaxConns = maxConns
 	pgCfg.AfterConnect = registerTypesToConnMap
@@ -38,7 +38,7 @@ func NewConnPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, er
 
 	pool, err := pgxpool.NewWithConfig(ctx, pgCfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create a postgres connection pool: %w", mapError(err))
+		return nil, fmt.Errorf("failed to create a postgres connection pool: %w", MapError(err))
 	}
 
 	return &Pool{Pool: pool}, nil
@@ -52,17 +52,17 @@ func WithMaxConnections(maxConns int32) PoolOption {
 
 func (c *Pool) QueryRow(ctx context.Context, dest []any, query string, args ...any) error {
 	row := c.Pool.QueryRow(ctx, query, args...)
-	return mapError(row.Scan(dest...))
+	return MapError(row.Scan(dest...))
 }
 
 func (c *Pool) Query(ctx context.Context, query string, args ...any) (Rows, error) {
 	rows, err := c.Pool.Query(ctx, query, args...)
-	return rows, mapError(err)
+	return rows, MapError(err)
 }
 
 func (c *Pool) Exec(ctx context.Context, query string, args ...any) (CommandTag, error) {
 	tag, err := c.Pool.Exec(ctx, query, args...)
-	return CommandTag{tag}, mapError(err)
+	return CommandTag{tag}, MapError(err)
 }
 
 func (c *Pool) ExecInTx(ctx context.Context, fn func(Tx) error) error {
@@ -72,12 +72,12 @@ func (c *Pool) ExecInTx(ctx context.Context, fn func(Tx) error) error {
 func (c *Pool) ExecInTxWithOptions(ctx context.Context, fn func(Tx) error, opts TxOptions) error {
 	tx, err := c.BeginTx(ctx, toTxOptions(opts))
 	if err != nil {
-		return mapError(err)
+		return MapError(err)
 	}
 
 	if err := fn(&Txn{Tx: tx}); err != nil {
 		tx.Rollback(ctx)
-		return mapError(err)
+		return MapError(err)
 	}
 
 	return tx.Commit(ctx)
@@ -99,7 +99,7 @@ func (c *Pool) CopyFrom(ctx context.Context, tableName string, columnNames []str
 }
 
 func (c *Pool) Ping(ctx context.Context) error {
-	return mapError(c.Pool.Ping(ctx))
+	return MapError(c.Pool.Ping(ctx))
 }
 
 func (c *Pool) Close(_ context.Context) error {
