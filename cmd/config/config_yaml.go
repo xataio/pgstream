@@ -469,12 +469,14 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 
 	switch snapshotConfig.Mode {
 	case fullSnapshotMode, dataSnapshotMode, schemaSnapshotMode:
+	case "":
+		snapshotConfig.Mode = fullSnapshotMode
 	default:
 		return nil, errUnsupportedSnapshotMode
 	}
 
 	if snapshotConfig.Mode == fullSnapshotMode || snapshotConfig.Mode == dataSnapshotMode {
-		streamCfg.Generator = c.parseDataSnapshotConfig()
+		streamCfg.Data = c.parseDataSnapshotConfig()
 	}
 
 	if snapshotConfig.Mode == fullSnapshotMode || snapshotConfig.Mode == schemaSnapshotMode {
@@ -488,41 +490,40 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 	return streamCfg, nil
 }
 
-func (c *YAMLConfig) parseDataSnapshotConfig() pgsnapshotgenerator.Config {
+func (c *YAMLConfig) parseDataSnapshotConfig() *pgsnapshotgenerator.Config {
 	snapshotCfg := c.Source.Postgres.Snapshot
-	cfg := pgsnapshotgenerator.Config{
+	if snapshotCfg.Data == nil {
+		return nil
+	}
+
+	return &pgsnapshotgenerator.Config{
 		URL:             c.Source.Postgres.URL,
 		SnapshotWorkers: uint(snapshotCfg.SnapshotWorkers),
+		BatchBytes:      snapshotCfg.Data.BatchBytes,
+		SchemaWorkers:   uint(snapshotCfg.Data.SchemaWorkers),
+		TableWorkers:    uint(snapshotCfg.Data.TableWorkers),
+		MaxConnections:  snapshotCfg.Data.MaxConnections,
 	}
-
-	if snapshotCfg.Data != nil {
-		cfg.BatchBytes = snapshotCfg.Data.BatchBytes
-		cfg.SchemaWorkers = uint(snapshotCfg.Data.SchemaWorkers)
-		cfg.TableWorkers = uint(snapshotCfg.Data.TableWorkers)
-		cfg.MaxConnections = snapshotCfg.Data.MaxConnections
-	}
-
-	return cfg
 }
 
-func (c *YAMLConfig) parseSchemaSnapshotConfig() (snapshotbuilder.SchemaSnapshotConfig, error) {
+func (c *YAMLConfig) parseSchemaSnapshotConfig() (*snapshotbuilder.SchemaSnapshotConfig, error) {
 	schemaSnapshotCfg := c.Source.Postgres.Snapshot.Schema
 	if schemaSnapshotCfg == nil {
-		return snapshotbuilder.SchemaSnapshotConfig{}, nil
+		return nil, nil
 	}
 
 	switch schemaSnapshotCfg.Mode {
 	case schemalogSchemaMode:
-		return snapshotbuilder.SchemaSnapshotConfig{
+		return &snapshotbuilder.SchemaSnapshotConfig{
 			SchemaLogStore: &pgschemalog.Config{
 				URL: c.Source.Postgres.URL,
 			},
 		}, nil
 	case pgdumprestoreSchemaMode:
 		if c.Target.Postgres == nil {
-			return snapshotbuilder.SchemaSnapshotConfig{}, errInvalidPgdumpPgrestoreConfig
+			return nil, errInvalidPgdumpPgrestoreConfig
 		}
-		streamSchemaCfg := snapshotbuilder.SchemaSnapshotConfig{
+		streamSchemaCfg := &snapshotbuilder.SchemaSnapshotConfig{
 			DumpRestore: &pgdumprestore.Config{
 				SourcePGURL: c.Source.Postgres.URL,
 				TargetPGURL: c.Target.Postgres.URL,
@@ -542,13 +543,13 @@ func (c *YAMLConfig) parseSchemaSnapshotConfig() (snapshotbuilder.SchemaSnapshot
 			var err error
 			streamSchemaCfg.DumpRestore.RolesSnapshotMode, err = getRolesSnapshotMode(schemaSnapshotCfg.PgDumpPgRestore.RolesSnapshotMode)
 			if err != nil {
-				return snapshotbuilder.SchemaSnapshotConfig{}, err
+				return nil, err
 			}
 		}
 
 		return streamSchemaCfg, nil
 	default:
-		return snapshotbuilder.SchemaSnapshotConfig{}, errUnsupportedSchemaSnapshotMode
+		return nil, errUnsupportedSchemaSnapshotMode
 	}
 }
 
