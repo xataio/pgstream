@@ -57,7 +57,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 						Tables:         []string{"test", "test_schema.Test", "another_schema.*"},
 						ExcludedTables: []string{"test_schema.Test"},
 					},
-					Generator: pgsnapshotgenerator.Config{
+					Data: &pgsnapshotgenerator.Config{
 						URL:             "postgresql://user:password@localhost:5432/mydatabase",
 						SnapshotWorkers: 4,
 						SchemaWorkers:   4,
@@ -65,7 +65,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 						BatchBytes:      83886080,
 						MaxConnections:  20,
 					},
-					Schema: builder.SchemaSnapshotConfig{
+					Schema: &builder.SchemaSnapshotConfig{
 						DumpRestore: &pgdumprestore.Config{
 							SourcePGURL:            "postgresql://user:password@localhost:5432/mydatabase",
 							TargetPGURL:            "postgresql://user:password@localhost:5432/mytargetdatabase",
