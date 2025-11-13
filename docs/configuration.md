@@ -213,7 +213,6 @@ Here's a list of all the environment variables that can be used to configure the
 | PGSTREAM_POSTGRES_LISTENER_BACKOFF_MAX_RETRIES          | 0                            | No       | Max retries for the backoff policy to be applied to the Postgres connection retries.                                                                                                                                                                                                                         |
 | PGSTREAM_POSTGRES_LISTENER_DISABLE_RETRIES              | False                        | No       | Disable any retry policy.                                                                                                                                                                                                                                                                                    |
 
-    viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_MODE")
 
 One of exponential/constant/disable retries retry policies can be provided for the Postgres connection retry strategy. If none is provided, the exponential defaults apply.
 
