@@ -164,6 +164,8 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return nil
 	}
 
+	// DUMP
+
 	dump, err := s.dumpSchema(ctx, dumpSchemas, ss.SchemaExcludedTables)
 	if err != nil {
 		return err
@@ -185,38 +187,47 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return err
 	}
 
-	// the cleanup part will drop all the objects before we execute the roles dump,
-	// and this will allow us to drop the roles safely, in case `clean_target_db` is enabled.
-	preDataDump := dump.cleanupPart
-	preDataDump = append(preDataDump, rolesDump...)
-	preDataDump = append(preDataDump, dump.filtered...)
+	// RESTORE
 
-	postDataDump := sequenceDump
-	postDataDump = append(postDataDump, dump.indicesAndConstraints...)
-
-	// if there's no further snapshotting happening, we can apply the full dump,
-	// no need to wait to apply the constraints/indices.
-	if s.generator == nil {
-		dumpsToRestore := preDataDump
-		dumpsToRestore = append(dumpsToRestore, postDataDump...)
-		return s.restoreDump(ctx, dumpSchemas, dumpsToRestore)
-	}
-
-	// otherwise, we need to apply the roles dump along with the filtered schema dump first,
-	// then call the wrapped snapshot generator, and apply the indices and constraints last.
-	// This will make the data snapshot faster, since there will be no
-	// constraints to be updated/checked on each insert.
-	if err := s.restoreDump(ctx, dumpSchemas, preDataDump); err != nil {
+	if err := s.restoreSchemas(ctx, dumpSchemas); err != nil {
 		return err
 	}
 
-	if err := s.generator.CreateSnapshot(ctx, ss); err != nil {
+	if s.optionGenerator.cleanTargetDB {
+		s.logger.Info("restoring cleanup")
+		if err := s.restoreDump(ctx, dump.cleanupPart); err != nil {
+			return err
+		}
+	}
+
+	if rolesDump != nil {
+		s.logger.Info("restoring roles")
+		if err := s.restoreDump(ctx, rolesDump); err != nil {
+			return err
+		}
+	}
+
+	s.logger.Info("restoring schema")
+	if err := s.restoreDump(ctx, dump.filtered); err != nil {
+		return err
+	}
+
+	// call the wrapped snapshot generator if any before restoring sequences,
+	// indices and constraints to improve performance.
+	if s.generator != nil {
+		if err := s.generator.CreateSnapshot(ctx, ss); err != nil {
+			return err
+		}
+	}
+
+	// apply the sequences, indices and constraints when the wrapped generator has finished
+	s.logger.Info("restoring sequence data", loglib.Fields{"schemaTables": ss.SchemaTables})
+	if err := s.restoreDump(ctx, sequenceDump); err != nil {
 		return err
 	}
 
 	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
-	// apply the indices and constraints when the wrapped generator has finished
-	return s.restoreDump(ctx, dumpSchemas, postDataDump)
+	return s.restoreDump(ctx, dump.indicesAndConstraints)
 }
 
 func (s *SnapshotGenerator) Close() error {
@@ -320,10 +331,10 @@ func (s *SnapshotGenerator) dumpRoles(ctx context.Context, rolesInSchemaDump map
 	return filteredRolesDump, nil
 }
 
-func (s *SnapshotGenerator) restoreDump(ctx context.Context, schemaTables map[string][]string, dump []byte) error {
-	// if we use table filtering in the pg_dump command, the schema creation
-	// will not be dumped, so it needs to be created explicitly (except for
-	// public schema)
+// if we use table filtering in the pg_dump command, the schema creation will
+// not be dumped, so it needs to be created explicitly (except for public
+// schema)
+func (s *SnapshotGenerator) restoreSchemas(ctx context.Context, schemaTables map[string][]string) error {
 	for schema, tables := range schemaTables {
 		if len(tables) > 0 && schema != publicSchema && schema != wildcard {
 			if err := s.createSchemaIfNotExists(ctx, schema); err != nil {
@@ -331,7 +342,13 @@ func (s *SnapshotGenerator) restoreDump(ctx context.Context, schemaTables map[st
 			}
 		}
 	}
+	return nil
+}
 
+func (s *SnapshotGenerator) restoreDump(ctx context.Context, dump []byte) error {
+	if len(dump) == 0 {
+		return nil
+	}
 	_, err := s.pgRestoreFn(ctx, s.optionGenerator.pgrestoreOptions(), dump)
 	pgrestoreErr := &pglib.PGRestoreErrors{}
 	if err != nil {
