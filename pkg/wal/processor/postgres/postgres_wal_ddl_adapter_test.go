@@ -240,6 +240,42 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - table added with indexes",
+			diff: &schemalog.Diff{
+				TablesAdded: []schemalog.Table{
+					{
+						Name: table1,
+						Columns: []schemalog.Column{
+							{Name: "id", DataType: "uuid", Nullable: false, Unique: false},
+							{Name: "name", DataType: "text", Nullable: true, Unique: false},
+						},
+						Indexes: []schemalog.Index{
+							{
+								Name:       "idx_name",
+								Definition: fmt.Sprintf("CREATE INDEX idx_name ON %s (\"name\")", quotedTableName(testSchema, table1)),
+							},
+						},
+					},
+				},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n\"id\" uuid NOT NULL,\n\"name\" text)", quotedTableName(testSchema, table1)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("CREATE INDEX IF NOT EXISTS idx_name ON %s (\"name\")", quotedTableName(testSchema, table1)),
+					isDDL:  true,
+				},
+			},
+			wantErr: nil,
+		},
+		{
 			name: "ok - table renamed",
 			diff: &schemalog.Diff{
 				TablesChanged: []schemalog.TableDiff{
@@ -460,6 +496,41 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 					schema: testSchema,
 					table:  table1,
 					sql:    fmt.Sprintf("ALTER TABLE %s ALTER COLUMN \"age\" SET DEFAULT 0", quotedTableName(testSchema, table1)),
+					isDDL:  true,
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - table changed, indexes updated",
+			diff: &schemalog.Diff{
+				TablesChanged: []schemalog.TableDiff{
+					{
+						TableName: table1,
+						IndexesRemoved: []schemalog.Index{
+							{Name: "idx_old"},
+						},
+						IndexesAdded: []schemalog.Index{
+							{
+								Name:       "idx_new",
+								Definition: fmt.Sprintf("CREATE INDEX idx_new ON %s (\"name\")", quotedTableName(testSchema, table1)),
+							},
+						},
+					},
+				},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("DROP INDEX IF EXISTS %s.%s", pglib.QuoteIdentifier(testSchema), pglib.QuoteIdentifier("idx_old")),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("CREATE INDEX IF NOT EXISTS idx_new ON %s (\"name\")", quotedTableName(testSchema, table1)),
 					isDDL:  true,
 				},
 			},

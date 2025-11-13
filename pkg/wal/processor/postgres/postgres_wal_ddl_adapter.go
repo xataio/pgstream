@@ -78,6 +78,7 @@ func (a *ddlAdapter) schemaDiffToQueries(schemaName string, diff *schemalog.Diff
 
 	for _, table := range diff.TablesAdded {
 		queries = append(queries, a.buildCreateTableQuery(schemaName, table))
+		queries = append(queries, a.buildCreateIndexQueries(schemaName, table)...)
 	}
 
 	for _, tableDiff := range diff.TablesChanged {
@@ -85,6 +86,29 @@ func (a *ddlAdapter) schemaDiffToQueries(schemaName string, diff *schemalog.Diff
 	}
 
 	return queries, nil
+}
+
+func (a *ddlAdapter) buildCreateIndexQueries(schemaName string, table schemalog.Table) []*query {
+	queries := make([]*query, 0, len(table.Indexes))
+	for _, idx := range table.Indexes {
+		if idx.Definition == "" {
+			continue
+		}
+		createQuery := ensureIndexHasIfNotExists(idx.Definition)
+		queries = append(queries, a.newDDLQuery(schemaName, table.Name, createQuery))
+	}
+	return queries
+}
+
+func ensureIndexHasIfNotExists(definition string) string {
+	switch {
+	case strings.HasPrefix(definition, "CREATE UNIQUE INDEX "):
+		return strings.Replace(definition, "CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS ", 1)
+	case strings.HasPrefix(definition, "CREATE INDEX "):
+		return strings.Replace(definition, "CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1)
+	default:
+		return definition
+	}
 }
 
 func (a *ddlAdapter) buildCreateTableQuery(schemaName string, table schemalog.Table) *query {
@@ -170,6 +194,22 @@ func (a *ddlAdapter) buildAlterTableQueries(schemaName string, tableDiff schemal
 		queries = append(queries, alterQueries...)
 	}
 
+	for _, idx := range tableDiff.IndexesRemoved {
+		dropQuery := buildDropIndexQuery(schemaName, idx.Name)
+		if dropQuery == "" {
+			continue
+		}
+		queries = append(queries, a.newDDLQuery(schemaName, tableDiff.TableName, dropQuery))
+	}
+
+	for _, idx := range tableDiff.IndexesAdded {
+		if idx.Definition == "" {
+			continue
+		}
+		createQuery := ensureIndexHasIfNotExists(idx.Definition)
+		queries = append(queries, a.newDDLQuery(schemaName, tableDiff.TableName, createQuery))
+	}
+
 	return queries
 }
 
@@ -251,4 +291,12 @@ func (a *ddlAdapter) newDDLQuery(schema, table, sql string) *query {
 		sql:    sql,
 		isDDL:  true,
 	}
+}
+
+func buildDropIndexQuery(schemaName, indexName string) string {
+	if indexName == "" {
+		return ""
+	}
+	qualified := fmt.Sprintf("%s.%s", pglib.QuoteIdentifier(schemaName), pglib.QuoteIdentifier(indexName))
+	return fmt.Sprintf("DROP INDEX IF EXISTS %s", qualified)
 }

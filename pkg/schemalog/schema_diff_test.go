@@ -219,6 +219,74 @@ func Test_ComputeSchemaDiff(t *testing.T) {
 			},
 		},
 		{
+			name: "indexes added and removed",
+			newSchema: &LogEntry{
+				Schema: Schema{
+					Tables: []Table{
+						{
+							PgstreamID: id1,
+							Name:       table1,
+							Columns: []Column{
+								{PgstreamID: id1 + "_1", Name: col1},
+							},
+							PrimaryKeyColumns: []string{col1},
+							Indexes: []Index{
+								{
+									Name:       "idx_new",
+									Columns:    []string{col1},
+									Definition: "CREATE INDEX idx_new ON test.table USING btree (col-1)",
+								},
+							},
+						},
+					},
+				},
+			},
+			oldSchema: &LogEntry{
+				Schema: Schema{
+					Tables: []Table{
+						{
+							PgstreamID: id1,
+							Name:       table1,
+							Columns: []Column{
+								{PgstreamID: id1 + "_1", Name: col1},
+							},
+							PrimaryKeyColumns: []string{col1},
+							Indexes: []Index{
+								{
+									Name:       "idx_old",
+									Columns:    []string{col1},
+									Definition: "CREATE INDEX idx_old ON test.table USING btree (col-1)",
+								},
+							},
+						},
+					},
+				},
+			},
+
+			wantDiff: &Diff{
+				TablesChanged: []TableDiff{
+					{
+						TableName:       table1,
+						TablePgstreamID: id1,
+						IndexesAdded: []Index{
+							{
+								Name:       "idx_new",
+								Columns:    []string{col1},
+								Definition: "CREATE INDEX idx_new ON test.table USING btree (col-1)",
+							},
+						},
+						IndexesRemoved: []Index{
+							{
+								Name:       "idx_old",
+								Columns:    []string{col1},
+								Definition: "CREATE INDEX idx_old ON test.table USING btree (col-1)",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
 			name: "column name change",
 			newSchema: &LogEntry{
 				Schema: Schema{

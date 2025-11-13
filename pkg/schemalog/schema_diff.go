@@ -2,9 +2,7 @@
 
 package schemalog
 
-import (
-	"slices"
-)
+import "slices"
 
 type Diff struct {
 	TablesRemoved []Table
@@ -20,6 +18,8 @@ type TableDiff struct {
 	ColumnsAdded          []Column
 	ColumnsRemoved        []Column
 	ColumnsChanged        []ColumnDiff
+	IndexesAdded          []Index
+	IndexesRemoved        []Index
 }
 
 type ColumnDiff struct {
@@ -41,7 +41,13 @@ func (d *Diff) IsEmpty() bool {
 }
 
 func (td *TableDiff) IsEmpty() bool {
-	return len(td.ColumnsAdded) == 0 && len(td.ColumnsRemoved) == 0 && len(td.ColumnsChanged) == 0 && td.TableNameChange == nil && td.TablePrimaryKeyChange == nil
+	return len(td.ColumnsAdded) == 0 &&
+		len(td.ColumnsRemoved) == 0 &&
+		len(td.ColumnsChanged) == 0 &&
+		len(td.IndexesAdded) == 0 &&
+		len(td.IndexesRemoved) == 0 &&
+		td.TableNameChange == nil &&
+		td.TablePrimaryKeyChange == nil
 }
 
 func (cd *ColumnDiff) IsEmpty() bool {
@@ -123,6 +129,27 @@ func computeTableDiff(old, new *Table) *TableDiff {
 		}
 	}
 
+	newIndexMap := getTableIndexMap(new)
+	for _, oldIdx := range old.Indexes {
+		newIdx, found := newIndexMap[oldIdx.Name]
+		if !found {
+			diff.IndexesRemoved = append(diff.IndexesRemoved, oldIdx)
+			continue
+		}
+
+		if !oldIdx.IsEqual(&newIdx) {
+			diff.IndexesRemoved = append(diff.IndexesRemoved, oldIdx)
+			diff.IndexesAdded = append(diff.IndexesAdded, newIdx)
+		}
+	}
+
+	oldIndexMap := getTableIndexMap(old)
+	for name, newIdx := range newIndexMap {
+		if _, found := oldIndexMap[name]; !found {
+			diff.IndexesAdded = append(diff.IndexesAdded, newIdx)
+		}
+	}
+
 	return diff
 }
 
@@ -169,4 +196,12 @@ func getTableColumnMap(t *Table) map[string]Column {
 		columnMap[c.PgstreamID] = c
 	}
 	return columnMap
+}
+
+func getTableIndexMap(t *Table) map[string]Index {
+	indexMap := make(map[string]Index, len(t.Indexes))
+	for _, i := range t.Indexes {
+		indexMap[i.Name] = i
+	}
+	return indexMap
 }
