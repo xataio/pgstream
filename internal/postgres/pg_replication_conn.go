@@ -55,7 +55,7 @@ func NewReplicationConn(ctx context.Context, url string) (*ReplicationConn, erro
 
 	conn, err := pgconn.ConnectConfig(context.Background(), &pgCfg.Config)
 	if err != nil {
-		return nil, fmt.Errorf("create postgres replication client: %w", mapError(err))
+		return nil, fmt.Errorf("create postgres replication client: %w", MapError(err))
 	}
 
 	return &ReplicationConn{
@@ -65,11 +65,11 @@ func NewReplicationConn(ctx context.Context, url string) (*ReplicationConn, erro
 
 func (c *ReplicationConn) IdentifySystem(ctx context.Context) (IdentifySystemResult, error) {
 	res, err := pglogrepl.IdentifySystem(ctx, c.conn)
-	return IdentifySystemResult(res), mapError(err)
+	return IdentifySystemResult(res), MapError(err)
 }
 
 func (c *ReplicationConn) StartReplication(ctx context.Context, cfg ReplicationConfig) error {
-	return mapError(pglogrepl.StartReplication(
+	return MapError(pglogrepl.StartReplication(
 		ctx,
 		c.conn,
 		cfg.SlotName,
@@ -78,7 +78,7 @@ func (c *ReplicationConn) StartReplication(ctx context.Context, cfg ReplicationC
 }
 
 func (c *ReplicationConn) SendStandbyStatusUpdate(ctx context.Context, lsn uint64) error {
-	return mapError(pglogrepl.SendStandbyStatusUpdate(
+	return MapError(pglogrepl.SendStandbyStatusUpdate(
 		ctx,
 		c.conn,
 		pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(lsn)},
@@ -88,7 +88,7 @@ func (c *ReplicationConn) SendStandbyStatusUpdate(ctx context.Context, lsn uint6
 func (c *ReplicationConn) ReceiveMessage(ctx context.Context) (*ReplicationMessage, error) {
 	msg, err := c.conn.ReceiveMessage(ctx)
 	if err != nil {
-		return nil, mapError(err)
+		return nil, MapError(err)
 	}
 
 	switch msg := msg.(type) {
@@ -127,7 +127,7 @@ func (c *ReplicationConn) ReceiveMessage(ctx context.Context) (*ReplicationMessa
 }
 
 func (c *ReplicationConn) Close(ctx context.Context) error {
-	return mapError(c.conn.Close(ctx))
+	return MapError(c.conn.Close(ctx))
 }
 
 func DefaultReplicationSlotName(dbName string) string {

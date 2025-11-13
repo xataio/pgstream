@@ -261,6 +261,7 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 	}
 
 	s.dumpToFile(s.getDumpFileName("-filtered"), pgdumpOpts, parsedDump.filtered)
+	s.dumpToFile(s.getDumpFileName("-indices-constraints"), pgdumpOpts, parsedDump.indicesAndConstraints)
 
 	return parsedDump, nil
 }

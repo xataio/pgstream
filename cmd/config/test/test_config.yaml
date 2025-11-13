@@ -3,7 +3,7 @@ source:
     url: "postgresql://user:password@localhost:5432/mydatabase"
     mode: snapshot_and_replication # options are replication, snapshot or snapshot_and_replication
     snapshot: # when mode is snapshot or snapshot_and_replication
-      mode: full # options are data_and, schema or data
+      mode: full # options are full, schema or data
       tables: ["test", "test_schema.Test", "another_schema.*"] # tables to snapshot, can be a list of table names or a pattern
       excluded_tables: ["test_schema.Test"] # tables to exclude from the snapshot
       recorder:
