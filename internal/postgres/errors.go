@@ -64,7 +64,7 @@ func (e *ErrRelationAlreadyExists) Error() string {
 	return fmt.Sprintf("relation already exists: %v", e.Details)
 }
 
-func mapError(err error) error {
+func MapError(err error) error {
 	if pgconn.Timeout(err) {
 		return fmt.Errorf("%w: %w", ErrConnTimeout, err)
 	}
