@@ -52,33 +52,37 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 	var err error
 
 	// postgres data snapshot generator layer
-	opts := []pgsnapshotgenerator.Option{
-		pgsnapshotgenerator.WithLogger(logger),
-		pgsnapshotgenerator.WithProgressTracking(),
-	}
-	if instrumentation.IsEnabled() {
-		opts = append(opts, pgsnapshotgenerator.WithInstrumentation(instrumentation))
-	}
-	g, err = pgsnapshotgenerator.NewSnapshotGenerator(ctx, &cfg.Generator, p, opts...)
-	if err != nil {
-		return nil, err
+	if cfg.Data != nil {
+		opts := []pgsnapshotgenerator.Option{
+			pgsnapshotgenerator.WithLogger(logger),
+			pgsnapshotgenerator.WithProgressTracking(),
+		}
+		if instrumentation.IsEnabled() {
+			opts = append(opts, pgsnapshotgenerator.WithInstrumentation(instrumentation))
+		}
+		g, err = pgsnapshotgenerator.NewSnapshotGenerator(ctx, cfg.Data, p, opts...)
+		if err != nil {
+			return nil, err
+		}
+
+		// snapshot table finder layer
+		finderOpts := []pgtablefinder.Option{}
+		if instrumentation.IsEnabled() {
+			finderOpts = append(finderOpts, pgtablefinder.WithInstrumentation(instrumentation))
+		}
+
+		g, err = pgtablefinder.NewSnapshotSchemaTableFinder(ctx, cfg.Data.URL, g, finderOpts...)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	// snapshot table finder layer
-	finderOpts := []pgtablefinder.Option{}
-	if instrumentation.IsEnabled() {
-		finderOpts = append(finderOpts, pgtablefinder.WithInstrumentation(instrumentation))
-	}
-
-	g, err = pgtablefinder.NewSnapshotSchemaTableFinder(ctx, cfg.Generator.URL, g, finderOpts...)
-	if err != nil {
-		return nil, err
-	}
-
-	// postgres schema snapshot generator layer
-	g, err = newSchemaSnapshotGenerator(ctx, &cfg.Schema, g, p, logger, instrumentation)
-	if err != nil {
-		return nil, err
+	if cfg.Schema != nil {
+		// postgres schema snapshot generator layer
+		g, err = newSchemaSnapshotGenerator(ctx, cfg.Schema, g, p, logger, instrumentation)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if cfg.Recorder != nil && cfg.Recorder.SnapshotStoreURL != "" {
