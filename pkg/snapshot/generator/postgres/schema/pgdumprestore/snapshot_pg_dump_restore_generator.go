@@ -194,6 +194,9 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	postDataDump := sequenceDump
 	postDataDump = append(postDataDump, dump.indicesAndConstraints...)
 
+	// save postDataDump to debug file (sequences + indices/constraints)
+	s.dumpPostDataToFile(postDataDump)
+
 	// if there's no further snapshotting happening, we can apply the full dump,
 	// no need to wait to apply the constraints/indices.
 	if s.generator == nil {
@@ -578,12 +581,29 @@ func (s *SnapshotGenerator) dumpToFile(file string, opts options, d []byte) {
 	}
 }
 
+func (s *SnapshotGenerator) dumpPostDataToFile(dump []byte) {
+	if s.dumpDebugFile == "" {
+		return
+	}
+	file := s.postDataDumpFile()
+	header := "-- This file contains the post-data dump (sequences + indices/constraints)\n"
+	header += "-- that is executed in the last restore step after data is inserted.\n"
+	b := bytes.NewBufferString(header + string(dump))
+	if err := os.WriteFile(file, b.Bytes(), 0o644); err != nil { //nolint:gosec
+		s.logger.Error(err, fmt.Sprintf("writing post-data dump to debug file %s", file))
+	}
+}
+
 func (s *SnapshotGenerator) sequenceDumpFile() string {
 	return s.getDumpFileName("-sequences")
 }
 
 func (s *SnapshotGenerator) rolesDumpFile() string {
 	return s.getDumpFileName("-roles")
+}
+
+func (s *SnapshotGenerator) postDataDumpFile() string {
+	return s.getDumpFileName("-post-data")
 }
 
 func (s *SnapshotGenerator) getDumpFileName(suffix string) string {
