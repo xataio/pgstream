@@ -528,6 +528,18 @@ func (s *SnapshotGenerator) filterRolesDump(rolesDump []byte, keepRoles map[stri
 	scanner.Split(bufio.ScanLines)
 	var filteredDump strings.Builder
 
+	if s.optionGenerator.cleanTargetDB {
+		// add cleanup for the manual grants
+		for _, role := range keepRoles {
+			if isPredefinedRole(role.name) || isExcludedRole(role.name) || !role.isOwner() {
+				continue
+			}
+			for schema := range role.schemasWithOwnership {
+				filteredDump.WriteString(fmt.Sprintf("REVOKE ALL ON SCHEMA %s FROM %s;\n", pglib.QuoteIdentifier(schema), pglib.QuoteIdentifier(role.name)))
+			}
+		}
+	}
+
 	skipLine := func(lineRoles []role) bool {
 		for _, role := range lineRoles {
 			_, roleFound := keepRoles[role.name]
@@ -554,13 +566,19 @@ func (s *SnapshotGenerator) filterRolesDump(rolesDump []byte, keepRoles map[stri
 	}
 
 	for _, role := range keepRoles {
-		if isPredefinedRole(role.name) || isExcludedRole(role.name) || !role.isOwner {
+		if isPredefinedRole(role.name) || isExcludedRole(role.name) || !role.isOwner() {
 			continue
 		}
 		// add a line to grant the role to the current user to avoid permission
 		// issues when granting ownership (OWNER TO) when using non superuser
 		// roles to restore the dump
 		filteredDump.WriteString(fmt.Sprintf("GRANT %s TO CURRENT_USER;\n", pglib.QuoteIdentifier(role.name)))
+		// add lines to grant access to roles that have object ownership in
+		// the schema, otherwise restoring will fail with permission denied for
+		// schema.
+		for schema := range role.schemasWithOwnership {
+			filteredDump.WriteString(fmt.Sprintf("GRANT ALL ON SCHEMA %s TO %s;\n", pglib.QuoteIdentifier(schema), pglib.QuoteIdentifier(role.name)))
+		}
 	}
 
 	return []byte(filteredDump.String())

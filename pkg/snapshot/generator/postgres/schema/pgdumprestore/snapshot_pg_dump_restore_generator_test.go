@@ -24,13 +24,14 @@ import (
 func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	t.Parallel()
 
-	schemaDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence\nALTER TABLE test_table OWNER TO test_role;\nGRANT ALL ON TABLE test_table TO test_role2;\nCREATE INDEX a;\n")
+	schemaDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence\nALTER TABLE public.test_table OWNER TO test_role;\nGRANT ALL ON TABLE public.test_table TO test_role2;\nCREATE INDEX a;\n")
 	schemaDumpNoSequences := []byte("schema dump\n")
-	filteredDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence\nALTER TABLE test_table OWNER TO test_role;\nGRANT ALL ON TABLE test_table TO test_role2;\n")
+	filteredDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence\nALTER TABLE public.test_table OWNER TO test_role;\nGRANT ALL ON TABLE public.test_table TO test_role2;\n")
 	sequenceDump := []byte("sequence dump\n")
 	indexDump := []byte("CREATE INDEX a;\n\n")
 	rolesDumpOriginal := []byte("roles dump\nCREATE ROLE postgres\nCREATE ROLE test_role\nCREATE ROLE test_role2\nALTER ROLE test_role3 INHERIT FROM test_role;\n")
-	rolesDumpFiltered := []byte("roles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\nGRANT \"test_role\" TO CURRENT_USER;\n")
+	rolesDumpFiltered := []byte("roles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\nGRANT \"test_role\" TO CURRENT_USER;\nGRANT ALL ON SCHEMA \"public\" TO \"test_role\";\n")
+	rolesDumpFilteredWithCleanup := []byte("REVOKE ALL ON SCHEMA \"public\" FROM \"test_role\";\nroles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\nGRANT \"test_role\" TO CURRENT_USER;\nGRANT ALL ON SCHEMA \"public\" TO \"test_role\";\n")
 	roleDumpEmpty := []byte("roles dump\n")
 	cleanupDump := []byte("cleanup dump\n")
 	testSchema := "test_schema"
@@ -640,7 +641,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					Clean:            true,
 				}, po)
 				expectedDump := cleanupDump
-				expectedDump = append(expectedDump, rolesDumpFiltered...)
+				expectedDump = append(expectedDump, rolesDumpFilteredWithCleanup...)
 				expectedDump = append(expectedDump, cleanupDump...) // because we're not removing the duplicate cleanup dump for now
 				expectedDump = append(expectedDump, filteredDump...)
 				expectedDump = append(expectedDump, sequenceDump...)

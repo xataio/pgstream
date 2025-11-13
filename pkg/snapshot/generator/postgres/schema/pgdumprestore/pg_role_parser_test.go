@@ -22,100 +22,100 @@ func TestRoleSQLParser_extractRoleNamesFromLine(t *testing.T) {
 			name: "DROP ROLE IF EXISTS",
 			line: "DROP ROLE IF EXISTS testuser;",
 			expected: []role{
-				{name: "testuser", roleDependencies: nil, isOwner: false},
+				newRole("testuser"),
 			},
 		},
 		{
 			name: "DROP ROLE",
 			line: "DROP ROLE testuser;",
 			expected: []role{
-				{name: "testuser", roleDependencies: nil, isOwner: false},
+				newRole("testuser"),
 			},
 		},
 		{
 			name: "CREATE ROLE",
 			line: "CREATE ROLE testuser WITH LOGIN;",
 			expected: []role{
-				{name: "testuser", roleDependencies: nil, isOwner: false},
+				newRole("testuser"),
 			},
 		},
 		{
 			name: "ALTER ROLE",
 			line: "ALTER ROLE testuser CREATEDB;",
 			expected: []role{
-				{name: "testuser", roleDependencies: nil, isOwner: false},
+				newRole("testuser"),
 			},
 		},
 		{
 			name: "COMMENT ON ROLE",
 			line: "COMMENT ON ROLE testuser IS 'Test user';",
 			expected: []role{
-				{name: "testuser", roleDependencies: nil, isOwner: false},
+				newRole("testuser"),
 			},
 		},
 		{
 			name: "ALTER OWNER TO",
-			line: "ALTER TABLE test OWNER TO testuser;",
+			line: "ALTER TABLE public.test OWNER TO testuser;",
 			expected: []role{
-				{name: "testuser", roleDependencies: nil, isOwner: true},
+				newRole("testuser", withOwner("public")),
 			},
 		},
 		{
 			name: "GRANT role to role",
 			line: "GRANT role1 TO role2;",
 			expected: []role{
-				{name: "role1", roleDependencies: map[string]role{"role2": {name: "role2"}}, isOwner: false},
-				{name: "role2", roleDependencies: map[string]role{"role1": {name: "role1"}}, isOwner: false},
+				newRole("role1", withRoleDeps("role2")),
+				newRole("role2", withRoleDeps("role1")),
 			},
 		},
 		{
 			name: "GRANT privileges",
 			line: "GRANT SELECT ON TABLE test TO testuser;",
 			expected: []role{
-				{name: "testuser", roleDependencies: map[string]role{}, isOwner: false},
+				newRole("testuser"),
 			},
 		},
 		{
 			name: "GRANT with GRANTED BY",
 			line: "GRANT role1 TO role2 GRANTED BY grantor;",
 			expected: []role{
-				{name: "role1", roleDependencies: map[string]role{"role2": {name: "role2"}, "grantor": {name: "grantor"}}, isOwner: false},
-				{name: "role2", roleDependencies: map[string]role{"role1": {name: "role1"}, "grantor": {name: "grantor"}}, isOwner: false},
+				newRole("role1", withRoleDeps("role2", "grantor")),
+				newRole("role2", withRoleDeps("role1", "grantor")),
 			},
 		},
 		{
 			name: "REVOKE",
 			line: "REVOKE role1 FROM role2;",
 			expected: []role{
-				{name: "role2", roleDependencies: nil, isOwner: false},
+				newRole("role2"),
 			},
 		},
 		{
 			name: "SET ROLE",
 			line: "SET ROLE testuser;",
 			expected: []role{
-				{name: "testuser", roleDependencies: nil, isOwner: false},
+				newRole("testuser"),
 			},
 		},
 		{
 			name: "SET SESSION ROLE",
 			line: "SET SESSION ROLE testuser;",
 			expected: []role{
-				{name: "testuser", roleDependencies: nil, isOwner: false},
+				newRole("testuser"),
 			},
 		},
 		{
 			name: "SET LOCAL ROLE",
 			line: "SET LOCAL ROLE testuser;",
 			expected: []role{
-				{name: "testuser", roleDependencies: nil, isOwner: false},
+				newRole("testuser"),
 			},
 		},
 		{
 			name: "SET SESSION AUTHORIZATION",
 			line: "SET SESSION AUTHORIZATION testuser;",
 			expected: []role{
-				{name: "testuser", roleDependencies: nil, isOwner: false},
+				newRole("testuser"),
 			},
 		},
 		{
@@ -127,23 +127,23 @@ func TestRoleSQLParser_extractRoleNamesFromLine(t *testing.T) {
 			name: "ALTER DEFAULT PRIVILEGES GRANT",
 			line: "ALTER DEFAULT PRIVILEGES FOR ROLE owner GRANT SELECT ON TABLES TO reader;",
 			expected: []role{
-				{name: "owner", roleDependencies: nil, isOwner: false},
-				{name: "reader", roleDependencies: nil, isOwner: false},
+				newRole("owner"),
+				newRole("reader"),
 			},
 		},
 		{
 			name: "ALTER DEFAULT PRIVILEGES REVOKE",
 			line: "ALTER DEFAULT PRIVILEGES FOR ROLE owner REVOKE SELECT ON TABLES FROM reader;",
 			expected: []role{
-				{name: "owner", roleDependencies: nil, isOwner: false},
-				{name: "reader", roleDependencies: nil, isOwner: false},
+				newRole("owner"),
+				newRole("reader"),
 			},
 		},
 		{
 			name: "quoted role name",
 			line: "CREATE ROLE \"test-user\" WITH LOGIN;",
 			expected: []role{
-				{name: "\"test-user\"", roleDependencies: nil, isOwner: false},
+				newRole("\"test-user\""),
 			},
 		},
 		{
@@ -179,11 +179,11 @@ func TestRoleSQLParser_extractRoleNamesFromDump(t *testing.T) {
 CREATE ROLE user2 WITH LOGIN;
 CREATE ROLE user3 WITH PASSWORD 'password';
 GRANT user1 TO user2 GRANTED BY user3;
-ALTER TABLE test OWNER TO user1;`,
+ALTER TABLE public.test OWNER TO user1;`,
 			expected: map[string]role{
-				"user1": {name: "user1", roleDependencies: map[string]role{"user2": {name: "user2"}, "user3": {name: "user3"}}, isOwner: true},
-				"user2": {name: "user2", roleDependencies: map[string]role{"user1": {name: "user1"}, "user3": {name: "user3"}}, isOwner: false},
-				"user3": {name: "user3", roleDependencies: nil, isOwner: false},
+				"user1": newRole("user1", withRoleDeps("user2", "user3"), withOwner("public")),
+				"user2": newRole("user2", withRoleDeps("user1", "user3")),
+				"user3": newRole("user3"),
 			},
 		},
 		{
@@ -418,6 +418,102 @@ func TestRemoveDefaultRoleAttributes(t *testing.T) {
 
 			result := removeDefaultRoleAttributes(tt.line)
 			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func Test_extractSchemaFromOwnerLine(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		line string
+
+		wantSchema string
+	}{
+		{
+			name:       "ALTER TABLE with schema",
+			line:       "ALTER TABLE public.test2 OWNER TO pgstreamsource;",
+			wantSchema: "public",
+		},
+		{
+			name:       "ALTER SEQUENCE with schema",
+			line:       "ALTER SEQUENCE public.my_seq OWNER TO pgstreamsource;",
+			wantSchema: "public",
+		},
+		{
+			name:       "ALTER VIEW with schema",
+			line:       "ALTER VIEW public.my_view OWNER TO pgstreamsource;",
+			wantSchema: "public",
+		},
+		{
+			name:       "ALTER MATERIALIZED VIEW with schema",
+			line:       "ALTER MATERIALIZED VIEW public.my_mview OWNER TO pgstreamsource;",
+			wantSchema: "public",
+		},
+		{
+			name:       "ALTER FUNCTION with schema",
+			line:       "ALTER FUNCTION public.my_func(integer) OWNER TO pgstreamsource;",
+			wantSchema: "public",
+		},
+		{
+			name:       "ALTER PROCEDURE with schema",
+			line:       "ALTER PROCEDURE public.my_proc(text) OWNER TO pgstreamsource;",
+			wantSchema: "public",
+		},
+		{
+			name:       "ALTER TYPE with schema",
+			line:       "ALTER TYPE public.my_type OWNER TO pgstreamsource;",
+			wantSchema: "public",
+		},
+		{
+			name:       "ALTER DOMAIN with schema",
+			line:       "ALTER DOMAIN public.my_domain OWNER TO pgstreamsource;",
+			wantSchema: "public",
+		},
+		{
+			name:       "ALTER SCHEMA",
+			line:       "ALTER SCHEMA myschema OWNER TO pgstreamsource;",
+			wantSchema: "myschema",
+		},
+		{
+			name:       "ALTER DATABASE (no schema)",
+			line:       "ALTER DATABASE mydb OWNER TO pgstreamsource;",
+			wantSchema: "",
+		},
+		{
+			name:       "ALTER TABLE without schema",
+			line:       "ALTER TABLE test OWNER TO pgstreamsource;",
+			wantSchema: "",
+		},
+		{
+			name:       "no OWNER TO clause",
+			line:       "ALTER TABLE public.test SET SCHEMA new_schema;",
+			wantSchema: "",
+		},
+		{
+			name:       "insufficient parts",
+			line:       "ALTER TABLE OWNER TO user;",
+			wantSchema: "",
+		},
+		{
+			name:       "complex schema name",
+			line:       "ALTER TABLE \"my-schema\".\"my-table\" OWNER TO \"my-user\";",
+			wantSchema: "\"my-schema\"",
+		},
+		{
+			name:       "multiple dots in object name",
+			line:       "ALTER FUNCTION schema1.func_name.with.dots() OWNER TO user;",
+			wantSchema: "schema1",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotSchema := extractSchemaFromOwnerLine(tc.line)
+			require.Equal(t, tc.wantSchema, gotSchema)
 		})
 	}
 }
