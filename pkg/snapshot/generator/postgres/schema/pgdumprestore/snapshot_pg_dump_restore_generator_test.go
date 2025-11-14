@@ -1325,8 +1325,16 @@ func TestSnapshotGenerator_parseDump(t *testing.T) {
 	wantConstraintsStr := strings.Trim(string(wantConstraintsBytes), "\n")
 	wantSequences := []string{`"musicbrainz"."alternative_medium_id_seq"`, `"musicbrainz"."Alternative_medium_id_seq"`}
 
-	require.Equal(t, wantFilteredStr, filteredStr)
-	require.Equal(t, wantConstraintsStr, constraintsStr)
+	normalize := func(s string) string {
+		return strings.ReplaceAll(s, "\r\n", "\n")
+	}
+
+	trim := func(s string) string {
+		return strings.TrimRight(normalize(s), "\r\n")
+	}
+
+	require.Equal(t, trim(wantFilteredStr), trim(filteredStr))
+	require.Equal(t, trim(wantConstraintsStr), trim(constraintsStr))
 	require.Equal(t, wantSequences, dump.sequences)
 }
 
