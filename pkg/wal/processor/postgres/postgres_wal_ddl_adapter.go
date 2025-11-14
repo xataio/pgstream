@@ -71,6 +71,7 @@ func (a *ddlAdapter) schemaDiffToQueries(schemaName string, diff *schemalog.Diff
 	}
 
 	queries := []*query{}
+	fkQueries := []*query{}
 	for _, table := range diff.TablesRemoved {
 		dropQuery := fmt.Sprintf("DROP TABLE IF EXISTS %s", quotedTableName(schemaName, table.Name))
 		queries = append(queries, a.newDDLQuery(schemaName, table.Name, dropQuery))
@@ -79,19 +80,27 @@ func (a *ddlAdapter) schemaDiffToQueries(schemaName string, diff *schemalog.Diff
 	for _, table := range diff.TablesAdded {
 		queries = append(queries, a.buildCreateTableQuery(schemaName, table))
 		queries = append(queries, a.buildCreateIndexQueries(schemaName, table)...)
+		queries = append(queries, a.buildAddConstraintQueries(schemaName, table)...)
+		fkQueries = append(fkQueries, a.buildAddForeignKeyQueries(schemaName, table)...)
 	}
 
 	for _, tableDiff := range diff.TablesChanged {
-		queries = append(queries, a.buildAlterTableQueries(schemaName, tableDiff)...)
+		alterQueries, alterFKQueries := a.buildAlterTableQueries(schemaName, tableDiff)
+		queries = append(queries, alterQueries...)
+		fkQueries = append(fkQueries, alterFKQueries...)
 	}
 
-	return queries, nil
+	return append(queries, fkQueries...), nil
 }
 
 func (a *ddlAdapter) buildCreateIndexQueries(schemaName string, table schemalog.Table) []*query {
+	constraintIndexes := constraintBackedIndexNames(table.Constraints)
 	queries := make([]*query, 0, len(table.Indexes))
 	for _, idx := range table.Indexes {
 		if idx.Definition == "" {
+			continue
+		}
+		if _, skip := constraintIndexes[idx.Name]; skip {
 			continue
 		}
 		createQuery := ensureIndexHasIfNotExists(idx.Definition)
@@ -108,6 +117,29 @@ func ensureIndexHasIfNotExists(definition string) string {
 		return strings.Replace(definition, "CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1)
 	default:
 		return definition
+	}
+}
+
+func constraintBackedIndexNames(constraints []schemalog.Constraint) map[string]struct{} {
+	indexes := make(map[string]struct{}, len(constraints))
+	for _, constraint := range constraints {
+		if constraintCreatesIndex(constraint.Type) && constraint.Name != "" {
+			indexes[constraint.Name] = struct{}{}
+		}
+	}
+	return indexes
+}
+
+func constraintCreatesIndex(constraintType string) bool {
+	switch {
+	case strings.EqualFold(constraintType, "UNIQUE"):
+		return true
+	case strings.EqualFold(constraintType, "PRIMARY KEY"):
+		return true
+	case strings.EqualFold(constraintType, "EXCLUDE"):
+		return true
+	default:
+		return false
 	}
 }
 
@@ -165,18 +197,31 @@ func (a *ddlAdapter) buildUniqueConstraint(column schemalog.Column) string {
 	return ""
 }
 
-func (a *ddlAdapter) buildAlterTableQueries(schemaName string, tableDiff schemalog.TableDiff) []*query {
+func (a *ddlAdapter) buildAlterTableQueries(schemaName string, tableDiff schemalog.TableDiff) ([]*query, []*query) {
 	if tableDiff.IsEmpty() {
-		return []*query{}
+		return []*query{}, []*query{}
 	}
 
 	queries := []*query{}
+	fkQueries := []*query{}
 	if tableDiff.TableNameChange != nil {
 		alterQuery := fmt.Sprintf("ALTER TABLE %s RENAME TO %s",
 			quotedTableName(schemaName, tableDiff.TableNameChange.Old),
 			tableDiff.TableNameChange.New,
 		)
 		queries = append(queries, a.newDDLQuery(schemaName, tableDiff.TableName, alterQuery))
+	}
+
+	for _, fk := range tableDiff.ForeignKeysRemoved {
+		if dropQuery := buildDropConstraintQuery(schemaName, tableDiff.TableName, fk.Name); dropQuery != nil {
+			queries = append(queries, dropQuery)
+		}
+	}
+
+	for _, constraint := range tableDiff.ConstraintsRemoved {
+		if dropQuery := buildDropConstraintQuery(schemaName, tableDiff.TableName, constraint.Name); dropQuery != nil {
+			queries = append(queries, dropQuery)
+		}
 	}
 
 	for _, col := range tableDiff.ColumnsRemoved {
@@ -202,15 +247,38 @@ func (a *ddlAdapter) buildAlterTableQueries(schemaName string, tableDiff schemal
 		queries = append(queries, a.newDDLQuery(schemaName, tableDiff.TableName, dropQuery))
 	}
 
+	constraintIndexes := constraintBackedIndexNames(tableDiff.ConstraintsAdded)
 	for _, idx := range tableDiff.IndexesAdded {
 		if idx.Definition == "" {
+			continue
+		}
+		if _, skip := constraintIndexes[idx.Name]; skip {
 			continue
 		}
 		createQuery := ensureIndexHasIfNotExists(idx.Definition)
 		queries = append(queries, a.newDDLQuery(schemaName, tableDiff.TableName, createQuery))
 	}
 
-	return queries
+	for _, rename := range tableDiff.IndexesRenamed {
+		if rename.Old.Name == "" || rename.New.Name == "" {
+			continue
+		}
+		queries = append(queries, buildRenameIndexQuery(schemaName, tableDiff.TableName, rename.Old.Name, rename.New.Name))
+	}
+
+	for _, constraint := range tableDiff.ConstraintsAdded {
+		if addQuery := buildAddConstraintQuery(schemaName, tableDiff.TableName, constraint); addQuery != nil {
+			queries = append(queries, addQuery)
+		}
+	}
+
+	for _, fk := range tableDiff.ForeignKeysAdded {
+		if addQuery := buildAddForeignKeyQuery(schemaName, tableDiff.TableName, fk); addQuery != nil {
+			fkQueries = append(fkQueries, addQuery)
+		}
+	}
+
+	return queries, fkQueries
 }
 
 func (a *ddlAdapter) buildAlterColumnQueries(schemaName, tableName string, columnDiff *schemalog.ColumnDiff) []*query {
@@ -297,6 +365,86 @@ func buildDropIndexQuery(schemaName, indexName string) string {
 	if indexName == "" {
 		return ""
 	}
-	qualified := fmt.Sprintf("%s.%s", pglib.QuoteIdentifier(schemaName), pglib.QuoteIdentifier(indexName))
+	qualified := pglib.QuoteQualifiedIdentifier(schemaName, indexName)
 	return fmt.Sprintf("DROP INDEX IF EXISTS %s", qualified)
+}
+
+func buildDropConstraintQuery(schemaName, tableName, constraintName string) *query {
+	if constraintName == "" {
+		return nil
+	}
+	dropQuery := fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s",
+		quotedTableName(schemaName, tableName),
+		pglib.QuoteIdentifier(constraintName),
+	)
+	return &query{
+		schema: schemaName,
+		table:  tableName,
+		sql:    dropQuery,
+		isDDL:  true,
+	}
+}
+
+func buildAddConstraintQuery(schemaName, tableName string, constraint schemalog.Constraint) *query {
+	if constraint.Name == "" || constraint.Definition == "" {
+		return nil
+	}
+	addQuery := fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s %s",
+		quotedTableName(schemaName, tableName),
+		pglib.QuoteIdentifier(constraint.Name),
+		constraint.Definition,
+	)
+	return &query{
+		schema: schemaName,
+		table:  tableName,
+		sql:    addQuery,
+		isDDL:  true,
+	}
+}
+
+func buildAddForeignKeyQuery(schemaName, tableName string, fk schemalog.ForeignKey) *query {
+	if fk.Name == "" || fk.Definition == "" {
+		return nil
+	}
+
+	addQuery := fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s %s",
+		quotedTableName(schemaName, tableName),
+		pglib.QuoteIdentifier(fk.Name),
+		fk.Definition,
+	)
+	return &query{
+		schema: schemaName,
+		table:  tableName,
+		sql:    addQuery,
+		isDDL:  true,
+	}
+}
+
+func (a *ddlAdapter) buildAddConstraintQueries(schemaName string, table schemalog.Table) []*query {
+	queries := make([]*query, 0, len(table.Constraints))
+	for _, constraint := range table.Constraints {
+		if q := buildAddConstraintQuery(schemaName, table.Name, constraint); q != nil {
+			queries = append(queries, q)
+		}
+	}
+	return queries
+}
+
+func (a *ddlAdapter) buildAddForeignKeyQueries(schemaName string, table schemalog.Table) []*query {
+	queries := make([]*query, 0, len(table.ForeignKeys))
+	for _, fk := range table.ForeignKeys {
+		if q := buildAddForeignKeyQuery(schemaName, table.Name, fk); q != nil {
+			queries = append(queries, q)
+		}
+	}
+	return queries
+}
+
+func buildRenameIndexQuery(schemaName, tableName, oldName, newName string) *query {
+	return &query{
+		schema: schemaName,
+		table:  tableName,
+		sql:    fmt.Sprintf("ALTER INDEX %s RENAME TO %s", pglib.QuoteQualifiedIdentifier(schemaName, oldName), pglib.QuoteIdentifier(newName)),
+		isDDL:  true,
+	}
 }

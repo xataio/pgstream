@@ -380,3 +380,63 @@ func testTransformationRules() []transformer.TableRules {
 		},
 	}
 }
+
+type constraintInfo struct {
+	constraintType string
+	definition     string
+}
+
+func getTableConstraints(t *testing.T, ctx context.Context, conn pglib.Querier, schema, table string) map[string]constraintInfo {
+	rows, err := conn.Query(ctx, `
+		SELECT con.conname,
+			   CASE con.contype
+					WHEN 'p' THEN 'PRIMARY KEY'
+					WHEN 'u' THEN 'UNIQUE'
+					WHEN 'f' THEN 'FOREIGN KEY'
+					WHEN 'c' THEN 'CHECK'
+					ELSE con.contype::text
+			   END AS constraint_type,
+			   pg_get_constraintdef(con.oid)
+		FROM pg_constraint con
+		JOIN pg_class rel ON rel.oid = con.conrelid
+		JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+		WHERE nsp.nspname = $1 AND rel.relname = $2
+	`, schema, table)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	constraints := make(map[string]constraintInfo)
+	for rows.Next() {
+		var name, constraintType, definition string
+		err := rows.Scan(&name, &constraintType, &definition)
+		require.NoError(t, err)
+		constraints[name] = constraintInfo{
+			constraintType: constraintType,
+			definition:     definition,
+		}
+	}
+	require.NoError(t, rows.Err())
+
+	return constraints
+}
+
+func getTableIndexes(t *testing.T, ctx context.Context, conn pglib.Querier, schema, table string) map[string]string {
+	rows, err := conn.Query(ctx, `
+		SELECT indexname, indexdef
+		FROM pg_indexes
+		WHERE schemaname = $1 AND tablename = $2
+	`, schema, table)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	indexes := make(map[string]string)
+	for rows.Next() {
+		var name, def string
+		err := rows.Scan(&name, &def)
+		require.NoError(t, err)
+		indexes[name] = def
+	}
+	require.NoError(t, rows.Err())
+
+	return indexes
+}

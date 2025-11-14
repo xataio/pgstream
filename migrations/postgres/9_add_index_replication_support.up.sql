@@ -145,6 +145,31 @@ indexes AS (
     WHERE n.nspname = schema_name
     GROUP BY t.relname, i.relname, i.oid, ix.indisunique
 ),
+table_constraints AS (
+    SELECT
+        table_oids.table_name,
+        jsonb_agg(jsonb_build_object(
+            'name', con.conname,
+            'type', CASE con.contype WHEN 'u' THEN 'UNIQUE' WHEN 'c' THEN 'CHECK' ELSE con.contype::text END,
+            'definition', pg_get_constraintdef(con.oid)
+        ) ORDER BY con.conname) AS constraints
+    FROM pg_constraint con
+    JOIN table_oids ON con.conrelid = table_oids.table_oid
+    WHERE con.contype IN ('u', 'c')
+    GROUP BY table_oids.table_name
+),
+foreign_keys AS (
+    SELECT
+        table_oids.table_name,
+        jsonb_agg(jsonb_build_object(
+            'name', con.conname,
+            'definition', pg_get_constraintdef(con.oid)
+        ) ORDER BY con.conname) AS fks
+    FROM pg_constraint con
+    JOIN table_oids ON con.conrelid = table_oids.table_oid
+    WHERE con.contype = 'f'
+    GROUP BY table_oids.table_name
+),
 by_table AS (
     SELECT
         columns.table_name,
@@ -176,7 +201,17 @@ by_table AS (
             )), '[]'::json)
             FROM indexes
             WHERE indexes.table_name = columns.table_name
-        ) AS table_indexes
+        ) AS table_indexes,
+        (
+            SELECT COALESCE(table_constraints.constraints, '[]'::jsonb)
+            FROM table_constraints
+            WHERE table_constraints.table_name = columns.table_name
+        ) AS table_constraints,
+        (
+            SELECT COALESCE(foreign_keys.fks, '[]'::jsonb)
+            FROM foreign_keys
+            WHERE foreign_keys.table_name = columns.table_name
+        ) AS table_foreign_keys
     FROM columns
     GROUP BY table_name, table_oid, table_pgs_id
 ),
@@ -190,7 +225,9 @@ as_json AS (
                 'name', by_table.table_name,
                 'columns', by_table.table_columns,
                 'primary_key_columns', by_table.primary_key_columns,
-                'indexes', by_table.table_indexes
+                'indexes', by_table.table_indexes,
+                'constraints', by_table.table_constraints,
+                'foreign_keys', by_table.table_foreign_keys
             ))
         ) AS v
     FROM by_table
