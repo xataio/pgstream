@@ -5,6 +5,7 @@ It is **service-agnostic**, focusing only on what pgstream itself requires.
 
 For cloud-provider-specific instructions and constraints, please see:
 
+- [Xata Onboarding Guide](xata.md)
 - [Google Cloud (CloudSQL) Onboarding Guide](gcp_cloudsql.md)
 - _(Other guides such as AWS RDS will be added later)_
 

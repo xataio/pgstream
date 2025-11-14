@@ -48,7 +48,7 @@ DROP SCHEMA IF EXISTS musicbrainz;
 CREATE SCHEMA musicbrainz;
 
 
-ALTER SCHEMA musicbrainz OWNER TO postgres;
+ALTER SCHEMA musicbrainz OWNER TO test_role;
 
 --
 -- Name: musicbrainz; Type: COLLATION; Schema: musicbrainz; Owner: postgres

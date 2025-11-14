@@ -48,7 +48,7 @@ DROP SCHEMA IF EXISTS musicbrainz;
 CREATE SCHEMA musicbrainz;
 
 
-ALTER SCHEMA musicbrainz OWNER TO postgres;
+ALTER SCHEMA musicbrainz OWNER TO test_role;
 
 --
 -- Name: musicbrainz; Type: COLLATION; Schema: musicbrainz; Owner: postgres
@@ -57,7 +57,6 @@ ALTER SCHEMA musicbrainz OWNER TO postgres;
 CREATE COLLATION musicbrainz.musicbrainz (provider = icu, locale = 'und-u-kf-lower-kn-true');
 
 
-ALTER COLLATION musicbrainz.musicbrainz OWNER TO postgres;
 
 --
 -- Name: cube; Type: EXTENSION; Schema: -; Owner: -
@@ -84,7 +83,6 @@ CREATE TYPE musicbrainz.cover_art_presence AS ENUM (
 );
 
 
-ALTER TYPE musicbrainz.cover_art_presence OWNER TO postgres;
 
 --
 -- Name: edit_note_status; Type: TYPE; Schema: musicbrainz; Owner: postgres
@@ -96,7 +94,6 @@ CREATE TYPE musicbrainz.edit_note_status AS ENUM (
 );
 
 
-ALTER TYPE musicbrainz.edit_note_status OWNER TO postgres;
 
 --
 -- Name: _median(integer[]); Type: FUNCTION; Schema: musicbrainz; Owner: postgres
@@ -119,7 +116,6 @@ CREATE FUNCTION musicbrainz._median(integer[]) RETURNS integer
 $_$;
 
 
-ALTER FUNCTION musicbrainz._median(integer[]) OWNER TO postgres;
 
 --
 -- Name: a_del_alternative_medium_track(); Type: FUNCTION; Schema: musicbrainz; Owner: postgres
@@ -135,7 +131,6 @@ END;
 $$;
 
 
-ALTER FUNCTION musicbrainz.a_del_alternative_medium_track() OWNER TO postgres;
 
 --
 -- Name: median(integer); Type: AGGREGATE; Schema: musicbrainz; Owner: postgres
@@ -149,7 +144,6 @@ CREATE AGGREGATE musicbrainz.median(integer) (
 );
 
 
-ALTER AGGREGATE musicbrainz.median(integer) OWNER TO postgres;
 
 --
 -- Name: mb_simple; Type: TEXT SEARCH CONFIGURATION; Schema: musicbrainz; Owner: postgres
@@ -162,7 +156,6 @@ ALTER TEXT SEARCH CONFIGURATION musicbrainz.mb_simple
     ADD MAPPING FOR asciiword WITH simple;
 
 
-ALTER TEXT SEARCH CONFIGURATION musicbrainz.mb_simple OWNER TO postgres;
 
 --
 -- Name: edit; Type: TABLE; Schema: musicbrainz; Owner: postgres
@@ -182,7 +175,6 @@ CREATE TABLE musicbrainz.edit (
 );
 
 
-ALTER TABLE musicbrainz.edit OWNER TO postgres;
 
 --
 -- Name: alternative_medium; Type: TABLE; Schema: musicbrainz; Owner: postgres
@@ -197,7 +189,6 @@ CREATE TABLE musicbrainz.alternative_medium (
 );
 
 
-ALTER TABLE musicbrainz.alternative_medium OWNER TO postgres;
 
 
 CREATE TABLE musicbrainz."Alternative_medium" (
@@ -233,7 +224,6 @@ CREATE SEQUENCE musicbrainz."Alternative_medium_id_seq"
 
 
 
-ALTER SEQUENCE musicbrainz.alternative_medium_id_seq OWNER TO postgres;
 
 --
 -- Name: alternative_medium id; Type: DEFAULT; Schema: musicbrainz; Owner: postgres

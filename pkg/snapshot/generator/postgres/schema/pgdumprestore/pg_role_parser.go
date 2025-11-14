@@ -10,6 +10,8 @@ import (
 
 type roleSQLParser struct{}
 
+const postgresRole = "postgres"
+
 var (
 	// PostgreSQL provides a set of predefined roles that provide access to
 	// certain, commonly needed, privileged capabilities and information
@@ -30,7 +32,7 @@ var (
 		"pg_maintain":                 {},
 		"pg_use_reserved_connections": {},
 		"pg_create_subscription":      {},
-		"postgres":                    {},
+		postgresRole:                  {},
 		"PUBLIC":                      {},
 	}
 
@@ -52,6 +54,13 @@ var (
 		"cloudsqliamuser":                {},
 		"cloudsqllogical":                {},
 		"cloudsqlinactiveuser":           {},
+	}
+
+	// Roles used by Xata Postgres that should not be included in the roles dump
+	// since they are managed by Xata itself.
+	pgXataRoles = map[string]struct{}{
+		"xata_superuser": {},
+		"xata":           {},
 	}
 )
 
@@ -186,7 +195,16 @@ func isPredefinedRole(roleName string) bool {
 // exclude roles managed by cloud services
 func isExcludedRole(roleName string) bool {
 	_, found := pgCloudSQLRoles[roleName]
-	return found
+	if found {
+		return true
+	}
+
+	_, found = pgXataRoles[roleName]
+	if found {
+		return true
+	}
+
+	return roleName == postgresRole
 }
 
 func isRoleStatement(line string) bool {
