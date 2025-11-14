@@ -303,6 +303,114 @@ func Test_PostgresToPostgres_Snapshot(t *testing.T) {
 	}
 }
 
+func Test_PostgresToPostgres_SchemaObjects(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfg(),
+		Processor: testPostgresProcessorCfg(pgurl, withoutBulkIngestion),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runStream(t, ctx, cfg)
+
+	sourceConn, err := pglib.NewConn(ctx, pgurl)
+	require.NoError(t, err)
+	defer sourceConn.Close(ctx)
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	suffix := time.Now().UnixNano()
+	parentTable := fmt.Sprintf("pg2pg_parent_schema_%d", suffix)
+	childTable := fmt.Sprintf("pg2pg_child_schema_%d", suffix)
+	indexName := fmt.Sprintf("idx_parent_id_%d", suffix)
+	indexRename := fmt.Sprintf("%s_renamed", indexName)
+	checkConstraintName := fmt.Sprintf("chk_value_not_empty_%d", suffix)
+	uniqueConstraintName := fmt.Sprintf("uq_value_%d", suffix)
+	foreignKeyName := fmt.Sprintf("fk_child_parent_%d", suffix)
+
+	defer execQuery(t, ctx, fmt.Sprintf("drop table if exists %s cascade", parentTable))
+	defer execQuery(t, ctx, fmt.Sprintf("drop table if exists %s cascade", childTable))
+
+	execQuery(t, ctx, fmt.Sprintf("create table %s (id serial primary key)", parentTable))
+
+	createChildTable := fmt.Sprintf(`
+		create table %s (
+			id serial primary key,
+			parent_id integer not null,
+			value text not null unique,
+			constraint %s check (value <> ''),
+			constraint %s foreign key (parent_id) references %s(id) on delete cascade,
+			constraint %s unique (value)
+		)`, childTable, checkConstraintName, foreignKeyName, parentTable, uniqueConstraintName)
+	execQuery(t, ctx, createChildTable)
+	execQuery(t, ctx, fmt.Sprintf("create index %s on %s (parent_id)", indexName, childTable))
+
+	sourceConstraints := getTableConstraints(t, ctx, sourceConn, "public", childTable)
+	require.Contains(t, sourceConstraints, checkConstraintName)
+	require.Contains(t, sourceConstraints, uniqueConstraintName)
+	require.Contains(t, sourceConstraints, foreignKeyName)
+
+	sourceIndexes := getTableIndexes(t, ctx, sourceConn, "public", childTable)
+	require.Contains(t, sourceIndexes, indexName)
+
+	require.Eventually(t, func() bool {
+		targetConstraints := getTableConstraints(t, ctx, targetConn, "public", childTable)
+		checkConstraint, ok := targetConstraints[checkConstraintName]
+		if !ok {
+			return false
+		}
+		if checkConstraint.definition != sourceConstraints[checkConstraintName].definition {
+			return false
+		}
+
+		uniqueConstraint, ok := targetConstraints[uniqueConstraintName]
+		if !ok {
+			return false
+		}
+		if uniqueConstraint.definition != sourceConstraints[uniqueConstraintName].definition {
+			return false
+		}
+
+		fkConstraint, ok := targetConstraints[foreignKeyName]
+		if !ok {
+			return false
+		}
+		return fkConstraint.definition == sourceConstraints[foreignKeyName].definition
+	}, 20*time.Second, 200*time.Millisecond)
+
+	require.Eventually(t, func() bool {
+		targetIndexes := getTableIndexes(t, ctx, targetConn, "public", childTable)
+		targetDefinition, ok := targetIndexes[indexName]
+		if !ok {
+			return false
+		}
+		return targetDefinition == sourceIndexes[indexName]
+	}, 20*time.Second, 200*time.Millisecond)
+
+	execQuery(t, ctx, fmt.Sprintf("alter index %s rename to %s", indexName, indexRename))
+	sourceIndexes = getTableIndexes(t, ctx, sourceConn, "public", childTable)
+	require.Contains(t, sourceIndexes, indexRename)
+	require.NotContains(t, sourceIndexes, indexName)
+
+	require.Eventually(t, func() bool {
+		targetIndexes := getTableIndexes(t, ctx, targetConn, "public", childTable)
+		if _, ok := targetIndexes[indexName]; ok {
+			return false
+		}
+		targetDefinition, ok := targetIndexes[indexRename]
+		if !ok {
+			return false
+		}
+		return targetDefinition == sourceIndexes[indexRename]
+	}, 20*time.Second, 200*time.Millisecond)
+}
+
 func getInformationSchemaColumns(t *testing.T, ctx context.Context, conn pglib.Querier, tableName string) []*informationSchemaColumn {
 	rows, err := conn.Query(ctx, "select column_name, data_type, is_nullable from information_schema.columns where table_name = $1", tableName)
 	require.NoError(t, err)
