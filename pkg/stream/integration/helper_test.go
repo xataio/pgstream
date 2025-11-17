@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -431,10 +432,14 @@ func getTableIndexes(t *testing.T, ctx context.Context, conn pglib.Querier, sche
 
 	indexes := make(map[string]string)
 	for rows.Next() {
-		var name, def string
+		var name string
+		var def sql.NullString
 		err := rows.Scan(&name, &def)
 		require.NoError(t, err)
-		indexes[name] = def
+		if !def.Valid {
+			continue
+		}
+		indexes[name] = def.String
 	}
 	require.NoError(t, rows.Err())
 
