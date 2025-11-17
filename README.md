@@ -59,7 +59,7 @@
 
 ```bash
 # Download the latest release
-curl -L https://github.com/xataio/pgstream/releases/latest/download/pgstream-linux-amd64 -o pgstream
+curl -L https://github.com/xataio/pgstream/releases/latest/download/pgstream.linux.amd64 -o pgstream
 chmod +x pgstream
 sudo mv pgstream /usr/local/bin/
 
