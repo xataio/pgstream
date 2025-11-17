@@ -616,18 +616,9 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			diff: &schemalog.Diff{
 				TablesChanged: []schemalog.TableDiff{
 					{
-						TableName: table1,
-						IndexesRenamed: []schemalog.IndexRename{
-							{
-								Old: schemalog.Index{
-									Name:       "idx_old",
-									Definition: fmt.Sprintf("CREATE INDEX idx_old ON %s (\"name\")", quotedTableName(testSchema, table1)),
-								},
-								New: schemalog.Index{
-									Name:       "idx_new",
-									Definition: fmt.Sprintf("CREATE INDEX idx_new ON %s (\"name\")", quotedTableName(testSchema, table1)),
-								},
-							},
+						TableName:      table1,
+						IndexesChanged: []string{
+							fmt.Sprintf("ALTER INDEX %s RENAME TO %s", pglib.QuoteQualifiedIdentifier(testSchema, "idx_old"), pglib.QuoteIdentifier("idx_new")),
 						},
 					},
 				},

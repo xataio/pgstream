@@ -323,7 +323,7 @@ func Test_ComputeSchemaDiff(t *testing.T) {
 			},
 		},
 		{
-			name: "indexes added and removed",
+			name: "index altered via definition",
 			newSchema: &LogEntry{
 				Schema: Schema{
 					Tables: []Table{
@@ -336,9 +336,9 @@ func Test_ComputeSchemaDiff(t *testing.T) {
 							PrimaryKeyColumns: []string{col1},
 							Indexes: []Index{
 								{
-									Name:       "idx_new",
+									Name:       "idx_old",
 									Columns:    []string{col1},
-									Definition: "CREATE INDEX idx_new ON test.table USING btree (col-1)",
+									Definition: "ALTER INDEX idx_old RENAME TO idx_new",
 								},
 							},
 						},
@@ -372,19 +372,8 @@ func Test_ComputeSchemaDiff(t *testing.T) {
 					{
 						TableName:       table1,
 						TablePgstreamID: id1,
-						IndexesRenamed: []IndexRename{
-							{
-								Old: Index{
-									Name:       "idx_old",
-									Columns:    []string{col1},
-									Definition: "CREATE INDEX idx_old ON test.table USING btree (col-1)",
-								},
-								New: Index{
-									Name:       "idx_new",
-									Columns:    []string{col1},
-									Definition: "CREATE INDEX idx_new ON test.table USING btree (col-1)",
-								},
-							},
+						IndexesChanged: []string{
+							"ALTER INDEX idx_old RENAME TO idx_new",
 						},
 					},
 				},

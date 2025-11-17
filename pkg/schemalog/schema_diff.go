@@ -23,7 +23,7 @@ type TableDiff struct {
 	ColumnsChanged        []ColumnDiff
 	IndexesAdded          []Index
 	IndexesRemoved        []Index
-	IndexesRenamed        []IndexRename
+	IndexesChanged        []string
 	ConstraintsAdded      []Constraint
 	ConstraintsRemoved    []Constraint
 	ForeignKeysAdded      []ForeignKey
@@ -54,7 +54,7 @@ func (td *TableDiff) IsEmpty() bool {
 		len(td.ColumnsChanged) == 0 &&
 		len(td.IndexesAdded) == 0 &&
 		len(td.IndexesRemoved) == 0 &&
-		len(td.IndexesRenamed) == 0 &&
+		len(td.IndexesChanged) == 0 &&
 		len(td.ConstraintsAdded) == 0 &&
 		len(td.ConstraintsRemoved) == 0 &&
 		len(td.ForeignKeysAdded) == 0 &&
@@ -151,6 +151,11 @@ func computeTableDiff(old, new *Table) *TableDiff {
 		}
 
 		if !oldIdx.IsEqual(&newIdx) {
+			if isAlterIndexDefinition(newIdx.Definition) {
+				diff.IndexesChanged = append(diff.IndexesChanged, newIdx.Definition)
+				continue
+			}
+
 			diff.IndexesRemoved = append(diff.IndexesRemoved, oldIdx)
 			diff.IndexesAdded = append(diff.IndexesAdded, newIdx)
 		}
@@ -162,8 +167,6 @@ func computeTableDiff(old, new *Table) *TableDiff {
 			diff.IndexesAdded = append(diff.IndexesAdded, newIdx)
 		}
 	}
-
-	matchRenamedIndexes(diff)
 
 	newConstraintMap := getTableConstraintMap(new)
 	for _, oldConstraint := range old.Constraints {
@@ -279,138 +282,6 @@ func getTableForeignKeyMap(t *Table) map[string]ForeignKey {
 	return foreignKeyMap
 }
 
-func matchRenamedIndexes(diff *TableDiff) {
-	if len(diff.IndexesRemoved) == 0 || len(diff.IndexesAdded) == 0 {
-		return
-	}
-
-	canonical := func(def string) string {
-		fields := strings.Fields(def)
-		if len(fields) < 4 {
-			return def
-		}
-		upperPrefix := strings.ToUpper(fields[0])
-		if upperPrefix != "CREATE" {
-			return def
-		}
-		// find position of "INDEX"
-		indexPos := -1
-		for i, f := range fields {
-			if strings.ToUpper(f) == "INDEX" {
-				indexPos = i
-				break
-			}
-		}
-		if indexPos == -1 || indexPos+1 >= len(fields) {
-			return def
-		}
-		// rebuild prefix without the next token (index name)
-		newFields := append([]string{}, fields[:indexPos+1]...)
-		canonicalPrefix := strings.Join(newFields, " ")
-		// find the substring up to index name
-		prefix := strings.Join(fields[:indexPos+2], " ")
-		idx := strings.Index(def, prefix)
-		if idx == -1 {
-			return def
-		}
-		suffix := def[idx+len(prefix):]
-		return canonicalPrefix + suffix
-	}
-
-	added := diff.IndexesAdded
-	removed := diff.IndexesRemoved
-	usedAdded := make([]bool, len(added))
-	remainingRemoved := make([]Index, 0, len(removed))
-	renamed := make([]IndexRename, 0)
-
-	for _, oldIdx := range removed {
-		oldCanonical := canonical(oldIdx.Definition)
-		matched := false
-		for j, newIdx := range added {
-			if usedAdded[j] {
-				continue
-			}
-			if canonical(newIdx.Definition) == oldCanonical {
-				renamed = append(renamed, IndexRename{
-					Old: oldIdx,
-					New: newIdx,
-				})
-				usedAdded[j] = true
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			remainingRemoved = append(remainingRemoved, oldIdx)
-		}
-	}
-
-	remainingAdded := make([]Index, 0, len(added))
-	for j, idx := range added {
-		if !usedAdded[j] {
-			remainingAdded = append(remainingAdded, idx)
-		}
-	}
-
-	if len(remainingRemoved) == 0 {
-		diff.IndexesRemoved = nil
-	} else {
-		diff.IndexesRemoved = remainingRemoved
-	}
-	if len(remainingAdded) == 0 {
-		diff.IndexesAdded = nil
-	} else {
-		diff.IndexesAdded = remainingAdded
-	}
-
-	if len(renamed) > 0 {
-		if len(diff.ConstraintsRemoved) > 0 {
-			filtered := diff.ConstraintsRemoved[:0]
-			renameMap := make(map[string]struct{}, len(renamed))
-			for _, r := range renamed {
-				renameMap[r.Old.Name] = struct{}{}
-			}
-			for _, constraint := range diff.ConstraintsRemoved {
-				if strings.EqualFold(constraint.Type, "UNIQUE") {
-					if _, ok := renameMap[constraint.Name]; ok {
-						continue
-					}
-				}
-				filtered = append(filtered, constraint)
-			}
-			if len(filtered) == 0 {
-				diff.ConstraintsRemoved = nil
-			} else {
-				diff.ConstraintsRemoved = filtered
-			}
-		}
-
-		if len(diff.ConstraintsAdded) > 0 {
-			filtered := diff.ConstraintsAdded[:0]
-			renameMap := make(map[string]struct{}, len(renamed))
-			for _, r := range renamed {
-				renameMap[r.New.Name] = struct{}{}
-			}
-			for _, constraint := range diff.ConstraintsAdded {
-				if strings.EqualFold(constraint.Type, "UNIQUE") {
-					if _, ok := renameMap[constraint.Name]; ok {
-						continue
-					}
-				}
-				filtered = append(filtered, constraint)
-			}
-			if len(filtered) == 0 {
-				diff.ConstraintsAdded = nil
-			} else {
-				diff.ConstraintsAdded = filtered
-			}
-		}
-	}
-
-	diff.IndexesRenamed = append(diff.IndexesRenamed, renamed...)
-}
-
-type IndexRename struct {
-	Old Index
-	New Index
+func isAlterIndexDefinition(definition string) bool {
+	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(definition)), "ALTER INDEX")
 }

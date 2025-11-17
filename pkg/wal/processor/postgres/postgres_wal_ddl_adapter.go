@@ -132,14 +132,12 @@ func constraintBackedIndexNames(constraints []schemalog.Constraint) map[string]s
 
 func constraintCreatesIndex(constraintType string) bool {
 	switch {
-	case strings.EqualFold(constraintType, "UNIQUE"):
-		return true
-	case strings.EqualFold(constraintType, "PRIMARY KEY"):
-		return true
-	case strings.EqualFold(constraintType, "EXCLUDE"):
-		return true
-	default:
-		return false
+		case strings.EqualFold(constraintType, "UNIQUE"),
+		strings.EqualFold(constraintType, "PRIMARY KEY"),
+		strings.EqualFold(constraintType, "EXCLUDE"):
+			return true
+		default:
+			return false
 	}
 }
 
@@ -259,11 +257,12 @@ func (a *ddlAdapter) buildAlterTableQueries(schemaName string, tableDiff schemal
 		queries = append(queries, a.newDDLQuery(schemaName, tableDiff.TableName, createQuery))
 	}
 
-	for _, rename := range tableDiff.IndexesRenamed {
-		if rename.Old.Name == "" || rename.New.Name == "" {
+	for _, definition := range tableDiff.IndexesChanged {
+		stmt := strings.TrimSpace(definition)
+		if stmt == "" {
 			continue
 		}
-		queries = append(queries, buildRenameIndexQuery(schemaName, tableDiff.TableName, rename.Old.Name, rename.New.Name))
+		queries = append(queries, a.newDDLQuery(schemaName, tableDiff.TableName, stmt))
 	}
 
 	for _, constraint := range tableDiff.ConstraintsAdded {
@@ -438,13 +437,4 @@ func (a *ddlAdapter) buildAddForeignKeyQueries(schemaName string, table schemalo
 		}
 	}
 	return queries
-}
-
-func buildRenameIndexQuery(schemaName, tableName, oldName, newName string) *query {
-	return &query{
-		schema: schemaName,
-		table:  tableName,
-		sql:    fmt.Sprintf("ALTER INDEX %s RENAME TO %s", pglib.QuoteQualifiedIdentifier(schemaName, oldName), pglib.QuoteIdentifier(newName)),
-		isDDL:  true,
-	}
 }
