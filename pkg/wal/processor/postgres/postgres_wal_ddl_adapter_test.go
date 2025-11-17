@@ -616,7 +616,7 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			diff: &schemalog.Diff{
 				TablesChanged: []schemalog.TableDiff{
 					{
-						TableName:      table1,
+						TableName: table1,
 						IndexesChanged: []string{
 							fmt.Sprintf("ALTER INDEX %s RENAME TO %s", pglib.QuoteQualifiedIdentifier(testSchema, "idx_old"), pglib.QuoteIdentifier("idx_new")),
 						},

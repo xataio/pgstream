@@ -132,12 +132,12 @@ func constraintBackedIndexNames(constraints []schemalog.Constraint) map[string]s
 
 func constraintCreatesIndex(constraintType string) bool {
 	switch {
-		case strings.EqualFold(constraintType, "UNIQUE"),
+	case strings.EqualFold(constraintType, "UNIQUE"),
 		strings.EqualFold(constraintType, "PRIMARY KEY"),
 		strings.EqualFold(constraintType, "EXCLUDE"):
-			return true
-		default:
-			return false
+		return true
+	default:
+		return false
 	}
 }
 
