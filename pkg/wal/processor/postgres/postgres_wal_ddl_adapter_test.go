@@ -240,6 +240,152 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - table added with indexes",
+			diff: &schemalog.Diff{
+				TablesAdded: []schemalog.Table{
+					{
+						Name: table1,
+						Columns: []schemalog.Column{
+							{Name: "id", DataType: "uuid", Nullable: false, Unique: false},
+							{Name: "name", DataType: "text", Nullable: true, Unique: false},
+						},
+						Indexes: []schemalog.Index{
+							{
+								Name:       "idx_name",
+								Definition: fmt.Sprintf("CREATE INDEX idx_name ON %s (\"name\")", quotedTableName(testSchema, table1)),
+							},
+						},
+					},
+				},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n\"id\" uuid NOT NULL,\n\"name\" text)", quotedTableName(testSchema, table1)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("CREATE INDEX IF NOT EXISTS idx_name ON %s (\"name\")", quotedTableName(testSchema, table1)),
+					isDDL:  true,
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - table added with unique constraint backed index",
+			diff: &schemalog.Diff{
+				TablesAdded: []schemalog.Table{
+					{
+						Name: table1,
+						Columns: []schemalog.Column{
+							{Name: "id", DataType: "uuid", Nullable: false},
+							{Name: "value", DataType: "text", Nullable: false},
+						},
+						Indexes: []schemalog.Index{
+							{
+								Name:       "uq_value",
+								Definition: fmt.Sprintf("CREATE UNIQUE INDEX uq_value ON %s (\"value\")", quotedTableName(testSchema, table1)),
+							},
+						},
+						Constraints: []schemalog.Constraint{
+							{Name: "uq_value", Type: "UNIQUE", Definition: "UNIQUE (\"value\")"},
+						},
+					},
+				},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n\"id\" uuid NOT NULL,\n\"value\" text NOT NULL)", quotedTableName(testSchema, table1)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s UNIQUE (\"value\")", quotedTableName(testSchema, table1), pglib.QuoteIdentifier("uq_value")),
+					isDDL:  true,
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - table added with constraints and foreign keys",
+			diff: &schemalog.Diff{
+				TablesAdded: []schemalog.Table{
+					{
+						Name: table1,
+						Columns: []schemalog.Column{
+							{Name: "id", DataType: "uuid", Nullable: false, Unique: false},
+							{Name: "ref_id", DataType: "uuid", Nullable: false, Unique: false},
+						},
+						Constraints: []schemalog.Constraint{
+							{Name: "check_id_not_null", Type: "CHECK", Definition: "CHECK ((\"id\" IS NOT NULL))"},
+						},
+						ForeignKeys: []schemalog.ForeignKey{
+							{Name: "fk_ref", Definition: "FOREIGN KEY (\"ref_id\") REFERENCES other(id)"},
+						},
+					},
+				},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n\"id\" uuid NOT NULL,\n\"ref_id\" uuid NOT NULL)", quotedTableName(testSchema, table1)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s CHECK ((\"id\" IS NOT NULL))", quotedTableName(testSchema, table1), pglib.QuoteIdentifier("check_id_not_null")),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s FOREIGN KEY (\"ref_id\") REFERENCES other(id)", quotedTableName(testSchema, table1), pglib.QuoteIdentifier("fk_ref")),
+					isDDL:  true,
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - table changed adds unique constraint without duplicate index",
+			diff: &schemalog.Diff{
+				TablesChanged: []schemalog.TableDiff{
+					{
+						TableName: table1,
+						IndexesAdded: []schemalog.Index{
+							{
+								Name:       "uq_value",
+								Definition: fmt.Sprintf("CREATE UNIQUE INDEX uq_value ON %s (\"value\")", quotedTableName(testSchema, table1)),
+							},
+						},
+						ConstraintsAdded: []schemalog.Constraint{
+							{Name: "uq_value", Type: "UNIQUE", Definition: "UNIQUE (\"value\")"},
+						},
+					},
+				},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s UNIQUE (\"value\")", quotedTableName(testSchema, table1), pglib.QuoteIdentifier("uq_value")),
+					isDDL:  true,
+				},
+			},
+			wantErr: nil,
+		},
+		{
 			name: "ok - table renamed",
 			diff: &schemalog.Diff{
 				TablesChanged: []schemalog.TableDiff{
@@ -460,6 +606,93 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 					schema: testSchema,
 					table:  table1,
 					sql:    fmt.Sprintf("ALTER TABLE %s ALTER COLUMN \"age\" SET DEFAULT 0", quotedTableName(testSchema, table1)),
+					isDDL:  true,
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - table changed, indexes updated",
+			diff: &schemalog.Diff{
+				TablesChanged: []schemalog.TableDiff{
+					{
+						TableName: table1,
+						IndexesChanged: []string{
+							fmt.Sprintf("ALTER INDEX %s RENAME TO %s", pglib.QuoteQualifiedIdentifier(testSchema, "idx_old"), pglib.QuoteIdentifier("idx_new")),
+						},
+					},
+				},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("ALTER INDEX %s RENAME TO %s", pglib.QuoteQualifiedIdentifier(testSchema, "idx_old"), pglib.QuoteIdentifier("idx_new")),
+					isDDL:  true,
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - table changed, constraints updated",
+			diff: &schemalog.Diff{
+				TablesChanged: []schemalog.TableDiff{
+					{
+						TableName: table1,
+						ConstraintsRemoved: []schemalog.Constraint{
+							{Name: "check_old", Definition: "CHECK ((\"id\" > 0))"},
+						},
+						ConstraintsAdded: []schemalog.Constraint{
+							{Name: "check_new", Definition: "CHECK ((\"id\" <> 0))"},
+						},
+					},
+				},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s", quotedTableName(testSchema, table1), pglib.QuoteIdentifier("check_old")),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s CHECK ((\"id\" <> 0))", quotedTableName(testSchema, table1), pglib.QuoteIdentifier("check_new")),
+					isDDL:  true,
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - table changed, foreign keys updated",
+			diff: &schemalog.Diff{
+				TablesChanged: []schemalog.TableDiff{
+					{
+						TableName: table1,
+						ForeignKeysRemoved: []schemalog.ForeignKey{
+							{Name: "fk_old", Definition: "FOREIGN KEY (\"id\") REFERENCES other(id)"},
+						},
+						ForeignKeysAdded: []schemalog.ForeignKey{
+							{Name: "fk_new", Definition: "FOREIGN KEY (\"id\") REFERENCES other(id) ON DELETE CASCADE"},
+						},
+					},
+				},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s", quotedTableName(testSchema, table1), pglib.QuoteIdentifier("fk_old")),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
+					table:  table1,
+					sql:    fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s FOREIGN KEY (\"id\") REFERENCES other(id) ON DELETE CASCADE", quotedTableName(testSchema, table1), pglib.QuoteIdentifier("fk_new")),
 					isDDL:  true,
 				},
 			},

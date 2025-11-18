@@ -219,6 +219,237 @@ func Test_ComputeSchemaDiff(t *testing.T) {
 			},
 		},
 		{
+			name: "constraints added and removed",
+			newSchema: &LogEntry{
+				Schema: Schema{
+					Tables: []Table{
+						{
+							PgstreamID: id1,
+							Name:       table1,
+							Columns: []Column{
+								{PgstreamID: id1 + "_1", Name: col1},
+							},
+							PrimaryKeyColumns: []string{"col-1"},
+							Constraints: []Constraint{
+								{Name: "unique_name", Type: "UNIQUE", Definition: "UNIQUE (name)"},
+							},
+						},
+					},
+				},
+			},
+			oldSchema: &LogEntry{
+				Schema: Schema{
+					Tables: []Table{
+						{
+							PgstreamID: id1,
+							Name:       table1,
+							Columns: []Column{
+								{PgstreamID: id1 + "_1", Name: col1},
+							},
+							PrimaryKeyColumns: []string{"col-1"},
+							Constraints: []Constraint{
+								{Name: "old_check", Type: "CHECK", Definition: "CHECK (id > 0)"},
+							},
+						},
+					},
+				},
+			},
+
+			wantDiff: &Diff{
+				TablesChanged: []TableDiff{
+					{
+						TableName:       table1,
+						TablePgstreamID: id1,
+						ConstraintsAdded: []Constraint{
+							{Name: "unique_name", Type: "UNIQUE", Definition: "UNIQUE (name)"},
+						},
+						ConstraintsRemoved: []Constraint{
+							{Name: "old_check", Type: "CHECK", Definition: "CHECK (id > 0)"},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "foreign keys added and removed",
+			newSchema: &LogEntry{
+				Schema: Schema{
+					Tables: []Table{
+						{
+							PgstreamID: id1,
+							Name:       table1,
+							Columns: []Column{
+								{PgstreamID: id1 + "_1", Name: col1},
+							},
+							PrimaryKeyColumns: []string{"col-1"},
+							ForeignKeys: []ForeignKey{
+								{Name: "fk_new", Definition: "FOREIGN KEY (col_1) REFERENCES other(id)"},
+							},
+						},
+					},
+				},
+			},
+			oldSchema: &LogEntry{
+				Schema: Schema{
+					Tables: []Table{
+						{
+							PgstreamID: id1,
+							Name:       table1,
+							Columns: []Column{
+								{PgstreamID: id1 + "_1", Name: col1},
+							},
+							PrimaryKeyColumns: []string{"col-1"},
+							ForeignKeys: []ForeignKey{
+								{Name: "fk_old", Definition: "FOREIGN KEY (col_1) REFERENCES another(id)"},
+							},
+						},
+					},
+				},
+			},
+
+			wantDiff: &Diff{
+				TablesChanged: []TableDiff{
+					{
+						TableName:       table1,
+						TablePgstreamID: id1,
+						ForeignKeysAdded: []ForeignKey{
+							{Name: "fk_new", Definition: "FOREIGN KEY (col_1) REFERENCES other(id)"},
+						},
+						ForeignKeysRemoved: []ForeignKey{
+							{Name: "fk_old", Definition: "FOREIGN KEY (col_1) REFERENCES another(id)"},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "index altered via definition",
+			newSchema: &LogEntry{
+				Schema: Schema{
+					Tables: []Table{
+						{
+							PgstreamID: id1,
+							Name:       table1,
+							Columns: []Column{
+								{PgstreamID: id1 + "_1", Name: col1},
+							},
+							PrimaryKeyColumns: []string{col1},
+							Indexes: []Index{
+								{
+									Name:       "idx_old",
+									Columns:    []string{col1},
+									Definition: "ALTER INDEX idx_old RENAME TO idx_new",
+								},
+							},
+						},
+					},
+				},
+			},
+			oldSchema: &LogEntry{
+				Schema: Schema{
+					Tables: []Table{
+						{
+							PgstreamID: id1,
+							Name:       table1,
+							Columns: []Column{
+								{PgstreamID: id1 + "_1", Name: col1},
+							},
+							PrimaryKeyColumns: []string{col1},
+							Indexes: []Index{
+								{
+									Name:       "idx_old",
+									Columns:    []string{col1},
+									Definition: "CREATE INDEX idx_old ON test.table USING btree (col-1)",
+								},
+							},
+						},
+					},
+				},
+			},
+
+			wantDiff: &Diff{
+				TablesChanged: []TableDiff{
+					{
+						TableName:       table1,
+						TablePgstreamID: id1,
+						IndexesChanged: []string{
+							"ALTER INDEX idx_old RENAME TO idx_new",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "index definition changed",
+			newSchema: &LogEntry{
+				Schema: Schema{
+					Tables: []Table{
+						{
+							PgstreamID: id1,
+							Name:       table1,
+							Columns: []Column{
+								{PgstreamID: id1 + "_1", Name: col1},
+								{PgstreamID: id1 + "_2", Name: col2},
+							},
+							PrimaryKeyColumns: []string{col1},
+							Indexes: []Index{
+								{
+									Name:       "idx_new",
+									Columns:    []string{col1, col2},
+									Definition: "CREATE INDEX idx_new ON test.table USING btree (col-1, col-2)",
+								},
+							},
+						},
+					},
+				},
+			},
+			oldSchema: &LogEntry{
+				Schema: Schema{
+					Tables: []Table{
+						{
+							PgstreamID: id1,
+							Name:       table1,
+							Columns: []Column{
+								{PgstreamID: id1 + "_1", Name: col1},
+								{PgstreamID: id1 + "_2", Name: col2},
+							},
+							PrimaryKeyColumns: []string{col1},
+							Indexes: []Index{
+								{
+									Name:       "idx_old",
+									Columns:    []string{col1},
+									Definition: "CREATE INDEX idx_old ON test.table USING btree (col-1)",
+								},
+							},
+						},
+					},
+				},
+			},
+
+			wantDiff: &Diff{
+				TablesChanged: []TableDiff{
+					{
+						TableName:       table1,
+						TablePgstreamID: id1,
+						IndexesAdded: []Index{
+							{
+								Name:       "idx_new",
+								Columns:    []string{col1, col2},
+								Definition: "CREATE INDEX idx_new ON test.table USING btree (col-1, col-2)",
+							},
+						},
+						IndexesRemoved: []Index{
+							{
+								Name:       "idx_old",
+								Columns:    []string{col1},
+								Definition: "CREATE INDEX idx_old ON test.table USING btree (col-1)",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
 			name: "column name change",
 			newSchema: &LogEntry{
 				Schema: Schema{
