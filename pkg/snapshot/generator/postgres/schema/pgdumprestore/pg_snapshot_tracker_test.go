@@ -55,6 +55,7 @@ func TestSnapshotTracker_trackIndexesCreation(t *testing.T) {
 				return nil
 			},
 			CloseFn: func() {},
+			ErrFn:   func() error { return nil },
 		}
 	}
 

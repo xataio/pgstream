@@ -139,6 +139,9 @@ func (st *snapshotTracker) getCreateIndexProgressRows(ctx context.Context) (map[
 		}
 		result[row.Table] = row
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -155,5 +158,7 @@ func (st *snapshotTracker) barDescription(table string) string {
 }
 
 func (st *snapshotTracker) close() error {
-	return st.conn.Close(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return st.conn.Close(ctx)
 }
