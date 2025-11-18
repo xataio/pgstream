@@ -24,14 +24,15 @@ import (
 func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	t.Parallel()
 
-	schemaDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence\nALTER TABLE test_table OWNER TO test_role;\nGRANT ALL ON TABLE test_table TO test_role2;\nCREATE INDEX a;\n")
-	schemaDumpNoSequences := []byte("schema dump\n")
-	filteredDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence\nALTER TABLE test_table OWNER TO test_role;\nGRANT ALL ON TABLE test_table TO test_role2;\n")
+	schemaDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence\nALTER TABLE public.test_table OWNER TO test_role;\nGRANT ALL ON TABLE public.test_table TO test_role2;\nCREATE INDEX a;\n")
+	schemaDumpNoSequences := []byte("schema dump\nALTER TABLE public.test_table OWNER TO test_role;\nGRANT ALL ON TABLE public.test_table TO test_role2;\nCREATE INDEX a;\n")
+	filteredDumpNoSequences := []byte("schema dump\nALTER TABLE public.test_table OWNER TO test_role;\nGRANT ALL ON TABLE public.test_table TO test_role2;\n")
+	filteredDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence\nALTER TABLE public.test_table OWNER TO test_role;\nGRANT ALL ON TABLE public.test_table TO test_role2;\n")
 	sequenceDump := []byte("sequence dump\n")
 	indexDump := []byte("CREATE INDEX a;\n\n")
 	rolesDumpOriginal := []byte("roles dump\nCREATE ROLE postgres\nCREATE ROLE test_role\nCREATE ROLE test_role2\nALTER ROLE test_role3 INHERIT FROM test_role;\n")
-	rolesDumpFiltered := []byte("roles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\nGRANT \"test_role\" TO CURRENT_USER;\n")
-	roleDumpEmpty := []byte("roles dump\n")
+	rolesDumpFiltered := []byte("roles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\nGRANT \"test_role\" TO CURRENT_USER;\nGRANT ALL ON SCHEMA \"public\" TO \"test_role\";\n")
+	rolesDumpFilteredWithCleanup := []byte("REVOKE ALL ON SCHEMA \"public\" FROM \"test_role\";\nroles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\nGRANT \"test_role\" TO CURRENT_USER;\nGRANT ALL ON SCHEMA \"public\" TO \"test_role\";\n")
 	cleanupDump := []byte("cleanup dump\n")
 	testSchema := "test_schema"
 	testTable := "test_table"
@@ -42,10 +43,25 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	testSequence := pglib.QuoteQualifiedIdentifier("test", "test_sequence")
 	testRole := "test_role"
 
-	restoreFullDump := rolesDumpFiltered
-	restoreFullDump = append(restoreFullDump, filteredDump...)
-	restoreFullDump = append(restoreFullDump, sequenceDump...)
-	restoreFullDump = append(restoreFullDump, indexDump...)
+	fullDumpRestoreFn := func(_ context.Context, i uint, po pglib.PGRestoreOptions, dump []byte) (string, error) {
+		require.Equal(t, pglib.PGRestoreOptions{
+			ConnectionString: "target-url",
+			Format:           "p",
+		}, po)
+		switch i {
+		case 1:
+			require.Equal(t, string(rolesDumpFiltered), string(dump))
+		case 2:
+			require.Equal(t, string(filteredDump), string(dump))
+		case 3:
+			require.Equal(t, string(sequenceDump), string(dump))
+		case 4:
+			require.Equal(t, string(indexDump), string(dump))
+		default:
+			return "", fmt.Errorf("unexpected call to pgrestoreFn: %d", i)
+		}
+		return "", nil
+	}
 
 	validQuerier := func() *mocks.Querier {
 		return &mocks.Querier{
@@ -178,14 +194,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
 				}
 			}),
-			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
-				require.Equal(t, pglib.PGRestoreOptions{
-					ConnectionString: "target-url",
-					Format:           "p",
-				}, po)
-				require.Equal(t, string(restoreFullDump), string(dump))
-				return "", nil
-			},
+			pgrestoreFn:  newMockPgrestore(fullDumpRestoreFn),
 			role:         testRole,
 			noOwner:      true,
 			noPrivileges: true,
@@ -227,14 +236,23 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
 				}
 			}),
-			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			pgrestoreFn: newMockPgrestore(func(_ context.Context, i uint, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				require.Equal(t, pglib.PGRestoreOptions{
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, string(append(roleDumpEmpty, schemaDumpNoSequences...)), string(dump))
+				switch i {
+				case 1:
+					require.Equal(t, string(rolesDumpFiltered), string(dump))
+				case 2:
+					require.Equal(t, string(filteredDumpNoSequences), string(dump))
+				case 3:
+					require.Equal(t, string(indexDump), string(dump))
+				default:
+					return "", fmt.Errorf("unexpected call to pgrestoreFn: %d", i)
+				}
 				return "", nil
-			},
+			}),
 
 			wantErr: nil,
 		},
@@ -281,21 +299,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
 				}
 			}),
-			pgrestoreFn: newMockPgrestore(func(_ context.Context, i uint, po pglib.PGRestoreOptions, dump []byte) (string, error) {
-				require.Equal(t, pglib.PGRestoreOptions{
-					ConnectionString: "target-url",
-					Format:           "p",
-				}, po)
-				switch i {
-				case 1:
-					require.Equal(t, string(append(rolesDumpFiltered, filteredDump...)), string(dump))
-				case 2:
-					require.Equal(t, string(append(sequenceDump, indexDump...)), string(dump))
-				default:
-					return "", fmt.Errorf("unexpected call to pgrestoreFn: %d", i)
-				}
-				return "", nil
-			}),
+			pgrestoreFn: newMockPgrestore(fullDumpRestoreFn),
+
 			generator: &generatormocks.Generator{
 				CreateSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
 					require.Equal(t, &snapshot.Snapshot{
@@ -351,14 +356,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
 				}
 			}),
-			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
-				require.Equal(t, pglib.PGRestoreOptions{
-					ConnectionString: "target-url",
-					Format:           "p",
-				}, po)
-				require.Equal(t, string(restoreFullDump), string(dump))
-				return "", nil
-			},
+			pgrestoreFn: newMockPgrestore(fullDumpRestoreFn),
 
 			wantErr: nil,
 		},
@@ -407,14 +405,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
 				}
 			}),
-			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
-				require.Equal(t, pglib.PGRestoreOptions{
-					ConnectionString: "target-url",
-					Format:           "p",
-				}, po)
-				require.Equal(t, string(restoreFullDump), string(dump))
-				return "", nil
-			},
+			pgrestoreFn: newMockPgrestore(fullDumpRestoreFn),
 
 			wantErr: nil,
 		},
@@ -459,15 +450,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
 				}
 			}),
-			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
-				require.Equal(t, pglib.PGRestoreOptions{
-					ConnectionString: "target-url",
-					Format:           "p",
-				}, po)
-
-				require.Equal(t, string(restoreFullDump), string(dump))
-				return "", nil
-			},
+			pgrestoreFn: newMockPgrestore(fullDumpRestoreFn),
 
 			wantErr: nil,
 		},
@@ -515,14 +498,23 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
 				}
 			}),
-			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			pgrestoreFn: newMockPgrestore(func(_ context.Context, i uint, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				require.Equal(t, pglib.PGRestoreOptions{
 					ConnectionString: "target-url",
 					Format:           "p",
 				}, po)
-				require.Equal(t, append(filteredDump, append(sequenceDump, indexDump...)...), dump)
+				switch i {
+				case 1:
+					require.Equal(t, string(filteredDump), string(dump))
+				case 2:
+					require.Equal(t, string(sequenceDump), string(dump))
+				case 3:
+					require.Equal(t, string(indexDump), string(dump))
+				default:
+					return "", fmt.Errorf("unexpected call to pgrestoreFn: %d", i)
+				}
 				return "", nil
-			},
+			}),
 
 			wantErr: nil,
 		},
@@ -570,14 +562,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
 				}
 			}),
-			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
-				require.Equal(t, pglib.PGRestoreOptions{
-					ConnectionString: "target-url",
-					Format:           "p",
-				}, po)
-				require.Equal(t, string(restoreFullDump), string(dump))
-				return "", nil
-			},
+			pgrestoreFn: newMockPgrestore(fullDumpRestoreFn),
 
 			wantErr: nil,
 		},
@@ -633,21 +618,29 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
 				}
 			}),
-			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			pgrestoreFn: newMockPgrestore(func(_ context.Context, i uint, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				require.Equal(t, pglib.PGRestoreOptions{
 					ConnectionString: "target-url",
 					Format:           "p",
 					Clean:            true,
 				}, po)
-				expectedDump := cleanupDump
-				expectedDump = append(expectedDump, rolesDumpFiltered...)
-				expectedDump = append(expectedDump, cleanupDump...) // because we're not removing the duplicate cleanup dump for now
-				expectedDump = append(expectedDump, filteredDump...)
-				expectedDump = append(expectedDump, sequenceDump...)
-				expectedDump = append(expectedDump, indexDump...)
-				require.Equal(t, string(expectedDump), string(dump))
+				switch i {
+				case 1:
+					require.Equal(t, string(cleanupDump), string(dump))
+				case 2:
+					require.Equal(t, string(rolesDumpFilteredWithCleanup), string(dump))
+				case 3:
+					// because we're not removing the duplicate cleanup dump for now
+					require.Equal(t, string(append(cleanupDump, filteredDump...)), string(dump))
+				case 4:
+					require.Equal(t, string(sequenceDump), string(dump))
+				case 5:
+					require.Equal(t, string(indexDump), string(dump))
+				default:
+					return "", fmt.Errorf("unexpected call to pgrestoreFn: %d", i)
+				}
 				return "", nil
-			},
+			}),
 
 			wantErr: nil,
 		},
@@ -1155,10 +1148,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
 				}
 			}),
-			pgrestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
-				require.Equal(t, string(restoreFullDump), string(dump))
-				return "", nil
-			},
+			pgrestoreFn: newMockPgrestore(fullDumpRestoreFn),
 			schemalogStore: &schemalogmocks.Store{
 				InsertFn: func(ctx context.Context, schemaName string) (*schemalog.LogEntry, error) {
 					return nil, errTest

@@ -150,13 +150,13 @@ func testPostgresListenerCfgWithSnapshot(sourceURL, targetURL string, tables []s
 				PostgresURL: sourceURL,
 			},
 			Snapshot: &snapshotbuilder.SnapshotListenerConfig{
-				Generator: pgsnapshotgenerator.Config{
+				Data: &pgsnapshotgenerator.Config{
 					URL: sourceURL,
 				},
 				Adapter: adapter.SnapshotConfig{
 					Tables: tables,
 				},
-				Schema: snapshotbuilder.SchemaSnapshotConfig{
+				Schema: &snapshotbuilder.SchemaSnapshotConfig{
 					DumpRestore: &pgdumprestore.Config{
 						SourcePGURL: sourceURL,
 						TargetPGURL: targetURL,

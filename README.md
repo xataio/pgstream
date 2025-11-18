@@ -15,16 +15,13 @@
   <a href="https://www.youtube.com/@xataio"><img src="https://img.shields.io/badge/@xataio-6c47ff?label=Youtube&logo=youtube" alt="Youtube Subscribe" /> </a>
 </p>
 
-
 <p align="center">
   <a href="https://xata.io">
     <img src="https://img.shields.io/badge/Made%20with%20♥%20%20-%20%20by%20Xata-6c47ff?style=flat&logo=postgresql&logoColor=white" alt="Made with ♥ by Xata">
   </a>
 </p>
 
-
 # pgstream - Postgres replication with DDL changes
-
 
 `pgstream` is an open source CDC command-line tool and library that offers Postgres replication support with DDL changes to any provided target.
 
@@ -62,7 +59,7 @@
 
 ```bash
 # Download the latest release
-curl -L https://github.com/xataio/pgstream/releases/latest/download/pgstream-linux-amd64 -o pgstream
+curl -L https://github.com/xataio/pgstream/releases/latest/download/pgstream.linux.amd64 -o pgstream
 chmod +x pgstream
 sudo mv pgstream /usr/local/bin/
 
@@ -214,6 +211,7 @@ For more advanced usage, implementation details, and detailed configuration sett
 5. [Observability](docs/observability.md)
 6. [CLI](docs/cli.md)
 7. [Privileges](docs/privileges.md)
+   - [Xata](docs/xata.md)
    - [CloudSQL](docs/gcp_cloudsql.md)
 8. [Glossary](docs/glossary.md)
 

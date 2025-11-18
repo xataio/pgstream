@@ -189,7 +189,7 @@ func ParseConfig(pgurl string) (*pgx.ConnConfig, error) {
 			}
 			return pgx.ParseConfig(escapedURL)
 		}
-		return nil, fmt.Errorf("failed parsing postgres connection string: %w", mapError(err))
+		return nil, fmt.Errorf("failed parsing postgres connection string: %w", MapError(err))
 	}
 	return pgCfg, nil
 }
