@@ -33,7 +33,7 @@ func TestPGColumnObserver_getGeneratedColumnNames(t *testing.T) {
 			name:         "ok - empty map",
 			tableColumns: map[string][]string{},
 			pgConn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					require.Equal(t, generatedTableColumnsQuery, query)
 					require.Equal(t, []any{testTable, testSchema}, args)
 					return &pgmocks.Rows{
@@ -63,7 +63,7 @@ func TestPGColumnObserver_getGeneratedColumnNames(t *testing.T) {
 				quotedQualifiedTableName: {idColumn},
 			},
 			pgConn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return nil, errors.New("unexpected call to QueryFn")
 				},
 			},
@@ -78,7 +78,7 @@ func TestPGColumnObserver_getGeneratedColumnNames(t *testing.T) {
 			name:         "error - quering table columns",
 			tableColumns: map[string][]string{},
 			pgConn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return nil, errTest
 				},
 			},
@@ -91,7 +91,7 @@ func TestPGColumnObserver_getGeneratedColumnNames(t *testing.T) {
 			name:         "error - scanning table column",
 			tableColumns: map[string][]string{},
 			pgConn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					require.Equal(t, generatedTableColumnsQuery, query)
 					require.Equal(t, []any{testTable, testSchema}, args)
 					return &pgmocks.Rows{
@@ -113,7 +113,7 @@ func TestPGColumnObserver_getGeneratedColumnNames(t *testing.T) {
 			name:         "error - rows error",
 			tableColumns: map[string][]string{},
 			pgConn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					require.Equal(t, generatedTableColumnsQuery, query)
 					require.Equal(t, []any{testTable, testSchema}, args)
 					return &pgmocks.Rows{

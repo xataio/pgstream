@@ -258,7 +258,7 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 					}
 					return f(tx)
 				},
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return nil, errors.New("unexpected call to QueryFn with empty batch")
 				},
 			},

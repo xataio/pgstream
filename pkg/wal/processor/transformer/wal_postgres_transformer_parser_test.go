@@ -24,7 +24,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 	testSchemaTable := "\"public\".\"test\""
 	testQuerier := func() *pgmocks.Querier {
 		return &pgmocks.Querier{
-			QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+			QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 				switch query {
 				case "SELECT * FROM \"public\".\"test\" LIMIT 0":
 					return &pgmocks.Rows{
