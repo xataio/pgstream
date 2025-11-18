@@ -73,13 +73,14 @@ type PostgresConfig struct {
 }
 
 type SnapshotConfig struct {
-	Mode            string                  `mapstructure:"mode" yaml:"mode"`
-	Tables          []string                `mapstructure:"tables" yaml:"tables"`
-	ExcludedTables  []string                `mapstructure:"excluded_tables" yaml:"excluded_tables"`
-	Recorder        *SnapshotRecorderConfig `mapstructure:"recorder" yaml:"recorder"`
-	SnapshotWorkers int                     `mapstructure:"snapshot_workers" yaml:"snapshot_workers"`
-	Data            *SnapshotDataConfig     `mapstructure:"data" yaml:"data"`
-	Schema          *SnapshotSchemaConfig   `mapstructure:"schema" yaml:"schema"`
+	Mode                    string                  `mapstructure:"mode" yaml:"mode"`
+	Tables                  []string                `mapstructure:"tables" yaml:"tables"`
+	ExcludedTables          []string                `mapstructure:"excluded_tables" yaml:"excluded_tables"`
+	Recorder                *SnapshotRecorderConfig `mapstructure:"recorder" yaml:"recorder"`
+	SnapshotWorkers         int                     `mapstructure:"snapshot_workers" yaml:"snapshot_workers"`
+	Data                    *SnapshotDataConfig     `mapstructure:"data" yaml:"data"`
+	Schema                  *SnapshotSchemaConfig   `mapstructure:"schema" yaml:"schema"`
+	DisableProgressTracking bool                    `mapstructure:"disable_progress_tracking" yaml:"disable_progress_tracking"`
 }
 
 type SnapshotRecorderConfig struct {
@@ -456,6 +457,7 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 			Tables:         snapshotConfig.Tables,
 			ExcludedTables: snapshotConfig.ExcludedTables,
 		},
+		DisableProgressTracking: snapshotConfig.DisableProgressTracking,
 	}
 
 	if snapshotConfig.Recorder != nil {
