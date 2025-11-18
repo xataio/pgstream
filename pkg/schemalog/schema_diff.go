@@ -4,6 +4,7 @@ package schemalog
 
 import (
 	"slices"
+	"strings"
 )
 
 type Diff struct {
@@ -20,6 +21,13 @@ type TableDiff struct {
 	ColumnsAdded          []Column
 	ColumnsRemoved        []Column
 	ColumnsChanged        []ColumnDiff
+	IndexesAdded          []Index
+	IndexesRemoved        []Index
+	IndexesChanged        []string
+	ConstraintsAdded      []Constraint
+	ConstraintsRemoved    []Constraint
+	ForeignKeysAdded      []ForeignKey
+	ForeignKeysRemoved    []ForeignKey
 }
 
 type ColumnDiff struct {
@@ -41,7 +49,18 @@ func (d *Diff) IsEmpty() bool {
 }
 
 func (td *TableDiff) IsEmpty() bool {
-	return len(td.ColumnsAdded) == 0 && len(td.ColumnsRemoved) == 0 && len(td.ColumnsChanged) == 0 && td.TableNameChange == nil && td.TablePrimaryKeyChange == nil
+	return len(td.ColumnsAdded) == 0 &&
+		len(td.ColumnsRemoved) == 0 &&
+		len(td.ColumnsChanged) == 0 &&
+		len(td.IndexesAdded) == 0 &&
+		len(td.IndexesRemoved) == 0 &&
+		len(td.IndexesChanged) == 0 &&
+		len(td.ConstraintsAdded) == 0 &&
+		len(td.ConstraintsRemoved) == 0 &&
+		len(td.ForeignKeysAdded) == 0 &&
+		len(td.ForeignKeysRemoved) == 0 &&
+		td.TableNameChange == nil &&
+		td.TablePrimaryKeyChange == nil
 }
 
 func (cd *ColumnDiff) IsEmpty() bool {
@@ -123,6 +142,74 @@ func computeTableDiff(old, new *Table) *TableDiff {
 		}
 	}
 
+	newIndexMap := getTableIndexMap(new)
+	for _, oldIdx := range old.Indexes {
+		newIdx, found := newIndexMap[oldIdx.Name]
+		if !found {
+			diff.IndexesRemoved = append(diff.IndexesRemoved, oldIdx)
+			continue
+		}
+
+		if !oldIdx.IsEqual(&newIdx) {
+			if isAlterIndexDefinition(newIdx.Definition) {
+				diff.IndexesChanged = append(diff.IndexesChanged, newIdx.Definition)
+				continue
+			}
+
+			diff.IndexesRemoved = append(diff.IndexesRemoved, oldIdx)
+			diff.IndexesAdded = append(diff.IndexesAdded, newIdx)
+		}
+	}
+
+	oldIndexMap := getTableIndexMap(old)
+	for name, newIdx := range newIndexMap {
+		if _, found := oldIndexMap[name]; !found {
+			diff.IndexesAdded = append(diff.IndexesAdded, newIdx)
+		}
+	}
+
+	newConstraintMap := getTableConstraintMap(new)
+	for _, oldConstraint := range old.Constraints {
+		newConstraint, found := newConstraintMap[oldConstraint.Name]
+		if !found {
+			diff.ConstraintsRemoved = append(diff.ConstraintsRemoved, oldConstraint)
+			continue
+		}
+
+		if !oldConstraint.IsEqual(&newConstraint) {
+			diff.ConstraintsRemoved = append(diff.ConstraintsRemoved, oldConstraint)
+			diff.ConstraintsAdded = append(diff.ConstraintsAdded, newConstraint)
+		}
+	}
+
+	oldConstraintMap := getTableConstraintMap(old)
+	for name, newConstraint := range newConstraintMap {
+		if _, found := oldConstraintMap[name]; !found {
+			diff.ConstraintsAdded = append(diff.ConstraintsAdded, newConstraint)
+		}
+	}
+
+	newForeignKeyMap := getTableForeignKeyMap(new)
+	for _, oldForeignKey := range old.ForeignKeys {
+		newForeignKey, found := newForeignKeyMap[oldForeignKey.Name]
+		if !found {
+			diff.ForeignKeysRemoved = append(diff.ForeignKeysRemoved, oldForeignKey)
+			continue
+		}
+
+		if !oldForeignKey.IsEqual(&newForeignKey) {
+			diff.ForeignKeysRemoved = append(diff.ForeignKeysRemoved, oldForeignKey)
+			diff.ForeignKeysAdded = append(diff.ForeignKeysAdded, newForeignKey)
+		}
+	}
+
+	oldForeignKeyMap := getTableForeignKeyMap(old)
+	for name, newForeignKey := range newForeignKeyMap {
+		if _, found := oldForeignKeyMap[name]; !found {
+			diff.ForeignKeysAdded = append(diff.ForeignKeysAdded, newForeignKey)
+		}
+	}
+
 	return diff
 }
 
@@ -169,4 +256,32 @@ func getTableColumnMap(t *Table) map[string]Column {
 		columnMap[c.PgstreamID] = c
 	}
 	return columnMap
+}
+
+func getTableIndexMap(t *Table) map[string]Index {
+	indexMap := make(map[string]Index, len(t.Indexes))
+	for _, i := range t.Indexes {
+		indexMap[i.Name] = i
+	}
+	return indexMap
+}
+
+func getTableConstraintMap(t *Table) map[string]Constraint {
+	constraintMap := make(map[string]Constraint, len(t.Constraints))
+	for _, c := range t.Constraints {
+		constraintMap[c.Name] = c
+	}
+	return constraintMap
+}
+
+func getTableForeignKeyMap(t *Table) map[string]ForeignKey {
+	foreignKeyMap := make(map[string]ForeignKey, len(t.ForeignKeys))
+	for _, fk := range t.ForeignKeys {
+		foreignKeyMap[fk.Name] = fk
+	}
+	return foreignKeyMap
+}
+
+func isAlterIndexDefinition(definition string) bool {
+	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(definition)), "ALTER INDEX")
 }
