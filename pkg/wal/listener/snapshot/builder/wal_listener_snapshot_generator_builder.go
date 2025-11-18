@@ -55,7 +55,9 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 	if cfg.Data != nil {
 		opts := []pgsnapshotgenerator.Option{
 			pgsnapshotgenerator.WithLogger(logger),
-			pgsnapshotgenerator.WithProgressTracking(),
+		}
+		if !cfg.DisableProgressTracking {
+			opts = append(opts, pgsnapshotgenerator.WithProgressTracking())
 		}
 		if instrumentation.IsEnabled() {
 			opts = append(opts, pgsnapshotgenerator.WithInstrumentation(instrumentation))
@@ -79,7 +81,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 
 	if cfg.Schema != nil {
 		// postgres schema snapshot generator layer
-		g, err = newSchemaSnapshotGenerator(ctx, cfg.Schema, g, p, logger, instrumentation)
+		g, err = newSchemaSnapshotGenerator(ctx, cfg.Schema, g, p, logger, instrumentation, !cfg.DisableProgressTracking)
 		if err != nil {
 			return nil, err
 		}
@@ -108,7 +110,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 	return adapter.NewSnapshotGeneratorAdapter(&cfg.Adapter, g, adapter.WithLogger(logger)), nil
 }
 
-func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, g generator.SnapshotGenerator, processor listener.Processor, logger loglib.Logger, instrumentation *otel.Instrumentation) (generator.SnapshotGenerator, error) {
+func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, g generator.SnapshotGenerator, processor listener.Processor, logger loglib.Logger, instrumentation *otel.Instrumentation, progressTracking bool) (generator.SnapshotGenerator, error) {
 	switch {
 	case cfg.SchemaLogStore != nil:
 		// postgres schemalog schema snapshot generator
@@ -132,6 +134,9 @@ func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, 
 		opts := []pgdumprestoregenerator.Option{
 			pgdumprestoregenerator.WithLogger(logger),
 			pgdumprestoregenerator.WithSnapshotGenerator(g),
+		}
+		if progressTracking {
+			opts = append(opts, pgdumprestoregenerator.WithProgressTracking(ctx))
 		}
 		if instrumentation.IsEnabled() {
 			opts = append(opts, pgdumprestoregenerator.WithInstrumentation(instrumentation))

@@ -66,7 +66,7 @@ func TestAnonRuleParser_ParseAndValidate(t *testing.T) {
 		{
 			name: "ok with anon rules parsed and validated",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return testRows(), nil
 				},
 			},
@@ -80,7 +80,7 @@ func TestAnonRuleParser_ParseAndValidate(t *testing.T) {
 		{
 			name: "ok with dump to file enabled",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return testRows(), nil
 				},
 			},
@@ -95,7 +95,7 @@ func TestAnonRuleParser_ParseAndValidate(t *testing.T) {
 		{
 			name: "ok with no anon rules found",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return &pgmocks.Rows{
 						NextFn: func(i uint) bool { return false },
 						ScanFn: func(i uint, dest ...any) error { return nil },
@@ -113,7 +113,7 @@ func TestAnonRuleParser_ParseAndValidate(t *testing.T) {
 		{
 			name: "error getting anon masking rules",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return nil, errTest
 				},
 			},
@@ -127,7 +127,7 @@ func TestAnonRuleParser_ParseAndValidate(t *testing.T) {
 		{
 			name: "error in parser validation",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return testRows(), nil
 				},
 			},
@@ -141,7 +141,7 @@ func TestAnonRuleParser_ParseAndValidate(t *testing.T) {
 		{
 			name: "ok with dump to file enabled and error dumping to file",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return testRows(), nil
 				},
 			},
@@ -256,7 +256,7 @@ func TestAnonRuleParser_parseAnonMaskingRules(t *testing.T) {
 		{
 			name: "ok with multiple rules for same table",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return &pgmocks.Rows{
 						NextFn: func(i uint) bool { return i <= 2 },
 						ScanFn: func(i uint, dest ...any) error {
@@ -323,7 +323,7 @@ func TestAnonRuleParser_parseAnonMaskingRules(t *testing.T) {
 		{
 			name: "ok with rules for different tables",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return &pgmocks.Rows{
 						NextFn: func(i uint) bool { return i <= 2 },
 						ScanFn: func(i uint, dest ...any) error {
@@ -397,7 +397,7 @@ func TestAnonRuleParser_parseAnonMaskingRules(t *testing.T) {
 		{
 			name: "ok no rules",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return &pgmocks.Rows{
 						NextFn: func(i uint) bool { return false },
 						ScanFn: func(i uint, dest ...any) error { return nil },
@@ -412,7 +412,7 @@ func TestAnonRuleParser_parseAnonMaskingRules(t *testing.T) {
 		{
 			name: "skip invalid rule with empty schema",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return &pgmocks.Rows{
 						NextFn: func(i uint) bool { return i <= 2 },
 						ScanFn: func(i uint, dest ...any) error {
@@ -473,7 +473,7 @@ func TestAnonRuleParser_parseAnonMaskingRules(t *testing.T) {
 		{
 			name: "skip invalid rule with empty function",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return &pgmocks.Rows{
 						NextFn: func(i uint) bool { return i <= 2 },
 						ScanFn: func(i uint, dest ...any) error {
@@ -534,7 +534,7 @@ func TestAnonRuleParser_parseAnonMaskingRules(t *testing.T) {
 		{
 			name: "skip rule with invalid anon function",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return &pgmocks.Rows{
 						NextFn: func(i uint) bool { return i <= 2 },
 						ScanFn: func(i uint, dest ...any) error {
@@ -595,7 +595,7 @@ func TestAnonRuleParser_parseAnonMaskingRules(t *testing.T) {
 		{
 			name: "error getting masking rules",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return nil, errTest
 				},
 			},
@@ -636,7 +636,7 @@ func TestAnonRuleParser_getMaskingRules(t *testing.T) {
 		{
 			name: "ok with multiple rules",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return &pgmocks.Rows{
 						NextFn: func(i uint) bool { return i <= 2 },
 						ScanFn: func(i uint, dest ...any) error {
@@ -697,7 +697,7 @@ func TestAnonRuleParser_getMaskingRules(t *testing.T) {
 		{
 			name: "ok no rules",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return &pgmocks.Rows{
 						NextFn: func(i uint) bool { return false },
 						ScanFn: func(i uint, dest ...any) error { return nil },
@@ -712,7 +712,7 @@ func TestAnonRuleParser_getMaskingRules(t *testing.T) {
 		{
 			name: "error querying rules",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return nil, errTest
 				},
 			},
@@ -723,7 +723,7 @@ func TestAnonRuleParser_getMaskingRules(t *testing.T) {
 		{
 			name: "error scanning rules",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return &pgmocks.Rows{
 						NextFn: func(i uint) bool { return i == 1 },
 						ScanFn: func(i uint, dest ...any) error { return errTest },
@@ -738,7 +738,7 @@ func TestAnonRuleParser_getMaskingRules(t *testing.T) {
 		{
 			name: "error in rows",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, sql string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return &pgmocks.Rows{
 						NextFn: func(i uint) bool { return false },
 						ScanFn: func(i uint, dest ...any) error { return nil },

@@ -11,7 +11,7 @@ import (
 
 type Querier struct {
 	QueryRowFn               func(ctx context.Context, dest []any, query string, args ...any) error
-	QueryFn                  func(ctx context.Context, query string, args ...any) (postgres.Rows, error)
+	QueryFn                  func(ctx context.Context, i uint, query string, args ...any) (postgres.Rows, error)
 	ExecFn                   func(context.Context, uint, string, ...any) (postgres.CommandTag, error)
 	ExecInTxFn               func(context.Context, func(tx postgres.Tx) error) error
 	ExecInTxWithOptionsFn    func(context.Context, uint, func(tx postgres.Tx) error, postgres.TxOptions) error
@@ -20,6 +20,7 @@ type Querier struct {
 	CloseFn                  func(context.Context) error
 	execCalls                uint32
 	execInTxWithOptionsCalls uint32
+	queryCalls               uint32
 }
 
 func (m *Querier) QueryRow(ctx context.Context, dest []any, query string, args ...any) error {
@@ -27,7 +28,8 @@ func (m *Querier) QueryRow(ctx context.Context, dest []any, query string, args .
 }
 
 func (m *Querier) Query(ctx context.Context, query string, args ...any) (postgres.Rows, error) {
-	return m.QueryFn(ctx, query, args...)
+	atomic.AddUint32(&m.queryCalls, 1)
+	return m.QueryFn(ctx, uint(atomic.LoadUint32(&m.queryCalls)), query, args...)
 }
 
 func (m *Querier) Exec(ctx context.Context, query string, args ...any) (postgres.CommandTag, error) {

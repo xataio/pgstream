@@ -27,6 +27,7 @@ source:
           no_owner: true # whether to remove ownership commands from the dump
           no_privileges: true # whether to remove privileges commands from the dump (grant/revoke)
           excluded_security_labels: ["anon"] # list of providers whose security labels will be excluded from the snapshot. Wildcard supported.
+      disable_progress_tracking: true # whether to disable progress tracking for the snapshot
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
     retry_policy:

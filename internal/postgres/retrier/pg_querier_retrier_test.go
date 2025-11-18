@@ -32,7 +32,7 @@ func TestQuerier_Query(t *testing.T) {
 		{
 			name: "ok",
 			querier: &mocks.Querier{
-				QueryFn: func(_ context.Context, _ string, _ ...any) (postgres.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (postgres.Rows, error) {
 					return &mocks.Rows{
 						FieldDescriptionsFn: func() []pgconn.FieldDescription {
 							return []pgconn.FieldDescription{
@@ -50,7 +50,7 @@ func TestQuerier_Query(t *testing.T) {
 		{
 			name: "error - non-retriable",
 			querier: &mocks.Querier{
-				QueryFn: func(_ context.Context, _ string, _ ...any) (postgres.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (postgres.Rows, error) {
 					return nil, nonRetriableErr
 				},
 			},
@@ -60,7 +60,7 @@ func TestQuerier_Query(t *testing.T) {
 		{
 			name: "error - retriable but always fails",
 			querier: &mocks.Querier{
-				QueryFn: func(_ context.Context, _ string, _ ...any) (postgres.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (postgres.Rows, error) {
 					return nil, retriableErr
 				},
 			},

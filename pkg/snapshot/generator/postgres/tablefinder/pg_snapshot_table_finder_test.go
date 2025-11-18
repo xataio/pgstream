@@ -53,7 +53,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 		{
 			name: "ok - only table wildcard",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname=$1", query)
 					require.Equal(t, []any{testSchema}, args)
 					return &pgmocks.Rows{
@@ -87,7 +87,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 		{
 			name: "ok - also with table wildcard",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname=$1", query)
 					require.Equal(t, []any{testSchema}, args)
 					return &pgmocks.Rows{
@@ -121,7 +121,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 		{
 			name: "ok - schema wildcard",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					switch query {
 					case "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')":
 						require.Empty(t, args)
@@ -176,7 +176,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 		{
 			name: "ok - schema wildcard, with excluded table",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					switch query {
 					case "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')":
 						require.Empty(t, args)
@@ -233,7 +233,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - schema wildcard with table name",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					t.Fatalf("unexpected query: %s", query)
 					return nil, nil // should not be called
 				},
@@ -249,7 +249,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - querying schema tables",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname=$1", query)
 					require.Equal(t, []any{testSchema}, args)
 					return nil, errTest
@@ -271,7 +271,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - scanning row",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname=$1", query)
 					require.Equal(t, []any{testSchema}, args)
 					return &pgmocks.Rows{
@@ -300,7 +300,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 		{
 			name: "error - rows error",
 			conn: &pgmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname=$1", query)
 					require.Equal(t, []any{testSchema}, args)
 					return &pgmocks.Rows{

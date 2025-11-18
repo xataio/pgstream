@@ -10,7 +10,7 @@ import (
 
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
-	"github.com/xataio/pgstream/internal/postgres"
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	postgresmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"github.com/xataio/pgstream/pkg/snapshot/store"
@@ -30,20 +30,20 @@ func TestStore_CreateSnapshotRequest(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		querier postgres.Querier
+		querier pglib.Querier
 
 		wantErr error
 	}{
 		{
 			name: "ok",
 			querier: &postgresmocks.Querier{
-				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (postgres.CommandTag, error) {
+				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (pglib.CommandTag, error) {
 					wantQuery := fmt.Sprintf(`INSERT INTO %s (schema_name, table_names, created_at, updated_at, status)
 	VALUES($1, $2, now(), now(),'requested')`, snapshotsTable())
 					require.Equal(t, wantQuery, s)
 					wantAttr := []any{testSchema, pq.StringArray(testTables)}
 					require.Equal(t, wantAttr, a)
-					return postgres.CommandTag{}, nil
+					return pglib.CommandTag{}, nil
 				},
 			},
 
@@ -52,8 +52,8 @@ func TestStore_CreateSnapshotRequest(t *testing.T) {
 		{
 			name: "error - creating snapshot",
 			querier: &postgresmocks.Querier{
-				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (postgres.CommandTag, error) {
-					return postgres.CommandTag{}, errTest
+				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (pglib.CommandTag, error) {
+					return pglib.CommandTag{}, errTest
 				},
 			},
 
@@ -90,7 +90,7 @@ func TestStore_UpdateSnapshotRequest(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		querier postgres.Querier
+		querier pglib.Querier
 		req     *snapshot.Request
 
 		wantErr error
@@ -98,13 +98,13 @@ func TestStore_UpdateSnapshotRequest(t *testing.T) {
 		{
 			name: "ok - update without error",
 			querier: &postgresmocks.Querier{
-				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (postgres.CommandTag, error) {
+				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (pglib.CommandTag, error) {
 					wantQuery := fmt.Sprintf(`UPDATE %s SET status = $1, errors = $2, updated_at = now()
 	WHERE schema_name = $3 and table_names = $4 and status != 'completed'`,
 						snapshotsTable())
 					require.Equal(t, wantQuery, s)
 					require.Equal(t, []any{snapshot.StatusInProgress, (*snapshot.SchemaErrors)(nil), testSchema, pq.StringArray(testTables)}, a)
-					return postgres.CommandTag{}, nil
+					return pglib.CommandTag{}, nil
 				},
 			},
 			req: &testSnapshotRequest,
@@ -114,13 +114,13 @@ func TestStore_UpdateSnapshotRequest(t *testing.T) {
 		{
 			name: "ok - update with error",
 			querier: &postgresmocks.Querier{
-				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (postgres.CommandTag, error) {
+				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (pglib.CommandTag, error) {
 					wantQuery := fmt.Sprintf(`UPDATE %s SET status = $1, errors = $2, updated_at = now()
 	WHERE schema_name = $3 and table_names = $4 and status != 'completed'`,
 						snapshotsTable())
 					require.Equal(t, wantQuery, s)
 					require.Equal(t, []any{snapshot.StatusInProgress, testSchemaErr, testSchema, pq.StringArray(testTables)}, a)
-					return postgres.CommandTag{}, nil
+					return pglib.CommandTag{}, nil
 				},
 			},
 			req: func() *snapshot.Request {
@@ -134,8 +134,8 @@ func TestStore_UpdateSnapshotRequest(t *testing.T) {
 		{
 			name: "error - updating snapshot",
 			querier: &postgresmocks.Querier{
-				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (postgres.CommandTag, error) {
-					return postgres.CommandTag{}, errTest
+				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (pglib.CommandTag, error) {
+					return pglib.CommandTag{}, errTest
 				},
 			},
 			req: &testSnapshotRequest,
@@ -172,7 +172,7 @@ func TestStore_GetSnapshotRequestsBySchema(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		querier postgres.Querier
+		querier pglib.Querier
 
 		wantRequests []*snapshot.Request
 		wantErr      error
@@ -180,7 +180,7 @@ func TestStore_GetSnapshotRequestsBySchema(t *testing.T) {
 		{
 			name: "ok - no results",
 			querier: &postgresmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (postgres.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
 	WHERE schema_name = $1 ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), queryLimit)
 					require.Equal(t, []any{testSchema}, args)
@@ -198,7 +198,7 @@ func TestStore_GetSnapshotRequestsBySchema(t *testing.T) {
 		{
 			name: "ok",
 			querier: &postgresmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (postgres.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
 	WHERE schema_name = $1 ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), queryLimit)
 					require.Equal(t, []any{testSchema}, args)
@@ -237,7 +237,7 @@ func TestStore_GetSnapshotRequestsBySchema(t *testing.T) {
 		{
 			name: "error - querying",
 			querier: &postgresmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (postgres.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return nil, errTest
 				},
 			},
@@ -248,7 +248,7 @@ func TestStore_GetSnapshotRequestsBySchema(t *testing.T) {
 		{
 			name: "error - scanning row",
 			querier: &postgresmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (postgres.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
 	WHERE schema_name = $1 ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), queryLimit)
 					require.Equal(t, []any{testSchema}, args)
@@ -297,7 +297,7 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		querier postgres.Querier
+		querier pglib.Querier
 
 		wantRequests []*snapshot.Request
 		wantErr      error
@@ -305,7 +305,7 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 		{
 			name: "ok - no results",
 			querier: &postgresmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (postgres.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
 	WHERE status = '%s' ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), snapshot.StatusInProgress, queryLimit)
 					require.Equal(t, wantQuery, query)
@@ -322,7 +322,7 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 		{
 			name: "ok",
 			querier: &postgresmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (postgres.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
 	WHERE status = '%s' ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), snapshot.StatusInProgress, queryLimit)
 					require.Equal(t, wantQuery, query)
@@ -360,7 +360,7 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 		{
 			name: "error - querying",
 			querier: &postgresmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (postgres.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return nil, errTest
 				},
 			},
@@ -371,7 +371,7 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 		{
 			name: "error - scanning row",
 			querier: &postgresmocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (postgres.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
 	WHERE status = '%s' ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), snapshot.StatusInProgress, queryLimit)
 					require.Equal(t, wantQuery, query)
@@ -411,14 +411,14 @@ func TestStore_createTable(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		querier postgres.Querier
+		querier pglib.Querier
 
 		wantErr error
 	}{
 		{
 			name: "ok",
 			querier: &postgresmocks.Querier{
-				ExecFn: func(ctx context.Context, i uint, s string, a ...any) (postgres.CommandTag, error) {
+				ExecFn: func(ctx context.Context, i uint, s string, a ...any) (pglib.CommandTag, error) {
 					switch i {
 					case 1:
 						wantQuery := fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s`, store.SchemaName)
@@ -441,10 +441,10 @@ func TestStore_createTable(t *testing.T) {
 						require.Equal(t, wantQuery, s)
 						require.Empty(t, a)
 					default:
-						return postgres.CommandTag{}, fmt.Errorf("unexpected Exec call: %d", i)
+						return pglib.CommandTag{}, fmt.Errorf("unexpected Exec call: %d", i)
 					}
 
-					return postgres.CommandTag{}, nil
+					return pglib.CommandTag{}, nil
 				},
 			},
 			wantErr: nil,
@@ -452,12 +452,12 @@ func TestStore_createTable(t *testing.T) {
 		{
 			name: "error - creating schema",
 			querier: &postgresmocks.Querier{
-				ExecFn: func(ctx context.Context, i uint, s string, a ...any) (postgres.CommandTag, error) {
+				ExecFn: func(ctx context.Context, i uint, s string, a ...any) (pglib.CommandTag, error) {
 					switch i {
 					case 1:
-						return postgres.CommandTag{}, errTest
+						return pglib.CommandTag{}, errTest
 					default:
-						return postgres.CommandTag{}, fmt.Errorf("unexpected Exec call: %d", i)
+						return pglib.CommandTag{}, fmt.Errorf("unexpected Exec call: %d", i)
 					}
 				},
 			},
@@ -466,14 +466,14 @@ func TestStore_createTable(t *testing.T) {
 		{
 			name: "error - creating table",
 			querier: &postgresmocks.Querier{
-				ExecFn: func(ctx context.Context, i uint, s string, a ...any) (postgres.CommandTag, error) {
+				ExecFn: func(ctx context.Context, i uint, s string, a ...any) (pglib.CommandTag, error) {
 					switch i {
 					case 1:
-						return postgres.CommandTag{}, nil
+						return pglib.CommandTag{}, nil
 					case 2:
-						return postgres.CommandTag{}, errTest
+						return pglib.CommandTag{}, errTest
 					default:
-						return postgres.CommandTag{}, fmt.Errorf("unexpected Exec call: %d", i)
+						return pglib.CommandTag{}, fmt.Errorf("unexpected Exec call: %d", i)
 					}
 				},
 			},
@@ -482,16 +482,16 @@ func TestStore_createTable(t *testing.T) {
 		{
 			name: "error - creating index",
 			querier: &postgresmocks.Querier{
-				ExecFn: func(ctx context.Context, i uint, s string, a ...any) (postgres.CommandTag, error) {
+				ExecFn: func(ctx context.Context, i uint, s string, a ...any) (pglib.CommandTag, error) {
 					switch i {
 					case 1:
-						return postgres.CommandTag{}, nil
+						return pglib.CommandTag{}, nil
 					case 2:
-						return postgres.CommandTag{}, nil
+						return pglib.CommandTag{}, nil
 					case 3:
-						return postgres.CommandTag{}, errTest
+						return pglib.CommandTag{}, errTest
 					default:
-						return postgres.CommandTag{}, fmt.Errorf("unexpected Exec call: %d", i)
+						return pglib.CommandTag{}, fmt.Errorf("unexpected Exec call: %d", i)
 					}
 				},
 			},

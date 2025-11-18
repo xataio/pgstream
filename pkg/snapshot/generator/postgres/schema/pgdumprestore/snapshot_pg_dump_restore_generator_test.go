@@ -69,7 +69,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				require.Equal(t, "CREATE SCHEMA IF NOT EXISTS "+testSchema, query)
 				return pglib.CommandTag{}, nil
 			},
-			QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+			QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 				switch query {
 				case fmt.Sprintf(selectSchemasQuery, "$1"):
 					require.Equal(t, []any{testSchema}, args)
@@ -141,6 +141,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		noPrivileges      bool
 		rolesSnapshotMode string
 		cleanTargetDB     bool
+		snapshotTracker   snapshotProgressTracker
 
 		wantErr error
 	}{
@@ -198,6 +199,66 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			role:         testRole,
 			noOwner:      true,
 			noPrivileges: true,
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - with tracking",
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
+			},
+			conn: validQuerier(),
+			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						SchemaOnly:       true,
+						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
+						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
+						Role:             testRole,
+						NoOwner:          true,
+						NoPrivileges:     true,
+					}, po)
+					return schemaDump, nil
+
+				case 2:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						DataOnly:         true,
+						Tables:           []string{testSequence},
+					}, po)
+					return sequenceDump, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
+				}
+			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpAllOptions{
+						ConnectionString: "source-url",
+						RolesOnly:        true,
+						Role:             testRole,
+						NoOwner:          true,
+						NoPrivileges:     true,
+					}, po)
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
+				}
+			}),
+			pgrestoreFn:  newMockPgrestore(fullDumpRestoreFn),
+			role:         testRole,
+			noOwner:      true,
+			noPrivileges: true,
+			snapshotTracker: &mockSnapshotTracker{
+				trackIndexesCreationFn: func(ctx context.Context) {},
+			},
 
 			wantErr: nil,
 		},
@@ -652,7 +713,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 			conn: &mocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return nil, fmt.Errorf("unexpected query: %s", query)
 				},
 				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
@@ -679,7 +740,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 			conn: &mocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return nil, errTest
 				},
 			},
@@ -703,7 +764,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			},
 			conn: &mocks.Querier{
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					switch query {
 					case fmt.Sprintf(selectSchemasQuery, "$1"):
 						require.Equal(t, []any{testSchema}, args)
@@ -758,7 +819,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					require.Equal(t, "CREATE SCHEMA IF NOT EXISTS "+testSchema, query)
 					return pglib.CommandTag{}, nil
 				},
-				QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					switch query {
 					case fmt.Sprintf(selectSchemasQuery, "$1"):
 						require.Equal(t, []any{testSchema}, args)
@@ -1187,6 +1248,10 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				},
 			}
 
+			if tc.snapshotTracker != nil {
+				sg.snapshotTracker = tc.snapshotTracker
+			}
+
 			if tc.connBuilder != nil {
 				sg.connBuilder = tc.connBuilder
 				sg.optionGenerator.connBuilder = tc.connBuilder
@@ -1437,7 +1502,7 @@ func TestSnapshotGenerator_syncSchemaLog(t *testing.T) {
 			},
 			connBuilder: func(ctx context.Context, s string) (pglib.Querier, error) {
 				return &mocks.Querier{
-					QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 						require.Contains(t, query, pglib.DiscoverAllSchemasQuery)
 						return &mocks.Rows{
 							CloseFn: func() {},
@@ -1525,7 +1590,7 @@ func TestSnapshotGenerator_syncSchemaLog(t *testing.T) {
 			},
 			connBuilder: func(ctx context.Context, s string) (pglib.Querier, error) {
 				return &mocks.Querier{
-					QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+					QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 						require.Contains(t, query, pglib.DiscoverAllSchemasQuery)
 						return &mocks.Rows{
 							CloseFn: func() {},

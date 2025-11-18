@@ -10,10 +10,11 @@ import (
 )
 
 type SnapshotListenerConfig struct {
-	Data     *pgsnapshotgenerator.Config
-	Adapter  adapter.SnapshotConfig
-	Recorder *SnapshotRecorderConfig
-	Schema   *SchemaSnapshotConfig
+	Data                    *pgsnapshotgenerator.Config
+	Adapter                 adapter.SnapshotConfig
+	Recorder                *SnapshotRecorderConfig
+	Schema                  *SchemaSnapshotConfig
+	DisableProgressTracking bool
 }
 
 type SchemaSnapshotConfig struct {
