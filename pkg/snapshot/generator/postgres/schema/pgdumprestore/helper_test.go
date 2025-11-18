@@ -58,3 +58,21 @@ func (m *mockPgRestore) restore(ctx context.Context, po pglib.PGRestoreOptions, 
 	m.restoreCalls++
 	return m.restoreFn(ctx, m.restoreCalls, po, dump)
 }
+
+type mockSnapshotTracker struct {
+	trackIndexesCreationFn func(context.Context)
+	closeFn                func() error
+}
+
+func (m *mockSnapshotTracker) trackIndexesCreation(ctx context.Context) {
+	if m.trackIndexesCreationFn != nil {
+		m.trackIndexesCreationFn(ctx)
+	}
+}
+
+func (m *mockSnapshotTracker) close() error {
+	if m.closeFn != nil {
+		return m.closeFn()
+	}
+	return nil
+}

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
@@ -40,6 +41,12 @@ type SnapshotGenerator struct {
 	excludedSecurityLabels []string
 	roleSQLParser          *roleSQLParser
 	optionGenerator        *optionGenerator
+	snapshotTracker        snapshotProgressTracker
+}
+
+type snapshotProgressTracker interface {
+	trackIndexesCreation(ctx context.Context)
+	close() error
 }
 
 type Config struct {
@@ -141,6 +148,17 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 	}
 }
 
+func WithProgressTracking(ctx context.Context) Option {
+	return func(sg *SnapshotGenerator) {
+		snapshotTracker, err := newSnapshotTracker(ctx, sg.targetURL)
+		if err != nil {
+			sg.logger.Error(err, "creating snapshot tracker")
+			return
+		}
+		sg.snapshotTracker = snapshotTracker
+	}
+}
+
 func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) (err error) {
 	s.logger.Info("creating schema snapshot", loglib.Fields{"schemaTables": ss.SchemaTables})
 	defer func() {
@@ -227,16 +245,29 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	}
 
 	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
+	if s.snapshotTracker != nil {
+		return s.restoreIndicesWithTracking(ctx, dump.indicesAndConstraints)
+	}
 	return s.restoreDump(ctx, dump.indicesAndConstraints)
 }
 
 func (s *SnapshotGenerator) Close() error {
 	if s.schemalogStore != nil {
-		return s.schemalogStore.Close()
+		if err := s.schemalogStore.Close(); err != nil {
+			s.logger.Error(err, "closing schemalog store")
+		}
 	}
 
 	if s.generator != nil {
-		return s.generator.Close()
+		if err := s.generator.Close(); err != nil {
+			s.logger.Error(err, "closing data snapshot generator")
+		}
+	}
+
+	if s.snapshotTracker != nil {
+		if err := s.snapshotTracker.close(); err != nil {
+			s.logger.Error(err, "closing snapshot tracker")
+		}
 	}
 
 	return nil
@@ -349,6 +380,7 @@ func (s *SnapshotGenerator) restoreDump(ctx context.Context, dump []byte) error 
 	if len(dump) == 0 {
 		return nil
 	}
+
 	_, err := s.pgRestoreFn(ctx, s.optionGenerator.pgrestoreOptions(), dump)
 	pgrestoreErr := &pglib.PGRestoreErrors{}
 	if err != nil {
@@ -636,6 +668,22 @@ func (s *SnapshotGenerator) getDumpFileName(suffix string) string {
 	// if there's an extension, we append the suffix before the extension
 	baseName := strings.TrimSuffix(s.dumpDebugFile, fileExtension)
 	return baseName + suffix + fileExtension
+}
+
+func (s *SnapshotGenerator) restoreIndicesWithTracking(ctx context.Context, dump []byte) error {
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	trackingCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		defer wg.Done()
+		s.snapshotTracker.trackIndexesCreation(trackingCtx)
+	}()
+	err := s.restoreDump(ctx, dump)
+	// wait for the tracking to finish once the restore is done
+	cancel()
+	wg.Wait()
+	return err
 }
 
 func hasWildcardTable(tables []string) bool {
