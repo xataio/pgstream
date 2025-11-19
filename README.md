@@ -214,6 +214,7 @@ For more advanced usage, implementation details, and detailed configuration sett
    - [Xata](docs/xata.md)
    - [AWS](docs/aws.md)
    - [CloudSQL](docs/gcp_cloudsql.md)
+   - [Neon](docs/neon.md)
 8. [Glossary](docs/glossary.md)
 
 ## Benchmarks
