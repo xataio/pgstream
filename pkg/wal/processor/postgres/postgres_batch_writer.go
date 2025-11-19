@@ -125,8 +125,7 @@ func (w *BatchWriter) sendBatch(ctx context.Context, batch *batch.Batch[*query])
 
 			if _, err := w.pgConn.Exec(ctx, q.sql, q.args...); err != nil {
 				w.logger.Error(err, "running DDL query", loglib.Fields{"query_sql": q.sql, "query_args": q.args})
-				var errRelationDoesNotExist *pglib.ErrRelationDoesNotExist
-				if errors.As(err, &errRelationDoesNotExist) {
+				if !w.isInternalError(err) {
 					continue
 				}
 				return err
@@ -204,11 +203,13 @@ func (w *BatchWriter) isInternalError(err error) bool {
 	var errConstraintViolation *pglib.ErrConstraintViolation
 	var errSyntaxError *pglib.ErrSyntaxError
 	var errDataException *pglib.ErrDataException
+	var errRelationAlreadyExists *pglib.ErrRelationAlreadyExists
 	switch {
 	case errors.As(err, &errRelationDoesNotExist),
 		errors.As(err, &errConstraintViolation),
 		errors.As(err, &errSyntaxError),
-		errors.As(err, &errDataException):
+		errors.As(err, &errDataException),
+		errors.As(err, &errRelationAlreadyExists):
 		return false
 	default:
 		return true

@@ -75,19 +75,39 @@ func MapError(err error) error {
 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
-		if pgErr.Code == "42P01" {
+		switch pgErr.Code {
+		case "42703", "42883", "42P01", "42P02", "42704":
+			// 42703 	undefined_column
+			// 42883 	undefined_function
+			// 42P01 	undefined_table
+			// 42P02 	undefined_parameter
+			// 42704 	undefined_object
 			return &ErrRelationDoesNotExist{
 				Details: pgErr.Message,
 			}
-		}
-		if pgErr.Code == "42601" {
+		case "42601", "42000":
+			// 42000 	syntax_error_or_access_rule_violation
+			// 42601 	syntax_error
 			return &ErrSyntaxError{
 				Details: pgErr.Message,
 			}
-		}
-
-		if pgErr.Code == "42501" {
+		case "42501":
+			// 42501 	insufficient_privilege
 			return &ErrPermissionDenied{
+				Details: pgErr.Message,
+			}
+
+		case "42701", "42P03", "42P04", "42723", "42P05", "42P06", "42P07", "42712", "42710":
+			// 42701 	duplicate_column
+			// 42P03 	duplicate_cursor
+			// 42P04 	duplicate_database
+			// 42723 	duplicate_function
+			// 42P05 	duplicate_prepared_statement
+			// 42P06 	duplicate_schema
+			// 42P07 	duplicate_table
+			// 42712 	duplicate_alias
+			// 42710 	duplicate_object
+			return &ErrRelationAlreadyExists{
 				Details: pgErr.Message,
 			}
 		}
