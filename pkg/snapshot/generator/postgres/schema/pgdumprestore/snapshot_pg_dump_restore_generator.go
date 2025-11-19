@@ -279,6 +279,9 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 		return nil, fmt.Errorf("preparing pg_dump options: %w", err)
 	}
 
+	// produce first the schema dump without the clean up statements
+	pgdumpOpts.Clean = false
+
 	s.logger.Debug("dumping schema", loglib.Fields{"pg_dump_options": pgdumpOpts.ToArgs(), "schema_tables": schemaTables})
 	d, err := s.pgDumpFn(ctx, *pgdumpOpts)
 	defer s.dumpToFile(s.dumpDebugFile, pgdumpOpts, d)
@@ -289,21 +292,23 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 
 	parsedDump := s.parseDump(d)
 
-	if pgdumpOpts.Clean {
+	s.dumpToFile(s.getDumpFileName("-filtered"), pgdumpOpts, parsedDump.filtered)
+	s.dumpToFile(s.getDumpFileName("-indices-constraints"), pgdumpOpts, parsedDump.indicesAndConstraints)
+
+	// only if clean is enabled, produce the clean up part of the dump
+	if s.optionGenerator.cleanTargetDB {
 		// In case clean is enabled, we need the cleanup part of the dump separately, which will be restored before the roles dump.
 		// This will allow us to drop the roles safely, without getting dependency erros.
-		pgdumpOpts.Clean = false
-		s.logger.Debug("dumping schema again without clean", loglib.Fields{"pg_dump_options": pgdumpOpts.ToArgs(), "schema_tables": schemaTables})
-		dumpWithoutClean, err := s.pgDumpFn(ctx, *pgdumpOpts)
+		pgdumpOpts.Clean = true
+		s.logger.Debug("dumping schema clean up", loglib.Fields{"pg_dump_options": pgdumpOpts.ToArgs(), "schema_tables": schemaTables})
+		dumpWithCleanUp, err := s.pgDumpFn(ctx, *pgdumpOpts)
 		if err != nil {
 			s.logger.Error(err, "pg_dump for schema failed", loglib.Fields{"pgdumpOptions": pgdumpOpts.ToArgs()})
 			return nil, fmt.Errorf("dumping schema: %w", err)
 		}
-		parsedDump.cleanupPart = getDumpsDiff(d, dumpWithoutClean)
+		parsedDump.cleanupPart = getDumpsDiff(dumpWithCleanUp, d)
+		s.dumpToFile(s.getDumpFileName("-cleanup"), pgdumpOpts, parsedDump.cleanupPart)
 	}
-
-	s.dumpToFile(s.getDumpFileName("-filtered"), pgdumpOpts, parsedDump.filtered)
-	s.dumpToFile(s.getDumpFileName("-indices-constraints"), pgdumpOpts, parsedDump.indicesAndConstraints)
 
 	return parsedDump, nil
 }

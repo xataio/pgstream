@@ -26,13 +26,12 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 
 	schemaDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence\nALTER TABLE public.test_table OWNER TO test_role;\nGRANT ALL ON TABLE public.test_table TO test_role2;\nCREATE INDEX a;\n")
 	schemaDumpNoSequences := []byte("schema dump\nALTER TABLE public.test_table OWNER TO test_role;\nGRANT ALL ON TABLE public.test_table TO test_role2;\nCREATE INDEX a;\n")
-	filteredDumpNoSequences := []byte("schema dump\nALTER TABLE public.test_table OWNER TO test_role;\nGRANT ALL ON TABLE public.test_table TO test_role2;\n")
-	filteredDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence\nALTER TABLE public.test_table OWNER TO test_role;\nGRANT ALL ON TABLE public.test_table TO test_role2;\n")
+	filteredDumpNoSequences := []byte("schema dump\nGRANT ALL ON SCHEMA \"public\" TO \"test_role\";\nALTER TABLE public.test_table OWNER TO test_role;\nGRANT ALL ON TABLE public.test_table TO test_role2;\n")
+	filteredDump := []byte("schema dump\nCREATE SEQUENCE test.test_sequence\nGRANT ALL ON SCHEMA \"public\" TO \"test_role\";\nALTER TABLE public.test_table OWNER TO test_role;\nGRANT ALL ON TABLE public.test_table TO test_role2;\n")
 	sequenceDump := []byte("sequence dump\n")
 	indexDump := []byte("CREATE INDEX a;\n\n")
 	rolesDumpOriginal := []byte("roles dump\nCREATE ROLE postgres\nCREATE ROLE test_role\nCREATE ROLE test_role2\nALTER ROLE test_role3 INHERIT FROM test_role;\n")
-	rolesDumpFiltered := []byte("roles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\nGRANT \"test_role\" TO CURRENT_USER;\nGRANT ALL ON SCHEMA \"public\" TO \"test_role\";\n")
-	rolesDumpFilteredWithCleanup := []byte("REVOKE ALL ON SCHEMA \"public\" FROM \"test_role\";\nroles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\nGRANT \"test_role\" TO CURRENT_USER;\nGRANT ALL ON SCHEMA \"public\" TO \"test_role\";\n")
+	rolesDumpFiltered := []byte("roles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\nGRANT \"test_role\" TO CURRENT_USER;\n")
 	cleanupDump := []byte("cleanup dump\n")
 	testSchema := "test_schema"
 	testTable := "test_table"
@@ -643,17 +642,17 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						SchemaOnly:       true,
-						Clean:            true,
+						Clean:            false,
 					}, po)
-					return append(cleanupDump, schemaDump...), nil
+					return schemaDump, nil
 				case 2:
 					require.Equal(t, pglib.PGDumpOptions{
 						ConnectionString: "source-url",
 						Format:           "p",
 						SchemaOnly:       true,
-						Clean:            false,
+						Clean:            true,
 					}, po)
-					return schemaDump, nil
+					return append(cleanupDump, schemaDump...), nil
 				case 3:
 					require.Equal(t, pglib.PGDumpOptions{
 						ConnectionString: "source-url",
@@ -689,10 +688,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				case 1:
 					require.Equal(t, string(cleanupDump), string(dump))
 				case 2:
-					require.Equal(t, string(rolesDumpFilteredWithCleanup), string(dump))
+					require.Equal(t, string(rolesDumpFiltered), string(dump))
 				case 3:
-					// because we're not removing the duplicate cleanup dump for now
-					require.Equal(t, string(append(cleanupDump, filteredDump...)), string(dump))
+					require.Equal(t, string(filteredDump), string(dump))
 				case 4:
 					require.Equal(t, string(sequenceDump), string(dump))
 				case 5:
@@ -1380,16 +1378,8 @@ func TestSnapshotGenerator_parseDump(t *testing.T) {
 	wantConstraintsStr := strings.Trim(string(wantConstraintsBytes), "\n")
 	wantSequences := []string{`"musicbrainz"."alternative_medium_id_seq"`, `"musicbrainz"."Alternative_medium_id_seq"`}
 
-	normalize := func(s string) string {
-		return strings.ReplaceAll(s, "\r\n", "\n")
-	}
-
-	trim := func(s string) string {
-		return strings.TrimRight(normalize(s), "\r\n")
-	}
-
-	require.Equal(t, trim(wantFilteredStr), trim(filteredStr))
-	require.Equal(t, trim(wantConstraintsStr), trim(constraintsStr))
+	require.Equal(t, wantFilteredStr, filteredStr)
+	require.Equal(t, wantConstraintsStr, constraintsStr)
 	require.Equal(t, wantSequences, dump.sequences)
 }
 
