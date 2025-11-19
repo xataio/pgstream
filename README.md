@@ -212,6 +212,7 @@ For more advanced usage, implementation details, and detailed configuration sett
 6. [CLI](docs/cli.md)
 7. [Privileges](docs/privileges.md)
    - [Xata](docs/xata.md)
+   - [AWS](docs/aws.md)
    - [CloudSQL](docs/gcp_cloudsql.md)
 8. [Glossary](docs/glossary.md)
 
