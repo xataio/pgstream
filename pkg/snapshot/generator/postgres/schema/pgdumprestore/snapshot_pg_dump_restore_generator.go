@@ -298,7 +298,7 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 	// only if clean is enabled, produce the clean up part of the dump
 	if s.optionGenerator.cleanTargetDB {
 		// In case clean is enabled, we need the cleanup part of the dump separately, which will be restored before the roles dump.
-		// This will allow us to drop the roles safely, without getting dependency erros.
+		// This will allow us to drop the roles safely, without getting dependency errors.
 		pgdumpOpts.Clean = true
 		s.logger.Debug("dumping schema clean up", loglib.Fields{"pg_dump_options": pgdumpOpts.ToArgs(), "schema_tables": schemaTables})
 		dumpWithCleanUp, err := s.pgDumpFn(ctx, *pgdumpOpts)
