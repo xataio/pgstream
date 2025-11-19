@@ -175,12 +175,16 @@ func newPGMigrator(pgURL string) (*migrate.Migrate, error) {
 		return nil, err
 	}
 
-	// Check if URL already has query parameters
+	// Use x-migrations-table-quoted parameter to specify schema-qualified table name
+	// The value 1 means the table name should be used as-is with proper quoting
+	// This ensures the migrate library uses pgstream.schema_migrations,
+	// preventing issues when the search path is not honored by the provider
+	// URL-encode the double quotes as %22
 	var url string
 	if strings.Contains(pgURL, "?") {
-		url = pgURL + "&search_path=pgstream"
+		url = pgURL + `&x-migrations-table=%22pgstream%22.%22schema_migrations%22&x-migrations-table-quoted=1`
 	} else {
-		url = pgURL + "?search_path=pgstream"
+		url = pgURL + `?x-migrations-table=%22pgstream%22.%22schema_migrations%22&x-migrations-table-quoted=1`
 	}
 
 	return migrate.NewWithSourceInstance("go-bindata", d, url)
