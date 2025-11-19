@@ -31,7 +31,7 @@ columns AS (
         format_type(pg_attribute.atttypid, pg_attribute.atttypmod) AS column_type,
         pg_get_expr(pg_attrdef.adbin, pg_attrdef.adrelid) AS column_default,
         NOT (pg_attribute.attnotnull OR pg_type.typtype = 'd' AND pg_type.typnotnull) AS column_nullable,
-		NOT ( pg_attribute.attgenerated = '') AS column_generated,
+        NOT ( pg_attribute.attgenerated = '') AS column_generated,
         (EXISTS (
             SELECT 1 FROM pg_constraint
             WHERE conrelid = pg_attribute.attrelid
@@ -104,7 +104,7 @@ by_table AS (
             'type', columns.column_type,
             'default', columns.column_default,
             'nullable', columns.column_nullable,
-			'generated', columns.column_generated,
+            'generated', columns.column_generated,
             'unique', columns.column_unique,
             'metadata', columns.metadata
         )) AS table_columns,
