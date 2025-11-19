@@ -551,6 +551,19 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 
 			for _, role := range roles {
 				dumpRoles[role.name] = role
+				if role.isOwner() {
+					// Add lines to grant access to roles that have object
+					// ownership in the schema, otherwise restoring will fail
+					// with permission denied for schema. This must be done
+					// before the ALTER OWNER TO statements. This needs to be
+					// done here, once the schema being referenced exists.
+					//
+					// Cleanup handling is not required, since the schema will
+					// be dropped anyway if clean is enabled.
+					for schema := range role.schemasWithOwnership {
+						filteredDump.WriteString(fmt.Sprintf("GRANT ALL ON SCHEMA %s TO %s;\n", pglib.QuoteIdentifier(schema), pglib.QuoteIdentifier(role.name)))
+					}
+				}
 			}
 
 			filteredDump.WriteString(line)
@@ -576,18 +589,6 @@ func (s *SnapshotGenerator) filterRolesDump(rolesDump []byte, keepRoles map[stri
 	scanner := bufio.NewScanner(bytes.NewReader(rolesDump))
 	scanner.Split(bufio.ScanLines)
 	var filteredDump strings.Builder
-
-	if s.optionGenerator.cleanTargetDB {
-		// add cleanup for the manual grants
-		for _, role := range keepRoles {
-			if isPredefinedRole(role.name) || isExcludedRole(role.name) || !role.isOwner() {
-				continue
-			}
-			for schema := range role.schemasWithOwnership {
-				filteredDump.WriteString(fmt.Sprintf("REVOKE ALL ON SCHEMA %s FROM %s;\n", pglib.QuoteIdentifier(schema), pglib.QuoteIdentifier(role.name)))
-			}
-		}
-	}
 
 	skipLine := func(lineRoles []role) bool {
 		for _, role := range lineRoles {
@@ -622,12 +623,6 @@ func (s *SnapshotGenerator) filterRolesDump(rolesDump []byte, keepRoles map[stri
 		// issues when granting ownership (OWNER TO) when using non superuser
 		// roles to restore the dump
 		filteredDump.WriteString(fmt.Sprintf("GRANT %s TO CURRENT_USER;\n", pglib.QuoteIdentifier(role.name)))
-		// add lines to grant access to roles that have object ownership in
-		// the schema, otherwise restoring will fail with permission denied for
-		// schema.
-		for schema := range role.schemasWithOwnership {
-			filteredDump.WriteString(fmt.Sprintf("GRANT ALL ON SCHEMA %s TO %s;\n", pglib.QuoteIdentifier(schema), pglib.QuoteIdentifier(role.name)))
-		}
 	}
 
 	return []byte(filteredDump.String())
