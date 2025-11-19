@@ -155,12 +155,12 @@ func (q *Querier) isRetriableError(err error) bool {
 	mappedErr := postgres.MapError(err)
 
 	permissionDenied := &postgres.ErrPermissionDenied{}
-	if errors.As(mappedErr, &permissionDenied) {
-		return false
-	}
-
 	constraintViolation := &postgres.ErrConstraintViolation{}
-	if errors.As(mappedErr, &constraintViolation) {
+	alreadyExists := &postgres.ErrRelationAlreadyExists{}
+	switch {
+	case errors.As(mappedErr, &permissionDenied),
+		errors.As(mappedErr, &constraintViolation),
+		errors.As(mappedErr, &alreadyExists):
 		return false
 	}
 
