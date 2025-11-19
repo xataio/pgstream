@@ -246,7 +246,7 @@ GRANT rds_replication TO pgstreamsource;
 #### Quick Checklist
 
 - [ ] Ensure **`pgstreamtarget`** has schema/database ownership.
-- [ ] If combined with snapshot → follow [Snapshot target requirements](#to-xata-database-snapshots).
+- [ ] If combined with snapshot → follow [Snapshot target requirements](#to-aws-rdsaurora-database-snapshots).
 
 #### Steps
 
