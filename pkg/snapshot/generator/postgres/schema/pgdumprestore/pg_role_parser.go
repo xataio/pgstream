@@ -75,6 +75,15 @@ var (
 		"rds_replication": {},
 		"rds_superuser":   {},
 	}
+
+	// Roles used by Neon Postgres that should not be included in the roles dump
+	// since they are managed by Neon itself.
+	pgNeonRoles = map[string]struct{}{
+		"cloud_admin":    {},
+		"neondb_owner":   {},
+		"neon_service":   {},
+		"neon_superuser": {},
+	}
 )
 
 func (p *roleSQLParser) extractRoleNamesFromDump(rolesDump []byte) map[string]role {
@@ -219,6 +228,10 @@ func isExcludedRole(roleName string) bool {
 
 	_, found = pgXataRoles[roleName]
 	if found {
+		return true
+	}
+
+	if _, found = pgNeonRoles[roleName]; found {
 		return true
 	}
 
