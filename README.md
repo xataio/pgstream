@@ -213,7 +213,7 @@ For more advanced usage, implementation details, and detailed configuration sett
 7. [Privileges](docs/privileges.md)
    - [Xata](docs/xata.md)
    - [AWS](docs/aws.md)
-   - [CloudSQL](docs/gcp_cloudsql.md)
+   - [GCP CloudSQL](docs/gcp_cloudsql.md)
    - [Neon](docs/neon.md)
 8. [Glossary](docs/glossary.md)
 

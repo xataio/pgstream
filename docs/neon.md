@@ -56,29 +56,29 @@ This guide explains how to use **pgstream** with **Neon databases**, covering **
 
    ```yaml
    snapshot:
-    schema:
-      pgdump_pgrestore:
-   	 roles_snapshot_mode: "disabled"
-   	 no_owner: true
-   	 no_privileges: true
+     schema:
+       pgdump_pgrestore:
+         roles_snapshot_mode: "disabled"
+         no_owner: true
+         no_privileges: true
    ```
 
    Example full configuration:
 
    ```yaml
    source:
-    postgres:
-      url: "postgresql://pgstreamsource:password@<neon-host>:5432/db?sslmode=require"
-      mode: snapshot
-      snapshot:
-   	 mode: full # schema + data
-   	 tables: ["public.*"] # all tables in the public schema
-   	 schema:
-   	   mode: pgdump_pgrestore
-   	   pgdump_pgrestore:
-   		 roles_snapshot_mode: "disabled"
-   		 no_owner: true
-   		 no_privileges: true
+     postgres:
+       url: "postgresql://pgstreamsource:password@<neon-host>:5432/db?sslmode=require"
+       mode: snapshot
+       snapshot:
+         mode: full # schema + data
+         tables: ["public.*"] # all tables in the public schema
+         schema:
+           mode: pgdump_pgrestore
+           pgdump_pgrestore:
+             roles_snapshot_mode: "disabled"
+             no_owner: true
+             no_privileges: true
    ```
 
 ℹ️ Neon-managed roles (`neondb_owner`, `neon_service`, `neon_superuser` and `cloud_admin`) will not be snapshotted.
@@ -157,8 +157,6 @@ The **`pgstreamtarget`** user (from the pgstream target URL) must have the follo
 
    **If not set to `logical`, update it:**
 
-   For **Neon databases**:
-
    Neon enables logical replication by default on most databases. If you see `wal_level = replica`, you can enable logical replication through the Neon Console:
 
    1. Go to your project in the [Neon Console](https://console.neon.tech/)
@@ -186,8 +184,8 @@ Initialization does the following:
 ```yaml
 source:
   postgres:
-	url: "postgresql://neondb_owner:password@<neon-host>:5432/db?sslmode=require"
-	mode: replication
+    url: "postgresql://neondb_owner:password@<neon-host>:5432/db?sslmode=require"
+    mode: replication
 ```
 
 #### Streaming
