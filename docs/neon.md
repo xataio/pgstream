@@ -123,8 +123,8 @@ The **`pgstreamtarget`** user (from the pgstream target URL) must have the follo
 
   ```yaml
   target:
-  postgres:
-    disable_triggers: false # Required for neon target databases
+    postgres:
+      disable_triggers: false # Required for neon target databases
   ```
 
   ❌ If using `disable_triggers: true`, pgstream will fail with:
