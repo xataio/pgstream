@@ -48,6 +48,7 @@ DROP SCHEMA IF EXISTS musicbrainz;
 CREATE SCHEMA musicbrainz;
 
 
+GRANT ALL ON SCHEMA "musicbrainz" TO "test_role";
 ALTER SCHEMA musicbrainz OWNER TO test_role;
 
 --

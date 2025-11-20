@@ -279,6 +279,9 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 		return nil, fmt.Errorf("preparing pg_dump options: %w", err)
 	}
 
+	// produce first the schema dump without the clean up statements
+	pgdumpOpts.Clean = false
+
 	s.logger.Debug("dumping schema", loglib.Fields{"pg_dump_options": pgdumpOpts.ToArgs(), "schema_tables": schemaTables})
 	d, err := s.pgDumpFn(ctx, *pgdumpOpts)
 	defer s.dumpToFile(s.dumpDebugFile, pgdumpOpts, d)
@@ -289,21 +292,23 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 
 	parsedDump := s.parseDump(d)
 
-	if pgdumpOpts.Clean {
+	s.dumpToFile(s.getDumpFileName("-filtered"), pgdumpOpts, parsedDump.filtered)
+	s.dumpToFile(s.getDumpFileName("-indices-constraints"), pgdumpOpts, parsedDump.indicesAndConstraints)
+
+	// only if clean is enabled, produce the clean up part of the dump
+	if s.optionGenerator.cleanTargetDB {
 		// In case clean is enabled, we need the cleanup part of the dump separately, which will be restored before the roles dump.
-		// This will allow us to drop the roles safely, without getting dependency erros.
-		pgdumpOpts.Clean = false
-		s.logger.Debug("dumping schema again without clean", loglib.Fields{"pg_dump_options": pgdumpOpts.ToArgs(), "schema_tables": schemaTables})
-		dumpWithoutClean, err := s.pgDumpFn(ctx, *pgdumpOpts)
+		// This will allow us to drop the roles safely, without getting dependency errors.
+		pgdumpOpts.Clean = true
+		s.logger.Debug("dumping schema clean up", loglib.Fields{"pg_dump_options": pgdumpOpts.ToArgs(), "schema_tables": schemaTables})
+		dumpWithCleanUp, err := s.pgDumpFn(ctx, *pgdumpOpts)
 		if err != nil {
 			s.logger.Error(err, "pg_dump for schema failed", loglib.Fields{"pgdumpOptions": pgdumpOpts.ToArgs()})
 			return nil, fmt.Errorf("dumping schema: %w", err)
 		}
-		parsedDump.cleanupPart = getDumpsDiff(d, dumpWithoutClean)
+		parsedDump.cleanupPart = getDumpsDiff(dumpWithCleanUp, d)
+		s.dumpToFile(s.getDumpFileName("-cleanup"), pgdumpOpts, parsedDump.cleanupPart)
 	}
-
-	s.dumpToFile(s.getDumpFileName("-filtered"), pgdumpOpts, parsedDump.filtered)
-	s.dumpToFile(s.getDumpFileName("-indices-constraints"), pgdumpOpts, parsedDump.indicesAndConstraints)
 
 	return parsedDump, nil
 }
@@ -551,6 +556,19 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 
 			for _, role := range roles {
 				dumpRoles[role.name] = role
+				if role.isOwner() {
+					// Add lines to grant access to roles that have object
+					// ownership in the schema, otherwise restoring will fail
+					// with permission denied for schema. This must be done
+					// before the ALTER OWNER TO statements. This needs to be
+					// done here, once the schema being referenced exists.
+					//
+					// Cleanup handling is not required, since the schema will
+					// be dropped anyway if clean is enabled.
+					for schema := range role.schemasWithOwnership {
+						filteredDump.WriteString(fmt.Sprintf("GRANT ALL ON SCHEMA %s TO %s;\n", pglib.QuoteIdentifier(schema), pglib.QuoteIdentifier(role.name)))
+					}
+				}
 			}
 
 			filteredDump.WriteString(line)
@@ -576,18 +594,6 @@ func (s *SnapshotGenerator) filterRolesDump(rolesDump []byte, keepRoles map[stri
 	scanner := bufio.NewScanner(bytes.NewReader(rolesDump))
 	scanner.Split(bufio.ScanLines)
 	var filteredDump strings.Builder
-
-	if s.optionGenerator.cleanTargetDB {
-		// add cleanup for the manual grants
-		for _, role := range keepRoles {
-			if isPredefinedRole(role.name) || isExcludedRole(role.name) || !role.isOwner() {
-				continue
-			}
-			for schema := range role.schemasWithOwnership {
-				filteredDump.WriteString(fmt.Sprintf("REVOKE ALL ON SCHEMA %s FROM %s;\n", pglib.QuoteIdentifier(schema), pglib.QuoteIdentifier(role.name)))
-			}
-		}
-	}
 
 	skipLine := func(lineRoles []role) bool {
 		for _, role := range lineRoles {
@@ -622,12 +628,6 @@ func (s *SnapshotGenerator) filterRolesDump(rolesDump []byte, keepRoles map[stri
 		// issues when granting ownership (OWNER TO) when using non superuser
 		// roles to restore the dump
 		filteredDump.WriteString(fmt.Sprintf("GRANT %s TO CURRENT_USER;\n", pglib.QuoteIdentifier(role.name)))
-		// add lines to grant access to roles that have object ownership in
-		// the schema, otherwise restoring will fail with permission denied for
-		// schema.
-		for schema := range role.schemasWithOwnership {
-			filteredDump.WriteString(fmt.Sprintf("GRANT ALL ON SCHEMA %s TO %s;\n", pglib.QuoteIdentifier(schema), pglib.QuoteIdentifier(role.name)))
-		}
 	}
 
 	return []byte(filteredDump.String())
