@@ -8,6 +8,7 @@ For cloud-provider-specific instructions and constraints, please see:
 - [Xata Onboarding Guide](xata.md)
 - [AWS Onboarding Guide](aws.md)
 - [Google Cloud (CloudSQL) Onboarding Guide](gcp_cloudsql.md)
+- [Neon Onboarding Guide](neon.md)
 
 ---
 
