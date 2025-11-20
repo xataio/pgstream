@@ -615,6 +615,7 @@ func (s *SnapshotGenerator) filterRolesDump(rolesDump []byte, keepRoles map[stri
 		// remove role attributes that require superuser privileges to be set
 		// when the value is the same as the default.
 		line = removeDefaultRoleAttributes(line)
+		line = s.removeRestrictedRoleAttributes(line)
 
 		filteredDump.WriteString(line)
 		filteredDump.WriteString("\n")
@@ -631,6 +632,26 @@ func (s *SnapshotGenerator) filterRolesDump(rolesDump []byte, keepRoles map[stri
 	}
 
 	return []byte(filteredDump.String())
+}
+
+func (s *SnapshotGenerator) removeRestrictedRoleAttributes(line string) string {
+	if !strings.Contains(line, "REPLICATION") || !s.isAWSTarget() {
+		return line
+	}
+	// in AWS RDS, the REPLICATION attribute is restricted to rds_replication
+	// role so we need to remove it from the role creation line to avoid errors
+	// and add a line with the GRANT statement
+	line = strings.ReplaceAll(line, " REPLICATION", "")
+	roles := s.roleSQLParser.extractRoleNamesFromLine(line)
+	if len(roles) == 0 {
+		return line
+	}
+	line += fmt.Sprintf("\nGRANT rds_replication TO %s;", roles[0].name)
+	return line
+}
+
+func (s *SnapshotGenerator) isAWSTarget() bool {
+	return strings.Contains(s.targetURL, "rds.amazonaws.com")
 }
 
 type options interface {

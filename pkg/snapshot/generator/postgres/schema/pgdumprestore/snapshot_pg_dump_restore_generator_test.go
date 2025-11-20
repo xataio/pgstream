@@ -1615,3 +1615,72 @@ func TestSnapshotGenerator_syncSchemaLog(t *testing.T) {
 		})
 	}
 }
+
+func TestSnapshotGenerator_removeRestrictedRoleAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		line  string
+		isAWS bool
+
+		wantLine string
+	}{
+		{
+			name:     "no replication attribute - no change",
+			line:     "CREATE ROLE test_role SUPERUSER CREATEDB;",
+			wantLine: "CREATE ROLE test_role SUPERUSER CREATEDB;",
+		},
+		{
+			name:     "replication attribute on non-AWS target - no change",
+			line:     "CREATE ROLE test_role REPLICATION SUPERUSER;",
+			wantLine: "CREATE ROLE test_role REPLICATION SUPERUSER;",
+		},
+		{
+			name:     "replication attribute on AWS target - removed and grant added",
+			line:     "CREATE ROLE test_role REPLICATION SUPERUSER;",
+			isAWS:    true,
+			wantLine: "CREATE ROLE test_role SUPERUSER;\nGRANT rds_replication TO test_role;",
+		},
+		{
+			name:     "replication in role name - not affected",
+			line:     "CREATE ROLE replication_user SUPERUSER;",
+			wantLine: "CREATE ROLE replication_user SUPERUSER;",
+		},
+		{
+			name:     "quoted role name with replication attribute on AWS",
+			line:     "CREATE ROLE \"test_role\" REPLICATION LOGIN;",
+			isAWS:    true,
+			wantLine: "CREATE ROLE \"test_role\" LOGIN;\nGRANT rds_replication TO \"test_role\";",
+		},
+		{
+			name:     "alter role with replication on AWS",
+			line:     "ALTER ROLE existing_role REPLICATION CREATEDB;",
+			isAWS:    true,
+			wantLine: "ALTER ROLE existing_role CREATEDB;\nGRANT rds_replication TO existing_role;",
+		},
+		{
+			name:     "no role name found - no grant added",
+			line:     "COMMENT ON ROLE REPLICATION;",
+			wantLine: "COMMENT ON ROLE;",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sg := SnapshotGenerator{
+				roleSQLParser: &roleSQLParser{},
+				targetURL: func(isAWS bool) string {
+					if isAWS {
+						return "test.url.rds.amazonaws.com"
+					}
+					return "test.url"
+				}(tc.isAWS),
+			}
+
+			sg.removeRestrictedRoleAttributes(tc.line)
+		})
+	}
+}

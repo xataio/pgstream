@@ -62,6 +62,19 @@ var (
 		"xata_superuser": {},
 		"xata":           {},
 	}
+
+	// Roles used by Amazon RDS that should not be included in the roles dump
+	// since they are managed by RDS itself.
+	pgRDSRoles = map[string]struct{}{
+		"rdsadmin":        {},
+		"rds_reserved":    {},
+		"rds_extension":   {},
+		"rds_ad":          {},
+		"rds_password":    {},
+		"rds_iam":         {},
+		"rds_replication": {},
+		"rds_superuser":   {},
+	}
 )
 
 func (p *roleSQLParser) extractRoleNamesFromDump(rolesDump []byte) map[string]role {
@@ -195,6 +208,11 @@ func isPredefinedRole(roleName string) bool {
 // exclude roles managed by cloud services
 func isExcludedRole(roleName string) bool {
 	_, found := pgCloudSQLRoles[roleName]
+	if found {
+		return true
+	}
+
+	_, found = pgRDSRoles[roleName]
 	if found {
 		return true
 	}
