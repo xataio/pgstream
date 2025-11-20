@@ -61,7 +61,7 @@ func (o *pgColumnObserver) updateGeneratedColumnNames(logEntry *schemalog.LogEnt
 		key := pglib.QuoteQualifiedIdentifier(logEntry.SchemaName, table.Name)
 		generatedColumns := make([]string, 0, len(table.Columns))
 		for _, c := range table.Columns {
-			if c.Generated {
+			if c.IsGenerated() {
 				generatedColumns = append(generatedColumns, c.Name)
 			}
 		}
@@ -73,7 +73,7 @@ func (o *pgColumnObserver) updateGeneratedColumnNames(logEntry *schemalog.LogEnt
 const generatedTableColumnsQuery = `SELECT attname FROM pg_attribute
 		WHERE attnum > 0
 		AND attrelid = (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2)
-		AND attgenerated != ''`
+		AND (attgenerated != '' OR attidentity != '')`
 
 func (o *pgColumnObserver) queryGeneratedColumnNames(ctx context.Context, schemaName, tableName string) ([]string, error) {
 	columnNames := []string{}
