@@ -61,7 +61,7 @@ func (o *pgColumnObserver) updateGeneratedColumnNames(logEntry *schemalog.LogEnt
 		key := pglib.QuoteQualifiedIdentifier(logEntry.SchemaName, table.Name)
 		generatedColumns := make([]string, 0, len(table.Columns))
 		for _, c := range table.Columns {
-			if c.Generated {
+			if c.IsGenerated() {
 				generatedColumns = append(generatedColumns, c.Name)
 			}
 		}
