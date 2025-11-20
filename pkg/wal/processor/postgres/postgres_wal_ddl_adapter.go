@@ -109,38 +109,6 @@ func (a *ddlAdapter) buildCreateIndexQueries(schemaName string, table schemalog.
 	return queries
 }
 
-func ensureIndexHasIfNotExists(definition string) string {
-	switch {
-	case strings.HasPrefix(definition, "CREATE UNIQUE INDEX "):
-		return strings.Replace(definition, "CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS ", 1)
-	case strings.HasPrefix(definition, "CREATE INDEX "):
-		return strings.Replace(definition, "CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1)
-	default:
-		return definition
-	}
-}
-
-func constraintBackedIndexNames(constraints []schemalog.Constraint) map[string]struct{} {
-	indexes := make(map[string]struct{}, len(constraints))
-	for _, constraint := range constraints {
-		if constraintCreatesIndex(constraint.Type) && constraint.Name != "" {
-			indexes[constraint.Name] = struct{}{}
-		}
-	}
-	return indexes
-}
-
-func constraintCreatesIndex(constraintType string) bool {
-	switch {
-	case strings.EqualFold(constraintType, "UNIQUE"),
-		strings.EqualFold(constraintType, "PRIMARY KEY"),
-		strings.EqualFold(constraintType, "EXCLUDE"):
-		return true
-	default:
-		return false
-	}
-}
-
 func (a *ddlAdapter) buildCreateTableQuery(schemaName string, table schemalog.Table) *query {
 	createQuery := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (", quotedTableName(schemaName, table.Name))
 	uniqueConstraints := make([]string, 0, len(table.Columns))
@@ -360,6 +328,58 @@ func (a *ddlAdapter) newDDLQuery(schema, table, sql string) *query {
 	}
 }
 
+func (a *ddlAdapter) buildAddConstraintQueries(schemaName string, table schemalog.Table) []*query {
+	queries := make([]*query, 0, len(table.Constraints))
+	for _, constraint := range table.Constraints {
+		if q := buildAddConstraintQuery(schemaName, table.Name, constraint); q != nil {
+			queries = append(queries, q)
+		}
+	}
+	return queries
+}
+
+func (a *ddlAdapter) buildAddForeignKeyQueries(schemaName string, table schemalog.Table) []*query {
+	queries := make([]*query, 0, len(table.ForeignKeys))
+	for _, fk := range table.ForeignKeys {
+		if q := buildAddForeignKeyQuery(schemaName, table.Name, fk); q != nil {
+			queries = append(queries, q)
+		}
+	}
+	return queries
+}
+
+func ensureIndexHasIfNotExists(definition string) string {
+	switch {
+	case strings.HasPrefix(definition, "CREATE UNIQUE INDEX "):
+		return strings.Replace(definition, "CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS ", 1)
+	case strings.HasPrefix(definition, "CREATE INDEX "):
+		return strings.Replace(definition, "CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1)
+	default:
+		return definition
+	}
+}
+
+func constraintBackedIndexNames(constraints []schemalog.Constraint) map[string]struct{} {
+	indexes := make(map[string]struct{}, len(constraints))
+	for _, constraint := range constraints {
+		if constraintCreatesIndex(constraint.Type) && constraint.Name != "" {
+			indexes[constraint.Name] = struct{}{}
+		}
+	}
+	return indexes
+}
+
+func constraintCreatesIndex(constraintType string) bool {
+	switch {
+	case strings.EqualFold(constraintType, "UNIQUE"),
+		strings.EqualFold(constraintType, "PRIMARY KEY"),
+		strings.EqualFold(constraintType, "EXCLUDE"):
+		return true
+	default:
+		return false
+	}
+}
+
 func buildDropIndexQuery(schemaName, indexName string) string {
 	if indexName == "" {
 		return ""
@@ -417,24 +437,4 @@ func buildAddForeignKeyQuery(schemaName, tableName string, fk schemalog.ForeignK
 		sql:    addQuery,
 		isDDL:  true,
 	}
-}
-
-func (a *ddlAdapter) buildAddConstraintQueries(schemaName string, table schemalog.Table) []*query {
-	queries := make([]*query, 0, len(table.Constraints))
-	for _, constraint := range table.Constraints {
-		if q := buildAddConstraintQuery(schemaName, table.Name, constraint); q != nil {
-			queries = append(queries, q)
-		}
-	}
-	return queries
-}
-
-func (a *ddlAdapter) buildAddForeignKeyQueries(schemaName string, table schemalog.Table) []*query {
-	queries := make([]*query, 0, len(table.ForeignKeys))
-	for _, fk := range table.ForeignKeys {
-		if q := buildAddForeignKeyQuery(schemaName, table.Name, fk); q != nil {
-			queries = append(queries, q)
-		}
-	}
-	return queries
 }
