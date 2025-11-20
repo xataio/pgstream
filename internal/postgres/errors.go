@@ -64,6 +64,14 @@ func (e *ErrRelationAlreadyExists) Error() string {
 	return fmt.Sprintf("relation already exists: %v", e.Details)
 }
 
+type ErrRuleViolation struct {
+	Details string
+}
+
+func (e *ErrRuleViolation) Error() string {
+	return fmt.Sprintf("rule violation: %s", e.Details)
+}
+
 func MapError(err error) error {
 	if pgconn.Timeout(err) {
 		return fmt.Errorf("%w: %w", ErrConnTimeout, err)
@@ -89,6 +97,11 @@ func MapError(err error) error {
 			// 42000 	syntax_error_or_access_rule_violation
 			// 42601 	syntax_error
 			return &ErrSyntaxError{
+				Details: pgErr.Message,
+			}
+		case "428C9":
+			// 428C9 	generated_always
+			return &ErrRuleViolation{
 				Details: pgErr.Message,
 			}
 		case "42501":

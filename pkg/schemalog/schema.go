@@ -27,12 +27,14 @@ type Table struct {
 }
 
 type Column struct {
-	Name         string  `json:"name"`
-	DataType     string  `json:"type"`
-	DefaultValue *string `json:"default,omitempty"`
-	Nullable     bool    `json:"nullable"`
-	Generated    bool    `json:"generated"`
-	Unique       bool    `json:"unique"`
+	Name          string  `json:"name"`
+	DataType      string  `json:"type"`
+	DefaultValue  *string `json:"default,omitempty"`
+	Nullable      bool    `json:"nullable"`
+	Generated     bool    `json:"generated"`
+	GeneratedKind string  `json:"generated_kind,omitempty"`
+	Identity      string  `json:"identity,omitempty"`
+	Unique        bool    `json:"unique"`
 	// Metadata is NOT typed here because we don't fully control the content that is sent from the publisher.
 	Metadata   *string `json:"metadata"`
 	PgstreamID string  `json:"pgstream_id"`
@@ -187,8 +189,14 @@ func (c *Column) IsEqual(other *Column) bool {
 			c.DefaultValue == other.DefaultValue &&
 			c.Unique == other.Unique &&
 			c.Generated == other.Generated &&
+			c.GeneratedKind == other.GeneratedKind &&
+			c.Identity == other.Identity &&
 			c.Metadata == other.Metadata
 	}
+}
+
+func (c *Column) IsGenerated() bool {
+	return c.Generated || c.Identity != ""
 }
 
 func unorderedColumnsEqual(a, b []Column) bool {
