@@ -293,9 +293,7 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 
 	parsedDump := s.parseDump(d)
 	// remove the event triggers that reference functions from excluded schemas
-	if len(pgdumpOpts.ExcludeSchemas) > 0 {
-		parsedDump.filtered = append(parsedDump.filtered, s.filterTriggers(parsedDump.eventTriggers, pgdumpOpts.ExcludeSchemas)...)
-	}
+	parsedDump.filtered = append(parsedDump.filtered, s.filterTriggers(parsedDump.eventTriggers, pgdumpOpts.ExcludeSchemas)...)
 
 	s.dumpToFile(s.getDumpFileName("-filtered"), pgdumpOpts, parsedDump.filtered)
 	s.dumpToFile(s.getDumpFileName("-indices-constraints"), pgdumpOpts, parsedDump.indicesAndConstraints)
@@ -523,21 +521,20 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 				filteredDump.WriteString("\n")
 				alterTable = ""
 			}
+		case strings.HasPrefix(line, "CREATE EVENT TRIGGER"):
+			createEventTrigger = line
+			fallthrough
 		case createEventTrigger != "":
 			// check if the previous create event trigger line is split in multiple lines
 			if strings.HasSuffix(line, ";") {
-				createEventTrigger += line
-				eventTriggersDump.WriteString(createEventTrigger)
-				eventTriggersDump.WriteString("\n")
+				eventTriggersDump.WriteString(line)
+				eventTriggersDump.WriteString("\n\n")
 				createEventTrigger = ""
 				continue
 			}
-
-			createEventTrigger += line
+			eventTriggersDump.WriteString(line)
 			eventTriggersDump.WriteString("\n")
 
-		case strings.HasPrefix(line, "CREATE EVENT TRIGGER"):
-			createEventTrigger = line
 		case strings.Contains(line, `\connect`):
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
@@ -807,5 +804,5 @@ func extractEventTriggerSchema(line string) (string, error) {
 		return "", fmt.Errorf("invalid function part in event trigger line: %s", line)
 	}
 
-	return functionParts[0], nil
+	return pglib.QuoteIdentifier(functionParts[0]), nil
 }

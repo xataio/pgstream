@@ -1703,7 +1703,7 @@ func TestSnapshotGenerator_filterTriggers(t *testing.T) {
 		{
 			name:            "filters triggers from excluded schema",
 			input:           "CREATE EVENT TRIGGER trigger1 ON ddl_command_end EXECUTE FUNCTION schema1.function1();\nCREATE EVENT TRIGGER trigger2 ON sql_drop EXECUTE FUNCTION excluded_schema.function2();",
-			excludedSchemas: []string{"excluded_schema"},
+			excludedSchemas: []string{"\"excluded_schema\""},
 			want:            "CREATE EVENT TRIGGER trigger1 ON ddl_command_end EXECUTE FUNCTION schema1.function1();\n",
 		},
 		{
@@ -1715,19 +1715,19 @@ func TestSnapshotGenerator_filterTriggers(t *testing.T) {
 		{
 			name:            "malformed trigger line - skipped",
 			input:           "INVALID TRIGGER LINE\nCREATE EVENT TRIGGER trigger2 ON sql_drop EXECUTE FUNCTION schema2.function2();",
-			excludedSchemas: []string{"schema2"},
+			excludedSchemas: []string{"\"schema2\""},
 			want:            "",
 		},
 		{
 			name:            "exclude trigger with function parameters",
 			input:           "CREATE EVENT TRIGGER trigger1 ON ddl_command_end EXECUTE FUNCTION schema1.function1('param1', 'param2');\n",
-			excludedSchemas: []string{"schema1"},
+			excludedSchemas: []string{"\"schema1\""},
 			want:            "",
 		},
 		{
 			name:            "excludes multiple triggers from different excluded schemas",
 			input:           "CREATE EVENT TRIGGER trigger1 ON ddl_command_end EXECUTE FUNCTION schema1.function1();\nCREATE EVENT TRIGGER trigger2 ON sql_drop EXECUTE FUNCTION excluded1.function2();\nCREATE EVENT TRIGGER trigger3 ON ddl_command_start EXECUTE FUNCTION excluded2.function3();\nCREATE EVENT TRIGGER trigger4 ON sql_drop EXECUTE FUNCTION schema2.function4();",
-			excludedSchemas: []string{"excluded1", "excluded2"},
+			excludedSchemas: []string{"\"excluded1\"", "\"excluded2\""},
 			want:            "CREATE EVENT TRIGGER trigger1 ON ddl_command_end EXECUTE FUNCTION schema1.function1();\nCREATE EVENT TRIGGER trigger4 ON sql_drop EXECUTE FUNCTION schema2.function4();\n",
 		},
 	}
