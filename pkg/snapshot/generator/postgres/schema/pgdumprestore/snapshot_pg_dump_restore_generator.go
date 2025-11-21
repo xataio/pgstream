@@ -81,6 +81,7 @@ type dump struct {
 	indicesAndConstraints []byte
 	sequences             []string
 	roles                 map[string]role
+	eventTriggers         []byte
 }
 
 const (
@@ -291,6 +292,8 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 	}
 
 	parsedDump := s.parseDump(d)
+	// remove the event triggers that reference functions from excluded schemas
+	parsedDump.filtered = append(parsedDump.filtered, s.filterTriggers(parsedDump.eventTriggers, pgdumpOpts.ExcludeSchemas)...)
 
 	s.dumpToFile(s.getDumpFileName("-filtered"), pgdumpOpts, parsedDump.filtered)
 	s.dumpToFile(s.getDumpFileName("-indices-constraints"), pgdumpOpts, parsedDump.indicesAndConstraints)
@@ -491,9 +494,11 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	scanner.Split(bufio.ScanLines)
 	indicesAndConstraints := strings.Builder{}
 	filteredDump := strings.Builder{}
+	eventTriggersDump := strings.Builder{}
 	sequenceNames := []string{}
 	dumpRoles := make(map[string]role)
 	alterTable := ""
+	createEventTrigger := ""
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
@@ -516,6 +521,20 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 				filteredDump.WriteString("\n")
 				alterTable = ""
 			}
+		case strings.HasPrefix(line, "CREATE EVENT TRIGGER"):
+			createEventTrigger = line
+			fallthrough
+		case createEventTrigger != "":
+			// check if the previous create event trigger line is split in multiple lines
+			if strings.HasSuffix(line, ";") {
+				eventTriggersDump.WriteString(line)
+				eventTriggersDump.WriteString("\n\n")
+				createEventTrigger = ""
+				continue
+			}
+			eventTriggersDump.WriteString(line)
+			eventTriggersDump.WriteString("\n")
+
 		case strings.Contains(line, `\connect`):
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
@@ -587,7 +606,32 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		indicesAndConstraints: []byte(indicesAndConstraints.String()),
 		sequences:             sequenceNames,
 		roles:                 dumpRoles,
+		eventTriggers:         []byte(eventTriggersDump.String()),
 	}
+}
+
+func (s *SnapshotGenerator) filterTriggers(eventTriggersDump []byte, excludedSchemas []string) []byte {
+	if len(excludedSchemas) == 0 {
+		return eventTriggersDump
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(eventTriggersDump))
+	scanner.Split(bufio.ScanLines)
+	var filteredDump strings.Builder
+	for scanner.Scan() {
+		line := scanner.Text()
+		// get the schema name from the event trigger definition after the EXECUTE FUNCTION clause
+		triggerSchema, err := extractEventTriggerSchema(line)
+		if err != nil || slices.Contains(excludedSchemas, triggerSchema) {
+			continue
+		}
+
+		// schema not excluded
+		filteredDump.WriteString(line)
+		filteredDump.WriteString("\n")
+	}
+
+	return []byte(filteredDump.String())
 }
 
 func (s *SnapshotGenerator) filterRolesDump(rolesDump []byte, keepRoles map[string]role) []byte {
@@ -745,4 +789,20 @@ func isSecurityLabelForExcludedProvider(line string, excludedProviders []string)
 		}
 	}
 	return false
+}
+
+func extractEventTriggerSchema(line string) (string, error) {
+	// example line:
+	// CREATE EVENT TRIGGER my_trigger ON sql_drop WHEN TAG IN ('DROP_INDEX') EXECUTE FUNCTION schema.my_function();
+	parts := strings.Split(line, "EXECUTE FUNCTION")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid event trigger line: %s", line)
+	}
+	functionPart := strings.TrimSpace(parts[1])
+	functionParts := strings.Split(functionPart, ".")
+	if len(functionParts) != 2 {
+		return "", fmt.Errorf("invalid function part in event trigger line: %s", line)
+	}
+
+	return pglib.QuoteIdentifier(functionParts[0]), nil
 }

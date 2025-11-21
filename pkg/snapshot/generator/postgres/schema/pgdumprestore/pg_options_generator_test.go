@@ -269,6 +269,29 @@ func TestOptionsGenerator_pgdumpOptions(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "wildcard schema tables and excluded wildcard tables",
+			schemaTables: map[string][]string{
+				"*": {"*"},
+			},
+			excludedTables: map[string][]string{
+				"excluded_schema": {"*"},
+			},
+			includeGlobal: false,
+			conn: &pglibmocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					return nil, fmt.Errorf("QueryFn should not be called")
+				},
+			},
+
+			wantOpts: &pglib.PGDumpOptions{
+				ConnectionString: "source-url",
+				Format:           "p",
+				ExcludeSchemas:   []string{`"excluded_schema"`},
+				SchemaOnly:       true,
+			},
+			wantErr: nil,
+		},
+		{
 			name: "wildcard schema with specific tables",
 			schemaTables: map[string][]string{
 				"*": {"table1", "table2"},
