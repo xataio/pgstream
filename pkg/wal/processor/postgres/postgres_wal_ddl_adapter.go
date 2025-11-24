@@ -43,7 +43,6 @@ func (a *ddlAdapter) schemaLogToQueries(ctx context.Context, schemaLog *schemalo
 			return nil, fmt.Errorf("fetching existing schema log entry: %w", err)
 		}
 	}
-
 	diff := a.schemaDiffer(previousSchemaLog, schemaLog)
 
 	queries := []*query{
@@ -331,7 +330,41 @@ func (a *ddlAdapter) buildAlterColumnQueries(schemaName, tableName string, colum
 		queries = append(queries, a.newDDLQuery(schemaName, tableName, alterQuery))
 	}
 
-	// TODO: add support for unique constraint changes
+	if columnDiff.GeneratedChange != nil {
+		// Only support removing generated columns.
+		// Adding generated column is not supported via ALTER TABLE in Postgres
+		if !columnDiff.GeneratedChange.New && columnDiff.GeneratedChange.Old {
+			alterQuery := fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP EXPRESSION",
+				quotedTableName(schemaName, tableName),
+				pglib.QuoteIdentifier(columnDiff.ColumnName),
+			)
+			queries = append(queries, a.newDDLQuery(schemaName, tableName, alterQuery))
+		}
+	}
+
+	if columnDiff.IdentityChange != nil {
+		alterQuery := ""
+		switch {
+		case columnDiff.IdentityChange.New == "":
+			alterQuery = fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP IDENTITY",
+				quotedTableName(schemaName, tableName),
+				pglib.QuoteIdentifier(columnDiff.ColumnName),
+			)
+		case columnDiff.IdentityChange.Old == "":
+			alterQuery = fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s ADD GENERATED %s AS IDENTITY",
+				quotedTableName(schemaName, tableName),
+				pglib.QuoteIdentifier(columnDiff.ColumnName),
+				getIdentityKind(columnDiff.IdentityChange.New),
+			)
+		default:
+			alterQuery = fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET GENERATED %s",
+				quotedTableName(schemaName, tableName),
+				pglib.QuoteIdentifier(columnDiff.ColumnName),
+				getIdentityKind(columnDiff.IdentityChange.New),
+			)
+		}
+		queries = append(queries, a.newDDLQuery(schemaName, tableName, alterQuery))
+	}
 
 	return queries
 }
@@ -453,5 +486,16 @@ func buildAddForeignKeyQuery(schemaName, tableName string, fk schemalog.ForeignK
 		table:  tableName,
 		sql:    addQuery,
 		isDDL:  true,
+	}
+}
+
+func getIdentityKind(identity string) string {
+	switch identity {
+	case "a":
+		return "ALWAYS"
+	case "d":
+		return "BY DEFAULT"
+	default:
+		return ""
 	}
 }

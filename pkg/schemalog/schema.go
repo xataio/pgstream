@@ -186,7 +186,7 @@ func (c *Column) IsEqual(other *Column) bool {
 			c.DataType == other.DataType &&
 			c.Nullable == other.Nullable &&
 			c.PgstreamID == other.PgstreamID &&
-			c.DefaultValue == other.DefaultValue &&
+			isEqualStrPtr(c.DefaultValue, other.DefaultValue) &&
 			c.Unique == other.Unique &&
 			c.Generated == other.Generated &&
 			c.GeneratedKind == other.GeneratedKind &&
@@ -303,6 +303,17 @@ func unorderedForeignKeysEqual(a, b []ForeignKey) bool {
 	}
 
 	return true
+}
+
+func isEqualStrPtr(a, b *string) bool {
+	switch {
+	case a == nil && b == nil:
+		return true
+	case a == nil && b != nil, a != nil && b == nil:
+		return false
+	default:
+		return *a == *b
+	}
 }
 
 func (c *Constraint) IsEqual(other *Constraint) bool {
