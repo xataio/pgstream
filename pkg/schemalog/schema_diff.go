@@ -38,6 +38,8 @@ type ColumnDiff struct {
 	UniqueChange     *ValueChange[bool]
 	NullChange       *ValueChange[bool]
 	DefaultChange    *ValueChange[*string]
+	GeneratedChange  *ValueChange[bool]
+	IdentityChange   *ValueChange[string]
 }
 
 type ValueChange[T any] struct {
@@ -64,7 +66,13 @@ func (td *TableDiff) IsEmpty() bool {
 }
 
 func (cd *ColumnDiff) IsEmpty() bool {
-	return cd.TypeChange == nil && cd.NameChange == nil && cd.DefaultChange == nil && cd.NullChange == nil && cd.UniqueChange == nil
+	return cd.TypeChange == nil &&
+		cd.NameChange == nil &&
+		cd.DefaultChange == nil &&
+		cd.NullChange == nil &&
+		cd.UniqueChange == nil &&
+		cd.GeneratedChange == nil &&
+		cd.IdentityChange == nil
 }
 
 func ComputeSchemaDiff(old, new *LogEntry) *Diff {
@@ -226,9 +234,9 @@ func computeColumnDiff(old, new *Column) *ColumnDiff {
 		diff.NameChange = &ValueChange[string]{Old: old.Name, New: new.Name}
 	}
 
-	if (old.DefaultValue != nil && new.DefaultValue == nil) ||
-		(old.DefaultValue == nil && new.DefaultValue != nil) ||
-		(old.DefaultValue != nil && new.DefaultValue != nil && *old.DefaultValue != *new.DefaultValue) {
+	// do not compute default changes for generated columns
+	if !old.IsGenerated() && !new.IsGenerated() &&
+		!isEqualStrPtr(old.DefaultValue, new.DefaultValue) {
 		diff.DefaultChange = &ValueChange[*string]{Old: old.DefaultValue, New: new.DefaultValue}
 	}
 	if old.Unique != new.Unique {
@@ -237,6 +245,14 @@ func computeColumnDiff(old, new *Column) *ColumnDiff {
 
 	if old.Nullable != new.Nullable {
 		diff.NullChange = &ValueChange[bool]{Old: old.Nullable, New: new.Nullable}
+	}
+
+	if old.Generated != new.Generated {
+		diff.GeneratedChange = &ValueChange[bool]{Old: old.Generated, New: new.Generated}
+	}
+
+	if old.Identity != new.Identity {
+		diff.IdentityChange = &ValueChange[string]{Old: old.Identity, New: new.Identity}
 	}
 
 	return diff
