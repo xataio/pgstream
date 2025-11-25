@@ -32,7 +32,7 @@ This tutorial demonstrates how to use pgstream to replicate data from one Postgr
 
 https://github.com/user-attachments/assets/32e25f8f-6aa4-49c5-8986-0b23f81826db
 
-Youtube link [here](https://www.youtube.com/watch?v=WCv1ZZXkUnU&list=PLf7KS0svgDP_H8x5lD8HPXK2BjhwO4ffT&index=4&pp=iAQB).
+Youtube link [[watch]](https://www.youtube.com/watch?v=WCv1ZZXkUnU&list=PLf7KS0svgDP_H8x5lD8HPXK2BjhwO4ffT&index=4&pp=iAQB)/[[embed]](https://www.youtube.com/embed/WCv1ZZXkUnU?si=La3IF_lGq7ls89IA).
 
 ## Environment setup
 
