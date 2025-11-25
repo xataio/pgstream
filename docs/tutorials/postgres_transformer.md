@@ -28,7 +28,7 @@ This tutorial will showcase the use of pgstream to replicate data from PostgreSQ
 
 https://github.com/user-attachments/assets/905fc81a-5172-4151-aacb-e638fb34e773
 
-Youtube link [here](https://www.youtube.com/watch?v=6aHzmv1h_48&list=PLf7KS0svgDP_H8x5lD8HPXK2BjhwO4ffT&index=3&pp=iAQB).
+Youtube link [[watch]](https://www.youtube.com/watch?v=6aHzmv1h_48&list=PLf7KS0svgDP_H8x5lD8HPXK2BjhwO4ffT&index=3&pp=iAQB)/[[embed]](https://www.youtube.com/embed/6aHzmv1h_48?si=GFwfSgBPAUvT_L8S).
 
 ## Environment setup
 
@@ -221,7 +221,7 @@ source:
     mode: snapshot_and_replication # options are replication, snapshot or snapshot_and_replication
     replication:
       replication_slot: pgstream_tutorial_slot
-	snapshot: # when mode is snapshot or snapshot_and_replication
+    snapshot: # when mode is snapshot or snapshot_and_replication
       mode: full # options are data_and, schema or data
       tables: ["*"] # tables to snapshot, can be a list of table names or a pattern
       recorder:
