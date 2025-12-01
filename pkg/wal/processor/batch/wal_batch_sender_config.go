@@ -4,6 +4,7 @@ package batch
 
 import (
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -26,12 +27,32 @@ type Config struct {
 	IgnoreSendErrors bool
 }
 
+type AutoTuneConfig struct {
+	// AutoTune indicates whether the batch sender should auto-tune the batch
+	// size based on observed throughput. Defaults to false.
+	Enabled bool
+	// AutoTuneMinBatchBytes is the minimum batch size in bytes when auto-tuning
+	// is enabled. Defaults to 1MiB.
+	MinBatchBytes int64
+	// AutoTuneMaxBatchBytes is the maximum batch size in bytes when auto-tuning
+	// is enabled. Defaults to 100MiB.
+	MaxBatchBytes int64
+	// AutoTuneConvergenceThreshold is the threshold for convergence when
+	// auto-tuning is enabled. Defaults to 0.01 (1%).
+	ConvergenceThreshold float64
+}
+
 const (
-	defaultMaxQueueBytes = int64(100 * 1024 * 1024) // 100MiB
-	defaultBatchTimeout  = time.Second
-	defaultMaxBatchSize  = 100
-	defaultMaxBatchBytes = int64(1572864)
+	defaultMaxQueueBytes         = int64(100 * 1024 * 1024) // 100MiB
+	defaultBatchTimeout          = time.Second
+	defaultMaxBatchSize          = 100
+	defaultMaxBatchBytes         = int64(1572864)
+	defaultAutoTuneMinBatchBytes = int64(1024 * 1024)       // 1MiB
+	defaultAutoTuneMaxBatchBytes = int64(100 * 1024 * 1024) // 100MiB
+	defaultConvergenceThreshold  = 0.01                     // 1%
 )
+
+var errInvalidAutoTuneConfig = errors.New("invalid auto tune configuration: min batch bytes must be less than or equal to max batch bytes")
 
 func (c *Config) GetMaxBatchBytes() int64 {
 	if c.MaxBatchBytes > 0 {
@@ -63,4 +84,32 @@ func (c *Config) GetMaxQueueBytes() (int64, error) {
 	}
 
 	return defaultMaxQueueBytes, nil
+}
+
+func (c *AutoTuneConfig) IsValid() error {
+	if c.GetMinBatchBytes() > c.GetMaxBatchBytes() {
+		return fmt.Errorf("min: %d, max: %d: %w", c.GetMinBatchBytes(), c.GetMaxBatchBytes(), errInvalidAutoTuneConfig)
+	}
+	return nil
+}
+
+func (c *AutoTuneConfig) GetMinBatchBytes() int64 {
+	if c.MinBatchBytes > 0 {
+		return c.MinBatchBytes
+	}
+	return defaultAutoTuneMinBatchBytes
+}
+
+func (c *AutoTuneConfig) GetMaxBatchBytes() int64 {
+	if c.MaxBatchBytes > 0 {
+		return c.MaxBatchBytes
+	}
+	return defaultAutoTuneMaxBatchBytes
+}
+
+func (c *AutoTuneConfig) GetConvergenceThreshold() float64 {
+	if c.ConvergenceThreshold > 0 {
+		return c.ConvergenceThreshold
+	}
+	return defaultConvergenceThreshold
 }
