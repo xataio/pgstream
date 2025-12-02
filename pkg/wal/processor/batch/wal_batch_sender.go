@@ -29,6 +29,7 @@ type Sender[T Message] struct {
 	maxBatchBytes     int64
 	maxBatchSize      int64
 	batchSendInterval time.Duration
+	batchBytesTuner   *batchBytesTuner[T]
 
 	wg       *sync.WaitGroup
 	cancelFn context.CancelFunc
@@ -53,6 +54,14 @@ func NewSender[T Message](ctx context.Context, config *Config, sendfn sendBatchF
 		wg:                &sync.WaitGroup{},
 		cancelFn:          func() {},
 		ignoreSendErrors:  config.IgnoreSendErrors,
+	}
+
+	if config.AutoTune.Enabled {
+		var err error
+		s.batchBytesTuner, err = newBatchBytesTuner(config.AutoTune, sendfn, logger)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create batch bytes auto tuner: %w", err)
+		}
 	}
 
 	maxQueueBytes, err := config.GetMaxQueueBytes()
@@ -126,7 +135,7 @@ func (s *Sender[T]) send(ctx context.Context) error {
 		for batch := range batchChan {
 			// If the send fails, the writer goroutine returns an error over the
 			// error channel and shuts down.
-			err := s.sendBatchFn(context.Background(), batch)
+			err := s.sendBatch(context.Background(), batch)
 			s.queueBytesSema.Release(int64(batch.totalBytes))
 			if err != nil {
 				s.logger.Error(err, "failed to send batch")
@@ -177,7 +186,7 @@ func (s *Sender[T]) send(ctx context.Context) error {
 					}
 				}
 			case msg := <-s.msgChan:
-				if !msg.message.IsEmpty() && msgBatch.maxBatchBytesReached(s.maxBatchBytes, msg.message) {
+				if !msg.message.IsEmpty() && msgBatch.maxBatchBytesReached(s.getMaxBatchBytes(), msg.message) {
 					if err := drainBatch(msgBatch); err != nil {
 						return err
 					}
@@ -217,4 +226,25 @@ func (s *Sender[T]) Close() {
 		close(s.msgChan)
 		s.logger.Trace("batch sender closed")
 	})
+}
+
+func (s *Sender[T]) getMaxBatchBytes() int64 {
+	if s.batchBytesTuner != nil {
+		switch {
+		case s.batchBytesTuner.hasConverged():
+			return s.batchBytesTuner.candidateSetting.value
+		case s.batchBytesTuner.measurementSetting != nil:
+			return s.batchBytesTuner.measurementSetting.value
+		}
+	}
+	return s.maxBatchBytes
+}
+
+func (s *Sender[T]) sendBatch(ctx context.Context, batch *Batch[T]) error {
+	// if a batch bytes tuner is configured, and an optimal setting has not yet
+	// been found, use the tuner to send the batch
+	if s.batchBytesTuner != nil && !s.batchBytesTuner.hasConverged() {
+		return s.batchBytesTuner.sendBatch(ctx, batch)
+	}
+	return s.sendBatchFn(ctx, batch)
 }

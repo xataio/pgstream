@@ -25,6 +25,8 @@ type Config struct {
 	// not. If set to true, errors will be logged but the batch will continue
 	// processing. Defaults to false.
 	IgnoreSendErrors bool
+
+	AutoTune AutoTuneConfig
 }
 
 type AutoTuneConfig struct {
