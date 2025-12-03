@@ -893,7 +893,7 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 				{
 					schema: testSchema,
 					table:  "mv_new",
-					sql:    fmt.Sprintf("ALTER MATERIALIZED VIEW IF EXISTS %s RENAME TO %s", pglib.QuoteQualifiedIdentifier(testSchema, "mv_old"), pglib.QuoteQualifiedIdentifier(testSchema, "mv_new")),
+					sql:    fmt.Sprintf("ALTER MATERIALIZED VIEW IF EXISTS %s RENAME TO %s", pglib.QuoteQualifiedIdentifier(testSchema, "mv_old"), pglib.QuoteIdentifier("mv_new")),
 					isDDL:  true,
 				},
 			},

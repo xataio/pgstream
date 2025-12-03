@@ -289,7 +289,7 @@ func (a *ddlAdapter) buildAlterMaterializedViewQueries(schemaName string, mvDiff
 	if mvDiff.NameChange != nil {
 		alterQuery := fmt.Sprintf("ALTER MATERIALIZED VIEW IF EXISTS %s RENAME TO %s",
 			pglib.QuoteQualifiedIdentifier(schemaName, mvDiff.NameChange.Old),
-			pglib.QuoteQualifiedIdentifier(schemaName, mvDiff.NameChange.New),
+			pglib.QuoteIdentifier(mvDiff.NameChange.New),
 		)
 		queries = append(queries, a.newDDLQuery(schemaName, mvDiff.MaterializedViewName, alterQuery))
 	}
