@@ -107,8 +107,10 @@ func MapError(err error) error {
 			return &ErrSyntaxError{
 				Details: pgErr.Message,
 			}
-		case "428C9":
+		case "428C9", "42939", "42809":
 			// 428C9 	generated_always
+			// 42939 	reserved_name
+			// 42809 	wrong_object_type
 			return &ErrRuleViolation{
 				Details: pgErr.Message,
 			}
