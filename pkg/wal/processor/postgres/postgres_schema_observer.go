@@ -17,11 +17,14 @@ import (
 type pgSchemaObserver struct {
 	pgConn                pglib.Querier
 	generatedTableColumns *synclib.Map[string, []string]
+	// materializedViews is a map of schema name to a set of materialized view names.
+	materializedViews *synclib.Map[string, map[string]struct{}]
 }
 
-// newpgSchemaObserver returns a postgres that checks column names for tables.
-// It keeps a cache to reduce the number of calls to postgres, and it updates
-// the state whenever a DDL event is received through the WAL.
+// newpgSchemaObserver returns a postgres observer that tracks schemas,
+// including generated table columns and materialized views. It keeps a cache to
+// reduce the number of calls to postgres, and it updates the state whenever a
+// DDL event is received through the WAL.
 func newpgSchemaObserver(ctx context.Context, pgURL string) (*pgSchemaObserver, error) {
 	pgConn, err := pglib.NewConnPool(ctx, pgURL)
 	if err != nil {
@@ -30,6 +33,7 @@ func newpgSchemaObserver(ctx context.Context, pgURL string) (*pgSchemaObserver, 
 	return &pgSchemaObserver{
 		pgConn:                pgConn,
 		generatedTableColumns: synclib.NewMap[string, []string](),
+		materializedViews:     synclib.NewMap[string, map[string]struct{}](),
 	}, nil
 }
 
@@ -54,6 +58,28 @@ func (o *pgSchemaObserver) getGeneratedColumnNames(ctx context.Context, schema, 
 	return colNames, nil
 }
 
+// isMaterializedView will return true if the input schema.table is a
+// materialized view. It uses an internal cache to reduce the number of calls to
+// postgres. If the value is not in the cache, it will query postgres.
+func (o *pgSchemaObserver) isMaterializedView(schema, table string) bool {
+	key := pglib.QuoteIdentifier(schema)
+	materializedViews, found := o.materializedViews.Get(key)
+	if found {
+		_, found := materializedViews[pglib.QuoteIdentifier(table)]
+		return found
+	}
+
+	// if not found in the map, retrieve them from postgres
+	mvNames, err := o.queryMaterializedViews(context.Background(), schema)
+	if err != nil {
+		return false
+	}
+
+	o.materializedViews.Set(key, mvNames)
+	_, found = mvNames[pglib.QuoteIdentifier(table)]
+	return found
+}
+
 // updateGeneratedColumnNames will update the internal cache with the table
 // columns for the schema log on input.
 func (o *pgSchemaObserver) updateGeneratedColumnNames(logEntry *schemalog.LogEntry) {
@@ -68,6 +94,17 @@ func (o *pgSchemaObserver) updateGeneratedColumnNames(logEntry *schemalog.LogEnt
 
 		o.generatedTableColumns.Set(key, generatedColumns)
 	}
+}
+
+// updateMaterializedViews will update the internal cache with the materialized
+// views for the schema log on input.
+func (o *pgSchemaObserver) updateMaterializedViews(logEntry *schemalog.LogEntry) {
+	key := pglib.QuoteIdentifier(logEntry.SchemaName)
+	mvNames := make(map[string]struct{}, len(logEntry.Schema.MaterializedViews))
+	for _, mv := range logEntry.Schema.MaterializedViews {
+		mvNames[pglib.QuoteIdentifier(mv.Name)] = struct{}{}
+	}
+	o.materializedViews.Set(key, mvNames)
 }
 
 const generatedTableColumnsQuery = `SELECT attname FROM pg_attribute
@@ -98,6 +135,31 @@ func (o *pgSchemaObserver) queryGeneratedColumnNames(ctx context.Context, schema
 	}
 
 	return columnNames, nil
+}
+
+const materializedViewsQuery = `SELECT matviewname FROM pg_matviews WHERE schemaname = $1`
+
+func (o *pgSchemaObserver) queryMaterializedViews(ctx context.Context, schemaName string) (map[string]struct{}, error) {
+	mvNames := make(map[string]struct{})
+	rows, err := o.pgConn.Query(ctx, materializedViewsQuery, schemaName)
+	if err != nil {
+		return nil, fmt.Errorf("getting materialized views for schema %s: %w", schemaName, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var mvName string
+		if err := rows.Scan(&mvName); err != nil {
+			return nil, fmt.Errorf("scanning materialized view name: %w", err)
+		}
+		mvNames[pglib.QuoteIdentifier(mvName)] = struct{}{}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return mvNames, nil
 }
 
 func (o *pgSchemaObserver) close() error {
