@@ -93,6 +93,15 @@ func (m *LogEntry) GetTableByName(tableName string) (Table, bool) {
 	return m.Schema.getTableByName(tableName)
 }
 
+func (m *LogEntry) IsMaterializedView(tableName string) bool {
+	for _, mv := range m.Schema.MaterializedViews {
+		if mv.Name == tableName {
+			return true
+		}
+	}
+	return false
+}
+
 // SchemaCreatedAtTimestamp is a wrapper around time.Time that allows us to parse to and from the PG timestamp format.
 type SchemaCreatedAtTimestamp struct {
 	time.Time
