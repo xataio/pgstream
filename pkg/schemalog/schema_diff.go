@@ -8,9 +8,20 @@ import (
 )
 
 type Diff struct {
-	TablesRemoved []Table
-	TablesAdded   []Table
-	TablesChanged []TableDiff
+	TablesRemoved            []Table
+	TablesAdded              []Table
+	TablesChanged            []TableDiff
+	MaterializedViewsRemoved []MaterializedView
+	MaterializedViewsAdded   []MaterializedView
+	MaterializedViewsChanged []MaterializedViewsDiff
+}
+
+type MaterializedViewsDiff struct {
+	MaterializedViewName string
+	NameChange           *ValueChange[string]
+	IndexesAdded         []Index
+	IndexesRemoved       []Index
+	IndexesChanged       []string
 }
 
 type TableDiff struct {
@@ -47,7 +58,19 @@ type ValueChange[T any] struct {
 }
 
 func (d *Diff) IsEmpty() bool {
-	return len(d.TablesAdded) == 0 && len(d.TablesChanged) == 0 && len(d.TablesRemoved) == 0
+	return len(d.TablesAdded) == 0 &&
+		len(d.TablesChanged) == 0 &&
+		len(d.TablesRemoved) == 0 &&
+		len(d.MaterializedViewsAdded) == 0 &&
+		len(d.MaterializedViewsRemoved) == 0 &&
+		len(d.MaterializedViewsChanged) == 0
+}
+
+func (mv *MaterializedViewsDiff) IsEmpty() bool {
+	return len(mv.IndexesAdded) == 0 &&
+		len(mv.IndexesRemoved) == 0 &&
+		len(mv.IndexesChanged) == 0 &&
+		mv.NameChange == nil
 }
 
 func (td *TableDiff) IsEmpty() bool {
@@ -85,6 +108,8 @@ func ComputeSchemaDiff(old, new *LogEntry) *Diff {
 		new = &LogEntry{}
 	}
 
+	// Table changes
+
 	diff := &Diff{}
 	newTableMap := getSchemaTableMap(&new.Schema)
 	// if a table ID exists in the old schema, but not in the new, remove the table
@@ -107,6 +132,68 @@ func ComputeSchemaDiff(old, new *LogEntry) *Diff {
 		tableDiff := computeTableDiff(&oldTable, &newTable)
 		if !tableDiff.IsEmpty() {
 			diff.TablesChanged = append(diff.TablesChanged, *tableDiff)
+		}
+	}
+
+	// Materialized View changes
+
+	newMVMap := getSchemaMaterializedViewMap(&new.Schema)
+	for _, oldMV := range old.Schema.MaterializedViews {
+		if _, found := newMVMap[oldMV.Oid]; !found {
+			diff.MaterializedViewsRemoved = append(diff.MaterializedViewsRemoved, oldMV)
+		}
+	}
+
+	oldMVMap := getSchemaMaterializedViewMap(&old.Schema)
+	for oid, newMV := range newMVMap {
+		oldMV, found := oldMVMap[oid]
+		if !found {
+			diff.MaterializedViewsAdded = append(diff.MaterializedViewsAdded, newMV)
+			continue
+		}
+
+		// both schemas have the materialized view, check for changes
+		mvDiff := computeMaterializedViewDiff(&oldMV, &newMV)
+		if !mvDiff.IsEmpty() {
+			diff.MaterializedViewsChanged = append(diff.MaterializedViewsChanged, *mvDiff)
+		}
+	}
+
+	return diff
+}
+
+func computeMaterializedViewDiff(old, new *MaterializedView) *MaterializedViewsDiff {
+	diff := &MaterializedViewsDiff{
+		MaterializedViewName: new.Name,
+	}
+
+	if old.Name != new.Name {
+		diff.NameChange = &ValueChange[string]{Old: old.Name, New: new.Name}
+	}
+
+	newIndexMap := getMaterializedViewIndexMap(new)
+	for _, oldIdx := range old.Indexes {
+		newIdx, found := newIndexMap[oldIdx.Name]
+		if !found {
+			diff.IndexesRemoved = append(diff.IndexesRemoved, oldIdx)
+			continue
+		}
+
+		if !oldIdx.IsEqual(&newIdx) {
+			if isAlterIndexDefinition(newIdx.Definition) {
+				diff.IndexesChanged = append(diff.IndexesChanged, newIdx.Definition)
+				continue
+			}
+
+			diff.IndexesRemoved = append(diff.IndexesRemoved, oldIdx)
+			diff.IndexesAdded = append(diff.IndexesAdded, newIdx)
+		}
+	}
+
+	oldIndexMap := getMaterializedViewIndexMap(old)
+	for name, newIdx := range newIndexMap {
+		if _, found := oldIndexMap[name]; !found {
+			diff.IndexesAdded = append(diff.IndexesAdded, newIdx)
 		}
 	}
 
@@ -264,6 +351,22 @@ func getSchemaTableMap(s *Schema) map[string]Table {
 		tableMap[t.PgstreamID] = t
 	}
 	return tableMap
+}
+
+func getSchemaMaterializedViewMap(s *Schema) map[string]MaterializedView {
+	mvMap := make(map[string]MaterializedView, len(s.MaterializedViews))
+	for _, mv := range s.MaterializedViews {
+		mvMap[mv.Oid] = mv
+	}
+	return mvMap
+}
+
+func getMaterializedViewIndexMap(mv *MaterializedView) map[string]Index {
+	indexMap := make(map[string]Index, len(mv.Indexes))
+	for _, i := range mv.Indexes {
+		indexMap[i.Name] = i
+	}
+	return indexMap
 }
 
 func getTableColumnMap(t *Table) map[string]Column {

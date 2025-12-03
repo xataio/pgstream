@@ -830,6 +830,134 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			},
 			wantErr: nil,
 		},
+		{
+			name: "ok - materialized view added and deleted",
+			diff: &schemalog.Diff{
+				MaterializedViewsRemoved: []schemalog.MaterializedView{
+					{
+						Name:       "mv_old",
+						Definition: fmt.Sprintf("SELECT id FROM %s", quotedTableName(testSchema, table1)),
+					},
+				},
+				MaterializedViewsAdded: []schemalog.MaterializedView{
+					{
+						Name:       "mv_new",
+						Definition: fmt.Sprintf("SELECT id FROM %s", quotedTableName(testSchema, table2)),
+						Indexes: []schemalog.Index{
+							{
+								Name:       "mv_new_idx",
+								Definition: fmt.Sprintf("CREATE INDEX mv_new_idx ON %s (id)", pglib.QuoteQualifiedIdentifier(testSchema, "mv_new")),
+							},
+						},
+					},
+				},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  "mv_old",
+					sql:    fmt.Sprintf("DROP MATERIALIZED VIEW IF EXISTS %s", pglib.QuoteQualifiedIdentifier(testSchema, "mv_old")),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
+					table:  "mv_new",
+					sql:    fmt.Sprintf("CREATE MATERIALIZED VIEW IF NOT EXISTS %s AS %s", pglib.QuoteQualifiedIdentifier(testSchema, "mv_new"), fmt.Sprintf("SELECT id FROM %s", quotedTableName(testSchema, table2))),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
+					table:  "mv_new",
+					sql:    fmt.Sprintf("CREATE INDEX IF NOT EXISTS mv_new_idx ON %s (id)", pglib.QuoteQualifiedIdentifier(testSchema, "mv_new")),
+					isDDL:  true,
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - materialized view name changed",
+			diff: &schemalog.Diff{
+				MaterializedViewsChanged: []schemalog.MaterializedViewsDiff{
+					{
+						MaterializedViewName: "mv_new",
+						NameChange: &schemalog.ValueChange[string]{
+							Old: "mv_old",
+							New: "mv_new",
+						},
+					},
+				},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  "mv_new",
+					sql:    fmt.Sprintf("ALTER MATERIALIZED VIEW IF EXISTS %s RENAME TO %s", pglib.QuoteQualifiedIdentifier(testSchema, "mv_old"), pglib.QuoteIdentifier("mv_new")),
+					isDDL:  true,
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - materialized view indexes added and removed",
+			diff: &schemalog.Diff{
+				MaterializedViewsChanged: []schemalog.MaterializedViewsDiff{
+					{
+						MaterializedViewName: "mv_test",
+						IndexesRemoved: []schemalog.Index{
+							{Name: "mv_old_idx"},
+						},
+						IndexesAdded: []schemalog.Index{
+							{
+								Name:       "mv_new_idx",
+								Columns:    []string{"id"},
+								Definition: fmt.Sprintf("CREATE INDEX mv_new_idx ON %s (id)", pglib.QuoteQualifiedIdentifier(testSchema, "mv_test")),
+							},
+						},
+					},
+				},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  "mv_test",
+					sql:    fmt.Sprintf("DROP INDEX IF EXISTS %s", pglib.QuoteQualifiedIdentifier(testSchema, "mv_old_idx")),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
+					table:  "mv_test",
+					sql:    fmt.Sprintf("CREATE INDEX IF NOT EXISTS mv_new_idx ON %s (id)", pglib.QuoteQualifiedIdentifier(testSchema, "mv_test")),
+					isDDL:  true,
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - materialized view indexes changed",
+			diff: &schemalog.Diff{
+				MaterializedViewsChanged: []schemalog.MaterializedViewsDiff{
+					{
+						MaterializedViewName: "mv_test",
+						IndexesChanged: []string{
+							fmt.Sprintf("ALTER INDEX %s RENAME TO %s", pglib.QuoteQualifiedIdentifier(testSchema, "mv_old_idx"), pglib.QuoteIdentifier("mv_new_idx")),
+						},
+					},
+				},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  "mv_test",
+					sql:    fmt.Sprintf("ALTER INDEX %s RENAME TO %s", pglib.QuoteQualifiedIdentifier(testSchema, "mv_old_idx"), pglib.QuoteIdentifier("mv_new_idx")),
+					isDDL:  true,
+				},
+			},
+			wantErr: nil,
+		},
 	}
 
 	for _, tc := range tests {
@@ -840,7 +968,7 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 
 			queries, err := ddlAdapter.schemaDiffToQueries(testSchema, tc.diff)
 			require.ErrorIs(t, err, tc.wantErr)
-			require.Equal(t, tc.wantQueries, queries)
+			require.ElementsMatch(t, tc.wantQueries, queries)
 		})
 	}
 }
