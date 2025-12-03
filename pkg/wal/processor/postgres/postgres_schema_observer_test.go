@@ -14,7 +14,7 @@ import (
 	synclib "github.com/xataio/pgstream/internal/sync"
 )
 
-func TestPGColumnObserver_getGeneratedColumnNames(t *testing.T) {
+func TestPGSchemaObserver_getGeneratedColumnNames(t *testing.T) {
 	t.Parallel()
 
 	quotedQualifiedTableName := `"test_schema"."test_table"`
@@ -137,7 +137,7 @@ func TestPGColumnObserver_getGeneratedColumnNames(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			o := &pgColumnObserver{
+			o := &pgSchemaObserver{
 				pgConn:                tc.pgConn,
 				generatedTableColumns: synclib.NewMapFromMap(tc.tableColumns),
 			}

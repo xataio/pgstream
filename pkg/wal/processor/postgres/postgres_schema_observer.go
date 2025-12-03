@@ -11,23 +11,23 @@ import (
 	"github.com/xataio/pgstream/pkg/schemalog"
 )
 
-// pgColumnObserver keeps track of column names for tables. It uses a cache to
+// pgSchemaObserver keeps track of column names for tables. It uses a cache to
 // reduce the number of calls to postgres, and it updates the state whenever a
 // DDL event is received through the WAL.
-type pgColumnObserver struct {
+type pgSchemaObserver struct {
 	pgConn                pglib.Querier
 	generatedTableColumns *synclib.Map[string, []string]
 }
 
-// newPGColumnObserver returns a postgres that checks column names for tables.
+// newpgSchemaObserver returns a postgres that checks column names for tables.
 // It keeps a cache to reduce the number of calls to postgres, and it updates
 // the state whenever a DDL event is received through the WAL.
-func newPGColumnObserver(ctx context.Context, pgURL string) (*pgColumnObserver, error) {
+func newpgSchemaObserver(ctx context.Context, pgURL string) (*pgSchemaObserver, error) {
 	pgConn, err := pglib.NewConnPool(ctx, pgURL)
 	if err != nil {
 		return nil, err
 	}
-	return &pgColumnObserver{
+	return &pgSchemaObserver{
 		pgConn:                pgConn,
 		generatedTableColumns: synclib.NewMap[string, []string](),
 	}, nil
@@ -36,7 +36,7 @@ func newPGColumnObserver(ctx context.Context, pgURL string) (*pgColumnObserver, 
 // getGeneratedColumnNames will return a list of generated column names for the
 // schema.table on input. If the value is not in the internal cache, it will
 // query postgres.
-func (o *pgColumnObserver) getGeneratedColumnNames(ctx context.Context, schema, table string) ([]string, error) {
+func (o *pgSchemaObserver) getGeneratedColumnNames(ctx context.Context, schema, table string) ([]string, error) {
 	key := pglib.QuoteQualifiedIdentifier(schema, table)
 
 	columns, found := o.generatedTableColumns.Get(key)
@@ -56,7 +56,7 @@ func (o *pgColumnObserver) getGeneratedColumnNames(ctx context.Context, schema, 
 
 // updateGeneratedColumnNames will update the internal cache with the table
 // columns for the schema log on input.
-func (o *pgColumnObserver) updateGeneratedColumnNames(logEntry *schemalog.LogEntry) {
+func (o *pgSchemaObserver) updateGeneratedColumnNames(logEntry *schemalog.LogEntry) {
 	for _, table := range logEntry.Schema.Tables {
 		key := pglib.QuoteQualifiedIdentifier(logEntry.SchemaName, table.Name)
 		generatedColumns := make([]string, 0, len(table.Columns))
@@ -75,7 +75,7 @@ const generatedTableColumnsQuery = `SELECT attname FROM pg_attribute
 		AND attrelid = (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2)
 		AND (attgenerated != '' OR attidentity != '')`
 
-func (o *pgColumnObserver) queryGeneratedColumnNames(ctx context.Context, schemaName, tableName string) ([]string, error) {
+func (o *pgSchemaObserver) queryGeneratedColumnNames(ctx context.Context, schemaName, tableName string) ([]string, error) {
 	columnNames := []string{}
 	// filter out generated columns (excluding identities) since they will
 	// be generated automatically, and they can't be overwriten.
@@ -100,6 +100,6 @@ func (o *pgColumnObserver) queryGeneratedColumnNames(ctx context.Context, schema
 	return columnNames, nil
 }
 
-func (o *pgColumnObserver) close() error {
+func (o *pgSchemaObserver) close() error {
 	return o.pgConn.Close(context.Background())
 }

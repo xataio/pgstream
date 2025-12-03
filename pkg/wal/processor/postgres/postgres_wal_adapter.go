@@ -15,7 +15,7 @@ type walAdapter interface {
 	close() error
 }
 
-type columnObserver interface {
+type schemaObserver interface {
 	getGeneratedColumnNames(ctx context.Context, schema, table string) ([]string, error)
 	updateGeneratedColumnNames(schemalog *schemalog.LogEntry)
 	close() error
@@ -26,11 +26,11 @@ type adapter struct {
 	ddlAdapter      *ddlAdapter
 	logEntryAdapter logEntryAdapter
 
-	columnObserver columnObserver
+	schemaObserver schemaObserver
 }
 
 func newAdapter(ctx context.Context, schemaQuerier schemalogQuerier, pgURL string, onConflictAction string, forCopy bool) (*adapter, error) {
-	columnObserver, err := newPGColumnObserver(ctx, pgURL)
+	schemaObserver, err := newpgSchemaObserver(ctx, pgURL)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +47,7 @@ func newAdapter(ctx context.Context, schemaQuerier schemalogQuerier, pgURL strin
 	return &adapter{
 		dmlAdapter:      dmlAdapter,
 		ddlAdapter:      ddl,
-		columnObserver:  columnObserver,
+		schemaObserver:  schemaObserver,
 		logEntryAdapter: processor.WalDataToLogEntry,
 	}, nil
 }
@@ -62,7 +62,7 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 		if err != nil {
 			return nil, err
 		}
-		a.columnObserver.updateGeneratedColumnNames(schemaLog)
+		a.schemaObserver.updateGeneratedColumnNames(schemaLog)
 		// there's no ddl adapter, the ddl query will not be processed
 		if a.ddlAdapter == nil {
 			return []*query{{}}, nil
@@ -71,7 +71,7 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 		return a.ddlAdapter.schemaLogToQueries(ctx, schemaLog)
 	}
 
-	generatedColumns, err := a.columnObserver.getGeneratedColumnNames(ctx, e.Data.Schema, e.Data.Table)
+	generatedColumns, err := a.schemaObserver.getGeneratedColumnNames(ctx, e.Data.Schema, e.Data.Table)
 	if err != nil {
 		return nil, err
 	}
@@ -85,5 +85,5 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 }
 
 func (a *adapter) close() error {
-	return a.columnObserver.close()
+	return a.schemaObserver.close()
 }
