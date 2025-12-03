@@ -35,6 +35,15 @@ func Test_ComputeSchemaDiff(t *testing.T) {
 		}
 	}
 
+	testMaterializedView := func(name string, id string, indexes []Index) MaterializedView {
+		return MaterializedView{
+			Oid:        id,
+			Name:       name,
+			Definition: "SELECT id FROM test",
+			Indexes:    indexes,
+		}
+	}
+
 	tests := []struct {
 		name      string
 		newSchema *LogEntry
@@ -88,6 +97,103 @@ func Test_ComputeSchemaDiff(t *testing.T) {
 
 			wantDiff: &Diff{
 				TablesRemoved: []Table{testTable(table1, id1)},
+			},
+		},
+		{
+			name: "materialized views added and removed",
+			newSchema: &LogEntry{
+				Schema: Schema{
+					MaterializedViews: []MaterializedView{testMaterializedView("mv_new", "2", nil)},
+				},
+			},
+			oldSchema: &LogEntry{
+				Schema: Schema{
+					MaterializedViews: []MaterializedView{testMaterializedView("mv_old", "1", nil)},
+				},
+			},
+
+			wantDiff: &Diff{
+				MaterializedViewsRemoved: []MaterializedView{testMaterializedView("mv_old", "1", nil)},
+				MaterializedViewsAdded:   []MaterializedView{testMaterializedView("mv_new", "2", nil)},
+			},
+		},
+		{
+			name: "materialized view name changed",
+			newSchema: &LogEntry{
+				Schema: Schema{
+					MaterializedViews: []MaterializedView{testMaterializedView("mv_new", "1", nil)},
+				},
+			},
+			oldSchema: &LogEntry{
+				Schema: Schema{
+					MaterializedViews: []MaterializedView{testMaterializedView("mv_old", "1", nil)},
+				},
+			},
+
+			wantDiff: &Diff{
+				MaterializedViewsChanged: []MaterializedViewsDiff{
+					{
+						MaterializedViewName: "mv_new",
+						NameChange:           &ValueChange[string]{Old: "mv_old", New: "mv_new"},
+					},
+				},
+			},
+		},
+		{
+			name: "materialized view indexes added and removed",
+			newSchema: &LogEntry{
+				Schema: Schema{
+					MaterializedViews: []MaterializedView{testMaterializedView("mv_test", "1", []Index{
+						{Name: "idx_new", Definition: "CREATE INDEX idx_new ON mv_test USING btree (id)"},
+					})},
+				},
+			},
+			oldSchema: &LogEntry{
+				Schema: Schema{
+					MaterializedViews: []MaterializedView{testMaterializedView("mv_test", "1", []Index{
+						{Name: "idx_old", Definition: "CREATE INDEX idx_old ON mv_test USING btree (id)"},
+					})},
+				},
+			},
+
+			wantDiff: &Diff{
+				MaterializedViewsChanged: []MaterializedViewsDiff{
+					{
+						MaterializedViewName: "mv_test",
+						IndexesAdded: []Index{
+							{Name: "idx_new", Definition: "CREATE INDEX idx_new ON mv_test USING btree (id)"},
+						},
+						IndexesRemoved: []Index{
+							{Name: "idx_old", Definition: "CREATE INDEX idx_old ON mv_test USING btree (id)"},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "materialized view indexes changed",
+			newSchema: &LogEntry{
+				Schema: Schema{
+					MaterializedViews: []MaterializedView{testMaterializedView("mv_test", "1", []Index{
+						{Name: "idx_old", Definition: "ALTER INDEX idx_old RENAME TO idx_new"},
+					})},
+				},
+			},
+			oldSchema: &LogEntry{
+				Schema: Schema{
+					MaterializedViews: []MaterializedView{testMaterializedView("mv_test", "1", []Index{
+						{Name: "idx_old", Definition: "CREATE INDEX idx_old ON mv_test USING btree (id)"},
+					})},
+				},
+			},
+
+			wantDiff: &Diff{
+				MaterializedViewsChanged: []MaterializedViewsDiff{
+					{
+						MaterializedViewName: "mv_test",
+						IndexesChanged:       []string{"ALTER INDEX idx_old RENAME TO idx_new"},
+					},
+				},
 			},
 		},
 		{
