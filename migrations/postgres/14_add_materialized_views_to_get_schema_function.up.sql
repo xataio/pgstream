@@ -164,7 +164,7 @@ mv_indexes AS (
             'columns', indexes.index_columns,
             'unique', indexes.is_unique,
             'definition', indexes.index_def
-        )) AS mv_indexes
+        )) FILTER (WHERE indexes.index_name IS NOT NULL) AS mv_indexes
     FROM materialized_views mv
     LEFT JOIN indexes ON indexes.table_name = mv.table_name
     GROUP BY mv.table_name
