@@ -33,7 +33,7 @@ func (m *mockSchemaObserver) getGeneratedColumnNames(ctx context.Context, schema
 	return m.getGeneratedColumnNamesFn(ctx, schema, table)
 }
 
-func (m *mockSchemaObserver) isMaterializedView(schema, table string) bool {
+func (m *mockSchemaObserver) isMaterializedView(ctx context.Context, schema, table string) bool {
 	return m.isMaterializedViewFn(schema, table)
 }
 

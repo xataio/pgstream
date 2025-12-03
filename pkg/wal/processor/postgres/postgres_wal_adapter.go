@@ -5,6 +5,7 @@ package postgres
 import (
 	"context"
 
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -17,7 +18,7 @@ type walAdapter interface {
 
 type schemaObserver interface {
 	getGeneratedColumnNames(ctx context.Context, schema, table string) ([]string, error)
-	isMaterializedView(schema, table string) bool
+	isMaterializedView(ctx context.Context, schema, table string) bool
 	updateGeneratedColumnNames(schemalog *schemalog.LogEntry)
 	updateMaterializedViews(schemalog *schemalog.LogEntry)
 	close() error
@@ -39,8 +40,8 @@ type adapter struct {
 	schemaObserver schemaObserver
 }
 
-func newAdapter(ctx context.Context, schemaQuerier schemalogQuerier, pgURL string, onConflictAction string, forCopy bool) (*adapter, error) {
-	schemaObserver, err := newpgSchemaObserver(ctx, pgURL)
+func newAdapter(ctx context.Context, schemaQuerier schemalogQuerier, logger loglib.Logger, pgURL string, onConflictAction string, forCopy bool) (*adapter, error) {
+	schemaObserver, err := newPGSchemaObserver(ctx, pgURL, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +66,7 @@ func newAdapter(ctx context.Context, schemaQuerier schemalogQuerier, pgURL strin
 func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query, error) {
 	switch {
 	case e.Data == nil,
-		a.schemaObserver.isMaterializedView(e.Data.Schema, e.Data.Table):
+		a.schemaObserver.isMaterializedView(ctx, e.Data.Schema, e.Data.Table):
 		// skip DML processing for materialized views (read only)
 		return []*query{{}}, nil
 

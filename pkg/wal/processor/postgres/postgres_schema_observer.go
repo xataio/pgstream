@@ -8,24 +8,27 @@ import (
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	synclib "github.com/xataio/pgstream/internal/sync"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 )
 
-// pgSchemaObserver keeps track of column names for tables. It uses a cache to
-// reduce the number of calls to postgres, and it updates the state whenever a
-// DDL event is received through the WAL.
+// pgSchemaObserver keeps track of schema metadata including generated column
+// names and materialized views for tables. It uses a cache to reduce the number
+// of calls to postgres, and it updates the state whenever a DDL event is
+// received through the WAL.
 type pgSchemaObserver struct {
+	logger                loglib.Logger
 	pgConn                pglib.Querier
 	generatedTableColumns *synclib.Map[string, []string]
 	// materializedViews is a map of schema name to a set of materialized view names.
 	materializedViews *synclib.Map[string, map[string]struct{}]
 }
 
-// newpgSchemaObserver returns a postgres observer that tracks schemas,
+// newPGSchemaObserver returns a postgres observer that tracks schemas,
 // including generated table columns and materialized views. It keeps a cache to
 // reduce the number of calls to postgres, and it updates the state whenever a
 // DDL event is received through the WAL.
-func newpgSchemaObserver(ctx context.Context, pgURL string) (*pgSchemaObserver, error) {
+func newPGSchemaObserver(ctx context.Context, pgURL string, logger loglib.Logger) (*pgSchemaObserver, error) {
 	pgConn, err := pglib.NewConnPool(ctx, pgURL)
 	if err != nil {
 		return nil, err
@@ -34,6 +37,7 @@ func newpgSchemaObserver(ctx context.Context, pgURL string) (*pgSchemaObserver, 
 		pgConn:                pgConn,
 		generatedTableColumns: synclib.NewMap[string, []string](),
 		materializedViews:     synclib.NewMap[string, map[string]struct{}](),
+		logger:                logger,
 	}, nil
 }
 
@@ -61,7 +65,7 @@ func (o *pgSchemaObserver) getGeneratedColumnNames(ctx context.Context, schema, 
 // isMaterializedView will return true if the input schema.table is a
 // materialized view. It uses an internal cache to reduce the number of calls to
 // postgres. If the value is not in the cache, it will query postgres.
-func (o *pgSchemaObserver) isMaterializedView(schema, table string) bool {
+func (o *pgSchemaObserver) isMaterializedView(ctx context.Context, schema, table string) bool {
 	key := pglib.QuoteIdentifier(schema)
 	materializedViews, found := o.materializedViews.Get(key)
 	if found {
@@ -70,8 +74,9 @@ func (o *pgSchemaObserver) isMaterializedView(schema, table string) bool {
 	}
 
 	// if not found in the map, retrieve them from postgres
-	mvNames, err := o.queryMaterializedViews(context.Background(), schema)
+	mvNames, err := o.queryMaterializedViews(ctx, schema)
 	if err != nil {
+		o.logger.Error(err, "querying materialized views from postgres", loglib.Fields{"schema": schema})
 		return false
 	}
 

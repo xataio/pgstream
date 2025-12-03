@@ -10,6 +10,7 @@ import (
 	pglibretrier "github.com/xataio/pgstream/internal/postgres/retrier"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
+	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 )
@@ -30,10 +31,9 @@ type queryBatchSender interface {
 
 type WriterOption func(*Writer)
 
-func newWriter(ctx context.Context, config *Config, adapter walAdapter, writerType string, opts ...WriterOption) (*Writer, error) {
+func newWriter(ctx context.Context, config *Config, schemaLogStore schemalog.Store, writerType string, opts ...WriterOption) (*Writer, error) {
 	w := &Writer{
 		logger:          loglib.NewNoopLogger(),
-		adapter:         adapter,
 		writerType:      writerType,
 		disableTriggers: config.DisableTriggers,
 	}
@@ -52,6 +52,11 @@ func newWriter(ctx context.Context, config *Config, adapter walAdapter, writerTy
 			return pglib.NewConnPool(ctx, config.URL)
 		}, w.logger)
 	}
+	if err != nil {
+		return nil, err
+	}
+
+	w.adapter, err = newAdapter(ctx, schemaLogStore, w.logger, config.URL, config.OnConflictAction, config.BulkIngestEnabled)
 	if err != nil {
 		return nil, err
 	}

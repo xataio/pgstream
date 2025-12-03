@@ -12,6 +12,7 @@ import (
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 	synclib "github.com/xataio/pgstream/internal/sync"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/schemalog"
 )
 
@@ -76,7 +77,7 @@ func TestPGSchemaObserver_getGeneratedColumnNames(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:         "error - quering table columns",
+			name:         "error - querying table columns",
 			tableColumns: map[string][]string{},
 			pgConn: &pgmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
@@ -141,6 +142,7 @@ func TestPGSchemaObserver_getGeneratedColumnNames(t *testing.T) {
 			o := &pgSchemaObserver{
 				pgConn:                tc.pgConn,
 				generatedTableColumns: synclib.NewMapFromMap(tc.tableColumns),
+				logger:                loglib.NewNoopLogger(),
 			}
 
 			colNames, err := o.getGeneratedColumnNames(context.TODO(), "test_schema", "test_table")
@@ -287,9 +289,10 @@ func TestPGSchemaObserver_isMaterializedView(t *testing.T) {
 			o := &pgSchemaObserver{
 				materializedViews: synclib.NewMapFromMap(tc.materializedViews),
 				pgConn:            tc.pgConn,
+				logger:            loglib.NewNoopLogger(),
 			}
 
-			isMaterialized := o.isMaterializedView(tc.schema, tc.table)
+			isMaterialized := o.isMaterializedView(context.Background(), tc.schema, tc.table)
 			require.Equal(t, tc.wantMaterialized, isMaterialized)
 		})
 	}
@@ -361,6 +364,7 @@ func TestPGSchemaObserver_updateMaterializedViews(t *testing.T) {
 
 			obs := &pgSchemaObserver{
 				materializedViews: synclib.NewMapFromMap(tc.materializedViews),
+				logger:            loglib.NewNoopLogger(),
 			}
 
 			obs.updateMaterializedViews(tc.logEntry)
