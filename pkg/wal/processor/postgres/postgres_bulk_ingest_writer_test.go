@@ -74,7 +74,7 @@ func TestBulkIngestWriter_ProcessWALEvent(t *testing.T) {
 		walEvents          []*wal.Event
 		batchSenderMap     map[string]queryBatchSender
 		adapter            walAdapter
-		batchSenderBuilder func(ctx context.Context) (queryBatchSender, error)
+		batchSenderBuilder func(ctx context.Context, schema, table string) (queryBatchSender, error)
 
 		wantMsgs map[string][]*batch.WALMessage[*query]
 		wantErr  error
@@ -90,7 +90,7 @@ func TestBulkIngestWriter_ProcessWALEvent(t *testing.T) {
 				testTable2Key: batchmocks.NewBatchSender[*query](),
 			},
 			adapter: testAdapter,
-			batchSenderBuilder: func(ctx context.Context) (queryBatchSender, error) {
+			batchSenderBuilder: func(ctx context.Context, schema, table string) (queryBatchSender, error) {
 				return nil, errors.New("batchSenderBuilder should not be called")
 			},
 
@@ -115,7 +115,7 @@ func TestBulkIngestWriter_ProcessWALEvent(t *testing.T) {
 			},
 			batchSenderMap: nil,
 			adapter:        testAdapter,
-			batchSenderBuilder: func(ctx context.Context) (queryBatchSender, error) {
+			batchSenderBuilder: func(ctx context.Context, schema, table string) (queryBatchSender, error) {
 				return nil, errors.New("batchSenderBuilder should not be called")
 			},
 
@@ -131,7 +131,7 @@ func TestBulkIngestWriter_ProcessWALEvent(t *testing.T) {
 					return nil, errTest
 				},
 			},
-			batchSenderBuilder: func(ctx context.Context) (queryBatchSender, error) {
+			batchSenderBuilder: func(ctx context.Context, schema, table string) (queryBatchSender, error) {
 				return nil, errors.New("batchSenderBuilder should not be called")
 			},
 
@@ -143,7 +143,7 @@ func TestBulkIngestWriter_ProcessWALEvent(t *testing.T) {
 			walEvents:      []*wal.Event{testWalEvent(testSchema1, testTable1)},
 			batchSenderMap: nil,
 			adapter:        testAdapter,
-			batchSenderBuilder: func(ctx context.Context) (queryBatchSender, error) {
+			batchSenderBuilder: func(ctx context.Context, schema, table string) (queryBatchSender, error) {
 				return nil, errTest
 			},
 
@@ -155,7 +155,7 @@ func TestBulkIngestWriter_ProcessWALEvent(t *testing.T) {
 			walEvents:      []*wal.Event{testWalEvent(testSchema1, testTable1)},
 			batchSenderMap: make(map[string]queryBatchSender),
 			adapter:        testAdapter,
-			batchSenderBuilder: func(ctx context.Context) (queryBatchSender, error) {
+			batchSenderBuilder: func(ctx context.Context, schema, table string) (queryBatchSender, error) {
 				s := batchmocks.NewBatchSender[*query]()
 				s.SendMessageFn = func(ctx context.Context, w *batch.WALMessage[*query]) error {
 					return errTest

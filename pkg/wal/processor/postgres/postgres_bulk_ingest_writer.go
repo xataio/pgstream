@@ -23,7 +23,7 @@ type BulkIngestWriter struct {
 	*Writer
 
 	batchSenderMap     *synclib.Map[string, queryBatchSender]
-	batchSenderBuilder func(ctx context.Context) (queryBatchSender, error)
+	batchSenderBuilder func(ctx context.Context, schema, table string) (queryBatchSender, error)
 }
 
 const bulkIngestWriter = "postgres_bulk_ingest_writer"
@@ -47,8 +47,9 @@ func NewBulkIngestWriter(ctx context.Context, config *Config, opts ...WriterOpti
 		batchSenderMap: synclib.NewMap[string, queryBatchSender](),
 	}
 
-	biw.batchSenderBuilder = func(ctx context.Context) (queryBatchSender, error) {
-		return batch.NewSender(ctx, &config.BatchConfig, biw.sendBatch, w.logger)
+	biw.batchSenderBuilder = func(ctx context.Context, schema, table string) (queryBatchSender, error) {
+		logger := w.logger.WithFields(loglib.Fields{"schema": schema, "table": table})
+		return batch.NewSender(ctx, &config.BatchConfig, biw.sendBatch, logger)
 	}
 
 	return biw, nil
@@ -134,7 +135,7 @@ func (w *BulkIngestWriter) getBatchSender(ctx context.Context, schema, table str
 	}
 
 	w.logger.Debug("creating new batch sender", loglib.Fields{"schema": schema, "table": table})
-	sender, err := w.batchSenderBuilder(ctx)
+	sender, err := w.batchSenderBuilder(ctx, schema, table)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +150,7 @@ func (w *BulkIngestWriter) sendBatch(ctx context.Context, batch *batch.Batch[*qu
 		return nil
 	}
 
-	w.logger.Debug("bulk writing batch", loglib.Fields{"batch_size": len(queries)})
+	w.logger.Trace("bulk writing batch", loglib.Fields{"batch_size": len(queries)})
 	return w.copyFromInsertQueries(ctx, queries)
 }
 
