@@ -197,7 +197,8 @@ func (s *Sender[T]) send(ctx context.Context) error {
 				// if the batch has reached the max allowed size, don't wait for
 				// the next tick and send. If we receive a keep alive, send
 				// immediately.
-				if len(msgBatch.messages) >= int(s.maxBatchSize) || msg.isKeepAlive() {
+				if s.maxBatchSizeReached(len(msgBatch.messages)) || msg.isKeepAlive() {
+					s.logger.Debug("max batch size reached or keep alive received, draining batch", loglib.Fields{"batch_size": len(msgBatch.messages), "max_batch_size": s.maxBatchSize})
 					if err := drainBatch(msgBatch); err != nil {
 						return err
 					}
@@ -231,13 +232,22 @@ func (s *Sender[T]) Close() {
 func (s *Sender[T]) getMaxBatchBytes() int64 {
 	if s.batchBytesTuner != nil {
 		switch {
-		case s.batchBytesTuner.hasConverged():
+		case s.batchBytesTuner.hasConverged() && s.batchBytesTuner.candidateSetting != nil:
 			return s.batchBytesTuner.candidateSetting.value
 		case s.batchBytesTuner.measurementSetting != nil:
 			return s.batchBytesTuner.measurementSetting.value
 		}
 	}
 	return s.maxBatchBytes
+}
+
+func (s *Sender[T]) maxBatchSizeReached(batchSize int) bool {
+	// if we're automatically tuning batch bytes, we don't limit by max batch
+	// size
+	if s.batchBytesTuner != nil {
+		return false
+	}
+	return int64(batchSize) >= s.maxBatchSize
 }
 
 func (s *Sender[T]) sendBatch(ctx context.Context, batch *Batch[T]) error {
