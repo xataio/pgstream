@@ -52,9 +52,10 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 			batch: testMockBatch,
 
 			wantCandidate: &batchBytesSetting{
-				value:      20,
-				throughput: 1000.0,
-				direction:  directionLeft,
+				value:         20,
+				throughputs:   []float64{1000.0},
+				avgThroughput: 1000.0,
+				direction:     directionLeft,
 			},
 			wantConverged: true,
 			wantErr:       nil,
@@ -78,9 +79,10 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 			batch: testMockBatch,
 
 			wantCandidate: &batchBytesSetting{
-				value:      50,
-				throughput: 1000.0,
-				direction:  "",
+				value:         50,
+				throughputs:   []float64{1000.0},
+				avgThroughput: 1000.0,
+				direction:     "",
 			},
 			wantConverged: true,
 			wantErr:       nil,
@@ -104,9 +106,10 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 			batch: testMockBatch,
 
 			wantCandidate: &batchBytesSetting{
-				value:      81,
-				throughput: 1000.0,
-				direction:  directionRight,
+				value:         81,
+				throughputs:   []float64{1000.0},
+				avgThroughput: 1000.0,
+				direction:     directionRight,
 			},
 			wantConverged: true,
 			wantErr:       nil,
@@ -144,6 +147,7 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 
 			batchBytesTuner.batchBytesToleranceFactor = 0.0 // No tolerance for this test
 			batchBytesTuner.calculateThroughputFn = tc.calculateThroughputFn
+			batchBytesTuner.minSamples = 1 // reduce min samples for test speed
 
 			ctx := context.Background()
 			doneChan := make(chan struct{}, 1)
@@ -165,7 +169,8 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 					require.Nil(t, batchBytesTuner.candidateSetting)
 				} else {
 					require.Equal(t, tc.wantCandidate.value, batchBytesTuner.candidateSetting.value)
-					require.InDelta(t, tc.wantCandidate.throughput, batchBytesTuner.candidateSetting.throughput, 5)
+					require.Len(t, batchBytesTuner.candidateSetting.throughputs, len(tc.wantCandidate.throughputs))
+					require.InDelta(t, tc.wantCandidate.avgThroughput, batchBytesTuner.candidateSetting.avgThroughput, 5)
 					require.Equal(t, tc.wantCandidate.direction, batchBytesTuner.candidateSetting.direction)
 				}
 

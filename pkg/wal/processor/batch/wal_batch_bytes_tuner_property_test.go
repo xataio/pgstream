@@ -58,6 +58,7 @@ func TestBatchBytesTuner_ConvergesWithinBoundedIterations(t *testing.T) {
 
 		// Mock the throughput function to use the performance profile
 		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
+		tuner.minSamples = 1
 
 		ctx := context.Background()
 		maxIterations := int(math.Log2(float64(len(performanceProfile)))) * 3
@@ -103,6 +104,7 @@ func TestBatchBytesTuner_FindsOptimalValue(t *testing.T) {
 
 		// Mock the throughput function to use the performance profile
 		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
+		tuner.minSamples = 1 // reduce min samples for test speed
 
 		ctx := context.Background()
 		for i := 0; i < 100 && !tuner.hasConverged(); i++ {
@@ -114,7 +116,7 @@ func TestBatchBytesTuner_FindsOptimalValue(t *testing.T) {
 		}
 
 		foundValue := tuner.candidateSetting.value
-		foundThroughput := tuner.candidateSetting.throughput
+		foundThroughput := tuner.candidateSetting.avgThroughput
 
 		// Accept if throughput is within 10% of optimal or value is within 10% of search space from optimal
 		throughputTolerance := optimalThroughput * 0.1
@@ -156,6 +158,7 @@ func TestBatchBytesTuner_MonotonicImprovement(t *testing.T) {
 
 		// Mock the throughput function to use the performance profile
 		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
+		tuner.minSamples = 1 // reduce min samples for test speed
 
 		ctx := context.Background()
 		var previousBestThroughput float64
@@ -164,7 +167,7 @@ func TestBatchBytesTuner_MonotonicImprovement(t *testing.T) {
 			tuner.sendBatch(ctx, mockBatch(tuner))
 
 			if tuner.candidateSetting != nil {
-				currentThroughput := tuner.candidateSetting.throughput
+				currentThroughput := tuner.candidateSetting.avgThroughput
 				if previousBestThroughput > 0 && currentThroughput < previousBestThroughput {
 					t.Fatalf("throughput decreased from %v to %v - not monotonic",
 						previousBestThroughput, currentThroughput)
@@ -205,6 +208,7 @@ func TestBatchBytesTuner_SearchSpaceNarrowing(t *testing.T) {
 
 		// Mock the throughput function to use the performance profile
 		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
+		tuner.minSamples = 1
 
 		ctx := context.Background()
 		previousRange := tuner.maxBatchBytes - tuner.minBatchBytes
@@ -251,6 +255,7 @@ func TestBatchBytesTuner_RespectsConvergenceThreshold(t *testing.T) {
 
 		// Mock the throughput function to use the performance profile
 		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
+		tuner.minSamples = 1
 
 		ctx := context.Background()
 		for i := 0; i < 100 && !tuner.hasConverged(); i++ {
@@ -299,6 +304,7 @@ func TestBatchBytesTuner_HandlesIncompleteBatches(t *testing.T) {
 		tuner.batchBytesToleranceFactor = 0.0 // No tolerance for this test
 
 		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
+		tuner.minSamples = 1 // reduce min samples for test speed
 
 		ctx := context.Background()
 
@@ -318,9 +324,9 @@ func TestBatchBytesTuner_HandlesIncompleteBatches(t *testing.T) {
 			// If batch was incomplete, candidate should not have been updated with worse values
 			if batch.totalBytes < int(tuner.measurementSetting.value) {
 				if previousCandidate != nil && tuner.candidateSetting != nil {
-					if tuner.candidateSetting.throughput < previousCandidate.throughput {
-						t.Fatalf("candidate throughput decreased after incomplete batch: %v -> %v",
-							previousCandidate.throughput, tuner.candidateSetting.throughput)
+					if tuner.candidateSetting.avgThroughput < previousCandidate.avgThroughput {
+						t.Fatalf("candidate avg throughput decreased after incomplete batch: %v -> %v",
+							previousCandidate.avgThroughput, tuner.candidateSetting.avgThroughput)
 					}
 				}
 			}
@@ -358,6 +364,7 @@ func TestBatchBytesTuner_ConvergesWithIncompleteBatches(t *testing.T) {
 		tuner.batchBytesToleranceFactor = 0.0 // No tolerance for this test
 
 		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
+		tuner.minSamples = 1 // reduce min samples for test speed
 
 		ctx := context.Background()
 
@@ -395,7 +402,7 @@ func TestBatchBytesTuner_ConvergesWithIncompleteBatches(t *testing.T) {
 		// Should still find a reasonable value
 		actualOptimal, optimalThroughput := findActualOptimal(performanceProfile)
 		foundValue := tuner.candidateSetting.value
-		foundThroughput := tuner.candidateSetting.throughput
+		foundThroughput := tuner.candidateSetting.avgThroughput
 
 		throughputTolerance := optimalThroughput * 0.5 // Allow 50% tolerance with incomplete batches
 		withinThroughputTolerance := math.Abs(foundThroughput-optimalThroughput) <= throughputTolerance
@@ -435,6 +442,7 @@ func TestBatchBytesTuner_DoesNotUpdateCandidateOnIncompleteBatch(t *testing.T) {
 		tuner.batchBytesToleranceFactor = 0.0 // No tolerance for this test
 
 		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
+		tuner.minSamples = 1
 
 		ctx := context.Background()
 
@@ -466,7 +474,55 @@ func TestBatchBytesTuner_DoesNotUpdateCandidateOnIncompleteBatch(t *testing.T) {
 	})
 }
 
-// Generators
+// TestBatchyesTuner_RespectsMinimumSamples verifies that the tuner collects
+// at least minSamples measurements at a given batch size before considering it
+// as a valid candidate. This prevents premature decisions based on insufficient data.
+func TestBatchBytesTuner_RespectsMinimumSamples(t *testing.T) {
+	testLogger := zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
+		LogLevel: "error",
+	}))
+
+	rapid.Check(t, func(t *rapid.T) {
+		performanceProfile := genPerformanceProfile(t, 20, 100)
+		minSamples := rapid.IntRange(2, 5).Draw(t, "min_samples")
+
+		if len(performanceProfile) < 20 {
+			t.Skip("profile too small")
+		}
+
+		tuner, err := newBatchBytesTuner(AutoTuneConfig{
+			Enabled:              true,
+			MinBatchBytes:        1,
+			MaxBatchBytes:        int64(len(performanceProfile)),
+			ConvergenceThreshold: 0.1,
+		}, noopSendFn, testLogger)
+		if err != nil {
+			t.Fatalf("failed to create tuner: %v", err)
+		}
+
+		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
+		tuner.minSamples = minSamples
+
+		ctx := context.Background()
+		prevCandidate := tuner.candidateSetting
+
+		// Track when candidate changes and verify it had enough samples
+		for i := 0; i < 100 && !tuner.hasConverged(); i++ {
+			tuner.sendBatch(ctx, mockBatch(tuner))
+
+			// Check if candidate was updated
+			if tuner.candidateSetting != prevCandidate && tuner.candidateSetting != nil {
+				// A new candidate was selected - verify it has enough samples
+				actualSamples := len(tuner.candidateSetting.throughputs)
+				if actualSamples < minSamples {
+					t.Fatalf("candidate selected with only %d samples (required %d), candidate: %v",
+						actualSamples, minSamples, tuner.candidateSetting)
+				}
+				prevCandidate = tuner.candidateSetting
+			}
+		}
+	})
+} // Generators
 
 // genPerformanceProfile generates a random throughput profile (bytes/second)
 // representing throughput at different batch byte values.
@@ -570,6 +626,7 @@ func BenchmarkBatchBytesTuner_Convergence(b *testing.B) {
 					MaxBatchBytes:        int64(size),
 					ConvergenceThreshold: 0.1, // 10% threshold
 				}, noopSendFn, testLogger)
+				tuner.minSamples = 1
 
 				ctx := context.Background()
 				for j := 0; j < 100 && !tuner.hasConverged(); j++ {

@@ -23,6 +23,7 @@ type batchBytesTuner[T Message] struct {
 	minBatchBytes             int64
 	convergenceThreshold      int64
 	batchBytesToleranceFactor float64
+	minSamples                int
 
 	measurementSetting *batchBytesSetting
 	candidateSetting   *batchBytesSetting
@@ -36,15 +37,17 @@ const (
 )
 
 const (
+	minThroughputSamples             = 3
 	maxSkippedMeasurements           = 3
 	defaultBatchBytesToleranceFactor = 0.1 // 10% tolerance when matching batch size for measurement
 )
 
 type batchBytesSetting struct {
-	value      int64
-	throughput float64
-	direction  direction
-	skipped    uint
+	value         int64
+	throughputs   []float64
+	avgThroughput float64
+	direction     direction
+	skipped       uint
 }
 
 // Typical throughput curve
@@ -81,6 +84,7 @@ func newBatchBytesTuner[T Message](cfg AutoTuneConfig, sendFn sendBatchFn[T], lo
 		}),
 		calculateThroughputFn:     calculateThroughput,
 		batchBytesToleranceFactor: defaultBatchBytesToleranceFactor,
+		minSamples:                minThroughputSamples,
 	}
 
 	t.logger.Debug("batch bytes initialised", loglib.Fields{
@@ -131,10 +135,14 @@ func (t *batchBytesTuner[T]) sendBatch(ctx context.Context, batch *Batch[T]) err
 
 	start := time.Now()
 	defer func() {
-		t.measurementSetting.throughput = t.calculateThroughputFn(time.Since(start), t.measurementSetting.value)
-		t.measurementSetting = t.calculateNextMeasurementSetting()
+		t.measurementSetting.addThroughput(t.calculateThroughputFn(time.Since(start), t.measurementSetting.value))
+		if t.measurementSetting.hasMinSamples(t.minSamples) {
+			// once we have enough samples for a measurement, calculate the next
+			t.measurementSetting.calculateAverageThroughput()
+			t.measurementSetting = t.calculateNextMeasurementSetting()
+		}
 		if t.hasConverged() {
-			t.logger.Info("batch bytes tuner has converged", loglib.Fields{"final_batch_bytes": t.candidateSetting.value})
+			t.logger.Debug("batch bytes tuner has converged", loglib.Fields{"final_batch_bytes": t.candidateSetting.value})
 		}
 	}()
 	return t.sendFn(ctx, batch)
@@ -143,9 +151,9 @@ func (t *batchBytesTuner[T]) sendBatch(ctx context.Context, batch *Batch[T]) err
 func (t *batchBytesTuner[T]) calculateNextMeasurementSetting() *batchBytesSetting {
 	var newMeasurementSetting *batchBytesSetting
 	switch {
-	case t.measurementSetting.throughput == 0:
-		// if measurement throughput is 0, it means the batch send failed or
-		// was skipped, so go left to reduce batch size
+	case !t.measurementSetting.hasMinSamples(t.minSamples):
+		// if measurement doesn't have enough samples, it means the batch send
+		// failed or was skipped, so go left to reduce batch size
 		newMeasurementSetting = &batchBytesSetting{
 			value:     median(t.minBatchBytes, t.measurementSetting.value),
 			direction: directionLeft,
@@ -166,7 +174,7 @@ func (t *batchBytesTuner[T]) calculateNextMeasurementSetting() *batchBytesSettin
 			direction: directionLeft,
 		}
 
-	case t.measurementSetting.throughput >= t.candidateSetting.throughput:
+	case t.measurementSetting.avgThroughput >= t.candidateSetting.avgThroughput:
 		// if measurement has better throughput than candidate, keep going in same direction
 		switch t.measurementSetting.direction {
 		case directionLeft:
@@ -249,7 +257,7 @@ func (s *batchBytesSetting) String() string {
 	if s == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("[value: %d, throughput: %.2fb/s, direction: %s]", s.value, s.throughput, s.direction)
+	return fmt.Sprintf("[value: %d, avg throughput: %.2fb/s, sample count: %d, direction: %s]", s.value, s.avgThroughput, len(s.throughputs), s.direction)
 }
 
 func (s *batchBytesSetting) IsWithinTolerance(batchBytes int64, toleranceFactor float64) bool {
@@ -258,6 +266,29 @@ func (s *batchBytesSetting) IsWithinTolerance(batchBytes int64, toleranceFactor 
 	}
 	bytesTolerance := int64(float64(s.value) * toleranceFactor)
 	return batchBytes >= (s.value-bytesTolerance) && batchBytes <= (s.value+bytesTolerance)
+}
+
+func (s *batchBytesSetting) addThroughput(throughput float64) {
+	if s == nil {
+		return
+	}
+	s.throughputs = append(s.throughputs, throughput)
+}
+
+func (s *batchBytesSetting) hasMinSamples(minSamples int) bool {
+	return s != nil && len(s.throughputs) >= minSamples
+}
+
+func (s *batchBytesSetting) calculateAverageThroughput() {
+	if s == nil || len(s.throughputs) == 0 {
+		return
+	}
+
+	var total float64
+	for _, v := range s.throughputs {
+		total += v
+	}
+	s.avgThroughput = total / float64(len(s.throughputs))
 }
 
 func calculateThroughput(duration time.Duration, batchBytes int64) float64 {
