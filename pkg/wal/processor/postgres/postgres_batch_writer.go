@@ -40,12 +40,7 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...WriterOption) (
 		schemaLogStore = schemalog.NewStoreCache(schemaLogStore)
 	}
 
-	adapter, err := newAdapter(ctx, schemaLogStore, config.URL, config.OnConflictAction, false)
-	if err != nil {
-		return nil, err
-	}
-
-	w, err := newWriter(ctx, config, adapter, batchWriter, opts...)
+	w, err := newWriter(ctx, config, schemaLogStore, batchWriter, opts...)
 	if err != nil {
 		return nil, err
 	}

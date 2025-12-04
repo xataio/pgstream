@@ -78,7 +78,7 @@ func (a *ddlAdapter) schemaDiffToQueries(schemaName string, diff *schemalog.Diff
 
 	for _, table := range diff.TablesAdded {
 		queries = append(queries, a.buildCreateTableQuery(schemaName, table))
-		queries = append(queries, a.buildCreateIndexQueries(schemaName, table)...)
+		queries = append(queries, a.buildCreateTableIndexQueries(schemaName, table)...)
 		queries = append(queries, a.buildAddConstraintQueries(schemaName, table)...)
 		fkQueries = append(fkQueries, a.buildAddForeignKeyQueries(schemaName, table)...)
 	}
@@ -89,21 +89,41 @@ func (a *ddlAdapter) schemaDiffToQueries(schemaName string, diff *schemalog.Diff
 		fkQueries = append(fkQueries, alterFKQueries...)
 	}
 
+	for _, mv := range diff.MaterializedViewsRemoved {
+		dropQuery := fmt.Sprintf("DROP MATERIALIZED VIEW IF EXISTS %s", pglib.QuoteQualifiedIdentifier(schemaName, mv.Name))
+		queries = append(queries, a.newDDLQuery(schemaName, mv.Name, dropQuery))
+	}
+
+	for _, mv := range diff.MaterializedViewsAdded {
+		createQuery := fmt.Sprintf("CREATE MATERIALIZED VIEW IF NOT EXISTS %s AS %s", pglib.QuoteQualifiedIdentifier(schemaName, mv.Name), mv.Definition)
+		queries = append(queries, a.newDDLQuery(schemaName, mv.Name, createQuery))
+		queries = append(queries, a.buildCreateIndexQueries(schemaName, mv.Name, mv.Indexes, nil)...)
+	}
+
+	for _, mv := range diff.MaterializedViewsChanged {
+		alterQueries := a.buildAlterMaterializedViewQueries(schemaName, mv)
+		queries = append(queries, alterQueries...)
+	}
+
 	return append(queries, fkQueries...), nil
 }
 
-func (a *ddlAdapter) buildCreateIndexQueries(schemaName string, table schemalog.Table) []*query {
+func (a *ddlAdapter) buildCreateTableIndexQueries(schemaName string, table schemalog.Table) []*query {
 	constraintIndexes := constraintBackedIndexNames(table.Constraints)
-	queries := make([]*query, 0, len(table.Indexes))
-	for _, idx := range table.Indexes {
+	return a.buildCreateIndexQueries(schemaName, table.Name, table.Indexes, constraintIndexes)
+}
+
+func (a *ddlAdapter) buildCreateIndexQueries(schemaName, objectName string, indexes []schemalog.Index, skip map[string]struct{}) []*query {
+	queries := make([]*query, 0, len(indexes))
+	for _, idx := range indexes {
 		if idx.Definition == "" {
 			continue
 		}
-		if _, skip := constraintIndexes[idx.Name]; skip {
+		if _, skipIdx := skip[idx.Name]; skipIdx {
 			continue
 		}
 		createQuery := ensureIndexHasIfNotExists(idx.Definition)
-		queries = append(queries, a.newDDLQuery(schemaName, table.Name, createQuery))
+		queries = append(queries, a.newDDLQuery(schemaName, objectName, createQuery))
 	}
 	return queries
 }
@@ -262,6 +282,42 @@ func (a *ddlAdapter) buildAlterTableQueries(schemaName string, tableDiff schemal
 	}
 
 	return queries, fkQueries
+}
+
+func (a *ddlAdapter) buildAlterMaterializedViewQueries(schemaName string, mvDiff schemalog.MaterializedViewsDiff) []*query {
+	queries := []*query{}
+	if mvDiff.NameChange != nil {
+		alterQuery := fmt.Sprintf("ALTER MATERIALIZED VIEW IF EXISTS %s RENAME TO %s",
+			pglib.QuoteQualifiedIdentifier(schemaName, mvDiff.NameChange.Old),
+			pglib.QuoteIdentifier(mvDiff.NameChange.New),
+		)
+		queries = append(queries, a.newDDLQuery(schemaName, mvDiff.MaterializedViewName, alterQuery))
+	}
+
+	for _, idx := range mvDiff.IndexesAdded {
+		if idx.Definition == "" {
+			continue
+		}
+		createQuery := ensureIndexHasIfNotExists(idx.Definition)
+		queries = append(queries, a.newDDLQuery(schemaName, mvDiff.MaterializedViewName, createQuery))
+	}
+
+	for _, idx := range mvDiff.IndexesRemoved {
+		dropQuery := buildDropIndexQuery(schemaName, idx.Name)
+		if dropQuery == "" {
+			continue
+		}
+		queries = append(queries, a.newDDLQuery(schemaName, mvDiff.MaterializedViewName, dropQuery))
+	}
+
+	for _, definition := range mvDiff.IndexesChanged {
+		if definition == "" {
+			continue
+		}
+		queries = append(queries, a.newDDLQuery(schemaName, mvDiff.MaterializedViewName, definition))
+	}
+
+	return queries
 }
 
 func (a *ddlAdapter) buildAlterColumnQueries(schemaName, tableName string, columnDiff *schemalog.ColumnDiff) []*query {

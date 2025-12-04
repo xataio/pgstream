@@ -197,7 +197,6 @@ func (h *Handler) ReceiveMessage(ctx context.Context) (*replication.Message, err
 			// ignore errors for excluded tables
 			return nil, nil
 		default:
-			h.logger.Error(err, "receiving postgres message")
 			return nil, h.mapPostgresError(err)
 		}
 	}
@@ -328,14 +327,17 @@ func (h *Handler) verifyReplicationSlotExists(ctx context.Context) error {
 }
 
 func (h *Handler) mapPostgresError(err error) error {
-	if errors.Is(err, pglib.ErrConnTimeout) {
-		return replication.ErrConnTimeout
-	}
-
-	// ignore warnings
+	// log and ignore warnings
 	replErr := &pglib.Error{}
 	if errors.As(err, &replErr) && replErr.Severity == "WARNING" {
+		h.logger.Warn(err, "receiving message")
 		return nil
+	}
+
+	h.logger.Error(err, "receiving message")
+
+	if errors.Is(err, pglib.ErrConnTimeout) {
+		return replication.ErrConnTimeout
 	}
 
 	return err
