@@ -58,7 +58,7 @@ func NewSender[T Message](ctx context.Context, config *Config, sendfn sendBatchF
 
 	if config.AutoTune.Enabled {
 		var err error
-		s.batchBytesTuner, err = newBatchBytesTuner(config.AutoTune, sendfn, logger)
+		s.batchBytesTuner, err = newBatchBytesTuner(config.GetAutoTuneConfig(), sendfn, logger)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create batch bytes auto tuner: %w", err)
 		}

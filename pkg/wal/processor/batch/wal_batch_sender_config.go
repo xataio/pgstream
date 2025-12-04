@@ -49,9 +49,9 @@ const (
 	defaultBatchTimeout          = time.Second
 	defaultMaxBatchSize          = 100
 	defaultMaxBatchBytes         = int64(1572864)
-	defaultAutoTuneMinBatchBytes = int64(1024 * 1024)       // 1MiB
-	defaultAutoTuneMaxBatchBytes = int64(100 * 1024 * 1024) // 100MiB
-	defaultConvergenceThreshold  = 0.01                     // 1%
+	defaultAutoTuneMinBatchBytes = int64(1024 * 1024)                         // 1MiB
+	defaultAutoTuneMaxBatchBytes = int64(0.8 * float64(defaultMaxQueueBytes)) // 80MiB (80% of max queue bytes)
+	defaultConvergenceThreshold  = 0.01                                       // 1%
 )
 
 var errInvalidAutoTuneConfig = errors.New("invalid auto tune configuration: min batch bytes must be less than or equal to max batch bytes")
@@ -86,6 +86,15 @@ func (c *Config) GetMaxQueueBytes() (int64, error) {
 	}
 
 	return defaultMaxQueueBytes, nil
+}
+
+func (c *Config) GetAutoTuneConfig() AutoTuneConfig {
+	// set default max batch bytes if not set to not exceed max queue bytes
+	if c.AutoTune.MaxBatchBytes == 0 {
+		maxQueueBytes, _ := c.GetMaxQueueBytes()
+		c.AutoTune.MaxBatchBytes = int64(0.8 * float64(maxQueueBytes))
+	}
+	return c.AutoTune
 }
 
 func (c *AutoTuneConfig) IsValid() error {
