@@ -176,6 +176,11 @@ func (in *Injector) inject(ctx context.Context, data *wal.Data) error {
 		return fmt.Errorf("failed to retrieve schema for metadata injection %w", err)
 	}
 
+	if logEntry.IsMaterializedView(data.Table) {
+		// skip materialized views, read only tables, nothing to inject
+		return nil
+	}
+
 	table, found := logEntry.GetTableByName(data.Table)
 	if !found {
 		return processor.ErrTableNotFound

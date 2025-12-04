@@ -37,11 +37,7 @@ var errUnexpectedCopiedRows = errors.New("number of rows copied doesn't match th
 func NewBulkIngestWriter(ctx context.Context, config *Config, opts ...WriterOption) (*BulkIngestWriter, error) {
 	// the bulk ingest writer only processes insert events, so we don't need a
 	// DDL adapter
-	adapter, err := newAdapter(ctx, nil, config.URL, config.OnConflictAction, true)
-	if err != nil {
-		return nil, err
-	}
-	w, err := newWriter(ctx, config, adapter, bulkIngestWriter, opts...)
+	w, err := newWriter(ctx, config, nil, bulkIngestWriter, opts...)
 	if err != nil {
 		return nil, err
 	}
