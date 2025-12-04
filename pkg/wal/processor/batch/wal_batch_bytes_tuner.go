@@ -13,14 +13,16 @@ import (
 // batchBytesTuner tunes the batch bytes size based on observed throughput using
 // a directional search algorithm.
 type batchBytesTuner[T Message] struct {
-	sendFn       sendBatchFn[T]
-	logger       loglib.Logger
-	throughputFn func(time.Duration, int64) float64
+	sendFn sendBatchFn[T]
+	logger loglib.Logger
+	// calculateThroughputFn calculates throughput given duration and batch size, so it
+	// can be mocked for testing to generate desired throughput curves
+	calculateThroughputFn func(time.Duration, int64) float64
 
-	maxBatchBytes        int64
-	minBatchBytes        int64
-	convergenceThreshold int64
-	converged            bool
+	maxBatchBytes             int64
+	minBatchBytes             int64
+	convergenceThreshold      int64
+	batchBytesToleranceFactor float64
 
 	measurementSetting *batchBytesSetting
 	candidateSetting   *batchBytesSetting
@@ -33,10 +35,16 @@ const (
 	directionRight direction = "right"
 )
 
+const (
+	maxSkippedMeasurements           = 3
+	defaultBatchBytesToleranceFactor = 0.1 // 10% tolerance when matching batch size for measurement
+)
+
 type batchBytesSetting struct {
 	value      int64
 	throughput float64
 	direction  direction
+	skipped    uint
 }
 
 // Typical throughput curve
@@ -71,10 +79,11 @@ func newBatchBytesTuner[T Message](cfg AutoTuneConfig, sendFn sendBatchFn[T], lo
 		logger: logger.WithFields(loglib.Fields{
 			loglib.ModuleField: "batch_bytes_tuner",
 		}),
-		throughputFn: calculateThroughput,
+		calculateThroughputFn:     calculateThroughput,
+		batchBytesToleranceFactor: defaultBatchBytesToleranceFactor,
 	}
 
-	t.logger.Info("batch bytes initialised", loglib.Fields{
+	t.logger.Debug("batch bytes initialised", loglib.Fields{
 		"initial_batch_bytes":   t.measurementSetting.value,
 		"min_batch_bytes":       t.minBatchBytes,
 		"max_batch_bytes":       t.maxBatchBytes,
@@ -85,26 +94,48 @@ func newBatchBytesTuner[T Message](cfg AutoTuneConfig, sendFn sendBatchFn[T], lo
 }
 
 func (t *batchBytesTuner[T]) sendBatch(ctx context.Context, batch *Batch[T]) error {
-	t.logger.Trace("sending batch")
-
+	t.logger.Trace("sending batch", loglib.Fields{
+		"batch_bytes":       batch.totalBytes,
+		"measurement_bytes": t.measurementSetting.value,
+	})
+	// If it has converged, no need to continue tuning.
 	if t.hasConverged() {
-		// If the tuner has converged, no need to continue sampling.
 		return t.sendFn(ctx, batch)
+	}
+
+	// Check if the current batch size matches the measurement setting within
+	// tolerance, otherwise we can't measure throughput accurately.
+	if !t.measurementSetting.IsWithinTolerance(int64(batch.totalBytes), t.batchBytesToleranceFactor) {
+		logFields := loglib.Fields{
+			"expected_batch_bytes": t.measurementSetting.value,
+			"actual_batch_bytes":   batch.totalBytes,
+			"skipped_count":        t.measurementSetting.skipped,
+		}
+		switch {
+		case t.measurementSetting.skipped >= maxSkippedMeasurements:
+			// When the current batch size doesn't match the measurement setting
+			// for a number of times in a row, skip this measurement and go left
+			// (since we need to reduce the batch size to stop hitting the timeout).
+			t.logger.Debug("skipping to next measurement due to repeated batch size mismatch", logFields)
+			t.measurementSetting = t.calculateNextMeasurementSetting()
+			return t.sendFn(ctx, batch)
+		default:
+			// If the current batch size doesn't match the measurement setting,
+			// skip tuning (this can happen if the sender's timeout has been triggered,
+			// when there's not enough data to fill the batch size).
+			t.measurementSetting.skipped++
+			t.logger.Debug("skipping measurement due to batch size mismatch", logFields)
+			return t.sendFn(ctx, batch)
+		}
 	}
 
 	start := time.Now()
 	defer func() {
-		t.measurementSetting.throughput = t.throughputFn(time.Since(start), t.measurementSetting.value)
-
-		nextMeasurementSetting := t.calculateNextMeasurementSetting()
-
-		// Converge only when the range is within the threshold
-		if (t.maxBatchBytes - t.minBatchBytes) <= t.convergenceThreshold {
+		t.measurementSetting.throughput = t.calculateThroughputFn(time.Since(start), t.measurementSetting.value)
+		t.measurementSetting = t.calculateNextMeasurementSetting()
+		if t.hasConverged() {
 			t.logger.Info("batch bytes tuner has converged", loglib.Fields{"final_batch_bytes": t.candidateSetting.value})
-			t.converged = true
 		}
-
-		t.measurementSetting = nextMeasurementSetting
 	}()
 	return t.sendFn(ctx, batch)
 }
@@ -112,6 +143,18 @@ func (t *batchBytesTuner[T]) sendBatch(ctx context.Context, batch *Batch[T]) err
 func (t *batchBytesTuner[T]) calculateNextMeasurementSetting() *batchBytesSetting {
 	var newMeasurementSetting *batchBytesSetting
 	switch {
+	case t.measurementSetting.throughput == 0:
+		// if measurement throughput is 0, it means the batch send failed or
+		// was skipped, so go left to reduce batch size
+		newMeasurementSetting = &batchBytesSetting{
+			value:     median(t.minBatchBytes, t.measurementSetting.value),
+			direction: directionLeft,
+		}
+		// We are going left now, so update the max to current
+		// measurement to narrow search space on right side, since we
+		// know it can't be sampled successfully
+		t.setMaxBatchBytes(t.measurementSetting.value)
+
 	case t.candidateSetting == nil:
 		// if it's the first measurement, set candidate to measurement
 		t.updateCandidate(t.measurementSetting)
@@ -176,7 +219,7 @@ func (t *batchBytesTuner[T]) calculateNextMeasurementSetting() *batchBytesSettin
 		}
 	}
 
-	t.logger.Trace("next measurement calculated", loglib.Fields{
+	t.logger.Debug("next measurement calculated", loglib.Fields{
 		"candidate":           t.candidateSetting.String(),
 		"current_measurement": t.measurementSetting.String(),
 		"next_measurement":    newMeasurementSetting.String(),
@@ -187,7 +230,7 @@ func (t *batchBytesTuner[T]) calculateNextMeasurementSetting() *batchBytesSettin
 }
 
 func (t *batchBytesTuner[T]) hasConverged() bool {
-	return t.converged
+	return (t.maxBatchBytes - t.minBatchBytes) <= t.convergenceThreshold
 }
 
 func (t *batchBytesTuner[T]) setMaxBatchBytes(max int64) {
@@ -207,6 +250,14 @@ func (s *batchBytesSetting) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("[value: %d, throughput: %.2fb/s, direction: %s]", s.value, s.throughput, s.direction)
+}
+
+func (s *batchBytesSetting) IsWithinTolerance(batchBytes int64, toleranceFactor float64) bool {
+	if s == nil {
+		return false
+	}
+	bytesTolerance := int64(float64(s.value) * toleranceFactor)
+	return batchBytes >= (s.value-bytesTolerance) && batchBytes <= (s.value+bytesTolerance)
 }
 
 func calculateThroughput(duration time.Duration, batchBytes int64) float64 {

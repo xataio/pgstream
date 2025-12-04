@@ -22,7 +22,12 @@ var (
 	noopSendFn = func(ctx context.Context, b *Batch[*mockMessage]) error {
 		return nil
 	}
-	mockBatch = &Batch[*mockMessage]{}
+
+	mockBatch = func(bt *batchBytesTuner[*mockMessage]) *Batch[*mockMessage] {
+		batch := &Batch[*mockMessage]{}
+		batch.totalBytes = int(bt.measurementSetting.value)
+		return batch
+	}
 )
 
 // TestBatchBytesTuner_ConvergesWithinBoundedIterations verifies that the batch bytes tuner
@@ -52,13 +57,13 @@ func TestBatchBytesTuner_ConvergesWithinBoundedIterations(t *testing.T) {
 		}
 
 		// Mock the throughput function to use the performance profile
-		tuner.throughputFn = createMockThroughputFn(performanceProfile)
+		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
 
 		ctx := context.Background()
 		maxIterations := int(math.Log2(float64(len(performanceProfile)))) * 3
 
 		for i := 0; i < maxIterations && !tuner.hasConverged(); i++ {
-			tuner.sendBatch(ctx, mockBatch)
+			tuner.sendBatch(ctx, mockBatch(tuner))
 		}
 
 		if !tuner.hasConverged() {
@@ -97,11 +102,11 @@ func TestBatchBytesTuner_FindsOptimalValue(t *testing.T) {
 		}
 
 		// Mock the throughput function to use the performance profile
-		tuner.throughputFn = createMockThroughputFn(performanceProfile)
+		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
 
 		ctx := context.Background()
 		for i := 0; i < 100 && !tuner.hasConverged(); i++ {
-			tuner.sendBatch(ctx, mockBatch)
+			tuner.sendBatch(ctx, mockBatch(tuner))
 		}
 
 		if !tuner.hasConverged() {
@@ -150,13 +155,13 @@ func TestBatchBytesTuner_MonotonicImprovement(t *testing.T) {
 		}
 
 		// Mock the throughput function to use the performance profile
-		tuner.throughputFn = createMockThroughputFn(performanceProfile)
+		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
 
 		ctx := context.Background()
 		var previousBestThroughput float64
 
 		for i := 0; i < 50 && !tuner.hasConverged(); i++ {
-			tuner.sendBatch(ctx, mockBatch)
+			tuner.sendBatch(ctx, mockBatch(tuner))
 
 			if tuner.candidateSetting != nil {
 				currentThroughput := tuner.candidateSetting.throughput
@@ -199,13 +204,13 @@ func TestBatchBytesTuner_SearchSpaceNarrowing(t *testing.T) {
 		}
 
 		// Mock the throughput function to use the performance profile
-		tuner.throughputFn = createMockThroughputFn(performanceProfile)
+		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
 
 		ctx := context.Background()
 		previousRange := tuner.maxBatchBytes - tuner.minBatchBytes
 
 		for i := 0; i < 50 && !tuner.hasConverged(); i++ {
-			tuner.sendBatch(ctx, mockBatch)
+			tuner.sendBatch(ctx, mockBatch(tuner))
 
 			currentRange := tuner.maxBatchBytes - tuner.minBatchBytes
 			if currentRange > previousRange {
@@ -245,11 +250,11 @@ func TestBatchBytesTuner_RespectsConvergenceThreshold(t *testing.T) {
 		}
 
 		// Mock the throughput function to use the performance profile
-		tuner.throughputFn = createMockThroughputFn(performanceProfile)
+		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
 
 		ctx := context.Background()
 		for i := 0; i < 100 && !tuner.hasConverged(); i++ {
-			tuner.sendBatch(ctx, mockBatch)
+			tuner.sendBatch(ctx, mockBatch(tuner))
 		}
 
 		if !tuner.hasConverged() {
@@ -262,6 +267,201 @@ func TestBatchBytesTuner_RespectsConvergenceThreshold(t *testing.T) {
 		if finalRange > maxAllowedRange {
 			t.Fatalf("final range %f exceeds threshold %f * %d = %f",
 				finalRange, threshold, len(performanceProfile), maxAllowedRange)
+		}
+	})
+}
+
+// TestBatchBytesTuner_HandlesIncompleteBatches verifies that the tuner correctly handles
+// incomplete batches (batches smaller than the measurement setting). The tuner should skip
+// measurements for incomplete batches and not update the candidate based on them, as they
+// don't represent the true performance at that batch size.
+func TestBatchBytesTuner_HandlesIncompleteBatches(t *testing.T) {
+	testLogger := zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
+		LogLevel: "error",
+	}))
+
+	rapid.Check(t, func(t *rapid.T) {
+		performanceProfile := genPerformanceProfile(t, 10, 100)
+
+		if len(performanceProfile) < 10 {
+			t.Skip("profile too small")
+		}
+
+		tuner, err := newBatchBytesTuner(AutoTuneConfig{
+			Enabled:              true,
+			MinBatchBytes:        1,
+			MaxBatchBytes:        int64(len(performanceProfile)),
+			ConvergenceThreshold: 0.1,
+		}, noopSendFn, testLogger)
+		if err != nil {
+			t.Fatalf("failed to create tuner: %v", err)
+		}
+		tuner.batchBytesToleranceFactor = 0.0 // No tolerance for this test
+
+		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
+
+		ctx := context.Background()
+
+		// Send a mix of complete and incomplete batches
+		for i := 0; i < 50 && !tuner.hasConverged(); i++ {
+			batch := mockBatch(tuner)
+
+			// Make 30% of batches incomplete (smaller than measurement setting)
+			if rapid.Bool().Draw(t, fmt.Sprintf("incomplete_%d", i)) && rapid.Float64Range(0, 1).Draw(t, fmt.Sprintf("incomplete_prob_%d", i)) < 0.3 {
+				// Incomplete batch - set size to half of measurement setting
+				batch.totalBytes = int(tuner.measurementSetting.value / 2)
+			}
+
+			previousCandidate := tuner.candidateSetting
+			tuner.sendBatch(ctx, batch)
+
+			// If batch was incomplete, candidate should not have been updated with worse values
+			if batch.totalBytes < int(tuner.measurementSetting.value) {
+				if previousCandidate != nil && tuner.candidateSetting != nil {
+					if tuner.candidateSetting.throughput < previousCandidate.throughput {
+						t.Fatalf("candidate throughput decreased after incomplete batch: %v -> %v",
+							previousCandidate.throughput, tuner.candidateSetting.throughput)
+					}
+				}
+			}
+		}
+	})
+}
+
+// TestBatchBytesTuner_ConvergesWithIncompleteBatches verifies that the tuner can still
+// converge to a good solution even when receiving many incomplete batches. This simulates
+// real-world scenarios where the data stream is bursty or sparse.
+func TestBatchBytesTuner_ConvergesWithIncompleteBatches(t *testing.T) {
+	testLogger := zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
+		LogLevel: "error",
+	}))
+
+	rapid.Check(t, func(t *rapid.T) {
+		performanceProfile := genPerformanceProfile(t, 10, 100)
+
+		if len(performanceProfile) < 10 {
+			t.Skip("profile too small")
+		}
+
+		// Generate a high incomplete batch rate (50-80%)
+		incompleteBatchRate := rapid.Float64Range(0.5, 0.8).Draw(t, "incomplete_rate")
+
+		tuner, err := newBatchBytesTuner(AutoTuneConfig{
+			Enabled:              true,
+			MinBatchBytes:        1,
+			MaxBatchBytes:        int64(len(performanceProfile)),
+			ConvergenceThreshold: 0.1,
+		}, noopSendFn, testLogger)
+		if err != nil {
+			t.Fatalf("failed to create tuner: %v", err)
+		}
+		tuner.batchBytesToleranceFactor = 0.0 // No tolerance for this test
+
+		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
+
+		ctx := context.Background()
+
+		// Allow more iterations due to incomplete batches
+		maxIterations := int(math.Log2(float64(len(performanceProfile)))) * 10
+		completeBatchCount := 0
+
+		for i := 0; i < maxIterations && !tuner.hasConverged(); i++ {
+			batch := mockBatch(tuner)
+
+			// Make batches incomplete based on the rate
+			if tuner.measurementSetting.value > 1 &&
+				rapid.Float64Range(0, 1).Draw(t, fmt.Sprintf("incomplete_prob_%d", i)) < incompleteBatchRate {
+				batch.totalBytes = rapid.IntRange(1, int(tuner.measurementSetting.value)-1).
+					Draw(t, fmt.Sprintf("incomplete_size_%d", i))
+			} else {
+				completeBatchCount++
+			}
+
+			tuner.sendBatch(ctx, batch)
+		}
+
+		// Should still converge, though it may take more iterations
+		if !tuner.hasConverged() {
+			t.Fatalf("tuner did not converge within %d iterations with %.0f%% incomplete batches (only %d complete batches)",
+				maxIterations, incompleteBatchRate*100, completeBatchCount)
+		}
+
+		// If we got too many incomplete batches and never established a candidate, skip
+		if tuner.candidateSetting == nil {
+			t.Skipf("no candidate established with %.0f%% incomplete batches (only %d/%d complete)",
+				incompleteBatchRate*100, completeBatchCount, maxIterations)
+		}
+
+		// Should still find a reasonable value
+		actualOptimal, optimalThroughput := findActualOptimal(performanceProfile)
+		foundValue := tuner.candidateSetting.value
+		foundThroughput := tuner.candidateSetting.throughput
+
+		throughputTolerance := optimalThroughput * 0.5 // Allow 50% tolerance with incomplete batches
+		withinThroughputTolerance := math.Abs(foundThroughput-optimalThroughput) <= throughputTolerance
+		valueClose := math.Abs(float64(foundValue-actualOptimal)) <= float64(len(performanceProfile))*0.5
+
+		if !withinThroughputTolerance && !valueClose {
+			t.Fatalf("found value %d (throughput: %.2f) not reasonably close to optimal %d (throughput: %.2f) with incomplete batches",
+				foundValue, foundThroughput, actualOptimal, optimalThroughput)
+		}
+	})
+}
+
+// TestBatchBytesTuner_DoesNotUpdateCandidateOnIncompleteBatch verifies that the candidate
+// is never updated based on an incomplete batch measurement, as incomplete batches don't
+// accurately reflect the performance at that batch size setting.
+func TestBatchBytesTuner_DoesNotUpdateCandidateOnIncompleteBatch(t *testing.T) {
+	testLogger := zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
+		LogLevel: "error",
+	}))
+
+	rapid.Check(t, func(t *rapid.T) {
+		performanceProfile := genPerformanceProfile(t, 10, 100)
+
+		if len(performanceProfile) < 10 {
+			t.Skip("profile too small")
+		}
+
+		tuner, err := newBatchBytesTuner(AutoTuneConfig{
+			Enabled:              true,
+			MinBatchBytes:        1,
+			MaxBatchBytes:        int64(len(performanceProfile)),
+			ConvergenceThreshold: 0.1,
+		}, noopSendFn, testLogger)
+		if err != nil {
+			t.Fatalf("failed to create tuner: %v", err)
+		}
+		tuner.batchBytesToleranceFactor = 0.0 // No tolerance for this test
+
+		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
+
+		ctx := context.Background()
+
+		// Send a few complete batches to establish a candidate
+		for i := 0; i < 5; i++ {
+			tuner.sendBatch(ctx, mockBatch(tuner))
+		}
+
+		if tuner.candidateSetting == nil {
+			t.Skip("no candidate established")
+		}
+
+		candidateBeforeIncomplete := tuner.candidateSetting
+		measurementBeforeIncomplete := tuner.measurementSetting.value
+
+		// Send an incomplete batch
+		incompleteBatch := mockBatch(tuner)
+		incompleteBatch.totalBytes = int(tuner.measurementSetting.value / 2)
+		tuner.sendBatch(ctx, incompleteBatch)
+
+		// Candidate should not have changed due to incomplete batch
+		if tuner.candidateSetting != candidateBeforeIncomplete {
+			// It's okay if candidate changed to a better value from a different measurement,
+			// but it should not be based on the incomplete batch's measurement setting
+			if tuner.candidateSetting.value == measurementBeforeIncomplete {
+				t.Fatalf("candidate was updated based on incomplete batch measurement")
+			}
 		}
 	})
 }
@@ -373,7 +573,7 @@ func BenchmarkBatchBytesTuner_Convergence(b *testing.B) {
 
 				ctx := context.Background()
 				for j := 0; j < 100 && !tuner.hasConverged(); j++ {
-					tuner.sendBatch(ctx, mockBatch)
+					tuner.sendBatch(ctx, mockBatch(tuner))
 				}
 			}
 		})

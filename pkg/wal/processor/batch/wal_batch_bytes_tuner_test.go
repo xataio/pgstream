@@ -18,9 +18,16 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 		LogLevel: "trace",
 	}))
 
+	testMockBatch := func(bt *batchBytesTuner[*mockMessage]) *Batch[*mockMessage] {
+		batch := &Batch[*mockMessage]{}
+		batch.totalBytes = int(bt.measurementSetting.value)
+		return batch
+	}
+
 	tests := []struct {
-		name         string
-		throughputFn func(time.Duration, int64) float64
+		name                  string
+		calculateThroughputFn func(time.Duration, int64) float64
+		batch                 func(*batchBytesTuner[*mockMessage]) *Batch[*mockMessage]
 
 		wantCandidate *batchBytesSetting
 		wantConverged bool
@@ -28,7 +35,7 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 	}{
 		{
 			name: "converged after going left",
-			throughputFn: func(duration time.Duration, batchBytes int64) float64 {
+			calculateThroughputFn: func(duration time.Duration, batchBytes int64) float64 {
 				// simulate a parabolic throughput curve with peak at 20 bytes
 				optimalBatchBytes := int64(20)
 				if batchBytes == optimalBatchBytes {
@@ -42,6 +49,7 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 				}
 				return throughput
 			},
+			batch: testMockBatch,
 
 			wantCandidate: &batchBytesSetting{
 				value:      20,
@@ -53,7 +61,7 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 		},
 		{
 			name: "converged to initial value",
-			throughputFn: func(duration time.Duration, batchBytes int64) float64 {
+			calculateThroughputFn: func(duration time.Duration, batchBytes int64) float64 {
 				// simulate a parabolic throughput curve with peak at 50 bytes
 				optimalBatchBytes := int64(50)
 				if batchBytes == optimalBatchBytes {
@@ -67,6 +75,7 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 				}
 				return throughput
 			},
+			batch: testMockBatch,
 
 			wantCandidate: &batchBytesSetting{
 				value:      50,
@@ -78,7 +87,7 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 		},
 		{
 			name: "converged after going right",
-			throughputFn: func(duration time.Duration, batchBytes int64) float64 {
+			calculateThroughputFn: func(duration time.Duration, batchBytes int64) float64 {
 				// simulate a parabolic throughput curve with peak at 50 bytes
 				optimalBatchBytes := int64(81)
 				if batchBytes == optimalBatchBytes {
@@ -88,10 +97,11 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 				distance := float64(batchBytes - optimalBatchBytes)
 				throughput := 1000.0 - (distance * distance * 0.4)
 				if throughput < 0 {
-					return 0
+					return 0.01
 				}
 				return throughput
 			},
+			batch: testMockBatch,
 
 			wantCandidate: &batchBytesSetting{
 				value:      81,
@@ -99,6 +109,23 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 				direction:  directionRight,
 			},
 			wantConverged: true,
+			wantErr:       nil,
+		},
+		{
+			name: "skipped measurements - no convergence",
+			calculateThroughputFn: func(duration time.Duration, batchBytes int64) float64 {
+				t.Fatal("calculateThroughputFn should not be called")
+				return -1.0
+			},
+			batch: func(bbt *batchBytesTuner[*mockMessage]) *Batch[*mockMessage] {
+				// Always return a batch smaller than measurement setting to trigger skips
+				batch := &Batch[*mockMessage]{}
+				batch.totalBytes = int(bbt.measurementSetting.value) - 1
+				return batch
+			},
+
+			wantCandidate: nil,
+			wantConverged: false,
 			wantErr:       nil,
 		},
 	}
@@ -115,14 +142,15 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 			}, noopSendFn, testLogger)
 			require.NoError(t, err)
 
-			batchBytesTuner.throughputFn = tc.throughputFn
+			batchBytesTuner.batchBytesToleranceFactor = 0.0 // No tolerance for this test
+			batchBytesTuner.calculateThroughputFn = tc.calculateThroughputFn
 
 			ctx := context.Background()
 			doneChan := make(chan struct{}, 1)
 			go func() {
 				defer close(doneChan)
 				for range 10 {
-					batchBytesTuner.sendBatch(ctx, mockBatch)
+					batchBytesTuner.sendBatch(ctx, tc.batch(batchBytesTuner))
 				}
 				doneChan <- struct{}{}
 			}()
@@ -133,9 +161,14 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 				return
 			case <-doneChan:
 				require.Equal(t, tc.wantConverged, batchBytesTuner.hasConverged())
-				require.Equal(t, tc.wantCandidate.value, batchBytesTuner.candidateSetting.value)
-				require.InDelta(t, tc.wantCandidate.throughput, batchBytesTuner.candidateSetting.throughput, 5)
-				require.Equal(t, tc.wantCandidate.direction, batchBytesTuner.candidateSetting.direction)
+				if tc.wantCandidate == nil {
+					require.Nil(t, batchBytesTuner.candidateSetting)
+				} else {
+					require.Equal(t, tc.wantCandidate.value, batchBytesTuner.candidateSetting.value)
+					require.InDelta(t, tc.wantCandidate.throughput, batchBytesTuner.candidateSetting.throughput, 5)
+					require.Equal(t, tc.wantCandidate.direction, batchBytesTuner.candidateSetting.direction)
+				}
+
 				return
 			}
 		})
