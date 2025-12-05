@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	mathlib "github.com/xataio/pgstream/internal/math"
 	loglib "github.com/xataio/pgstream/pkg/log"
 )
 
@@ -76,7 +77,7 @@ func newBatchBytesTuner[T Message](cfg AutoTuneConfig, sendFn sendBatchFn[T], lo
 		minBatchBytes: min,
 		sendFn:        sendFn,
 		measurementSetting: &batchBytesSetting{
-			value: median(min, max),
+			value: mathlib.Median(min, max),
 		},
 		convergenceThreshold: int64(cfg.GetConvergenceThreshold() * float64(max)),
 		logger: logger.WithFields(loglib.Fields{
@@ -154,10 +155,9 @@ func (t *batchBytesTuner[T]) calculateNextMeasurementSetting() *batchBytesSettin
 	case !t.measurementSetting.hasMinSamples(t.minSamples):
 		// if measurement doesn't have enough samples, it means the batch send
 		// failed or was skipped, so go left to reduce batch size
-		newMeasurementSetting = &batchBytesSetting{
-			value:     median(t.minBatchBytes, t.measurementSetting.value),
-			direction: directionLeft,
-		}
+		newMeasurementSetting = newBatchBytesSetting(
+			mathlib.Median(t.minBatchBytes, t.measurementSetting.value),
+			directionLeft)
 		// We are going left now, so update the max to current
 		// measurement to narrow search space on right side, since we
 		// know it can't be sampled successfully
@@ -167,32 +167,32 @@ func (t *batchBytesTuner[T]) calculateNextMeasurementSetting() *batchBytesSettin
 		// if it's the first measurement, set candidate to measurement
 		t.updateCandidate(t.measurementSetting)
 
-		newMeasurementSetting = &batchBytesSetting{
-			value: median(t.minBatchBytes, t.candidateSetting.value),
+		newMeasurementSetting = newBatchBytesSetting(
+			mathlib.Median(t.minBatchBytes, t.candidateSetting.value),
 			// direction doesn't matter for the first measurement, just pick
 			// left at random
-			direction: directionLeft,
-		}
+			directionLeft,
+		)
 
 	case t.measurementSetting.avgThroughput >= t.candidateSetting.avgThroughput:
 		// if measurement has better throughput than candidate, keep going in same direction
 		switch t.measurementSetting.direction {
 		case directionLeft:
 			// keep going left
-			newMeasurementSetting = &batchBytesSetting{
-				value:     median(t.minBatchBytes, t.measurementSetting.value),
-				direction: directionLeft,
-			}
+			newMeasurementSetting = newBatchBytesSetting(
+				mathlib.Median(t.minBatchBytes, t.measurementSetting.value),
+				directionLeft,
+			)
 			// We keep going left, so update the max to current
 			// measurement to narrow search space on right side, since we
 			// know it's worse
 			t.setMaxBatchBytes(t.measurementSetting.value)
 		case directionRight:
 			// keep going right
-			newMeasurementSetting = &batchBytesSetting{
-				value:     median(t.measurementSetting.value, t.maxBatchBytes),
-				direction: directionRight,
-			}
+			newMeasurementSetting = newBatchBytesSetting(
+				mathlib.Median(t.measurementSetting.value, t.maxBatchBytes),
+				directionRight,
+			)
 			// We keep going right, so update the min to current
 			// measurement to narrow search space on left side, since we
 			// know it's worse
@@ -206,20 +206,20 @@ func (t *batchBytesTuner[T]) calculateNextMeasurementSetting() *batchBytesSettin
 		switch t.measurementSetting.direction {
 		case directionLeft:
 			// if going left is not better, go right
-			newMeasurementSetting = &batchBytesSetting{
-				value:     median(t.measurementSetting.value, t.maxBatchBytes),
-				direction: directionRight,
-			}
+			newMeasurementSetting = newBatchBytesSetting(
+				mathlib.Median(t.measurementSetting.value, t.maxBatchBytes),
+				directionRight,
+			)
 			// We are going right now, so update the min to current
 			// measurement to narrow search space on left side, since we
 			// know it's worse
 			t.setMinBatchBytes(t.measurementSetting.value)
 		case directionRight:
 			// if going right is not better, go left
-			newMeasurementSetting = &batchBytesSetting{
-				value:     median(t.minBatchBytes, t.measurementSetting.value),
-				direction: directionLeft,
-			}
+			newMeasurementSetting = newBatchBytesSetting(
+				mathlib.Median(t.minBatchBytes, t.measurementSetting.value),
+				directionLeft,
+			)
 			// We are going left now, so update the max to current
 			// measurement to narrow search space on right side, since we
 			// know it's worse
@@ -251,6 +251,13 @@ func (t *batchBytesTuner[T]) setMinBatchBytes(min int64) {
 
 func (t *batchBytesTuner[T]) updateCandidate(candidate *batchBytesSetting) {
 	t.candidateSetting = candidate
+}
+
+func newBatchBytesSetting(value int64, direction direction) *batchBytesSetting {
+	return &batchBytesSetting{
+		value:     value,
+		direction: direction,
+	}
 }
 
 func (s *batchBytesSetting) String() string {
@@ -298,8 +305,4 @@ func calculateThroughput(duration time.Duration, batchBytes int64) float64 {
 
 	// bytes per second
 	return float64(batchBytes) / duration.Seconds()
-}
-
-func median(min, max int64) int64 {
-	return min + (max-min)/2
 }
