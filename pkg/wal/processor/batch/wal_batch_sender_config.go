@@ -37,7 +37,7 @@ type AutoTuneConfig struct {
 	// is enabled. Defaults to 1MiB.
 	MinBatchBytes int64
 	// AutoTuneMaxBatchBytes is the maximum batch size in bytes when auto-tuning
-	// is enabled. Defaults to 100MiB.
+	// is enabled. Defaults to 50MiB.
 	MaxBatchBytes int64
 	// AutoTuneConvergenceThreshold is the threshold for convergence when
 	// auto-tuning is enabled. Defaults to 0.01 (1%).
@@ -50,7 +50,7 @@ const (
 	defaultMaxBatchSize          = 100
 	defaultMaxBatchBytes         = int64(1572864)
 	defaultAutoTuneMinBatchBytes = int64(1024 * 1024)                         // 1MiB
-	defaultAutoTuneMaxBatchBytes = int64(0.8 * float64(defaultMaxQueueBytes)) // 80MiB (80% of max queue bytes)
+	defaultAutoTuneMaxBatchBytes = int64(0.5 * float64(defaultMaxQueueBytes)) // 50MiB (50% of max queue bytes)
 	defaultConvergenceThreshold  = 0.01                                       // 1%
 )
 
@@ -92,7 +92,7 @@ func (c *Config) GetAutoTuneConfig() AutoTuneConfig {
 	// set default max batch bytes if not set to not exceed max queue bytes
 	if c.AutoTune.MaxBatchBytes == 0 {
 		maxQueueBytes, _ := c.GetMaxQueueBytes()
-		c.AutoTune.MaxBatchBytes = int64(0.8 * float64(maxQueueBytes))
+		c.AutoTune.MaxBatchBytes = int64(0.5 * float64(maxQueueBytes))
 	}
 	return c.AutoTune
 }
