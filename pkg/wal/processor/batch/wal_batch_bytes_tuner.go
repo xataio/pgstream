@@ -29,6 +29,8 @@ type batchBytesTuner[T Message] struct {
 
 	measurementSetting *batchBytesSetting
 	candidateSetting   *batchBytesSetting
+
+	debugMeasurements []string
 }
 
 type direction string
@@ -101,14 +103,15 @@ func newBatchBytesTuner[T Message](cfg AutoTuneConfig, sendFn sendBatchFn[T], lo
 }
 
 func (t *batchBytesTuner[T]) sendBatch(ctx context.Context, batch *Batch[T]) error {
-	t.logger.Trace("sending batch", loglib.Fields{
-		"batch_bytes":       batch.totalBytes,
-		"measurement_bytes": t.measurementSetting.value,
-	})
 	// If it has converged, no need to continue tuning.
 	if t.hasConverged() {
 		return t.sendFn(ctx, batch)
 	}
+
+	t.logger.Trace("sending batch", loglib.Fields{
+		"batch_bytes":       batch.totalBytes,
+		"measurement_bytes": t.measurementSetting.value,
+	})
 
 	// Check if the current batch size matches the measurement setting within
 	// tolerance, otherwise we can't measure throughput accurately.
@@ -165,6 +168,7 @@ func (t *batchBytesTuner[T]) recordMeasurementAndCalculateNext(start time.Time) 
 		return
 	}
 
+	t.debugMeasurements = append(t.debugMeasurements, t.measurementSetting.String())
 	t.measurementSetting = t.calculateNextSetting()
 
 	if t.hasConverged() {
@@ -260,6 +264,10 @@ func (t *batchBytesTuner[T]) calculateNextSetting() *batchBytesSetting {
 	return newMeasurementSetting
 }
 
+func (t *batchBytesTuner[T]) close() {
+	t.logDebugMeasurements()
+}
+
 func (t *batchBytesTuner[T]) hasConverged() bool {
 	return (t.maxBatchBytes - t.minBatchBytes) <= t.convergenceThreshold
 }
@@ -274,6 +282,19 @@ func (t *batchBytesTuner[T]) setMinBatchBytes(min int64) {
 
 func (t *batchBytesTuner[T]) updateCandidate(candidate *batchBytesSetting) {
 	t.candidateSetting = candidate
+}
+
+func (t *batchBytesTuner[T]) logDebugMeasurements() {
+	result := "batch bytes measurements:\n"
+	for _, measurement := range t.debugMeasurements {
+		result += measurement + "\n"
+	}
+
+	if t.hasConverged() {
+		result += fmt.Sprintf("final candidate:\n%s\n", t.candidateSetting.String())
+	}
+
+	t.logger.Debug(result)
 }
 
 func newBatchBytesSetting(value int64, direction direction) *batchBytesSetting {

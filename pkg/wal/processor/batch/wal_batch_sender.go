@@ -226,6 +226,10 @@ func (s *Sender[T]) Close() {
 		s.wg.Wait()
 		close(s.msgChan)
 		s.logger.Trace("batch sender closed")
+
+		if s.batchBytesTuner != nil {
+			s.batchBytesTuner.close()
+		}
 	})
 }
 
