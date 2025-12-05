@@ -117,21 +117,21 @@ func TestCoefficientOfVariation(t *testing.T) {
 		{"empty slice", []float64{}, 0, 0},
 		{"single value", []float64{5}, 0, 0},
 		{"identical values", []float64{3, 3, 3, 3}, 0, 0},
-		{"zero mean", []float64{-2, -1, 0, 1, 2}, math.Inf(1), 0},
+		{"zero mean", []float64{-2, -1, 0, 1, 2}, math.NaN(), 0},
 		{"simple case", []float64{2, 4, 6, 8}, 0.5163977794943222, 1e-10},
 		{"high variability", []float64{1, 10, 100}, 1.4795908671395625, 1e-5},
 		{"low variability", []float64{99, 100, 101}, 0.01, 1e-10},
 		{"negative values", []float64{-10, -5, -15}, -0.5, 1e-10},
-		{"mixed positive/negative", []float64{-5, -3, -1, 1, 3, 5}, math.Inf(1), 0},
+		{"mixed positive/negative", []float64{-5, -3, -1, 1, 3, 5}, math.NaN(), 0},
 		{"decimal values", []float64{1.1, 1.2, 1.3, 1.4, 1.5}, 0.12162570084338147, 1e-5},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := CoefficientOfVariation(tt.values)
-			if math.IsInf(tt.expected, 0) {
-				if !math.IsInf(result, 0) {
-					t.Errorf("CoefficientOfVariation(%v) = %f; want %f", tt.values, result, tt.expected)
+			if math.IsNaN(tt.expected) {
+				if !math.IsNaN(result) {
+					t.Errorf("CoefficientOfVariation(%v) = %f; want NaN", tt.values, result)
 				}
 			} else if math.Abs(result-tt.expected) > tt.tolerance {
 				t.Errorf("CoefficientOfVariation(%v) = %f; want %f", tt.values, result, tt.expected)

@@ -89,6 +89,7 @@ func Percentile(values []float64, percentile float64) float64 {
 // which is the ratio of standard deviation to mean. CV is a normalized measure
 // of dispersion that is useful for comparing variability across different scales.
 // Uses sample standard deviation (dividing by n-1).
+// Returns NaN when the mean is zero, as CV is mathematically undefined in this case.
 func CoefficientOfVariation(values []float64) float64 {
 	if len(values) < 2 {
 		return 0
@@ -96,7 +97,7 @@ func CoefficientOfVariation(values []float64) float64 {
 
 	mean := Average(values)
 	if mean == 0 {
-		return math.Inf(1)
+		return math.NaN()
 	}
 
 	stdDev := StandardDeviation(values)

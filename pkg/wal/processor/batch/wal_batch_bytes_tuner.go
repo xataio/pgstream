@@ -5,6 +5,7 @@ package batch
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	mathlib "github.com/xataio/pgstream/internal/math"
@@ -44,11 +45,12 @@ const (
 )
 
 type batchBytesSetting struct {
-	value         int64
-	throughputs   []float64
-	avgThroughput float64
-	direction     direction
-	skipped       uint
+	value                 int64
+	throughputs           []float64
+	avgThroughput         float64
+	coeficientOfVariation float64
+	direction             direction
+	skipped               uint
 }
 
 // Typical throughput curve
@@ -122,7 +124,7 @@ func (t *batchBytesTuner[T]) sendBatch(ctx context.Context, batch *Batch[T]) err
 			// for a number of times in a row, skip this measurement and go left
 			// (since we need to reduce the batch size to stop hitting the timeout).
 			t.logger.Debug("skipping to next measurement due to repeated batch size mismatch", logFields)
-			t.measurementSetting = t.calculateNextMeasurementSetting()
+			t.measurementSetting = t.calculateNextSetting()
 			return t.sendFn(ctx, batch)
 		default:
 			// If the current batch size doesn't match the measurement setting,
@@ -136,20 +138,41 @@ func (t *batchBytesTuner[T]) sendBatch(ctx context.Context, batch *Batch[T]) err
 
 	start := time.Now()
 	defer func() {
-		t.measurementSetting.addThroughput(t.calculateThroughputFn(time.Since(start), t.measurementSetting.value))
-		if t.measurementSetting.hasMinSamples(t.minSamples) {
-			// once we have enough samples for a measurement, calculate the next
-			t.measurementSetting.calculateAverageThroughput()
-			t.measurementSetting = t.calculateNextMeasurementSetting()
-		}
-		if t.hasConverged() {
-			t.logger.Debug("batch bytes tuner has converged", loglib.Fields{"final_batch_bytes": t.candidateSetting.value})
-		}
+		t.recordMeasurementAndCalculateNext(start)
 	}()
 	return t.sendFn(ctx, batch)
 }
 
-func (t *batchBytesTuner[T]) calculateNextMeasurementSetting() *batchBytesSetting {
+// recordMeasurementAndCalculateNext records the throughput measurement and
+// calculates the next measurement setting once we have enough samples for a
+// measurement, and they are stable enough to be representative.
+func (t *batchBytesTuner[T]) recordMeasurementAndCalculateNext(start time.Time) {
+	throughput := t.calculateThroughputFn(time.Since(start), t.measurementSetting.value)
+	t.measurementSetting.addThroughput(throughput)
+
+	// not enough samples yet, continue with the same measurement
+	if !t.measurementSetting.hasMinSamples(t.minSamples) {
+		return
+	}
+
+	t.measurementSetting.calculateAverageThroughput()
+
+	if !t.measurementSetting.isStable() {
+		t.logger.Debug("measurement not stable enough, collecting more samples", loglib.Fields{
+			"coeficient_of_variation": t.measurementSetting.coeficientOfVariation,
+			"sample_count":            len(t.measurementSetting.throughputs),
+		})
+		return
+	}
+
+	t.measurementSetting = t.calculateNextSetting()
+
+	if t.hasConverged() {
+		t.logger.Debug("batch bytes tuner has converged", loglib.Fields{"final_batch_bytes": t.candidateSetting.value})
+	}
+}
+
+func (t *batchBytesTuner[T]) calculateNextSetting() *batchBytesSetting {
 	var newMeasurementSetting *batchBytesSetting
 	switch {
 	case !t.measurementSetting.hasMinSamples(t.minSamples):
@@ -264,7 +287,7 @@ func (s *batchBytesSetting) String() string {
 	if s == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("[value: %d, avg throughput: %.2fb/s, sample count: %d, direction: %s]", s.value, s.avgThroughput, len(s.throughputs), s.direction)
+	return fmt.Sprintf("[value: %d, avg throughput: %.2fb/s, coeficient of variation: %.2f, sample count: %d, direction: %s]", s.value, s.avgThroughput, s.coeficientOfVariation, len(s.throughputs), s.direction)
 }
 
 func (s *batchBytesSetting) IsWithinTolerance(batchBytes int64, toleranceFactor float64) bool {
@@ -295,7 +318,21 @@ func (s *batchBytesSetting) calculateAverageThroughput() {
 	for _, v := range s.throughputs {
 		total += v
 	}
+
 	s.avgThroughput = total / float64(len(s.throughputs))
+	s.coeficientOfVariation = mathlib.CoefficientOfVariation(s.throughputs)
+}
+
+func (s *batchBytesSetting) isStable() bool {
+	if s == nil || len(s.throughputs) < 2 {
+		return true // not enough data to determine stability
+	}
+
+	// Use the coefficient of variation that was already calculated
+	// Consider stable if coefficient of variation is less than 30%
+	return !math.IsInf(s.coeficientOfVariation, 0) &&
+		!math.IsNaN(s.coeficientOfVariation) &&
+		s.coeficientOfVariation < 0.3
 }
 
 func calculateThroughput(duration time.Duration, batchBytes int64) float64 {

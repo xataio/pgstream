@@ -522,7 +522,109 @@ func TestBatchBytesTuner_RespectsMinimumSamples(t *testing.T) {
 			}
 		}
 	})
-} // Generators
+}
+
+// TestBatchBytesTuner_RetriesUnstableMeasurements verifies that the tuner retries
+// measurements when they show high variance (coefficient of variation >= 30%).
+// This ensures the tuner only accepts stable measurements as candidates, preventing
+// decisions based on unreliable data.
+func TestBatchBytesTuner_RetriesUnstableMeasurements(t *testing.T) {
+	testLogger := zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
+		LogLevel: "error",
+	}))
+
+	rapid.Check(t, func(t *rapid.T) {
+		performanceProfile := genPerformanceProfile(t, 20, 100)
+		minSamples := 3 // Need at least 3 samples to calculate meaningful std dev
+
+		if len(performanceProfile) < 20 {
+			t.Skip("profile too small")
+		}
+
+		tuner, err := newBatchBytesTuner(AutoTuneConfig{
+			Enabled:              true,
+			MinBatchBytes:        1,
+			MaxBatchBytes:        int64(len(performanceProfile)),
+			ConvergenceThreshold: 0.1,
+		}, noopSendFn, testLogger)
+		if err != nil {
+			t.Fatalf("failed to create tuner: %v", err)
+		}
+
+		// Create a mock function that returns unstable throughput (high variance)
+		// for certain batch sizes and stable throughput for others
+		unstableBatchSize := rapid.Int64Range(10, int64(len(performanceProfile)/2)).Draw(t, "unstable_batch_size")
+
+		callCount := make(map[int64]int)
+		tuner.calculateThroughputFn = func(duration time.Duration, batchSize int64) float64 {
+			callCount[batchSize]++
+			idx := int(batchSize - 1)
+			if idx < 0 || idx >= len(performanceProfile) {
+				return 0
+			}
+
+			baseThroughput := performanceProfile[idx]
+
+			// For the unstable batch size, return highly variable throughput
+			// until we've had enough retries (simulate eventually stabilizing)
+			if batchSize == unstableBatchSize && callCount[batchSize] <= 6 {
+				// Create high variance: alternate between +50% and -50% of base
+				if callCount[batchSize]%2 == 0 {
+					return baseThroughput * 1.5
+				}
+				return baseThroughput * 0.5
+			}
+
+			// For other batch sizes or after enough retries, return stable throughput
+			return baseThroughput
+		}
+
+		tuner.minSamples = minSamples
+
+		ctx := context.Background()
+		retryCounts := make(map[int64]int)
+		prevMeasurementValue := int64(0)
+
+		// Run tuner and track retries
+		for i := 0; i < 200 && !tuner.hasConverged(); i++ {
+			currentValue := tuner.measurementSetting.value
+
+			// If we're retrying the same measurement value
+			if currentValue == prevMeasurementValue {
+				retryCounts[currentValue]++
+			}
+
+			tuner.sendBatch(ctx, mockBatch(tuner))
+			prevMeasurementValue = currentValue
+		}
+
+		// Verify that if we encountered the unstable batch size, we retried it
+		if callCount[unstableBatchSize] > minSamples {
+			// We measured this size multiple times, check if it was retried
+			// due to instability (not just normal sampling)
+			if retryCounts[unstableBatchSize] < 1 {
+				// This is okay - we might not have hit it during tuning
+				t.Logf("unstable batch size %d was sampled but didn't require retries", unstableBatchSize)
+			} else {
+				t.Logf("correctly retried unstable batch size %d, %d times",
+					unstableBatchSize, retryCounts[unstableBatchSize])
+			}
+		}
+
+		// Most importantly: verify that all candidates have stable measurements
+		if tuner.candidateSetting != nil && len(tuner.candidateSetting.throughputs) >= 2 {
+			// The candidate should have its coefficient of variation already calculated
+			if math.IsNaN(tuner.candidateSetting.coeficientOfVariation) {
+				t.Fatalf("final candidate has NaN coefficient of variation (likely zero mean)")
+			}
+			if tuner.candidateSetting.coeficientOfVariation >= 0.3 {
+				t.Fatalf("final candidate has unstable measurements (CV=%.2f >= 0.3)", tuner.candidateSetting.coeficientOfVariation)
+			}
+		}
+	})
+}
+
+// Generators
 
 // genPerformanceProfile generates a random throughput profile (bytes/second)
 // representing throughput at different batch byte values.
