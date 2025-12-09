@@ -4,6 +4,7 @@ package batch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -26,11 +27,13 @@ type batchBytesTuner[T Message] struct {
 	convergenceThreshold      int64
 	batchBytesToleranceFactor float64
 	minSamples                int
+	maxSamples                int
 
 	measurementSetting *batchBytesSetting
 	candidateSetting   *batchBytesSetting
 
 	debugMeasurements []string
+	tuningErr         error
 }
 
 type direction string
@@ -42,9 +45,13 @@ const (
 
 const (
 	minThroughputSamples             = 3
+	maxThroughputSamples             = 50
 	maxSkippedMeasurements           = 3
 	defaultBatchBytesToleranceFactor = 0.1 // 10% tolerance when matching batch size for measurement
+	maxCoeficientOfVariation         = 0.4 // max 40% CoV to consider measurements stable
 )
+
+var errNetworkTooUnstable = errors.New("network too unstable for batch bytes tuning")
 
 type batchBytesSetting struct {
 	value                 int64
@@ -52,7 +59,7 @@ type batchBytesSetting struct {
 	avgThroughput         float64
 	coeficientOfVariation float64
 	direction             direction
-	skipped               uint
+	skippedCount          uint
 }
 
 // Typical throughput curve
@@ -90,6 +97,7 @@ func newBatchBytesTuner[T Message](cfg AutoTuneConfig, sendFn sendBatchFn[T], lo
 		calculateThroughputFn:     calculateThroughput,
 		batchBytesToleranceFactor: defaultBatchBytesToleranceFactor,
 		minSamples:                minThroughputSamples,
+		maxSamples:                maxThroughputSamples,
 	}
 
 	t.logger.Debug("batch bytes initialised", loglib.Fields{
@@ -104,7 +112,7 @@ func newBatchBytesTuner[T Message](cfg AutoTuneConfig, sendFn sendBatchFn[T], lo
 
 func (t *batchBytesTuner[T]) sendBatch(ctx context.Context, batch *Batch[T]) error {
 	// If it has converged, no need to continue tuning.
-	if t.hasConverged() {
+	if t.hasConverged() || t.hasError() {
 		return t.sendFn(ctx, batch)
 	}
 
@@ -119,10 +127,10 @@ func (t *batchBytesTuner[T]) sendBatch(ctx context.Context, batch *Batch[T]) err
 		logFields := loglib.Fields{
 			"expected_batch_bytes": t.measurementSetting.value,
 			"actual_batch_bytes":   batch.totalBytes,
-			"skipped_count":        t.measurementSetting.skipped,
+			"skipped_count":        t.measurementSetting.skippedCount,
 		}
 		switch {
-		case t.measurementSetting.skipped >= maxSkippedMeasurements:
+		case t.measurementSetting.skippedCount >= maxSkippedMeasurements:
 			// When the current batch size doesn't match the measurement setting
 			// for a number of times in a row, skip this measurement and go left
 			// (since we need to reduce the batch size to stop hitting the timeout).
@@ -133,7 +141,7 @@ func (t *batchBytesTuner[T]) sendBatch(ctx context.Context, batch *Batch[T]) err
 			// If the current batch size doesn't match the measurement setting,
 			// skip tuning (this can happen if the sender's timeout has been triggered,
 			// when there's not enough data to fill the batch size).
-			t.measurementSetting.skipped++
+			t.measurementSetting.skippedCount++
 			t.logger.Debug("skipping measurement due to batch size mismatch", logFields)
 			return t.sendFn(ctx, batch)
 		}
@@ -160,11 +168,21 @@ func (t *batchBytesTuner[T]) recordMeasurementAndCalculateNext(start time.Time) 
 
 	t.measurementSetting.calculateAverageThroughput()
 
+	// if measurements are not stable yet, continue collecting samples until the
+	// max samples are reached.
 	if !t.measurementSetting.isStable() {
-		t.logger.Debug("measurement not stable enough, collecting more samples", loglib.Fields{
+		logFields := loglib.Fields{
+			"avg_throughput":          t.measurementSetting.avgThroughput,
 			"coeficient_of_variation": t.measurementSetting.coeficientOfVariation,
 			"sample_count":            len(t.measurementSetting.throughputs),
-		})
+		}
+		if t.measurementSetting.hasMaxSamples(t.maxSamples) {
+			t.logger.Warn(errNetworkTooUnstable, "unable to tune batch bytes automatically, apply manual configuration if needed", logFields)
+			t.tuningErr = errNetworkTooUnstable
+			return
+		}
+
+		t.logger.Debug("measurement not stable enough, collecting more samples", logFields)
 		return
 	}
 
@@ -272,6 +290,10 @@ func (t *batchBytesTuner[T]) hasConverged() bool {
 	return (t.maxBatchBytes - t.minBatchBytes) <= t.convergenceThreshold
 }
 
+func (t *batchBytesTuner[T]) hasError() bool {
+	return t.tuningErr != nil
+}
+
 func (t *batchBytesTuner[T]) setMaxBatchBytes(max int64) {
 	t.maxBatchBytes = max
 }
@@ -330,6 +352,10 @@ func (s *batchBytesSetting) hasMinSamples(minSamples int) bool {
 	return s != nil && len(s.throughputs) >= minSamples
 }
 
+func (s *batchBytesSetting) hasMaxSamples(maxSamples int) bool {
+	return s != nil && len(s.throughputs) >= maxSamples
+}
+
 func (s *batchBytesSetting) calculateAverageThroughput() {
 	if s == nil || len(s.throughputs) == 0 {
 		return
@@ -353,7 +379,7 @@ func (s *batchBytesSetting) isStable() bool {
 	// Consider stable if coefficient of variation is less than 30%
 	return !math.IsInf(s.coeficientOfVariation, 0) &&
 		!math.IsNaN(s.coeficientOfVariation) &&
-		s.coeficientOfVariation < 0.3
+		s.coeficientOfVariation < maxCoeficientOfVariation
 }
 
 func calculateThroughput(duration time.Duration, batchBytes int64) float64 {

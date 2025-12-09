@@ -525,7 +525,7 @@ func TestBatchBytesTuner_RespectsMinimumSamples(t *testing.T) {
 }
 
 // TestBatchBytesTuner_RetriesUnstableMeasurements verifies that the tuner retries
-// measurements when they show high variance (coefficient of variation >= 30%).
+// measurements when they show high variance (coefficient of variation >= 40%).
 // This ensures the tuner only accepts stable measurements as candidates, preventing
 // decisions based on unreliable data.
 func TestBatchBytesTuner_RetriesUnstableMeasurements(t *testing.T) {
@@ -617,8 +617,84 @@ func TestBatchBytesTuner_RetriesUnstableMeasurements(t *testing.T) {
 			if math.IsNaN(tuner.candidateSetting.coeficientOfVariation) {
 				t.Fatalf("final candidate has NaN coefficient of variation (likely zero mean)")
 			}
-			if tuner.candidateSetting.coeficientOfVariation >= 0.3 {
-				t.Fatalf("final candidate has unstable measurements (CV=%.2f >= 0.3)", tuner.candidateSetting.coeficientOfVariation)
+			if tuner.candidateSetting.coeficientOfVariation >= maxCoeficientOfVariation {
+				t.Fatalf("final candidate has unstable measurements (CV=%.2f >= %.2f)", tuner.candidateSetting.coeficientOfVariation, maxCoeficientOfVariation)
+			}
+		}
+	})
+}
+
+// TestBatchBytesTuner_RespectsMaximumSamples verifies that when measurements remain
+// unstable even after collecting maxSamples, the tuner stops collecting more samples
+// and reports an error rather than continuing indefinitely. This prevents the tuner
+// from getting stuck when network conditions are too unstable for reliable tuning.
+func TestBatchBytesTuner_RespectsMaximumSamples(t *testing.T) {
+	testLogger := zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
+		LogLevel: "error",
+	}))
+
+	rapid.Check(t, func(t *rapid.T) {
+		performanceProfile := genPerformanceProfile(t, 20, 100)
+		maxSamples := rapid.IntRange(5, 10).Draw(t, "max_samples")
+		minSamples := rapid.IntRange(2, maxSamples-1).Draw(t, "min_samples")
+
+		if len(performanceProfile) < 20 {
+			t.Skip("profile too small")
+		}
+
+		tuner, err := newBatchBytesTuner(AutoTuneConfig{
+			Enabled:              true,
+			MinBatchBytes:        1,
+			MaxBatchBytes:        int64(len(performanceProfile)),
+			ConvergenceThreshold: 0.1,
+		}, noopSendFn, testLogger)
+		if err != nil {
+			t.Fatalf("failed to create tuner: %v", err)
+		}
+
+		// Create a mock function that always returns unstable throughput
+		// (high variance that never stabilizes)
+		tuner.calculateThroughputFn = func(duration time.Duration, batchSize int64) float64 {
+			idx := int(batchSize - 1)
+			if idx < 0 || idx >= len(performanceProfile) {
+				return 0
+			}
+
+			baseThroughput := performanceProfile[idx]
+			// Always create high variance by alternating between high and low values
+			sampleCount := len(tuner.measurementSetting.throughputs)
+			if sampleCount%2 == 0 {
+				return baseThroughput * 2.0 // +100%
+			}
+			return baseThroughput * 0.5 // -50%
+		}
+
+		tuner.minSamples = minSamples
+		tuner.maxSamples = maxSamples
+
+		ctx := context.Background()
+		initialMeasurement := tuner.measurementSetting.value
+
+		// Collect samples at the initial measurement point
+		for i := 0; i < maxSamples*2 && tuner.measurementSetting.value == initialMeasurement; i++ {
+			tuner.sendBatch(ctx, mockBatch(tuner))
+		}
+
+		// After attempting to collect maxSamples, verify behavior:
+		// 1. Should not have collected more than maxSamples
+		actualSamples := len(tuner.measurementSetting.throughputs)
+		if actualSamples > maxSamples {
+			t.Fatalf("collected %d samples, exceeding max of %d", actualSamples, maxSamples)
+		}
+
+		// 2. Should have stopped at maxSamples and reported an error
+		if actualSamples == maxSamples {
+			if tuner.tuningErr == nil {
+				t.Fatalf("reached maxSamples with unstable measurements but no error was set")
+			}
+			// Tuner should not advance to a new measurement when hitting maxSamples with unstable data
+			if tuner.measurementSetting.value != initialMeasurement {
+				t.Fatalf("tuner advanced to new measurement despite hitting maxSamples with unstable data")
 			}
 		}
 	})
