@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
 	mathlib "github.com/xataio/pgstream/internal/math"
@@ -28,6 +27,7 @@ type batchBytesTuner[T Message] struct {
 	batchBytesToleranceFactor float64
 	minSamples                int
 	maxSamples                int
+	maxCoeficientOfVariation  float64
 
 	measurementSetting *batchBytesSetting
 	candidateSetting   *batchBytesSetting
@@ -35,13 +35,6 @@ type batchBytesTuner[T Message] struct {
 	debugMeasurements []string
 	tuningErr         error
 }
-
-type direction string
-
-const (
-	directionLeft  direction = "left"
-	directionRight direction = "right"
-)
 
 const (
 	minThroughputSamples             = 3
@@ -52,15 +45,6 @@ const (
 )
 
 var errNetworkTooUnstable = errors.New("network too unstable for batch bytes tuning")
-
-type batchBytesSetting struct {
-	value                 int64
-	throughputs           []float64
-	avgThroughput         float64
-	coeficientOfVariation float64
-	direction             direction
-	skippedCount          uint
-}
 
 // Typical throughput curve
 // Throughput (bytes/s)
@@ -98,6 +82,7 @@ func newBatchBytesTuner[T Message](cfg AutoTuneConfig, sendFn sendBatchFn[T], lo
 		batchBytesToleranceFactor: defaultBatchBytesToleranceFactor,
 		minSamples:                minThroughputSamples,
 		maxSamples:                maxThroughputSamples,
+		maxCoeficientOfVariation:  maxCoeficientOfVariation,
 	}
 
 	t.logger.Debug("batch bytes initialised", loglib.Fields{
@@ -170,7 +155,7 @@ func (t *batchBytesTuner[T]) recordMeasurementAndCalculateNext(start time.Time) 
 
 	// if measurements are not stable yet, continue collecting samples until the
 	// max samples are reached.
-	if !t.measurementSetting.isStable() {
+	if !t.measurementSetting.isStable(t.maxCoeficientOfVariation) {
 		logFields := loglib.Fields{
 			"avg_throughput":          t.measurementSetting.avgThroughput,
 			"coeficient_of_variation": t.measurementSetting.coeficientOfVariation,
@@ -317,69 +302,6 @@ func (t *batchBytesTuner[T]) logDebugMeasurements() {
 	}
 
 	t.logger.Debug(result)
-}
-
-func newBatchBytesSetting(value int64, direction direction) *batchBytesSetting {
-	return &batchBytesSetting{
-		value:     value,
-		direction: direction,
-	}
-}
-
-func (s *batchBytesSetting) String() string {
-	if s == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("[value: %d, avg throughput: %.2fb/s, coeficient of variation: %.2f, sample count: %d, direction: %s]", s.value, s.avgThroughput, s.coeficientOfVariation, len(s.throughputs), s.direction)
-}
-
-func (s *batchBytesSetting) IsWithinTolerance(batchBytes int64, toleranceFactor float64) bool {
-	if s == nil {
-		return false
-	}
-	bytesTolerance := int64(float64(s.value) * toleranceFactor)
-	return batchBytes >= (s.value-bytesTolerance) && batchBytes <= (s.value+bytesTolerance)
-}
-
-func (s *batchBytesSetting) addThroughput(throughput float64) {
-	if s == nil {
-		return
-	}
-	s.throughputs = append(s.throughputs, throughput)
-}
-
-func (s *batchBytesSetting) hasMinSamples(minSamples int) bool {
-	return s != nil && len(s.throughputs) >= minSamples
-}
-
-func (s *batchBytesSetting) hasMaxSamples(maxSamples int) bool {
-	return s != nil && len(s.throughputs) >= maxSamples
-}
-
-func (s *batchBytesSetting) calculateAverageThroughput() {
-	if s == nil || len(s.throughputs) == 0 {
-		return
-	}
-
-	var total float64
-	for _, v := range s.throughputs {
-		total += v
-	}
-
-	s.avgThroughput = total / float64(len(s.throughputs))
-	s.coeficientOfVariation = mathlib.CoefficientOfVariation(s.throughputs)
-}
-
-func (s *batchBytesSetting) isStable() bool {
-	if s == nil || len(s.throughputs) < 2 {
-		return true // not enough data to determine stability
-	}
-
-	// Use the coefficient of variation that was already calculated
-	// Consider stable if coefficient of variation is less than 30%
-	return !math.IsInf(s.coeficientOfVariation, 0) &&
-		!math.IsNaN(s.coeficientOfVariation) &&
-		s.coeficientOfVariation < maxCoeficientOfVariation
 }
 
 func calculateThroughput(duration time.Duration, batchBytes int64) float64 {
