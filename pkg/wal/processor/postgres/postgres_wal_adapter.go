@@ -51,7 +51,7 @@ func newAdapter(ctx context.Context, schemaQuerier schemalogQuerier, logger logl
 		return nil, err
 	}
 
-	var ddl *ddlAdapter
+	var ddl ddlQueryAdapter
 	if schemaQuerier != nil {
 		ddl = newDDLAdapter(schemaQuerier)
 	}
