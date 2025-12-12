@@ -162,6 +162,16 @@ func (a *ddlAdapter) buildCreateTableQuery(schemaName string, table schemalog.Ta
 
 func (a *ddlAdapter) buildColumnDefinition(column *schemalog.Column) string {
 	colDefinition := fmt.Sprintf("%s %s", pglib.QuoteIdentifier(column.Name), column.DataType)
+	if column.IsSerial() {
+		switch strings.ToUpper(column.DataType) {
+		case "SMALLINT":
+			colDefinition = fmt.Sprintf("%s SMALLSERIAL", pglib.QuoteIdentifier(column.Name))
+		case "INTEGER":
+			colDefinition = fmt.Sprintf("%s SERIAL", pglib.QuoteIdentifier(column.Name))
+		case "BIGINT":
+			colDefinition = fmt.Sprintf("%s BIGSERIAL", pglib.QuoteIdentifier(column.Name))
+		}
+	}
 	if !column.Nullable {
 		colDefinition = fmt.Sprintf("%s NOT NULL", colDefinition)
 	}

@@ -231,6 +231,13 @@ func (c *Column) IsGenerated() bool {
 	return c.Generated || c.Identity != ""
 }
 
+func (c *Column) IsSerial() bool {
+	return c.HasSequence() &&
+		(strings.ToUpper(c.DataType) == "INTEGER" ||
+			strings.ToUpper(c.DataType) == "BIGINT" ||
+			strings.ToUpper(c.DataType) == "SMALLINT")
+}
+
 func (c *Column) HasSequence() bool {
 	return c.DefaultValue != nil && strings.Contains(*c.DefaultValue, "nextval")
 }
