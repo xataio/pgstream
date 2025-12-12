@@ -39,7 +39,6 @@ type batchBytesTuner[T Message] struct {
 const (
 	minThroughputSamples             = 3
 	maxThroughputSamples             = 50
-	maxSkippedMeasurements           = 3
 	defaultBatchBytesToleranceFactor = 0.1 // 10% tolerance when matching batch size for measurement
 	maxCoeficientOfVariation         = 0.4 // max 40% CoV to consider measurements stable
 )
@@ -114,22 +113,12 @@ func (t *batchBytesTuner[T]) sendBatch(ctx context.Context, batch *Batch[T]) err
 			"actual_batch_bytes":   batch.totalBytes,
 			"skipped_count":        t.measurementSetting.skippedCount,
 		}
-		switch {
-		case t.measurementSetting.skippedCount >= maxSkippedMeasurements:
-			// When the current batch size doesn't match the measurement setting
-			// for a number of times in a row, skip this measurement and go left
-			// (since we need to reduce the batch size to stop hitting the timeout).
-			t.logger.Debug("skipping to next measurement due to repeated batch size mismatch", logFields)
-			t.measurementSetting = t.calculateNextSetting()
-			return t.sendFn(ctx, batch)
-		default:
-			// If the current batch size doesn't match the measurement setting,
-			// skip tuning (this can happen if the sender's timeout has been triggered,
-			// when there's not enough data to fill the batch size).
-			t.measurementSetting.skippedCount++
-			t.logger.Debug("skipping measurement due to batch size mismatch", logFields)
-			return t.sendFn(ctx, batch)
-		}
+		// If the current batch size doesn't match the measurement setting,
+		// skip tuning (this can happen if the sender's timeout has been triggered,
+		// when there's not enough data to fill the batch size).
+		t.measurementSetting.skippedCount++
+		t.logger.Debug("skipping measurement due to batch size mismatch", logFields)
+		return t.sendFn(ctx, batch)
 	}
 
 	start := time.Now()
@@ -182,17 +171,6 @@ func (t *batchBytesTuner[T]) recordMeasurementAndCalculateNext(start time.Time) 
 func (t *batchBytesTuner[T]) calculateNextSetting() *batchBytesSetting {
 	var newMeasurementSetting *batchBytesSetting
 	switch {
-	case !t.measurementSetting.hasMinSamples(t.minSamples):
-		// if measurement doesn't have enough samples, it means the batch send
-		// failed or was skipped, so go left to reduce batch size
-		newMeasurementSetting = newBatchBytesSetting(
-			mathlib.Median(t.minBatchBytes, t.measurementSetting.value),
-			directionLeft)
-		// We are going left now, so update the max to current
-		// measurement to narrow search space on right side, since we
-		// know it can't be sampled successfully
-		t.setMaxBatchBytes(t.measurementSetting.value)
-
 	case t.candidateSetting == nil:
 		// if it's the first measurement, set candidate to measurement
 		t.updateCandidate(t.measurementSetting)
