@@ -141,6 +141,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 							MaxInterval:     60 * time.Second,
 						},
 					},
+					IgnoreDDL: true,
 				},
 			},
 			Kafka: &stream.KafkaProcessorConfig{

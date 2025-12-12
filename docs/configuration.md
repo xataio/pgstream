@@ -98,6 +98,7 @@ target:
       constant:
         max_retries: 5 # maximum number of retries
         interval: 1000 # interval in milliseconds
+    ignore_ddl: false # whether to disable processing of DDL events on the target Postgres database. Defaults to false.
   kafka:
     servers: ["localhost:9092"]
     topic:
@@ -329,6 +330,7 @@ One of exponential/constant/disable retries backoff policies can be provided for
 | PGSTREAM_POSTGRES_WRITER_BACKOFF_INTERVAL             | 0                               | No       | Constant interval for the backoff policy to be applied to the Postgres connection retries.                                                                                                                     |
 | PGSTREAM_POSTGRES_WRITER_BACKOFF_MAX_RETRIES          | 0                               | No       | Max retries for the backoff policy to be applied to the Postgres connection retries.                                                                                                                           |
 | PGSTREAM_POSTGRES_WRITER_DISABLE_RETRIES              | False                           | No       | Disable any retry policy.                                                                                                                                                                                      |
+| PGSTREAM_POSTGRES_WRITER_IGNORE_DDL                   | False                           | No       | Disable processing of DDL events on the target Postgres database.                                                                                                                                              |
 
 One of exponential/constant/disable retries retry policies can be provided for the Postgres connection retry strategy. If none is provided, the exponential defaults apply.
 

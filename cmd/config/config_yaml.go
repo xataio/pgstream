@@ -167,6 +167,7 @@ type PostgresTargetConfig struct {
 	DisableTriggers   bool              `mapstructure:"disable_triggers" yaml:"disable_triggers"`
 	OnConflictAction  string            `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
 	RetryPolicy       BackoffConfig     `mapstructure:"retry_policy" yaml:"retry_policy"`
+	IgnoreDDL         bool              `mapstructure:"ignore_ddl" yaml:"ignore_ddl"`
 }
 
 type KafkaTargetConfig struct {
@@ -617,6 +618,7 @@ func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorCon
 			DisableTriggers:  c.Target.Postgres.DisableTriggers,
 			OnConflictAction: c.Target.Postgres.OnConflictAction,
 			RetryPolicy:      c.Target.Postgres.RetryPolicy.parseBackoffConfig(),
+			IgnoreDDL:        c.Target.Postgres.IgnoreDDL,
 		},
 	}
 

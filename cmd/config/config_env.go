@@ -85,6 +85,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BACKOFF_INTERVAL")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BACKOFF_MAX_RETRIES")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_DISABLE_RETRIES")
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_IGNORE_DDL")
 
 	viper.BindEnv("PGSTREAM_KAFKA_READER_SERVERS")
 	viper.BindEnv("PGSTREAM_KAFKA_WRITER_SERVERS")
@@ -480,6 +481,7 @@ func parsePostgresProcessorConfig() *stream.PostgresProcessorConfig {
 			OnConflictAction:  viper.GetString("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION"),
 			BulkIngestEnabled: bulkIngestEnabled,
 			RetryPolicy:       parseBackoffConfig("PGSTREAM_POSTGRES_WRITER"),
+			IgnoreDDL:         viper.GetBool("PGSTREAM_POSTGRES_WRITER_IGNORE_DDL"),
 		},
 	}
 
