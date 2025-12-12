@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
@@ -27,16 +28,18 @@ var (
 )
 
 type dmlAdapter struct {
+	logger           loglib.Logger
 	onConflictAction onConflictAction
 	forCopy          bool
 }
 
-func newDMLAdapter(action string, forCopy bool) (*dmlAdapter, error) {
+func newDMLAdapter(action string, forCopy bool, logger loglib.Logger) (*dmlAdapter, error) {
 	oca, err := parseOnConflictAction(action)
 	if err != nil {
 		return nil, err
 	}
 	return &dmlAdapter{
+		logger:           logger,
 		onConflictAction: oca,
 		forCopy:          forCopy,
 	}, nil
@@ -121,6 +124,9 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 		if seqName, ok := schemaInfo.sequenceColumns[pglib.QuoteIdentifier(col.Name)]; ok {
 			colValueFloat, ok := col.Value.(float64)
 			if !ok {
+				a.logger.Warn(nil, "unexpected value type for sequence column, expected integer", loglib.Fields{
+					"column_name": col.Name, "column_type": col.Type, "column_value": col.Value,
+				})
 				continue
 			}
 			qs = append(qs, &query{

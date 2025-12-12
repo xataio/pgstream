@@ -51,7 +51,7 @@ func newAdapter(ctx context.Context, schemaQuerier schemalogQuerier, logger logl
 		return nil, err
 	}
 
-	dmlAdapter, err := newDMLAdapter(onConflictAction, forCopy)
+	dmlAdapter, err := newDMLAdapter(onConflictAction, forCopy, logger)
 	if err != nil {
 		return nil, err
 	}

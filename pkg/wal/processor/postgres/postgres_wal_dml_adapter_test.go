@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
+	"github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
@@ -469,6 +470,7 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 			t.Parallel()
 
 			a := &dmlAdapter{
+				logger:           log.NewNoopLogger(),
 				onConflictAction: tc.action,
 				forCopy:          tc.forCopy,
 			}
@@ -516,7 +518,7 @@ func Test_newDMLAdapter(t *testing.T) {
 		t.Run(tc.action, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := newDMLAdapter(tc.action, false)
+			_, err := newDMLAdapter(tc.action, false, log.NewNoopLogger())
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
