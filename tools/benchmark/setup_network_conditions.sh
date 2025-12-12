@@ -42,7 +42,11 @@ check_requirements() {
 
     if ! command -v tc &> /dev/null; then
         log_error "tc (traffic control) command not found"
-        log_error "Install with: apt-get install iproute2 or yum install iproute"
+        log_error "Install with one of:"
+        log_error "  Ubuntu/Debian: apt-get install iproute2"
+        log_error "  RHEL/CentOS 7: yum install iproute"
+        log_error "  RHEL/CentOS 8+/Fedora: dnf install iproute"
+        log_error "  Amazon Linux: yum install iproute-tc"
         exit 1
     fi
 }
@@ -59,22 +63,28 @@ setup_stable() {
     log_info "Applied: 10ms delay ±2ms jitter"
 }
 
-setup_low_jitter() {
-    log_info "Setting up LOW JITTER conditions"
-    tc qdisc add dev "$INTERFACE" root netem delay 10ms 5ms
-    log_info "Applied: 10ms delay ±5ms jitter"
+setup_fast_network() {
+    log_info "Setting up FAST network conditions (simulating local/fast connection)"
+    tc qdisc add dev "$INTERFACE" root netem delay 5ms 1ms
+    log_info "Applied: 5ms delay ±1ms (simulates local datacenter)"
 }
 
-setup_medium_jitter() {
-    log_info "Setting up MEDIUM JITTER conditions"
-    tc qdisc add dev "$INTERFACE" root netem delay 20ms 20ms
-    log_info "Applied: 20ms delay ±20ms jitter"
+setup_medium_network() {
+    log_info "Setting up MEDIUM network conditions (simulating moderate connection)"
+    tc qdisc add dev "$INTERFACE" root netem delay 50ms 5ms
+    log_info "Applied: 50ms delay ±5ms (simulates cross-region network)"
 }
 
-setup_high_jitter() {
-    log_info "Setting up HIGH JITTER conditions"
-    tc qdisc add dev "$INTERFACE" root netem delay 30ms 50ms
-    log_info "Applied: 30ms delay ±50ms jitter"
+setup_slow_network() {
+    log_info "Setting up SLOW network conditions (simulating slow connection)"
+    tc qdisc add dev "$INTERFACE" root netem delay 200ms 10ms
+    log_info "Applied: 200ms delay ±10ms (simulates slow/distant network)"
+}
+
+setup_very_slow_network() {
+    log_info "Setting up VERY SLOW network conditions (simulating high-latency connection)"
+    tc qdisc add dev "$INTERFACE" root netem delay 500ms 20ms
+    log_info "Applied: 500ms delay ±20ms (simulates satellite/very distant network)"
 }
 
 setup_packet_loss() {
@@ -106,10 +116,11 @@ Usage: sudo $0 <condition>
 
 Available conditions:
   clean          - Remove all network conditions (reset to normal)
+  fast           - Fast network (5ms ±1ms) - local datacenter
+  medium         - Medium network (50ms ±5ms) - cross-region
+  slow           - Slow network (200ms ±10ms) - distant/slow connection
+  very-slow      - Very slow network (500ms ±20ms) - satellite/extreme latency
   stable         - Minimal jitter (10ms ±2ms)
-  low-jitter     - Low jitter (10ms ±5ms)
-  medium-jitter  - Medium jitter (20ms ±20ms)
-  high-jitter    - High jitter (30ms ±50ms)
   packet-loss    - 1% packet loss with 10ms delay
   bandwidth      - 100 Mbps bandwidth limit
   congestion     - Simulate congested network
@@ -119,7 +130,7 @@ Environment variables:
   INTERFACE      - Network interface to apply conditions (default: eth0)
 
 Examples:
-  sudo INTERFACE=ens5 $0 medium-jitter
+  sudo INTERFACE=ens5 $0 medium
   sudo $0 clean
   sudo $0 show
 
@@ -138,25 +149,30 @@ main() {
             check_requirements
             clean_qdisc
             ;;
+        fast)
+            check_requirements
+            clean_qdisc
+            setup_fast_network
+            ;;
+        medium)
+            check_requirements
+            clean_qdisc
+            setup_medium_network
+            ;;
+        slow)
+            check_requirements
+            clean_qdisc
+            setup_slow_network
+            ;;
+        very-slow)
+            check_requirements
+            clean_qdisc
+            setup_very_slow_network
+            ;;
         stable)
             check_requirements
             clean_qdisc
             setup_stable
-            ;;
-        low-jitter)
-            check_requirements
-            clean_qdisc
-            setup_low_jitter
-            ;;
-        medium-jitter)
-            check_requirements
-            clean_qdisc
-            setup_medium_jitter
-            ;;
-        high-jitter)
-            check_requirements
-            clean_qdisc
-            setup_high_jitter
             ;;
         packet-loss)
             check_requirements
