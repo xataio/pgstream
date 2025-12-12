@@ -56,7 +56,9 @@ func newWriter(ctx context.Context, config *Config, schemaLogStore schemalog.Sto
 		return nil, err
 	}
 
-	w.adapter, err = newAdapter(ctx, schemaLogStore, w.logger, config.URL, config.OnConflictAction, config.BulkIngestEnabled)
+	forCopy := writerType == bulkIngestWriter
+
+	w.adapter, err = newAdapter(ctx, schemaLogStore, w.logger, config.URL, config.OnConflictAction, forCopy)
 	if err != nil {
 		return nil, err
 	}
