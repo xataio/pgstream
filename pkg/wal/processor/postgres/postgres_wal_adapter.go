@@ -25,7 +25,7 @@ type schemaObserver interface {
 }
 
 type dmlQueryAdapter interface {
-	walDataToQuery(d *wal.Data, schemaInfo schemaInfo) (*query, error)
+	walDataToQueries(d *wal.Data, schemaInfo schemaInfo) ([]*query, error)
 }
 
 type ddlQueryAdapter interface {
@@ -95,7 +95,7 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 			return nil, err
 		}
 
-		qs, err := a.dmlAdapter.walDataToQuery(e.Data, schemaInfo{
+		qs, err := a.dmlAdapter.walDataToQueries(e.Data, schemaInfo{
 			generatedColumns: generatedColumns,
 		})
 		if err != nil {

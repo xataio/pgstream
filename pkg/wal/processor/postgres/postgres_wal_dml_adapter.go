@@ -42,18 +42,26 @@ func newDMLAdapter(action string, forCopy bool) (*dmlAdapter, error) {
 	}, nil
 }
 
-func (a *dmlAdapter) walDataToQuery(d *wal.Data, schemaInfo schemaInfo) (*query, error) {
+func (a *dmlAdapter) walDataToQueries(d *wal.Data, schemaInfo schemaInfo) ([]*query, error) {
 	switch d.Action {
 	case "T":
-		return a.buildTruncateQuery(d), nil
+		return []*query{a.buildTruncateQuery(d)}, nil
 	case "D":
-		return a.buildDeleteQuery(d)
+		q, err := a.buildDeleteQuery(d)
+		if err != nil {
+			return nil, err
+		}
+		return []*query{q}, nil
 	case "I":
-		return a.buildInsertQuery(d, schemaInfo), nil
+		return []*query{a.buildInsertQuery(d, schemaInfo)}, nil
 	case "U":
-		return a.buildUpdateQuery(d, schemaInfo)
+		q, err := a.buildUpdateQuery(d, schemaInfo)
+		if err != nil {
+			return nil, err
+		}
+		return []*query{q}, nil
 	default:
-		return &query{}, nil
+		return []*query{}, nil
 	}
 }
 

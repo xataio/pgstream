@@ -30,8 +30,8 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 		action           onConflictAction
 		generatedColumns map[string]struct{}
 
-		wantQuery *query
-		wantErr   error
+		wantQueries []*query
+		wantErr     error
 	}{
 		{
 			name: "truncate",
@@ -44,10 +44,12 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				},
 			},
 
-			wantQuery: &query{
-				schema: testSchema,
-				table:  testTable,
-				sql:    fmt.Sprintf("TRUNCATE %s", quotedTestTable),
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    fmt.Sprintf("TRUNCATE %s", quotedTestTable),
+				},
 			},
 		},
 		{
@@ -64,11 +66,13 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				},
 			},
 
-			wantQuery: &query{
-				schema: testSchema,
-				table:  testTable,
-				sql:    fmt.Sprintf("DELETE FROM %s WHERE \"id\" = $1", quotedTestTable),
-				args:   []any{1},
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    fmt.Sprintf("DELETE FROM %s WHERE \"id\" = $1", quotedTestTable),
+					args:   []any{1},
+				},
 			},
 		},
 		{
@@ -86,11 +90,13 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				},
 			},
 
-			wantQuery: &query{
-				schema: testSchema,
-				table:  testTable,
-				sql:    fmt.Sprintf("DELETE FROM %s WHERE \"id\" = $1 AND \"name\" = $2", quotedTestTable),
-				args:   []any{1, "alice"},
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    fmt.Sprintf("DELETE FROM %s WHERE \"id\" = $1 AND \"name\" = $2", quotedTestTable),
+					args:   []any{1, "alice"},
+				},
 			},
 		},
 		{
@@ -106,11 +112,13 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				Metadata: wal.Metadata{},
 			},
 
-			wantQuery: &query{
-				schema: testSchema,
-				table:  testTable,
-				sql:    fmt.Sprintf("DELETE FROM %s WHERE \"id\" = $1 AND \"name\" = $2", quotedTestTable),
-				args:   []any{1, "alice"},
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    fmt.Sprintf("DELETE FROM %s WHERE \"id\" = $1 AND \"name\" = $2", quotedTestTable),
+					args:   []any{1, "alice"},
+				},
 			},
 		},
 		{
@@ -123,8 +131,8 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				Metadata: wal.Metadata{},
 			},
 
-			wantQuery: nil,
-			wantErr:   errUnableToBuildQuery,
+			wantQueries: nil,
+			wantErr:     errUnableToBuildQuery,
 		},
 		{
 			name: "insert",
@@ -141,12 +149,14 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				},
 			},
 
-			wantQuery: &query{
-				schema:      testSchema,
-				table:       testTable,
-				columnNames: quotedColumnNames,
-				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2)", quotedTestTable),
-				args:        []any{1, "alice"},
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: quotedColumnNames,
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2)", quotedTestTable),
+					args:        []any{1, "alice"},
+				},
 			},
 		},
 		{
@@ -165,12 +175,14 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				},
 			},
 
-			wantQuery: &query{
-				schema:      testSchema,
-				table:       testTable,
-				columnNames: []string{`"id"`, `"name"`, `"created_at"`},
-				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\", \"created_at\") OVERRIDING SYSTEM VALUE VALUES($1, $2, $3)", quotedTestTable),
-				args:        []any{1, "alice", pgtype.Timestamptz{Valid: true, InfinityModifier: pgtype.Infinity}},
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: []string{`"id"`, `"name"`, `"created_at"`},
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\", \"created_at\") OVERRIDING SYSTEM VALUE VALUES($1, $2, $3)", quotedTestTable),
+					args:        []any{1, "alice", pgtype.Timestamptz{Valid: true, InfinityModifier: pgtype.Infinity}},
+				},
 			},
 		},
 		{
@@ -189,12 +201,14 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 			action: onConflictDoNothing,
 
-			wantQuery: &query{
-				schema:      testSchema,
-				table:       testTable,
-				columnNames: quotedColumnNames,
-				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2) ON CONFLICT DO NOTHING", quotedTestTable),
-				args:        []any{1, "alice"},
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: quotedColumnNames,
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2) ON CONFLICT DO NOTHING", quotedTestTable),
+					args:        []any{1, "alice"},
+				},
 			},
 		},
 		{
@@ -213,12 +227,14 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 			action: onConflictUpdate,
 
-			wantQuery: &query{
-				schema:      testSchema,
-				table:       testTable,
-				columnNames: quotedColumnNames,
-				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2) ON CONFLICT (\"id\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"name\" = EXCLUDED.\"name\"", quotedTestTable),
-				args:        []any{1, "alice"},
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: quotedColumnNames,
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2) ON CONFLICT (\"id\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"name\" = EXCLUDED.\"name\"", quotedTestTable),
+					args:        []any{1, "alice"},
+				},
 			},
 		},
 		{
@@ -234,12 +250,14 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 			action: onConflictUpdate,
 
-			wantQuery: &query{
-				schema:      testSchema,
-				table:       testTable,
-				columnNames: quotedColumnNames,
-				sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2)", quotedTestTable),
-				args:        []any{1, "alice"},
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: quotedColumnNames,
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2)", quotedTestTable),
+					args:        []any{1, "alice"},
+				},
 			},
 		},
 		{
@@ -257,11 +275,13 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				},
 			},
 
-			wantQuery: &query{
-				schema: testSchema,
-				table:  testTable,
-				sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3", quotedTestTable),
-				args:   []any{1, "alice", 1},
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3", quotedTestTable),
+					args:   []any{1, "alice", 1},
+				},
 			},
 		},
 		{
@@ -280,11 +300,13 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				Metadata: wal.Metadata{},
 			},
 
-			wantQuery: &query{
-				schema: testSchema,
-				table:  testTable,
-				sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3", quotedTestTable),
-				args:   []any{1, "alice", 1},
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3", quotedTestTable),
+					args:   []any{1, "alice", 1},
+				},
 			},
 		},
 		{
@@ -304,11 +326,13 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				Metadata: wal.Metadata{},
 			},
 
-			wantQuery: &query{
-				schema: testSchema,
-				table:  testTable,
-				sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3 AND \"name\" = $4", quotedTestTable),
-				args:   []any{1, "alice", 1, "a"},
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3 AND \"name\" = $4", quotedTestTable),
+					args:   []any{1, "alice", 1, "a"},
+				},
 			},
 		},
 		{
@@ -329,11 +353,13 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 			generatedColumns: map[string]struct{}{`"generated_col"`: {}},
 
-			wantQuery: &query{
-				schema: testSchema,
-				table:  testTable,
-				sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3", quotedTestTable),
-				args:   []any{1, "alice", 1},
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3", quotedTestTable),
+					args:   []any{1, "alice", 1},
+				},
 			},
 		},
 		{
@@ -350,8 +376,8 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				Metadata: wal.Metadata{},
 			},
 
-			wantQuery: nil,
-			wantErr:   errUnableToBuildQuery,
+			wantQueries: nil,
+			wantErr:     errUnableToBuildQuery,
 		},
 		{
 			name: "unknown",
@@ -368,7 +394,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				},
 			},
 
-			wantQuery: &query{},
+			wantQueries: []*query{},
 		},
 	}
 
@@ -384,7 +410,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				generatedColumns: tc.generatedColumns,
 			})
 			require.ErrorIs(t, err, tc.wantErr)
-			require.Equal(t, tc.wantQuery, query)
+			require.Equal(t, tc.wantQueries, queries)
 		})
 	}
 }
@@ -453,7 +479,7 @@ func TestDMLAdapter_filterRowColumns(t *testing.T) {
 		},
 		{
 			name:             "with generated column",
-			generatedColumns: map[string]struct{}{"id": {}},
+			generatedColumns: map[string]struct{}{`"id"`: {}},
 			columns: []wal.Column{
 				{Name: "id", Value: 1},
 				{Name: "name", Value: "alice"},
@@ -465,7 +491,7 @@ func TestDMLAdapter_filterRowColumns(t *testing.T) {
 		},
 		{
 			name:             "unknown generated columns",
-			generatedColumns: map[string]struct{}{"age": {}},
+			generatedColumns: map[string]struct{}{`"age"`: {}},
 			columns: []wal.Column{
 				{Name: "id", Value: 1},
 				{Name: "name", Value: "alice"},

@@ -36,8 +36,8 @@ func TestAdapter_walEventToQueries(t *testing.T) {
 	}
 
 	testDMLAdapter := &mockDMLAdapter{
-		walDataToQueryFn: func(d *wal.Data, generatedColumns []string) (*query, error) {
-			return testDMLQuery, nil
+		walDataToQueriesFn: func(d *wal.Data, schemaInfo schemaInfo) ([]*query, error) {
+			return []*query{testDMLQuery}, nil
 		},
 	}
 
@@ -210,7 +210,7 @@ func TestAdapter_walEventToQueries(t *testing.T) {
 				},
 			},
 			dmlAdapter: &mockDMLAdapter{
-				walDataToQueryFn: func(d *wal.Data, generatedColumns []string) (*query, error) {
+				walDataToQueriesFn: func(d *wal.Data, schemaInfo schemaInfo) ([]*query, error) {
 					return nil, errTest
 				},
 			},
