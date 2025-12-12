@@ -197,6 +197,35 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 			},
 		},
 		{
+			name: "insert with sequences - for copy enabled",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: float64(1)},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+			sequenceColumns: map[string]string{
+				`"id"`: `"id_seq"`,
+			},
+			forCopy: true,
+
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: quotedColumnNames,
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2)", quotedTestTable),
+					args:        []any{float64(1), "alice"},
+				},
+			},
+		},
+		{
 			name: "insert with sequences - invalid column value",
 			walData: &wal.Data{
 				Action: "I",
