@@ -134,7 +134,7 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 				schema: d.Schema,
 				sql: fmt.Sprintf("SELECT setval('%s', %d, true)",
 					seqName,
-					int(colValueFloat)),
+					int64(colValueFloat)),
 			})
 		}
 	}
