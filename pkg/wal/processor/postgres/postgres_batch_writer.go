@@ -27,11 +27,16 @@ type BatchWriter struct {
 
 const batchWriter = "postgres_batch_writer"
 
+var errSchemaLogStoreNotProvided = errors.New("schema log store URL must be provided or DDL events will not be processed. If this is intended, set ignore DDL to true")
+
 // NewBatchWriter returns a postgres processor that batches and writes data to
 // the configured postgres instance.
 func NewBatchWriter(ctx context.Context, config *Config, opts ...WriterOption) (*BatchWriter, error) {
 	var schemaLogStore schemalog.Store
-	if config.SchemaLogStore.URL != "" {
+	if !config.IgnoreDDL {
+		if config.SchemaLogStore.URL == "" {
+			return nil, errSchemaLogStoreNotProvided
+		}
 		var err error
 		schemaLogStore, err = schemalogpg.NewStore(ctx, config.SchemaLogStore)
 		if err != nil {
