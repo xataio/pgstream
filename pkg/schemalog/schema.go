@@ -239,7 +239,7 @@ func (c *Column) IsSerial() bool {
 }
 
 func (c *Column) HasSequence() bool {
-	return c.DefaultValue != nil && strings.Contains(*c.DefaultValue, "nextval")
+	return c.GetSequenceName() != ""
 }
 
 func (c *Column) GetSequenceName() string {
