@@ -17,9 +17,10 @@ import (
 // of calls to postgres, and it updates the state whenever a DDL event is
 // received through the WAL.
 type pgSchemaObserver struct {
-	logger                loglib.Logger
-	pgConn                pglib.Querier
-	generatedTableColumns *synclib.Map[string, []string]
+	logger loglib.Logger
+	pgConn pglib.Querier
+	// generatedTableColumns is a map of schema.table to a list of generated column names.
+	generatedTableColumns *synclib.Map[string, map[string]struct{}]
 	// materializedViews is a map of schema name to a set of materialized view names.
 	materializedViews *synclib.Map[string, map[string]struct{}]
 }
@@ -35,7 +36,7 @@ func newPGSchemaObserver(ctx context.Context, pgURL string, logger loglib.Logger
 	}
 	return &pgSchemaObserver{
 		pgConn:                pgConn,
-		generatedTableColumns: synclib.NewMap[string, []string](),
+		generatedTableColumns: synclib.NewMap[string, map[string]struct{}](),
 		materializedViews:     synclib.NewMap[string, map[string]struct{}](),
 		logger:                logger,
 	}, nil
@@ -44,7 +45,7 @@ func newPGSchemaObserver(ctx context.Context, pgURL string, logger loglib.Logger
 // getGeneratedColumnNames will return a list of generated column names for the
 // schema.table on input. If the value is not in the internal cache, it will
 // query postgres.
-func (o *pgSchemaObserver) getGeneratedColumnNames(ctx context.Context, schema, table string) ([]string, error) {
+func (o *pgSchemaObserver) getGeneratedColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error) {
 	key := pglib.QuoteQualifiedIdentifier(schema, table)
 
 	columns, found := o.generatedTableColumns.Get(key)
@@ -90,10 +91,10 @@ func (o *pgSchemaObserver) isMaterializedView(ctx context.Context, schema, table
 func (o *pgSchemaObserver) updateGeneratedColumnNames(logEntry *schemalog.LogEntry) {
 	for _, table := range logEntry.Schema.Tables {
 		key := pglib.QuoteQualifiedIdentifier(logEntry.SchemaName, table.Name)
-		generatedColumns := make([]string, 0, len(table.Columns))
+		generatedColumns := make(map[string]struct{}, len(table.Columns))
 		for _, c := range table.Columns {
 			if c.IsGenerated() {
-				generatedColumns = append(generatedColumns, c.Name)
+				generatedColumns[pglib.QuoteIdentifier(c.Name)] = struct{}{}
 			}
 		}
 
@@ -117,8 +118,8 @@ const generatedTableColumnsQuery = `SELECT attname FROM pg_attribute
 		AND attrelid = (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2)
 		AND (attgenerated != '' OR attidentity != '')`
 
-func (o *pgSchemaObserver) queryGeneratedColumnNames(ctx context.Context, schemaName, tableName string) ([]string, error) {
-	columnNames := []string{}
+func (o *pgSchemaObserver) queryGeneratedColumnNames(ctx context.Context, schemaName, tableName string) (map[string]struct{}, error) {
+	columnNames := map[string]struct{}{}
 	// filter out generated columns (excluding identities) since they will
 	// be generated automatically, and they can't be overwriten.
 	rows, err := o.pgConn.Query(ctx, generatedTableColumnsQuery, tableName, schemaName)
@@ -132,7 +133,7 @@ func (o *pgSchemaObserver) queryGeneratedColumnNames(ctx context.Context, schema
 		if err := rows.Scan(&columnName); err != nil {
 			return nil, fmt.Errorf("scanning table generated column name: %w", err)
 		}
-		columnNames = append(columnNames, columnName)
+		columnNames[pglib.QuoteIdentifier(columnName)] = struct{}{}
 	}
 
 	if err := rows.Err(); err != nil {

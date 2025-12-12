@@ -42,16 +42,16 @@ func newDMLAdapter(action string, forCopy bool) (*dmlAdapter, error) {
 	}, nil
 }
 
-func (a *dmlAdapter) walDataToQuery(d *wal.Data, generatedColumns []string) (*query, error) {
+func (a *dmlAdapter) walDataToQuery(d *wal.Data, schemaInfo schemaInfo) (*query, error) {
 	switch d.Action {
 	case "T":
 		return a.buildTruncateQuery(d), nil
 	case "D":
 		return a.buildDeleteQuery(d)
 	case "I":
-		return a.buildInsertQuery(d, generatedColumns), nil
+		return a.buildInsertQuery(d, schemaInfo), nil
 	case "U":
-		return a.buildUpdateQuery(d, generatedColumns)
+		return a.buildUpdateQuery(d, schemaInfo)
 	default:
 		return &query{}, nil
 	}
@@ -78,8 +78,8 @@ func (a *dmlAdapter) buildDeleteQuery(d *wal.Data) (*query, error) {
 	}, nil
 }
 
-func (a *dmlAdapter) buildInsertQuery(d *wal.Data, generatedColumns []string) *query {
-	names, values := a.filterRowColumns(d.Columns, generatedColumns)
+func (a *dmlAdapter) buildInsertQuery(d *wal.Data, schemaInfo schemaInfo) *query {
+	names, values := a.filterRowColumns(d.Columns, schemaInfo)
 	// if there are no columns after filtering generated ones, no query to run
 	if len(names) == 0 {
 		return &query{}
@@ -102,8 +102,8 @@ func (a *dmlAdapter) buildInsertQuery(d *wal.Data, generatedColumns []string) *q
 	}
 }
 
-func (a *dmlAdapter) buildUpdateQuery(d *wal.Data, generatedColumns []string) (*query, error) {
-	rowColumns, rowValues := a.filterRowColumns(d.Columns, generatedColumns)
+func (a *dmlAdapter) buildUpdateQuery(d *wal.Data, schemaInfo schemaInfo) (*query, error) {
+	rowColumns, rowValues := a.filterRowColumns(d.Columns, schemaInfo)
 	// if there are no columns after filtering generated ones, no query to run
 	if len(rowColumns) == 0 {
 		return &query{}, nil
@@ -215,17 +215,13 @@ func (a *dmlAdapter) extractPrimaryKeyColumnNames(colIDs []string, cols []wal.Co
 	return colNames
 }
 
-func (a *dmlAdapter) filterRowColumns(cols []wal.Column, generatedColumns []string) ([]string, []any) {
-	generatedColumnMap := make(map[string]struct{}, len(generatedColumns))
-	for _, col := range generatedColumns {
-		generatedColumnMap[pglib.QuoteIdentifier(col)] = struct{}{}
-	}
+func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo) ([]string, []any) {
 	// we need to make sure we only add the arguments for the
-	// relevant column names (this removes any generated columns row values)
+	// relevant column names (this removes any generated columns/sequence row values)
 	rowValues := make([]any, 0, len(cols))
 	rowColumns := make([]string, 0, len(cols))
 	for _, c := range cols {
-		if _, found := generatedColumnMap[pglib.QuoteIdentifier(c.Name)]; found {
+		if _, found := schemaInfo.generatedColumns[pglib.QuoteIdentifier(c.Name)]; found {
 			continue
 		}
 		rowColumns = append(rowColumns, pglib.QuoteIdentifier(c.Name))

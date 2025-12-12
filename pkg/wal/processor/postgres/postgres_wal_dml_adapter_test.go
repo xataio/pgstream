@@ -28,7 +28,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 		name             string
 		walData          *wal.Data
 		action           onConflictAction
-		generatedColumns []string
+		generatedColumns map[string]struct{}
 
 		wantQuery *query
 		wantErr   error
@@ -327,7 +327,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				},
 				Metadata: wal.Metadata{},
 			},
-			generatedColumns: []string{"generated_col"},
+			generatedColumns: map[string]struct{}{`"generated_col"`: {}},
 
 			wantQuery: &query{
 				schema: testSchema,
@@ -380,7 +380,9 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 				onConflictAction: tc.action,
 				forCopy:          true,
 			}
-			query, err := a.walDataToQuery(tc.walData, tc.generatedColumns)
+			queries, err := a.walDataToQueries(tc.walData, schemaInfo{
+				generatedColumns: tc.generatedColumns,
+			})
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantQuery, query)
 		})
@@ -432,7 +434,7 @@ func TestDMLAdapter_filterRowColumns(t *testing.T) {
 
 	tests := []struct {
 		name             string
-		generatedColumns []string
+		generatedColumns map[string]struct{}
 		columns          []wal.Column
 
 		wantColumns []string
@@ -440,7 +442,7 @@ func TestDMLAdapter_filterRowColumns(t *testing.T) {
 	}{
 		{
 			name:             "no generated columns",
-			generatedColumns: []string{},
+			generatedColumns: map[string]struct{}{},
 			columns: []wal.Column{
 				{Name: "id", Value: 1},
 				{Name: "name", Value: "alice"},
@@ -451,7 +453,7 @@ func TestDMLAdapter_filterRowColumns(t *testing.T) {
 		},
 		{
 			name:             "with generated column",
-			generatedColumns: []string{"id"},
+			generatedColumns: map[string]struct{}{"id": {}},
 			columns: []wal.Column{
 				{Name: "id", Value: 1},
 				{Name: "name", Value: "alice"},
@@ -463,7 +465,7 @@ func TestDMLAdapter_filterRowColumns(t *testing.T) {
 		},
 		{
 			name:             "unknown generated columns",
-			generatedColumns: []string{"age"},
+			generatedColumns: map[string]struct{}{"age": {}},
 			columns: []wal.Column{
 				{Name: "id", Value: 1},
 				{Name: "name", Value: "alice"},
@@ -479,7 +481,9 @@ func TestDMLAdapter_filterRowColumns(t *testing.T) {
 			t.Parallel()
 
 			a := dmlAdapter{}
-			rowColumns, rowValues := a.filterRowColumns(tc.columns, tc.generatedColumns)
+			rowColumns, rowValues := a.filterRowColumns(tc.columns, schemaInfo{
+				generatedColumns: tc.generatedColumns,
+			})
 			require.Equal(t, tc.wantColumns, rowColumns)
 			require.Equal(t, tc.wantValues, rowValues)
 		})

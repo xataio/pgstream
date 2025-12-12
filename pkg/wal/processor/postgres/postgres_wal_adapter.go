@@ -17,7 +17,7 @@ type walAdapter interface {
 }
 
 type schemaObserver interface {
-	getGeneratedColumnNames(ctx context.Context, schema, table string) ([]string, error)
+	getGeneratedColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error)
 	isMaterializedView(ctx context.Context, schema, table string) bool
 	updateGeneratedColumnNames(schemalog *schemalog.LogEntry)
 	updateMaterializedViews(schemalog *schemalog.LogEntry)
@@ -25,11 +25,15 @@ type schemaObserver interface {
 }
 
 type dmlQueryAdapter interface {
-	walDataToQuery(d *wal.Data, generatedColumns []string) (*query, error)
+	walDataToQuery(d *wal.Data, schemaInfo schemaInfo) (*query, error)
 }
 
 type ddlQueryAdapter interface {
 	schemaLogToQueries(ctx context.Context, l *schemalog.LogEntry) ([]*query, error)
+}
+
+type schemaInfo struct {
+	generatedColumns map[string]struct{}
 }
 
 type adapter struct {
@@ -91,12 +95,14 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 			return nil, err
 		}
 
-		q, err := a.dmlAdapter.walDataToQuery(e.Data, generatedColumns)
+		qs, err := a.dmlAdapter.walDataToQuery(e.Data, schemaInfo{
+			generatedColumns: generatedColumns,
+		})
 		if err != nil {
 			return nil, err
 		}
 
-		return []*query{q}, nil
+		return qs, nil
 	}
 }
 

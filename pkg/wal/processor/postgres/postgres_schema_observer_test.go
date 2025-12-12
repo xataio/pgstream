@@ -20,20 +20,20 @@ func TestPGSchemaObserver_getGeneratedColumnNames(t *testing.T) {
 	t.Parallel()
 
 	quotedQualifiedTableName := `"test_schema"."test_table"`
-	idColumn := "id"
+	idColumn := `"id"`
 
 	tests := []struct {
 		name         string
-		tableColumns map[string][]string
+		tableColumns map[string]map[string]struct{}
 		pgConn       pglib.Querier
 
-		wantColumns      []string
-		wantTableColumns map[string][]string
+		wantColumns      map[string]struct{}
+		wantTableColumns map[string]map[string]struct{}
 		wantErr          error
 	}{
 		{
 			name:         "ok - empty map",
-			tableColumns: map[string][]string{},
+			tableColumns: map[string]map[string]struct{}{},
 			pgConn: &pgmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					require.Equal(t, generatedTableColumnsQuery, query)
@@ -53,16 +53,16 @@ func TestPGSchemaObserver_getGeneratedColumnNames(t *testing.T) {
 				},
 			},
 
-			wantColumns: []string{idColumn},
-			wantTableColumns: map[string][]string{
-				quotedQualifiedTableName: {idColumn},
+			wantColumns: map[string]struct{}{idColumn: {}},
+			wantTableColumns: map[string]map[string]struct{}{
+				quotedQualifiedTableName: {idColumn: {}},
 			},
 			wantErr: nil,
 		},
 		{
 			name: "ok - existing table",
-			tableColumns: map[string][]string{
-				quotedQualifiedTableName: {idColumn},
+			tableColumns: map[string]map[string]struct{}{
+				quotedQualifiedTableName: {idColumn: {}},
 			},
 			pgConn: &pgmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
@@ -70,15 +70,15 @@ func TestPGSchemaObserver_getGeneratedColumnNames(t *testing.T) {
 				},
 			},
 
-			wantColumns: []string{idColumn},
-			wantTableColumns: map[string][]string{
-				quotedQualifiedTableName: {idColumn},
+			wantColumns: map[string]struct{}{idColumn: {}},
+			wantTableColumns: map[string]map[string]struct{}{
+				quotedQualifiedTableName: {idColumn: {}},
 			},
 			wantErr: nil,
 		},
 		{
 			name:         "error - querying table columns",
-			tableColumns: map[string][]string{},
+			tableColumns: map[string]map[string]struct{}{},
 			pgConn: &pgmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return nil, errTest
@@ -86,12 +86,12 @@ func TestPGSchemaObserver_getGeneratedColumnNames(t *testing.T) {
 			},
 
 			wantColumns:      nil,
-			wantTableColumns: map[string][]string{},
+			wantTableColumns: map[string]map[string]struct{}{},
 			wantErr:          errTest,
 		},
 		{
 			name:         "error - scanning table column",
-			tableColumns: map[string][]string{},
+			tableColumns: map[string]map[string]struct{}{},
 			pgConn: &pgmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					require.Equal(t, generatedTableColumnsQuery, query)
@@ -108,12 +108,12 @@ func TestPGSchemaObserver_getGeneratedColumnNames(t *testing.T) {
 			},
 
 			wantColumns:      nil,
-			wantTableColumns: map[string][]string{},
+			wantTableColumns: map[string]map[string]struct{}{},
 			wantErr:          errTest,
 		},
 		{
 			name:         "error - rows error",
-			tableColumns: map[string][]string{},
+			tableColumns: map[string]map[string]struct{}{},
 			pgConn: &pgmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					require.Equal(t, generatedTableColumnsQuery, query)
@@ -130,7 +130,7 @@ func TestPGSchemaObserver_getGeneratedColumnNames(t *testing.T) {
 			},
 
 			wantColumns:      nil,
-			wantTableColumns: map[string][]string{},
+			wantTableColumns: map[string]map[string]struct{}{},
 			wantErr:          errTest,
 		},
 	}

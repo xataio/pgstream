@@ -139,8 +139,9 @@ func TestAdapter_walEventToQueries(t *testing.T) {
 			},
 			schemaObserver: &mockSchemaObserver{
 				isMaterializedViewFn: func(schema, table string) bool { return false },
-				getGeneratedColumnNamesFn: func(ctx context.Context, schema, table string) ([]string, error) {
-					return []string{}, nil
+				getGeneratedColumnNamesFn: func(ctx context.Context, schema, table string) (map[string]struct{}, error) {
+					return map[string]struct{}{}, nil
+				},
 				},
 			},
 			dmlAdapter: testDMLAdapter,
@@ -181,7 +182,9 @@ func TestAdapter_walEventToQueries(t *testing.T) {
 			},
 			schemaObserver: &mockSchemaObserver{
 				isMaterializedViewFn: func(schema, table string) bool { return false },
-				getGeneratedColumnNamesFn: func(ctx context.Context, schema, table string) ([]string, error) {
+				getGeneratedColumnNamesFn: func(ctx context.Context, schema, table string) (map[string]struct{}, error) {
+					return nil, errTest
+				},
 					return nil, errTest
 				},
 			},
@@ -201,8 +204,9 @@ func TestAdapter_walEventToQueries(t *testing.T) {
 			},
 			schemaObserver: &mockSchemaObserver{
 				isMaterializedViewFn: func(schema, table string) bool { return false },
-				getGeneratedColumnNamesFn: func(ctx context.Context, schema, table string) ([]string, error) {
-					return []string{}, nil
+				getGeneratedColumnNamesFn: func(ctx context.Context, schema, table string) (map[string]struct{}, error) {
+					return map[string]struct{}{}, nil
+				},
 				},
 			},
 			dmlAdapter: &mockDMLAdapter{
