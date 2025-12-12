@@ -160,7 +160,7 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 			opts := append(opts, pgwriter.WithCheckpoint(checkpoint))
 			pgBatchWriter, err := pgwriter.NewBatchWriter(ctx, &config.Postgres.BatchWriter, opts...)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("target postgres: %w", err)
 			}
 
 			processor = pgBatchWriter

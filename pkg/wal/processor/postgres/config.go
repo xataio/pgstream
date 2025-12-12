@@ -18,6 +18,7 @@ type Config struct {
 	OnConflictAction  string
 	BulkIngestEnabled bool
 	RetryPolicy       backoff.Config
+	IgnoreDDL         bool
 }
 
 const (

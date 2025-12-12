@@ -11,7 +11,7 @@ repos:
       - id: check-executables-have-shebangs
       - id: check-merge-conflict
   - repo: https://github.com/golangci/golangci-lint
-    rev: v2.0.2
+    rev: v2.5.0
     hooks:
       - id: golangci-lint-full
         args: ["--timeout=10m", "--config=.golangci.yml"]

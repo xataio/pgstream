@@ -13,6 +13,7 @@ import (
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -29,6 +30,39 @@ var (
 
 	errTest = errors.New("oh noes")
 )
+
+func TestNewBatchWriter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		config  *Config
+		wantErr error
+	}{
+		{
+			name: "error - schema log store not provided",
+			config: &Config{
+				IgnoreDDL: false,
+				SchemaLogStore: schemalogpg.Config{
+					URL: "",
+				},
+			},
+			wantErr: errSchemaLogStoreNotProvided,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			_, err := NewBatchWriter(ctx, tc.config)
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
 
 func TestBatchWriter_ProcessWALEvent(t *testing.T) {
 	t.Parallel()
