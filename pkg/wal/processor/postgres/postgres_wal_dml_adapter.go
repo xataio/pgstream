@@ -53,7 +53,7 @@ func (a *dmlAdapter) walDataToQueries(d *wal.Data, schemaInfo schemaInfo) ([]*qu
 		}
 		return []*query{q}, nil
 	case "I":
-		return []*query{a.buildInsertQuery(d, schemaInfo)}, nil
+		return a.buildInsertQueries(d, schemaInfo), nil
 	case "U":
 		q, err := a.buildUpdateQuery(d, schemaInfo)
 		if err != nil {
@@ -86,11 +86,11 @@ func (a *dmlAdapter) buildDeleteQuery(d *wal.Data) (*query, error) {
 	}, nil
 }
 
-func (a *dmlAdapter) buildInsertQuery(d *wal.Data, schemaInfo schemaInfo) *query {
+func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*query {
 	names, values := a.filterRowColumns(d.Columns, schemaInfo)
 	// if there are no columns after filtering generated ones, no query to run
 	if len(names) == 0 {
-		return &query{}
+		return []*query{}
 	}
 
 	placeholders := make([]string, 0, len(d.Columns))
@@ -98,16 +98,42 @@ func (a *dmlAdapter) buildInsertQuery(d *wal.Data, schemaInfo schemaInfo) *query
 		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
 	}
 
-	return &query{
-		table:       d.Table,
-		schema:      d.Schema,
-		columnNames: names,
-		sql: fmt.Sprintf("INSERT INTO %s(%s) OVERRIDING SYSTEM VALUE VALUES(%s)%s",
-			quotedTableName(d.Schema, d.Table), strings.Join(names, ", "),
-			strings.Join(placeholders, ", "),
-			a.buildOnConflictQuery(d, names)),
-		args: values,
+	qs := []*query{
+		{
+			table:       d.Table,
+			schema:      d.Schema,
+			columnNames: names,
+			sql: fmt.Sprintf("INSERT INTO %s(%s) OVERRIDING SYSTEM VALUE VALUES(%s)%s",
+				quotedTableName(d.Schema, d.Table), strings.Join(names, ", "),
+				strings.Join(placeholders, ", "),
+				a.buildOnConflictQuery(d, names)),
+			args: values,
+		},
 	}
+
+	// for COPY we don't need to handle sequence updates
+	if a.forCopy {
+		return qs
+	}
+
+	// handle sequence columns that need to be updated after insert
+	for _, col := range d.Columns {
+		if seqName, ok := schemaInfo.sequenceColumns[pglib.QuoteIdentifier(col.Name)]; ok {
+			colValueFloat, ok := col.Value.(float64)
+			if !ok {
+				continue
+			}
+			qs = append(qs, &query{
+				table:  d.Table,
+				schema: d.Schema,
+				sql: fmt.Sprintf("SELECT setval('%s', %d, true)",
+					seqName,
+					int(colValueFloat)),
+			})
+		}
+	}
+
+	return qs
 }
 
 func (a *dmlAdapter) buildUpdateQuery(d *wal.Data, schemaInfo schemaInfo) (*query, error) {

@@ -12,7 +12,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
-func TestDMLAdapter_walDataToQuery(t *testing.T) {
+func TestDMLAdapter_walDataToQueries(t *testing.T) {
 	t.Parallel()
 
 	testTableID := xid.New()
@@ -29,6 +29,8 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 		walData          *wal.Data
 		action           onConflictAction
 		generatedColumns map[string]struct{}
+		sequenceColumns  map[string]string
+		forCopy          bool
 
 		wantQueries []*query
 		wantErr     error
@@ -160,6 +162,69 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 			},
 		},
 		{
+			name: "insert with sequences",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: float64(1)},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+			sequenceColumns: map[string]string{
+				`"id"`: `"id_seq"`,
+			},
+			forCopy: false,
+
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: quotedColumnNames,
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2)", quotedTestTable),
+					args:        []any{float64(1), "alice"},
+				},
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    `SELECT setval('"id_seq"', 1, true)`,
+				},
+			},
+		},
+		{
+			name: "insert with sequences - invalid column value",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+			sequenceColumns: map[string]string{
+				`"name"`: `"name_seq"`,
+			},
+			forCopy: false,
+
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: quotedColumnNames,
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2)", quotedTestTable),
+					args:        []any{1, "alice"},
+				},
+			},
+		},
+		{
 			name: "insert with infinity timestamp",
 			walData: &wal.Data{
 				Action: "I",
@@ -174,6 +239,7 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 					InternalColIDs: []string{columnID(1)},
 				},
 			},
+			forCopy: true,
 
 			wantQueries: []*query{
 				{
@@ -404,10 +470,11 @@ func TestDMLAdapter_walDataToQuery(t *testing.T) {
 
 			a := &dmlAdapter{
 				onConflictAction: tc.action,
-				forCopy:          true,
+				forCopy:          tc.forCopy,
 			}
 			queries, err := a.walDataToQueries(tc.walData, schemaInfo{
 				generatedColumns: tc.generatedColumns,
+				sequenceColumns:  tc.sequenceColumns,
 			})
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantQueries, queries)
