@@ -18,9 +18,9 @@ type walAdapter interface {
 
 type schemaObserver interface {
 	getGeneratedColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error)
+	getSequenceColumns(ctx context.Context, schema, table string) (map[string]string, error)
 	isMaterializedView(ctx context.Context, schema, table string) bool
-	updateGeneratedColumnNames(schemalog *schemalog.LogEntry)
-	updateMaterializedViews(schemalog *schemalog.LogEntry)
+	update(logEntry *schemalog.LogEntry)
 	close() error
 }
 
@@ -34,6 +34,7 @@ type ddlQueryAdapter interface {
 
 type schemaInfo struct {
 	generatedColumns map[string]struct{}
+	sequenceColumns  map[string]string
 }
 
 type adapter struct {
@@ -79,8 +80,7 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 		if err != nil {
 			return nil, err
 		}
-		a.schemaObserver.updateGeneratedColumnNames(schemaLog)
-		a.schemaObserver.updateMaterializedViews(schemaLog)
+		a.schemaObserver.update(schemaLog)
 
 		// there's no ddl adapter, the ddl query will not be processed
 		if a.ddlAdapter == nil {
@@ -95,8 +95,14 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 			return nil, err
 		}
 
+		columnSequences, err := a.schemaObserver.getSequenceColumns(ctx, e.Data.Schema, e.Data.Table)
+		if err != nil {
+			return nil, err
+		}
+
 		qs, err := a.dmlAdapter.walDataToQueries(e.Data, schemaInfo{
 			generatedColumns: generatedColumns,
+			sequenceColumns:  columnSequences,
 		})
 		if err != nil {
 			return nil, err
