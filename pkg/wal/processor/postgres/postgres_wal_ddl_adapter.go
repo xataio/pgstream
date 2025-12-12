@@ -184,7 +184,7 @@ func (a *ddlAdapter) buildColumnDefinition(column *schemalog.Column) string {
 	default:
 		// do not set default values with sequences since they must be aligned
 		// between source/target. Keep source database as source of truth.
-		if column.DefaultValue != nil && !strings.Contains(*column.DefaultValue, "seq") {
+		if column.DefaultValue != nil && !column.HasSequence() {
 			colDefinition = fmt.Sprintf("%s DEFAULT %s", colDefinition, *column.DefaultValue)
 		}
 	}

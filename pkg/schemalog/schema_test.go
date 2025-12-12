@@ -64,3 +64,83 @@ func TestTable_GetFirstUniqueNotNullColumn(t *testing.T) {
 		})
 	}
 }
+
+func TestColumn_GetSequenceName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		column *Column
+		want   string
+	}{
+		{
+			name: "nil default value",
+			column: &Column{
+				DefaultValue: nil,
+			},
+			want: "",
+		},
+		{
+			name: "empty default value",
+			column: &Column{
+				DefaultValue: stringPtr(""),
+			},
+			want: "",
+		},
+		{
+			name: "valid sequence default value",
+			column: &Column{
+				DefaultValue: stringPtr("nextval('users_id_seq'::regclass)"),
+			},
+			want: "users_id_seq",
+		},
+		{
+			name: "valid sequence with schema",
+			column: &Column{
+				DefaultValue: stringPtr("nextval('public.orders_id_seq'::regclass)"),
+			},
+			want: "public.orders_id_seq",
+		},
+		{
+			name: "not a sequence default",
+			column: &Column{
+				DefaultValue: stringPtr("'default_value'"),
+			},
+			want: "",
+		},
+		{
+			name: "invalid sequence format - missing prefix",
+			column: &Column{
+				DefaultValue: stringPtr("'users_id_seq'::regclass)"),
+			},
+			want: "",
+		},
+		{
+			name: "invalid sequence format - missing suffix",
+			column: &Column{
+				DefaultValue: stringPtr("nextval('users_id_seq'"),
+			},
+			want: "",
+		},
+		{
+			name: "partial match prefix",
+			column: &Column{
+				DefaultValue: stringPtr("nextval('users_id_seq'::text)"),
+			},
+			want: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := tc.column.GetSequenceName()
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func stringPtr(s string) *string {
+	return &s
+}
