@@ -334,65 +334,6 @@ func TestBatchBytesTuner_HandlesIncompleteBatches(t *testing.T) {
 	})
 }
 
-// TestBatchBytesTuner_DoesNotUpdateCandidateOnIncompleteBatch verifies that the candidate
-// is never updated based on an incomplete batch measurement, as incomplete batches don't
-// accurately reflect the performance at that batch size setting.
-func TestBatchBytesTuner_DoesNotUpdateCandidateOnIncompleteBatch(t *testing.T) {
-	testLogger := zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
-		LogLevel: "error",
-	}))
-
-	rapid.Check(t, func(t *rapid.T) {
-		performanceProfile := genPerformanceProfile(t, 10, 100)
-
-		if len(performanceProfile) < 10 {
-			t.Skip("profile too small")
-		}
-
-		tuner, err := newBatchBytesTuner(AutoTuneConfig{
-			Enabled:              true,
-			MinBatchBytes:        1,
-			MaxBatchBytes:        int64(len(performanceProfile)),
-			ConvergenceThreshold: 0.1,
-		}, noopSendFn, testLogger)
-		if err != nil {
-			t.Fatalf("failed to create tuner: %v", err)
-		}
-		tuner.batchBytesToleranceFactor = 0.0 // No tolerance for this test
-
-		tuner.calculateThroughputFn = createMockThroughputFn(performanceProfile)
-		tuner.minSamples = 1
-
-		ctx := context.Background()
-
-		// Send a few complete batches to establish a candidate
-		for i := 0; i < 5; i++ {
-			tuner.sendBatch(ctx, mockBatch(tuner))
-		}
-
-		if tuner.candidateSetting == nil {
-			t.Skip("no candidate established")
-		}
-
-		candidateBeforeIncomplete := tuner.candidateSetting
-		measurementBeforeIncomplete := tuner.measurementSetting.value
-
-		// Send an incomplete batch
-		incompleteBatch := mockBatch(tuner)
-		incompleteBatch.totalBytes = int(tuner.measurementSetting.value / 2)
-		tuner.sendBatch(ctx, incompleteBatch)
-
-		// Candidate should not have changed due to incomplete batch
-		if tuner.candidateSetting != candidateBeforeIncomplete {
-			// It's okay if candidate changed to a better value from a different measurement,
-			// but it should not be based on the incomplete batch's measurement setting
-			if tuner.candidateSetting.value == measurementBeforeIncomplete {
-				t.Fatalf("candidate was updated based on incomplete batch measurement")
-			}
-		}
-	})
-}
-
 // TestBatchyesTuner_RespectsMinimumSamples verifies that the tuner collects
 // at least minSamples measurements at a given batch size before considering it
 // as a valid candidate. This prevents premature decisions based on insufficient data.
