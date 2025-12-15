@@ -212,7 +212,10 @@ extract_metrics() {
     local skipped_batches=0
 
     if [[ "$config_type" == "auto" ]]; then
-        convergence_iterations=$(grep -c "batch bytes tuner has converged" "$log_file" || true)
+        # Count the number of measurement lines between "batch bytes measurements:" and "final candidate:"
+        # Each line starting with [value: represents one iteration
+        convergence_iterations=$(awk '/batch bytes measurements:/,/final candidate:/ {if (/^\[value:/) count++} END {print count+0}' "$log_file")
+
         skipped_batches=$(grep -c "skipping measurement" "$log_file" || true)
 
         # Extract final batch bytes from the line after "final candidate:"
