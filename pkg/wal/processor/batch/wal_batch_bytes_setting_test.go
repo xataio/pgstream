@@ -221,7 +221,7 @@ func TestBatchBytesSetting_CalculateAverageThroughput(t *testing.T) {
 			var originalAvg, originalCoV float64
 			if tt.setting != nil {
 				originalAvg = tt.setting.avgThroughput
-				originalCoV = tt.setting.coeficientOfVariation
+				originalCoV = tt.setting.coefficientOfVariation
 			}
 
 			tt.setting.calculateAverageThroughput(tt.minSamples)
@@ -233,10 +233,10 @@ func TestBatchBytesSetting_CalculateAverageThroughput(t *testing.T) {
 			if len(tt.setting.throughputs) < tt.minSamples {
 				// Values should remain unchanged
 				require.Equal(t, originalAvg, tt.setting.avgThroughput)
-				require.Equal(t, originalCoV, tt.setting.coeficientOfVariation)
+				require.Equal(t, originalCoV, tt.setting.coefficientOfVariation)
 			} else {
 				require.InDelta(t, tt.expectedAvgThroughput, tt.setting.avgThroughput, 0.0001)
-				require.InDelta(t, tt.expectedCoV, tt.setting.coeficientOfVariation, 0.0001)
+				require.InDelta(t, tt.expectedCoV, tt.setting.coefficientOfVariation, 0.0001)
 			}
 		})
 	}
@@ -260,7 +260,7 @@ func TestBatchBytesSetting_IsStable(t *testing.T) {
 		{
 			name: "stable coefficient of variation returns true",
 			setting: &batchBytesSetting{
-				coeficientOfVariation: 0.2,
+				coefficientOfVariation: 0.2,
 			},
 			maxCoV: 0.3,
 			want:   true,
@@ -268,7 +268,7 @@ func TestBatchBytesSetting_IsStable(t *testing.T) {
 		{
 			name: "unstable coefficient of variation returns false",
 			setting: &batchBytesSetting{
-				coeficientOfVariation: 0.4,
+				coefficientOfVariation: 0.4,
 			},
 			maxCoV: 0.3,
 			want:   false,
@@ -276,7 +276,7 @@ func TestBatchBytesSetting_IsStable(t *testing.T) {
 		{
 			name: "coefficient of variation at boundary returns false",
 			setting: &batchBytesSetting{
-				coeficientOfVariation: 0.3,
+				coefficientOfVariation: 0.3,
 			},
 			maxCoV: 0.3,
 			want:   false,
@@ -284,7 +284,7 @@ func TestBatchBytesSetting_IsStable(t *testing.T) {
 		{
 			name: "zero coefficient of variation returns true",
 			setting: &batchBytesSetting{
-				coeficientOfVariation: 0.0,
+				coefficientOfVariation: 0.0,
 			},
 			maxCoV: 0.3,
 			want:   true,
@@ -292,7 +292,7 @@ func TestBatchBytesSetting_IsStable(t *testing.T) {
 		{
 			name: "infinite coefficient of variation returns false",
 			setting: &batchBytesSetting{
-				coeficientOfVariation: math.Inf(1),
+				coefficientOfVariation: math.Inf(1),
 			},
 			maxCoV: 0.3,
 			want:   false,
@@ -300,7 +300,7 @@ func TestBatchBytesSetting_IsStable(t *testing.T) {
 		{
 			name: "negative infinite coefficient of variation returns false",
 			setting: &batchBytesSetting{
-				coeficientOfVariation: math.Inf(-1),
+				coefficientOfVariation: math.Inf(-1),
 			},
 			maxCoV: 0.3,
 			want:   false,
@@ -308,7 +308,7 @@ func TestBatchBytesSetting_IsStable(t *testing.T) {
 		{
 			name: "NaN coefficient of variation returns false",
 			setting: &batchBytesSetting{
-				coeficientOfVariation: math.NaN(),
+				coefficientOfVariation: math.NaN(),
 			},
 			maxCoV: 0.3,
 			want:   false,
@@ -316,7 +316,7 @@ func TestBatchBytesSetting_IsStable(t *testing.T) {
 		{
 			name: "very small maxCoV threshold",
 			setting: &batchBytesSetting{
-				coeficientOfVariation: 0.01,
+				coefficientOfVariation: 0.01,
 			},
 			maxCoV: 0.005,
 			want:   false,
@@ -324,7 +324,7 @@ func TestBatchBytesSetting_IsStable(t *testing.T) {
 		{
 			name: "very large maxCoV threshold",
 			setting: &batchBytesSetting{
-				coeficientOfVariation: 0.5,
+				coefficientOfVariation: 0.5,
 			},
 			maxCoV: 1.0,
 			want:   true,

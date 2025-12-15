@@ -27,7 +27,7 @@ type batchBytesTuner[T Message] struct {
 	batchBytesToleranceFactor float64
 	minSamples                int
 	maxSamples                int
-	maxCoeficientOfVariation  float64
+	maxCoefficientOfVariation float64
 
 	measurementSetting *batchBytesSetting
 	candidateSetting   *batchBytesSetting
@@ -40,7 +40,7 @@ const (
 	minThroughputSamples             = 3
 	maxThroughputSamples             = 50
 	defaultBatchBytesToleranceFactor = 0.1 // 10% tolerance when matching batch size for measurement
-	maxCoeficientOfVariation         = 0.4 // max 40% CoV to consider measurements stable
+	maxCoefficientOfVariation        = 0.4 // max 40% CoV to consider measurements stable
 )
 
 var errNetworkTooUnstable = errors.New("network too unstable for batch bytes tuning")
@@ -111,7 +111,7 @@ func newBatchBytesTuner[T Message](cfg AutoTuneConfig, sendFn sendBatchFn[T], lo
 		batchBytesToleranceFactor: defaultBatchBytesToleranceFactor,
 		minSamples:                minThroughputSamples,
 		maxSamples:                maxThroughputSamples,
-		maxCoeficientOfVariation:  maxCoeficientOfVariation,
+		maxCoefficientOfVariation: maxCoefficientOfVariation,
 	}
 
 	t.logger.Debug("batch bytes initialised", loglib.Fields{
@@ -174,10 +174,10 @@ func (t *batchBytesTuner[T]) recordMeasurementAndCalculateNext(start time.Time) 
 
 	// if measurements are not stable yet, continue collecting samples until the
 	// max samples are reached.
-	if !t.measurementSetting.isStable(t.maxCoeficientOfVariation) {
+	if !t.measurementSetting.isStable(t.maxCoefficientOfVariation) {
 		logFields := loglib.Fields{
 			"avg_throughput":          t.measurementSetting.avgThroughput,
-			"coeficient_of_variation": t.measurementSetting.coeficientOfVariation,
+			"coeficient_of_variation": t.measurementSetting.coefficientOfVariation,
 			"sample_count":            len(t.measurementSetting.throughputs),
 		}
 		if t.measurementSetting.hasMaxSamples(t.maxSamples) {

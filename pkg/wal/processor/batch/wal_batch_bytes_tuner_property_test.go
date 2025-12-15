@@ -491,11 +491,11 @@ func TestBatchBytesTuner_RetriesUnstableMeasurements(t *testing.T) {
 		// Most importantly: verify that all candidates have stable measurements
 		if tuner.candidateSetting != nil && len(tuner.candidateSetting.throughputs) >= 2 {
 			// The candidate should have its coefficient of variation already calculated
-			if math.IsNaN(tuner.candidateSetting.coeficientOfVariation) {
+			if math.IsNaN(tuner.candidateSetting.coefficientOfVariation) {
 				t.Fatalf("final candidate has NaN coefficient of variation (likely zero mean)")
 			}
-			if tuner.candidateSetting.coeficientOfVariation >= maxCoeficientOfVariation {
-				t.Fatalf("final candidate has unstable measurements (CV=%.2f >= %.2f)", tuner.candidateSetting.coeficientOfVariation, maxCoeficientOfVariation)
+			if tuner.candidateSetting.coefficientOfVariation >= maxCoefficientOfVariation {
+				t.Fatalf("final candidate has unstable measurements (CV=%.2f >= %.2f)", tuner.candidateSetting.coefficientOfVariation, maxCoefficientOfVariation)
 			}
 		}
 	})
@@ -563,9 +563,9 @@ func TestBatchBytesTuner_UsesOnlyLastMinSamplesForStability(t *testing.T) {
 			if len(tuner.measurementSetting.throughputs) >= minSamples {
 				// We have enough samples, check if it's considered stable
 				// The last minSamples should be stable, so CoV should be low
-				if tuner.measurementSetting.coeficientOfVariation >= maxCoeficientOfVariation {
+				if tuner.measurementSetting.coefficientOfVariation >= maxCoefficientOfVariation {
 					t.Fatalf("measurement with stable last %d samples still considered unstable (CV=%.2f >= %.2f), total samples: %d",
-						minSamples, tuner.measurementSetting.coeficientOfVariation, maxCoeficientOfVariation, len(tuner.measurementSetting.throughputs))
+						minSamples, tuner.measurementSetting.coefficientOfVariation, maxCoefficientOfVariation, len(tuner.measurementSetting.throughputs))
 				}
 				// If CoV is low, we should have advanced (unless we hit some other condition)
 			}

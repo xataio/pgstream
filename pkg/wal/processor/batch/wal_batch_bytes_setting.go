@@ -13,12 +13,12 @@ import (
 // tracks the throughput measurements collected for this setting, calculates
 // average throughput and coefficient of variation, and determines stability.
 type batchBytesSetting struct {
-	value                 int64
-	throughputs           []float64
-	avgThroughput         float64
-	coeficientOfVariation float64
-	direction             direction
-	skippedCount          uint
+	value                  int64
+	throughputs            []float64
+	avgThroughput          float64
+	coefficientOfVariation float64
+	direction              direction
+	skippedCount           uint
 }
 
 type direction string
@@ -39,7 +39,7 @@ func (s *batchBytesSetting) String() string {
 	if s == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("[value: %d, avg throughput: %.2fb/s, coeficient of variation: %.2f, sample count: %d, direction: %s]", s.value, s.avgThroughput, s.coeficientOfVariation, len(s.throughputs), s.direction)
+	return fmt.Sprintf("[value: %d, avg throughput: %.2fb/s, coefficient of variation: %.2f, sample count: %d, direction: %s]", s.value, s.avgThroughput, s.coefficientOfVariation, len(s.throughputs), s.direction)
 }
 
 func (s *batchBytesSetting) IsWithinTolerance(batchBytes int64, toleranceFactor float64) bool {
@@ -79,7 +79,7 @@ func (s *batchBytesSetting) calculateAverageThroughput(minSamples int) {
 	}
 
 	s.avgThroughput = total / float64(len(lastMinSamples))
-	s.coeficientOfVariation = mathlib.CoefficientOfVariation(lastMinSamples)
+	s.coefficientOfVariation = mathlib.CoefficientOfVariation(lastMinSamples)
 }
 
 func (s *batchBytesSetting) isStable(maxCoV float64) bool {
@@ -89,7 +89,7 @@ func (s *batchBytesSetting) isStable(maxCoV float64) bool {
 
 	// Use the coefficient of variation that was already calculated
 	// Consider stable if coefficient of variation is less than 30%
-	return !math.IsInf(s.coeficientOfVariation, 0) &&
-		!math.IsNaN(s.coeficientOfVariation) &&
-		s.coeficientOfVariation < maxCoV
+	return !math.IsInf(s.coefficientOfVariation, 0) &&
+		!math.IsNaN(s.coefficientOfVariation) &&
+		s.coefficientOfVariation < maxCoV
 }
