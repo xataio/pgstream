@@ -334,9 +334,10 @@ func TestBatchBytesTuner_HandlesIncompleteBatches(t *testing.T) {
 	})
 }
 
-// TestBatchyesTuner_RespectsMinimumSamples verifies that the tuner collects
-// at least minSamples measurements at a given batch size before considering it
-// as a valid candidate. This prevents premature decisions based on insufficient data.
+// TestBatchBytesTuner_RespectsMinimumSamples verifies that the tuner collects
+// at least minSamples measurements at a given batch size before moving to the
+// next measurement point, and only updates the candidate with measurements that
+// have at least minSamples. This prevents premature decisions based on insufficient data.
 func TestBatchBytesTuner_RespectsMinimumSamples(t *testing.T) {
 	testLogger := zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
 		LogLevel: "error",
@@ -364,11 +365,27 @@ func TestBatchBytesTuner_RespectsMinimumSamples(t *testing.T) {
 		tuner.minSamples = minSamples
 
 		ctx := context.Background()
+		prevMeasurementValue := tuner.measurementSetting.value
 		prevCandidate := tuner.candidateSetting
 
-		// Track when candidate changes and verify it had enough samples
+		// Track measurements and candidate updates
 		for i := 0; i < 100 && !tuner.hasConverged(); i++ {
 			tuner.sendBatch(ctx, mockBatch(tuner))
+
+			currentMeasurementValue := tuner.measurementSetting.value
+			currentSampleCount := len(tuner.measurementSetting.throughputs)
+
+			// Check if measurement changed (moved to next measurement point)
+			if currentMeasurementValue != prevMeasurementValue {
+				// Previous measurement should have had at least minSamples before moving on
+				// (unless it was skipped due to incomplete batches, but we're using mockBatch
+				// which always returns the correct size)
+				if currentSampleCount > 0 && currentSampleCount < minSamples {
+					t.Fatalf("moved to next measurement with only %d samples (required %d) at value %d",
+						currentSampleCount, minSamples, prevMeasurementValue)
+				}
+				prevMeasurementValue = currentMeasurementValue
+			}
 
 			// Check if candidate was updated
 			if tuner.candidateSetting != prevCandidate && tuner.candidateSetting != nil {
