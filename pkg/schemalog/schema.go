@@ -4,6 +4,7 @@ package schemalog
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/xataio/pgstream/internal/json"
 )
@@ -228,6 +229,33 @@ func (c *Column) IsEqual(other *Column) bool {
 
 func (c *Column) IsGenerated() bool {
 	return c.Generated || c.Identity != ""
+}
+
+func (c *Column) IsSerial() bool {
+	return c.HasSequence() &&
+		(strings.ToUpper(c.DataType) == "INTEGER" ||
+			strings.ToUpper(c.DataType) == "BIGINT" ||
+			strings.ToUpper(c.DataType) == "SMALLINT")
+}
+
+func (c *Column) HasSequence() bool {
+	return c.GetSequenceName() != ""
+}
+
+func (c *Column) GetSequenceName() string {
+	if c.DefaultValue == nil {
+		return ""
+	}
+
+	def := *c.DefaultValue
+	prefix := "nextval('"
+	suffix := "'::regclass)"
+
+	if strings.HasPrefix(def, prefix) && strings.HasSuffix(def, suffix) {
+		return def[len(prefix) : len(def)-len(suffix)]
+	}
+
+	return ""
 }
 
 func unorderedColumnsEqual(a, b []Column) bool {

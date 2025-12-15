@@ -17,11 +17,14 @@ import (
 // of calls to postgres, and it updates the state whenever a DDL event is
 // received through the WAL.
 type pgSchemaObserver struct {
-	logger                loglib.Logger
-	pgConn                pglib.Querier
-	generatedTableColumns *synclib.Map[string, []string]
+	logger loglib.Logger
+	pgConn pglib.Querier
+	// generatedTableColumns is a map of schema.table to a list of generated column names.
+	generatedTableColumns *synclib.Map[string, map[string]struct{}]
 	// materializedViews is a map of schema name to a set of materialized view names.
 	materializedViews *synclib.Map[string, map[string]struct{}]
+	// columnTableSequences is a map of schema.table to a map of sequence column names.
+	columnTableSequences *synclib.Map[string, map[string]string]
 }
 
 // newPGSchemaObserver returns a postgres observer that tracks schemas,
@@ -35,8 +38,9 @@ func newPGSchemaObserver(ctx context.Context, pgURL string, logger loglib.Logger
 	}
 	return &pgSchemaObserver{
 		pgConn:                pgConn,
-		generatedTableColumns: synclib.NewMap[string, []string](),
+		generatedTableColumns: synclib.NewMap[string, map[string]struct{}](),
 		materializedViews:     synclib.NewMap[string, map[string]struct{}](),
+		columnTableSequences:  synclib.NewMap[string, map[string]string](),
 		logger:                logger,
 	}, nil
 }
@@ -44,7 +48,7 @@ func newPGSchemaObserver(ctx context.Context, pgURL string, logger loglib.Logger
 // getGeneratedColumnNames will return a list of generated column names for the
 // schema.table on input. If the value is not in the internal cache, it will
 // query postgres.
-func (o *pgSchemaObserver) getGeneratedColumnNames(ctx context.Context, schema, table string) ([]string, error) {
+func (o *pgSchemaObserver) getGeneratedColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error) {
 	key := pglib.QuoteQualifiedIdentifier(schema, table)
 
 	columns, found := o.generatedTableColumns.Get(key)
@@ -85,15 +89,39 @@ func (o *pgSchemaObserver) isMaterializedView(ctx context.Context, schema, table
 	return found
 }
 
+func (o *pgSchemaObserver) getSequenceColumns(ctx context.Context, schema, table string) (map[string]string, error) {
+	key := pglib.QuoteQualifiedIdentifier(schema, table)
+	colSeqMap, found := o.columnTableSequences.Get(key)
+	if found {
+		return colSeqMap, nil
+	}
+
+	// if not found in the map, retrieve them from postgres
+	seqColMap, err := o.queryTableSequences(ctx, o.pgConn, schema, table)
+	if err != nil {
+		o.logger.Error(err, "querying column sequences from postgres", loglib.Fields{"schema": schema, "table": table})
+		return nil, err
+	}
+
+	o.columnTableSequences.Set(key, seqColMap)
+	return seqColMap, nil
+}
+
+func (o *pgSchemaObserver) update(logEntry *schemalog.LogEntry) {
+	o.updateGeneratedColumnNames(logEntry)
+	o.updateMaterializedViews(logEntry)
+	o.updateColumnSequences(logEntry)
+}
+
 // updateGeneratedColumnNames will update the internal cache with the table
 // columns for the schema log on input.
 func (o *pgSchemaObserver) updateGeneratedColumnNames(logEntry *schemalog.LogEntry) {
 	for _, table := range logEntry.Schema.Tables {
 		key := pglib.QuoteQualifiedIdentifier(logEntry.SchemaName, table.Name)
-		generatedColumns := make([]string, 0, len(table.Columns))
+		generatedColumns := make(map[string]struct{}, len(table.Columns))
 		for _, c := range table.Columns {
 			if c.IsGenerated() {
-				generatedColumns = append(generatedColumns, c.Name)
+				generatedColumns[pglib.QuoteIdentifier(c.Name)] = struct{}{}
 			}
 		}
 
@@ -112,13 +140,26 @@ func (o *pgSchemaObserver) updateMaterializedViews(logEntry *schemalog.LogEntry)
 	o.materializedViews.Set(key, mvNames)
 }
 
+func (o *pgSchemaObserver) updateColumnSequences(logEntry *schemalog.LogEntry) {
+	for _, table := range logEntry.Schema.Tables {
+		key := pglib.QuoteQualifiedIdentifier(logEntry.SchemaName, table.Name)
+		seqColMap := make(map[string]string)
+		for _, col := range table.Columns {
+			if col.HasSequence() {
+				seqColMap[pglib.QuoteIdentifier(col.Name)] = col.GetSequenceName()
+			}
+		}
+		o.columnTableSequences.Set(key, seqColMap)
+	}
+}
+
 const generatedTableColumnsQuery = `SELECT attname FROM pg_attribute
 		WHERE attnum > 0
 		AND attrelid = (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2)
 		AND (attgenerated != '' OR attidentity != '')`
 
-func (o *pgSchemaObserver) queryGeneratedColumnNames(ctx context.Context, schemaName, tableName string) ([]string, error) {
-	columnNames := []string{}
+func (o *pgSchemaObserver) queryGeneratedColumnNames(ctx context.Context, schemaName, tableName string) (map[string]struct{}, error) {
+	columnNames := map[string]struct{}{}
 	// filter out generated columns (excluding identities) since they will
 	// be generated automatically, and they can't be overwriten.
 	rows, err := o.pgConn.Query(ctx, generatedTableColumnsQuery, tableName, schemaName)
@@ -132,7 +173,7 @@ func (o *pgSchemaObserver) queryGeneratedColumnNames(ctx context.Context, schema
 		if err := rows.Scan(&columnName); err != nil {
 			return nil, fmt.Errorf("scanning table generated column name: %w", err)
 		}
-		columnNames = append(columnNames, columnName)
+		columnNames[pglib.QuoteIdentifier(columnName)] = struct{}{}
 	}
 
 	if err := rows.Err(); err != nil {
@@ -165,6 +206,46 @@ func (o *pgSchemaObserver) queryMaterializedViews(ctx context.Context, schemaNam
 	}
 
 	return mvNames, nil
+}
+
+const sequenceColumnQuery = `SELECT
+    a.attname AS column_name,
+    s.relname AS sequence_name
+FROM pg_class t
+JOIN pg_namespace n ON n.oid = t.relnamespace
+JOIN pg_attribute a ON a.attrelid = t.oid
+JOIN pg_attrdef ad ON ad.adrelid = t.oid AND ad.adnum = a.attnum
+JOIN pg_depend d ON d.refobjid = t.oid AND d.refobjsubid = a.attnum
+JOIN pg_class s ON s.oid = d.objid
+WHERE t.relkind = 'r'
+    AND s.relkind = 'S'
+    AND d.deptype = 'a'
+    AND n.nspname = $1
+    AND t.relname = $2
+    AND a.attnum > 0
+    AND NOT a.attisdropped;`
+
+func (o *pgSchemaObserver) queryTableSequences(ctx context.Context, conn pglib.Querier, schemaName, tableName string) (map[string]string, error) {
+	rows, err := conn.Query(ctx, sequenceColumnQuery, schemaName, tableName)
+	if err != nil {
+		return nil, fmt.Errorf("getting sequences for table %s.%s: %w", schemaName, tableName, err)
+	}
+	defer rows.Close()
+
+	seqColMap := make(map[string]string)
+	for rows.Next() {
+		var columnName, sequenceName string
+		if err := rows.Scan(&columnName, &sequenceName); err != nil {
+			return nil, fmt.Errorf("scanning sequence column mapping: %w", err)
+		}
+		seqColMap[pglib.QuoteIdentifier(columnName)] = sequenceName
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return seqColMap, nil
 }
 
 func (o *pgSchemaObserver) close() error {

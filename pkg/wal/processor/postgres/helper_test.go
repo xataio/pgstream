@@ -22,27 +22,27 @@ func (m *mockAdapter) close() error {
 }
 
 type mockSchemaObserver struct {
-	getGeneratedColumnNamesFn    func(ctx context.Context, schema, table string) ([]string, error)
-	isMaterializedViewFn         func(schema, table string) bool
-	updateGeneratedColumnNamesFn func(logEntry *schemalog.LogEntry)
-	updateMaterializedViewsFn    func(logEntry *schemalog.LogEntry)
-	closeFn                      func() error
+	getGeneratedColumnNamesFn func(ctx context.Context, schema, table string) (map[string]struct{}, error)
+	getSequenceColumnsFn      func(ctx context.Context, schema, table string) (map[string]string, error)
+	isMaterializedViewFn      func(schema, table string) bool
+	updateFn                  func(logEntry *schemalog.LogEntry)
+	closeFn                   func() error
 }
 
-func (m *mockSchemaObserver) getGeneratedColumnNames(ctx context.Context, schema, table string) ([]string, error) {
+func (m *mockSchemaObserver) getGeneratedColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error) {
 	return m.getGeneratedColumnNamesFn(ctx, schema, table)
+}
+
+func (m *mockSchemaObserver) getSequenceColumns(ctx context.Context, schema, table string) (map[string]string, error) {
+	return m.getSequenceColumnsFn(ctx, schema, table)
 }
 
 func (m *mockSchemaObserver) isMaterializedView(ctx context.Context, schema, table string) bool {
 	return m.isMaterializedViewFn(schema, table)
 }
 
-func (m *mockSchemaObserver) updateGeneratedColumnNames(logEntry *schemalog.LogEntry) {
-	m.updateGeneratedColumnNamesFn(logEntry)
-}
-
-func (m *mockSchemaObserver) updateMaterializedViews(logEntry *schemalog.LogEntry) {
-	m.updateMaterializedViewsFn(logEntry)
+func (m *mockSchemaObserver) update(logEntry *schemalog.LogEntry) {
+	m.updateFn(logEntry)
 }
 
 func (m *mockSchemaObserver) close() error {
@@ -58,9 +58,9 @@ func (m *mockDDLAdapter) schemaLogToQueries(ctx context.Context, l *schemalog.Lo
 }
 
 type mockDMLAdapter struct {
-	walDataToQueryFn func(d *wal.Data, generatedColumns []string) (*query, error)
+	walDataToQueriesFn func(d *wal.Data, schemaInfo schemaInfo) ([]*query, error)
 }
 
-func (m *mockDMLAdapter) walDataToQuery(d *wal.Data, generatedColumns []string) (*query, error) {
-	return m.walDataToQueryFn(d, generatedColumns)
+func (m *mockDMLAdapter) walDataToQueries(d *wal.Data, schemaInfo schemaInfo) ([]*query, error) {
+	return m.walDataToQueriesFn(d, schemaInfo)
 }

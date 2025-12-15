@@ -17,19 +17,24 @@ type walAdapter interface {
 }
 
 type schemaObserver interface {
-	getGeneratedColumnNames(ctx context.Context, schema, table string) ([]string, error)
+	getGeneratedColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error)
+	getSequenceColumns(ctx context.Context, schema, table string) (map[string]string, error)
 	isMaterializedView(ctx context.Context, schema, table string) bool
-	updateGeneratedColumnNames(schemalog *schemalog.LogEntry)
-	updateMaterializedViews(schemalog *schemalog.LogEntry)
+	update(logEntry *schemalog.LogEntry)
 	close() error
 }
 
 type dmlQueryAdapter interface {
-	walDataToQuery(d *wal.Data, generatedColumns []string) (*query, error)
+	walDataToQueries(d *wal.Data, schemaInfo schemaInfo) ([]*query, error)
 }
 
 type ddlQueryAdapter interface {
 	schemaLogToQueries(ctx context.Context, l *schemalog.LogEntry) ([]*query, error)
+}
+
+type schemaInfo struct {
+	generatedColumns map[string]struct{}
+	sequenceColumns  map[string]string
 }
 
 type adapter struct {
@@ -46,7 +51,7 @@ func newAdapter(ctx context.Context, schemaQuerier schemalogQuerier, logger logl
 		return nil, err
 	}
 
-	dmlAdapter, err := newDMLAdapter(onConflictAction, forCopy)
+	dmlAdapter, err := newDMLAdapter(onConflictAction, forCopy, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -75,8 +80,7 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 		if err != nil {
 			return nil, err
 		}
-		a.schemaObserver.updateGeneratedColumnNames(schemaLog)
-		a.schemaObserver.updateMaterializedViews(schemaLog)
+		a.schemaObserver.update(schemaLog)
 
 		// there's no ddl adapter, the ddl query will not be processed
 		if a.ddlAdapter == nil {
@@ -91,12 +95,20 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 			return nil, err
 		}
 
-		q, err := a.dmlAdapter.walDataToQuery(e.Data, generatedColumns)
+		columnSequences, err := a.schemaObserver.getSequenceColumns(ctx, e.Data.Schema, e.Data.Table)
 		if err != nil {
 			return nil, err
 		}
 
-		return []*query{q}, nil
+		qs, err := a.dmlAdapter.walDataToQueries(e.Data, schemaInfo{
+			generatedColumns: generatedColumns,
+			sequenceColumns:  columnSequences,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return qs, nil
 	}
 }
 

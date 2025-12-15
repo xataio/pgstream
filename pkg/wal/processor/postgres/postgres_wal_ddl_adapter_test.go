@@ -1018,14 +1018,34 @@ func TestDDLAdapter_buildColumnDefinition(t *testing.T) {
 			want: "\"age\" int NOT NULL DEFAULT 42",
 		},
 		{
-			name: "column with sequence default value (should be ignored)",
+			name: "column with sequence default value - smallserial",
+			column: schemalog.Column{
+				Name:         "id",
+				DataType:     "smallint",
+				Nullable:     false,
+				DefaultValue: &seqDefaultValue,
+			},
+			want: "\"id\" SMALLSERIAL NOT NULL",
+		},
+		{
+			name: "column with sequence default value - serial",
+			column: schemalog.Column{
+				Name:         "id",
+				DataType:     "integer",
+				Nullable:     false,
+				DefaultValue: &seqDefaultValue,
+			},
+			want: "\"id\" SERIAL NOT NULL",
+		},
+		{
+			name: "column with sequence default value - bigserial",
 			column: schemalog.Column{
 				Name:         "id",
 				DataType:     "bigint",
 				Nullable:     false,
 				DefaultValue: &seqDefaultValue,
 			},
-			want: "\"id\" bigint NOT NULL",
+			want: "\"id\" BIGSERIAL NOT NULL",
 		},
 		{
 			name: "column with identity always",

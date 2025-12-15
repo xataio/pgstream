@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
@@ -27,33 +28,43 @@ var (
 )
 
 type dmlAdapter struct {
+	logger           loglib.Logger
 	onConflictAction onConflictAction
 	forCopy          bool
 }
 
-func newDMLAdapter(action string, forCopy bool) (*dmlAdapter, error) {
+func newDMLAdapter(action string, forCopy bool, logger loglib.Logger) (*dmlAdapter, error) {
 	oca, err := parseOnConflictAction(action)
 	if err != nil {
 		return nil, err
 	}
 	return &dmlAdapter{
+		logger:           logger,
 		onConflictAction: oca,
 		forCopy:          forCopy,
 	}, nil
 }
 
-func (a *dmlAdapter) walDataToQuery(d *wal.Data, generatedColumns []string) (*query, error) {
+func (a *dmlAdapter) walDataToQueries(d *wal.Data, schemaInfo schemaInfo) ([]*query, error) {
 	switch d.Action {
 	case "T":
-		return a.buildTruncateQuery(d), nil
+		return []*query{a.buildTruncateQuery(d)}, nil
 	case "D":
-		return a.buildDeleteQuery(d)
+		q, err := a.buildDeleteQuery(d)
+		if err != nil {
+			return nil, err
+		}
+		return []*query{q}, nil
 	case "I":
-		return a.buildInsertQuery(d, generatedColumns), nil
+		return a.buildInsertQueries(d, schemaInfo), nil
 	case "U":
-		return a.buildUpdateQuery(d, generatedColumns)
+		q, err := a.buildUpdateQuery(d, schemaInfo)
+		if err != nil {
+			return nil, err
+		}
+		return []*query{q}, nil
 	default:
-		return &query{}, nil
+		return []*query{}, nil
 	}
 }
 
@@ -78,11 +89,11 @@ func (a *dmlAdapter) buildDeleteQuery(d *wal.Data) (*query, error) {
 	}, nil
 }
 
-func (a *dmlAdapter) buildInsertQuery(d *wal.Data, generatedColumns []string) *query {
-	names, values := a.filterRowColumns(d.Columns, generatedColumns)
+func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*query {
+	names, values := a.filterRowColumns(d.Columns, schemaInfo)
 	// if there are no columns after filtering generated ones, no query to run
 	if len(names) == 0 {
-		return &query{}
+		return []*query{}
 	}
 
 	placeholders := make([]string, 0, len(d.Columns))
@@ -90,20 +101,49 @@ func (a *dmlAdapter) buildInsertQuery(d *wal.Data, generatedColumns []string) *q
 		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
 	}
 
-	return &query{
-		table:       d.Table,
-		schema:      d.Schema,
-		columnNames: names,
-		sql: fmt.Sprintf("INSERT INTO %s(%s) OVERRIDING SYSTEM VALUE VALUES(%s)%s",
-			quotedTableName(d.Schema, d.Table), strings.Join(names, ", "),
-			strings.Join(placeholders, ", "),
-			a.buildOnConflictQuery(d, names)),
-		args: values,
+	qs := []*query{
+		{
+			table:       d.Table,
+			schema:      d.Schema,
+			columnNames: names,
+			sql: fmt.Sprintf("INSERT INTO %s(%s) OVERRIDING SYSTEM VALUE VALUES(%s)%s",
+				quotedTableName(d.Schema, d.Table), strings.Join(names, ", "),
+				strings.Join(placeholders, ", "),
+				a.buildOnConflictQuery(d, names)),
+			args: values,
+		},
 	}
+
+	// for COPY we don't need to handle sequence updates
+	if a.forCopy {
+		return qs
+	}
+
+	// handle sequence columns that need to be updated after insert
+	for _, col := range d.Columns {
+		if seqName, ok := schemaInfo.sequenceColumns[pglib.QuoteIdentifier(col.Name)]; ok {
+			colValueFloat, ok := col.Value.(float64)
+			if !ok {
+				a.logger.Warn(nil, "unexpected value type for sequence column, expected integer", loglib.Fields{
+					"column_name": col.Name, "column_type": col.Type, "column_value": col.Value,
+				})
+				continue
+			}
+			qs = append(qs, &query{
+				table:  d.Table,
+				schema: d.Schema,
+				sql: fmt.Sprintf("SELECT setval('%s', %d, true)",
+					seqName,
+					int64(colValueFloat)),
+			})
+		}
+	}
+
+	return qs
 }
 
-func (a *dmlAdapter) buildUpdateQuery(d *wal.Data, generatedColumns []string) (*query, error) {
-	rowColumns, rowValues := a.filterRowColumns(d.Columns, generatedColumns)
+func (a *dmlAdapter) buildUpdateQuery(d *wal.Data, schemaInfo schemaInfo) (*query, error) {
+	rowColumns, rowValues := a.filterRowColumns(d.Columns, schemaInfo)
 	// if there are no columns after filtering generated ones, no query to run
 	if len(rowColumns) == 0 {
 		return &query{}, nil
@@ -215,17 +255,13 @@ func (a *dmlAdapter) extractPrimaryKeyColumnNames(colIDs []string, cols []wal.Co
 	return colNames
 }
 
-func (a *dmlAdapter) filterRowColumns(cols []wal.Column, generatedColumns []string) ([]string, []any) {
-	generatedColumnMap := make(map[string]struct{}, len(generatedColumns))
-	for _, col := range generatedColumns {
-		generatedColumnMap[pglib.QuoteIdentifier(col)] = struct{}{}
-	}
+func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo) ([]string, []any) {
 	// we need to make sure we only add the arguments for the
-	// relevant column names (this removes any generated columns row values)
+	// relevant column names (this removes any generated columns/sequence row values)
 	rowValues := make([]any, 0, len(cols))
 	rowColumns := make([]string, 0, len(cols))
 	for _, c := range cols {
-		if _, found := generatedColumnMap[pglib.QuoteIdentifier(c.Name)]; found {
+		if _, found := schemaInfo.generatedColumns[pglib.QuoteIdentifier(c.Name)]; found {
 			continue
 		}
 		rowColumns = append(rowColumns, pglib.QuoteIdentifier(c.Name))
