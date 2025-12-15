@@ -16,7 +16,7 @@ The benchmark suite consists of:
 ### 1. Build pgstream
 
 ```bash
-cd /Users/esther/go/src/github.com/xataio/pgstream
+cd /path/to/pgstream
 make build
 ```
 
@@ -308,7 +308,7 @@ benchmark_results/
 ### "pgstream binary not found"
 
 ```bash
-cd /Users/esther/go/src/github.com/xataio/pgstream
+cd /path/to/pgstream
 make build
 ```
 

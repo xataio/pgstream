@@ -169,11 +169,6 @@ def generate_report(run_dir: Path, auto_results: List[Dict],
 
     # Perform statistical tests
     throughput_test = paired_t_test(auto_throughputs, manual_throughputs)
-    duration_test = paired_t_test(
-        # Convert to throughput metric (faster is better)
-        [1/d for d in auto_durations],
-        [1/d for d in manual_durations]
-    )
 
     # Calculate improvement percentages
     throughput_improvement = 0
