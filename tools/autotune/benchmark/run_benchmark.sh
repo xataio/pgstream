@@ -169,9 +169,22 @@ extract_metrics() {
         log_warn "Could not find snapshot summary line in log" >&2
     fi
 
-    # Parse throughput (MB/s), total size, and duration using awk (macOS compatible)
+    # Parse throughput (MB/s, kB/s, or GB/s), total size, and duration using awk (macOS compatible)
     # Example: [public] Snapshotting data... 100% [====================] (5.5/5.5 GB, 32 MB/s) [2m52s]
-    local throughput=$(echo "$summary" | awk '{for(i=1;i<=NF;i++){if($i~/MB\/s/){print $(i-1); exit}}}' || echo "0")
+    # Example: [public] Snapshotting data... 100% [====================] (2.1/2.1 GB, 422 kB/s) [1h21m51s]
+    local throughput_raw=$(echo "$summary" | awk '{for(i=1;i<=NF;i++){if($i~/[kMG]B\/s/){print $(i-1) " " $i; exit}}}' || echo "0 MB/s")
+    local throughput_value=$(echo "$throughput_raw" | awk '{print $1}')
+    local throughput_unit=$(echo "$throughput_raw" | awk '{print $2}')
+
+    # Convert to MB/s for consistency
+    local throughput=0
+    if [[ "$throughput_unit" == "GB/s" ]]; then
+        throughput=$(echo "$throughput_value * 1024" | bc)
+    elif [[ "$throughput_unit" == "MB/s" ]]; then
+        throughput=$throughput_value
+    elif [[ "$throughput_unit" == "kB/s" ]]; then
+        throughput=$(echo "$throughput_value / 1024" | bc -l)
+    fi
 
     # Extract size and unit from parentheses: (5.5/5.5 GB, ...)
     local size_part=$(echo "$summary" | awk -F'[()]' '{print $2}' | awk '{print $1}')
