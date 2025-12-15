@@ -543,6 +543,83 @@ func TestBatchBytesTuner_RetriesUnstableMeasurements(t *testing.T) {
 	})
 }
 
+// TestBatchBytesTuner_UsesOnlyLastMinSamplesForStability verifies that when calculating
+// the coefficient of variation to determine measurement stability, only the last minSamples
+// measurements are used, not all collected samples. This ensures that stability is measured
+// on recent data and that measurements can stabilize even if early samples were unstable.
+func TestBatchBytesTuner_UsesOnlyLastMinSamplesForStability(t *testing.T) {
+	testLogger := zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
+		LogLevel: "error",
+	}))
+
+	rapid.Check(t, func(t *rapid.T) {
+		performanceProfile := genPerformanceProfile(t, 20, 100)
+		minSamples := rapid.IntRange(3, 5).Draw(t, "min_samples")
+
+		if len(performanceProfile) < 20 {
+			t.Skip("profile too small")
+		}
+
+		tuner, err := newBatchBytesTuner(AutoTuneConfig{
+			Enabled:              true,
+			MinBatchBytes:        1,
+			MaxBatchBytes:        int64(len(performanceProfile)),
+			ConvergenceThreshold: 0.1,
+		}, noopSendFn, testLogger)
+		if err != nil {
+			t.Fatalf("failed to create tuner: %v", err)
+		}
+
+		// Create a mock function that returns unstable throughput initially,
+		// but stable throughput for the last minSamples measurements
+		callCount := 0
+		baseThroughput := 1000.0
+		tuner.calculateThroughputFn = func(duration time.Duration, batchSize int64) float64 {
+			callCount++
+			// First few samples are highly unstable (high variance)
+			if callCount <= 3 {
+				if callCount%2 == 0 {
+					return baseThroughput * 2.0
+				}
+				return baseThroughput * 0.5
+			}
+			// Last minSamples measurements are stable (low variance)
+			return baseThroughput + float64(callCount)*0.01 // Very small variation
+		}
+
+		tuner.minSamples = minSamples
+		tuner.maxSamples = minSamples + 10 // Allow enough samples to collect unstable + stable
+
+		ctx := context.Background()
+		initialMeasurement := tuner.measurementSetting.value
+
+		// Collect more than minSamples, with early unstable and later stable measurements
+		for i := 0; i < minSamples+5 && tuner.measurementSetting.value == initialMeasurement; i++ {
+			tuner.sendBatch(ctx, mockBatch(tuner))
+		}
+
+		// After collecting enough stable measurements at the end, the measurement should
+		// be considered stable and should have advanced to the next measurement
+		if tuner.measurementSetting.value == initialMeasurement {
+			// Still at initial measurement - check why
+			if len(tuner.measurementSetting.throughputs) >= minSamples {
+				// We have enough samples, check if it's considered stable
+				// The last minSamples should be stable, so CoV should be low
+				if tuner.measurementSetting.coeficientOfVariation >= maxCoeficientOfVariation {
+					t.Fatalf("measurement with stable last %d samples still considered unstable (CV=%.2f >= %.2f), total samples: %d",
+						minSamples, tuner.measurementSetting.coeficientOfVariation, maxCoeficientOfVariation, len(tuner.measurementSetting.throughputs))
+				}
+				// If CoV is low, we should have advanced (unless we hit some other condition)
+			}
+		} else {
+			// Successfully advanced to next measurement
+			// Verify that the coefficient of variation was calculated only from last minSamples
+			// (This is implicit - if we advanced, the last minSamples must have been stable)
+			t.Logf("successfully advanced after %d samples (initial unstable, last %d stable)", callCount, minSamples)
+		}
+	})
+}
+
 // TestBatchBytesTuner_RespectsMaximumSamples verifies that when measurements remain
 // unstable even after collecting maxSamples, the tuner stops collecting more samples
 // and reports an error rather than continuing indefinitely. This prevents the tuner

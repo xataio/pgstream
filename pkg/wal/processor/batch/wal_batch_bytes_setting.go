@@ -65,22 +65,25 @@ func (s *batchBytesSetting) hasMaxSamples(maxSamples int) bool {
 	return s != nil && len(s.throughputs) >= maxSamples
 }
 
-func (s *batchBytesSetting) calculateAverageThroughput() {
-	if s == nil || len(s.throughputs) == 0 {
+func (s *batchBytesSetting) calculateAverageThroughput(minSamples int) {
+	if s == nil || len(s.throughputs) < minSamples {
 		return
 	}
 
+	// Consider only the last minSamples for average and CoV calculation
+	lastMinSamples := s.throughputs[len(s.throughputs)-minSamples:]
+
 	var total float64
-	for _, v := range s.throughputs {
+	for _, v := range lastMinSamples {
 		total += v
 	}
 
-	s.avgThroughput = total / float64(len(s.throughputs))
-	s.coeficientOfVariation = mathlib.CoefficientOfVariation(s.throughputs)
+	s.avgThroughput = total / float64(len(lastMinSamples))
+	s.coeficientOfVariation = mathlib.CoefficientOfVariation(lastMinSamples)
 }
 
 func (s *batchBytesSetting) isStable(maxCoV float64) bool {
-	if s == nil || len(s.throughputs) < 2 {
+	if s == nil {
 		return true // not enough data to determine stability
 	}
 

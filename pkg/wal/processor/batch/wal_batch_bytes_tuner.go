@@ -45,19 +45,49 @@ const (
 
 var errNetworkTooUnstable = errors.New("network too unstable for batch bytes tuning")
 
-// Typical throughput curve
+// Throughput distributions this algorithm is designed to handle:
 // Throughput (bytes/s)
+//    ^
+//    |     /\
+//    |    /  \
+//    |   /    \
+//    |  /      \
+//    +------------> Batch Size
 //
-//	|
-//	|        ___peak___
-//	|      /           \
-//	|    /               \
-//	|  /                   \
-//	|/                       \___
-//	|___________________________ Batch Size
-//	tiny  small  optimal  large  huge
+// Convex (smooth peak)
+// Throughput
+//    ^
+//    |    ___
+//    |   /   \
+//    |  /     \
+//    | /       \
+//    +------------> Batch Size
+//
+// Throughput distributions that will oscillate in the flat region:
+//
+// Flat/plateau
+// Throughput
+//    ^
+//    |  _______
+//    | /       \
+//    |/         \
+//    +------------> Batch Size
 //
 // The peak might shift right or left depending on system load and other factors.
+//
+//
+// Throughput distributions that this algorithm cannot handle:
+//
+// Multiple peaks
+// Throughput
+//    ^       /\    /\
+//    |      /  \  /  \
+//    |     /    \/    \
+//    |    /            \
+//    +------------> Batch Size
+//
+// In this case the algorithm might converge to a local maxima instead of the
+// global maxima.
 
 func newBatchBytesTuner[T Message](cfg AutoTuneConfig, sendFn sendBatchFn[T], logger loglib.Logger) (*batchBytesTuner[T], error) {
 	if err := cfg.IsValid(); err != nil {
@@ -140,7 +170,7 @@ func (t *batchBytesTuner[T]) recordMeasurementAndCalculateNext(start time.Time) 
 		return
 	}
 
-	t.measurementSetting.calculateAverageThroughput()
+	t.measurementSetting.calculateAverageThroughput(t.minSamples)
 
 	// if measurements are not stable yet, continue collecting samples until the
 	// max samples are reached.
