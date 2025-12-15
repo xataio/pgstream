@@ -144,6 +144,7 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 				ConvergenceThreshold: 0.01,
 			}, noopSendFn, testLogger)
 			require.NoError(t, err)
+			defer batchBytesTuner.close()
 
 			batchBytesTuner.batchBytesToleranceFactor = 0.0 // No tolerance for this test
 			batchBytesTuner.calculateThroughputFn = tc.calculateThroughputFn
@@ -176,6 +177,45 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 
 				return
 			}
+		})
+	}
+}
+
+func Test_calculateThroughput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		duration   time.Duration
+		batchBytes int64
+		wantResult float64
+	}{
+		{
+			name:       "normal case",
+			duration:   1 * time.Second,
+			batchBytes: 1000,
+			wantResult: 1000.0,
+		},
+		{
+			name:       "half second duration",
+			duration:   500 * time.Millisecond,
+			batchBytes: 1000,
+			wantResult: 2000.0,
+		},
+		{
+			name:       "zero duration",
+			duration:   0,
+			batchBytes: 1000,
+			wantResult: 0.0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := calculateThroughput(tc.duration, tc.batchBytes)
+			require.InDelta(t, tc.wantResult, result, 0.001)
 		})
 	}
 }
