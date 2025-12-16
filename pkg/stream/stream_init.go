@@ -60,6 +60,10 @@ func Init(ctx context.Context, pgURL, replicationSlotName string) error {
 		}
 	}
 
+	if err := pglib.IsValidReplicationSlotName(replicationSlotName); err != nil {
+		return err
+	}
+
 	// check if the replication slot already exists
 	exists, err := replicationSlotExists(ctx, conn, replicationSlotName)
 	if err != nil {
@@ -95,6 +99,10 @@ func Destroy(ctx context.Context, pgURL, replicationSlotName string) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	if err := pglib.IsValidReplicationSlotName(replicationSlotName); err != nil {
+		return err
 	}
 
 	if err := dropReplicationSlot(ctx, conn, replicationSlotName); err != nil {
