@@ -336,3 +336,92 @@ func Test_escapeConnectionURL(t *testing.T) {
 		})
 	}
 }
+
+func Test_IsValidReplicationSlotName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		slotName string
+		wantErr  error
+	}{
+		{
+			name:     "valid slot name with lowercase letters",
+			slotName: "myslot",
+			wantErr:  nil,
+		},
+		{
+			name:     "valid slot name with numbers",
+			slotName: "slot123",
+			wantErr:  nil,
+		},
+		{
+			name:     "valid slot name with underscores",
+			slotName: "my_slot_name",
+			wantErr:  nil,
+		},
+		{
+			name:     "valid slot name with all allowed characters",
+			slotName: "my_slot_123",
+			wantErr:  nil,
+		},
+		{
+			name:     "valid slot name starting with number",
+			slotName: "123slot",
+			wantErr:  nil,
+		},
+		{
+			name:     "valid slot name starting with underscore",
+			slotName: "_myslot",
+			wantErr:  nil,
+		},
+		{
+			name:     "invalid slot name with uppercase letters",
+			slotName: "MySlot",
+			wantErr:  errInvalidReplicationSlotName,
+		},
+		{
+			name:     "invalid slot name with hyphen",
+			slotName: "my-slot",
+			wantErr:  errInvalidReplicationSlotName,
+		},
+		{
+			name:     "invalid slot name with space",
+			slotName: "my slot",
+			wantErr:  errInvalidReplicationSlotName,
+		},
+		{
+			name:     "invalid slot name with dot",
+			slotName: "my.slot",
+			wantErr:  errInvalidReplicationSlotName,
+		},
+		{
+			name:     "invalid slot name with special characters",
+			slotName: "my@slot",
+			wantErr:  errInvalidReplicationSlotName,
+		},
+		{
+			name:     "empty slot name",
+			slotName: "",
+			wantErr:  errInvalidReplicationSlotName,
+		},
+		{
+			name:     "slot name with only numbers",
+			slotName: "12345",
+			wantErr:  nil,
+		},
+		{
+			name:     "slot name with only underscores",
+			slotName: "___",
+			wantErr:  nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := IsValidReplicationSlotName(tc.slotName)
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}

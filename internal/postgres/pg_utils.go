@@ -23,8 +23,9 @@ type QualifiedName struct {
 }
 
 var (
-	errUnexpectedQualifiedName = errors.New("unexpected qualified name format")
-	errInvalidURL              = errors.New("invalid URL")
+	errUnexpectedQualifiedName    = errors.New("unexpected qualified name format")
+	errInvalidURL                 = errors.New("invalid URL")
+	errInvalidReplicationSlotName = errors.New("invalid replication slot name, may only contain lower case letters, numbers, and the underscore character")
 )
 
 func NewQualifiedName(s string) (*QualifiedName, error) {
@@ -79,6 +80,18 @@ type (
 	PGDumpAllFn func(context.Context, PGDumpAllOptions) ([]byte, error)
 	PGRestoreFn func(context.Context, PGRestoreOptions, []byte) (string, error)
 )
+
+var validNameRegex = regexp.MustCompile(`^[a-z0-9_]+$`)
+
+// IsValidReplicationSlotName checks if the provided replication slot name is
+// valid. Replication slot names may only contain lower case letters, numbers,
+// and the underscore character.
+func IsValidReplicationSlotName(name string) error {
+	if !validNameRegex.MatchString(name) {
+		return fmt.Errorf("%s: %w", name, errInvalidReplicationSlotName)
+	}
+	return nil
+}
 
 func newIdentifier(tableName string) (pgx.Identifier, error) {
 	var identifier pgx.Identifier

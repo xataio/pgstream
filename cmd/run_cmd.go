@@ -60,6 +60,9 @@ func run(ctx context.Context) error {
 }
 
 func runFlagBinding(cmd *cobra.Command, args []string) error {
+	viper.BindPFlag("source.postgres.replication.replication_slot", cmd.Flags().Lookup("replication-slot"))
+	viper.BindPFlag("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME", cmd.Flags().Lookup("replication-slot"))
+
 	if err := sourceFlagBinding(cmd); err != nil {
 		return fmt.Errorf("failed to bind source flags: %w", err)
 	}
