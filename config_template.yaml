@@ -65,6 +65,11 @@ target:
       max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB without bulk enabled, 80MiB with bulk ingest.
       max_queue_bytes: 104857600 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
       ignore_send_errors: false # if true, log and ignore errors during batch sending. Warning: can result in consistency errors.
+      auto_tune:
+        enabled: true # whether to enable auto tuning of batch bytes. Defaults to false
+        min_batch_bytes: 1048576 # minimum batch size in bytes (1MB). Defaults to 1MB
+        max_batch_bytes: 52428800 # maximum batch size in bytes (50MB). Defaults to 50MB
+        convergence_threshold: 0.01 # convergence threshold as a fraction of max batch size. Defaults to 0.01
     schema_log_store_url: "postgresql://user:password@localhost:5432/mydatabase" # url to the postgres database where the schema log is stored to be used when performing schema change diffs
     disable_triggers: false # whether to disable triggers on the target database. Defaults to false
     on_conflict_action: "nothing" # options are update, nothing or error. Defaults to error
