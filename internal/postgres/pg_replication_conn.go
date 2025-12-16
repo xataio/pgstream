@@ -134,6 +134,8 @@ func DefaultReplicationSlotName(dbName string) string {
 	// sanitise the dbName before creating the replication slot name to ensure
 	// the name does not contain invalid characters.
 	dbName = strings.ReplaceAll(dbName, ".", "_")
+	dbName = strings.ReplaceAll(dbName, "-", "_")
+	dbName = strings.ToLower(dbName)
 	return "pgstream_" + dbName + "_slot"
 }
 
