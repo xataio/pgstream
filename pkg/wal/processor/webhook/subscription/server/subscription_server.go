@@ -36,7 +36,7 @@ func New(cfg *Config, store store.Store, opts ...Option) *Server {
 	e.Server.ReadTimeout = cfg.readTimeout()
 	e.Server.WriteTimeout = cfg.writeTimeout()
 
-	e.Use(middleware.Logger())
+	e.Use(middleware.RequestLogger())
 	e.Use(middleware.Recover())
 
 	e.POST("/webhooks/subscribe", s.subscribe)
