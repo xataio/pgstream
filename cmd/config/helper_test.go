@@ -126,6 +126,12 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 						MaxBatchBytes:    1572864,
 						MaxQueueBytes:    204800,
 						IgnoreSendErrors: true,
+						AutoTune: batch.AutoTuneConfig{
+							Enabled:              true,
+							MinBatchBytes:        10,
+							MaxBatchBytes:        1000,
+							ConvergenceThreshold: 0.05,
+						},
 					},
 					DisableTriggers:   false,
 					OnConflictAction:  "nothing",

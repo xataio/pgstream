@@ -192,11 +192,19 @@ type SearchConfig struct {
 }
 
 type BatchConfig struct {
-	Timeout          int  `mapstructure:"timeout" yaml:"timeout"`
-	Size             int  `mapstructure:"size" yaml:"size"`
-	MaxBytes         int  `mapstructure:"max_bytes" yaml:"max_bytes"`
-	MaxQueueBytes    int  `mapstructure:"max_queue_bytes" yaml:"max_queue_bytes"`
-	IgnoreSendErrors bool `mapstructure:"ignore_send_errors" yaml:"ignore_send_errors"`
+	Timeout          int                  `mapstructure:"timeout" yaml:"timeout"`
+	Size             int                  `mapstructure:"size" yaml:"size"`
+	MaxBytes         int                  `mapstructure:"max_bytes" yaml:"max_bytes"`
+	MaxQueueBytes    int                  `mapstructure:"max_queue_bytes" yaml:"max_queue_bytes"`
+	IgnoreSendErrors bool                 `mapstructure:"ignore_send_errors" yaml:"ignore_send_errors"`
+	AutoTune         *BatchAutoTuneConfig `mapstructure:"auto_tune" yaml:"auto_tune"`
+}
+
+type BatchAutoTuneConfig struct {
+	Enabled              bool    `mapstructure:"enabled" yaml:"enabled"`
+	MaxBatchBytes        int64   `mapstructure:"max_batch_bytes" yaml:"max_batch_bytes"`
+	MinBatchBytes        int64   `mapstructure:"min_batch_bytes" yaml:"min_batch_bytes"`
+	ConvergenceThreshold float64 `mapstructure:"convergence_threshold" yaml:"convergence_threshold"`
 }
 
 type BulkIngestConfig struct {
@@ -853,11 +861,23 @@ func (bc *BatchConfig) parseBatchConfig() batch.Config {
 	if bc == nil {
 		return batch.Config{}
 	}
-	return batch.Config{
+
+	cfg := batch.Config{
 		BatchTimeout:     time.Duration(bc.Timeout) * time.Millisecond,
 		MaxBatchBytes:    int64(bc.MaxBytes),
 		MaxQueueBytes:    int64(bc.MaxQueueBytes),
 		MaxBatchSize:     int64(bc.Size),
 		IgnoreSendErrors: bc.IgnoreSendErrors,
 	}
+
+	if bc.AutoTune != nil {
+		cfg.AutoTune = batch.AutoTuneConfig{
+			Enabled:              bc.AutoTune.Enabled,
+			MinBatchBytes:        bc.AutoTune.MinBatchBytes,
+			MaxBatchBytes:        bc.AutoTune.MaxBatchBytes,
+			ConvergenceThreshold: bc.AutoTune.ConvergenceThreshold,
+		}
+	}
+
+	return cfg
 }
