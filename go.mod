@@ -6,7 +6,7 @@ require (
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/bytedance/sonic v1.14.2
 	github.com/cenkalti/backoff/v4 v4.3.0
-	github.com/elastic/go-elasticsearch/v8 v8.19.0
+	github.com/elastic/go-elasticsearch/v8 v8.19.1
 	github.com/eminano/greenmask v0.0.0-20250718112128-2fb5fa726c02
 	github.com/ggwhite/go-masker v1.1.0
 	github.com/go-logr/zerologr v1.2.3
@@ -83,7 +83,7 @@ require (
 	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/ebitengine/purego v0.8.4 // indirect
-	github.com/elastic/elastic-transport-go/v8 v8.7.0 // indirect
+	github.com/elastic/elastic-transport-go/v8 v8.8.0 // indirect
 	github.com/expr-lang/expr v1.17.0 // indirect
 	github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
