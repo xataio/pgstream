@@ -74,7 +74,7 @@ services:
       - pgstream-net
 
   opensearch-dashboards:
-    image: "opensearchproject/opensearch-dashboards:3.3.0"
+    image: "opensearchproject/opensearch-dashboards:3.4.0"
     ports: ["5601:5601"]
     environment: ["OPENSEARCH_HOSTS=http://opensearch:9200"] # 9201 to access externally, 9200 internally
     profiles: ["pg2os"]
