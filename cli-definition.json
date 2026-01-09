@@ -190,6 +190,42 @@
       ],
       "subcommands": [],
       "args": []
+    },
+    {
+      "name": "validate",
+      "short": "Validate different parts of the pgstream configuration",
+      "use": "validate",
+      "example": "",
+      "flags": [],
+      "subcommands": [
+        {
+          "name": "rules",
+          "short": "Validates transformation rules against the provided Postgres database",
+          "use": "rules",
+          "example": "\n\tpgstream validate rules -c pg2pg.env\n\tpgstream validate rules --postgres-url <postgres-url> --rules-file rules.yaml\n\tpgstream validate rules -c pg2pg.yaml --json\n\t",
+          "flags": [
+            {
+              "name": "json",
+              "description": "Output the validation status in JSON format",
+              "default": "false"
+            },
+            {
+              "name": "postgres-url",
+              "description": "Source postgres URL to validate the rules against",
+              "default": ""
+            },
+            {
+              "name": "rules-file",
+              "shorthand": "f",
+              "description": "Path to a YAML file containing the transformation rules to validate",
+              "default": ""
+            }
+          ],
+          "subcommands": [],
+          "args": []
+        }
+      ],
+      "args": []
     }
   ],
   "flags": [
