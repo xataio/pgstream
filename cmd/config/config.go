@@ -12,6 +12,7 @@ import (
 	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/stream"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
+	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 	"gopkg.in/yaml.v3"
 )
 
@@ -96,6 +97,27 @@ func ParseStreamConfig() (*stream.Config, error) {
 	default:
 		return envConfigToStreamConfig()
 	}
+}
+
+func ParseTransformerConfig(filename string) (*transformer.Config, error) {
+	if filename == "" {
+		return nil, nil
+	}
+
+	buf, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	yamlConfig := struct {
+		Transformations TransformationsConfig `mapstructure:"transformations" yaml:"transformations"`
+	}{}
+	err = yaml.Unmarshal(buf, &yamlConfig)
+	if err != nil {
+		return nil, fmt.Errorf("invalid format for transformations config in file %q: %w", filename, err)
+	}
+
+	return yamlConfig.Transformations.parseTransformationConfig()
 }
 
 func applyPostgresBulkBatchDefaults(batchCfg *batch.Config) {
