@@ -167,3 +167,7 @@ func (t *Transformer) getDynamicColumnValues(excludeColName string, columns []wa
 func schemaTableKey(schema, table string) string {
 	return pglib.QuoteQualifiedIdentifier(schema, table)
 }
+
+func (c *Config) HasNoRules() bool {
+	return c == nil || len(c.TransformerRules) == 0
+}

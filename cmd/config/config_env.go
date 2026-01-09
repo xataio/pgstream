@@ -4,7 +4,6 @@ package config
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/viper"
 	"github.com/xataio/pgstream/pkg/backoff"
@@ -29,7 +28,6 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
-	"gopkg.in/yaml.v3"
 )
 
 func init() {
@@ -550,24 +548,7 @@ func parseInjectorConfig() *injector.Config {
 
 func parseTransformerConfig() (*transformer.Config, error) {
 	filename := viper.GetString("PGSTREAM_TRANSFORMER_RULES_FILE")
-	if filename == "" {
-		return nil, nil
-	}
-
-	buf, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-
-	yamlConfig := struct {
-		Transformations TransformationsConfig `mapstructure:"transformations" yaml:"transformations"`
-	}{}
-	err = yaml.Unmarshal(buf, &yamlConfig)
-	if err != nil {
-		return nil, fmt.Errorf("invalid format for transformations config in file %q: %w", filename, err)
-	}
-
-	return yamlConfig.Transformations.parseTransformationConfig()
+	return ParseTransformerConfig(filename)
 }
 
 func parseFilterConfig() *filter.Config {

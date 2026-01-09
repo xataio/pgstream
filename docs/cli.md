@@ -9,6 +9,7 @@ pgstream is a command-line tool for streaming PostgreSQL data changes to various
   - [run](#run)
   - [snapshot](#snapshot)
   - [status](#status)
+  - [validate](#validate)
   - [destroy](#destroy)
   - [tear-down](#tear-down)
   - [version](#version)
@@ -247,6 +248,69 @@ Transformation rules status:
 Source status:
  - Reachable: true
 ```
+
+### validate
+
+Validate different parts of the pgstream configuration.
+
+```bash
+pgstream validate <subcommand> [flags]
+```
+
+**Description:**
+The `validate` command allows you to validate specific aspects of your pgstream configuration before running it. Currently supports validating transformation rules.
+
+#### validate rules
+
+Validates transformation rules against the provided Postgres database schema.
+
+```bash
+pgstream validate rules [flags]
+```
+
+**Description:**
+The `validate rules` command checks your transformation rules for:
+
+- Column existence and type compatibility
+- Table and schema references
+- Rule syntax and structure
+- Compatibility with the source database schema
+- Overall validity before applying them in production
+
+**Prerequisites:**
+
+- Access to the source PostgreSQL database
+- Transformation rules defined in configuration or separate rules file
+
+**Flags:**
+
+- `--postgres-url` - Source postgres URL to validate the rules against
+- `--rules-file`, `-f` - Path to a YAML file containing the transformation rules to validate
+- `--json` - Output the validation status in JSON format
+
+**Examples:**
+
+```bash
+pgstream validate rules -c pg2pg.env
+pgstream validate rules --postgres-url <postgres-url> --rules-file rules.yaml
+pgstream validate rules -c pg2pg.yaml --json
+```
+
+**Sample Output:**
+
+```
+✅ SUCCESS  transformation rules are valid
+Transformation rules status:
+ - Valid: true
+ - Errors: []
+```
+
+**Use Cases:**
+
+- Pre-deployment validation of transformation rules
+- Testing rule changes against production schema
+- CI/CD pipeline integration for rule validation
+- Debugging transformation rule issues
 
 ### destroy
 
