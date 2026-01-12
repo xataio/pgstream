@@ -84,6 +84,13 @@ func Prepare() *cobra.Command {
 	statusCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot created by pgstream on the source url")
 	statusCmd.Flags().Bool("json", false, "Output the status in JSON format")
 
+	// validate cmd
+	// validate rules cmd
+	validateRulesCmd.Flags().String("postgres-url", "", "Source postgres URL to validate the rules against")
+	validateRulesCmd.Flags().StringP("rules-file", "f", "", "Path to a YAML file containing the transformation rules to validate")
+	validateRulesCmd.Flags().Bool("json", false, "Output the validation status in JSON format")
+	validateCmd.AddCommand(validateRulesCmd)
+
 	// Flag binding for root cmd
 	rootFlagBinding(rootCmd)
 
@@ -94,6 +101,7 @@ func Prepare() *cobra.Command {
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(snapshotCmd)
 	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(validateCmd)
 	return rootCmd
 }
 

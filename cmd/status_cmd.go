@@ -43,7 +43,7 @@ var statusCmd = &cobra.Command{
 			sp.Warning("pgstream status check identified issues with ", strings.Join(statusErrs.Keys(), ", "))
 		}
 
-		err = printStatus(cmd, status)
+		err = print(cmd, status)
 		if err != nil {
 			sp.Fail("failed to format pgstream status")
 			return err
@@ -58,21 +58,25 @@ var statusCmd = &cobra.Command{
 	`,
 }
 
-func printStatus(cmd *cobra.Command, status *stream.Status) error {
-	statusStr := status.PrettyPrint()
+type printer interface {
+	PrettyPrint() string
+}
+
+func print(cmd *cobra.Command, p printer) error {
+	str := p.PrettyPrint()
 	if cmd.Flags().Lookup("json").Value.String() == "true" {
 		var prettyJSON bytes.Buffer
-		statusJSON, err := json.Marshal(status)
+		jsonData, err := json.Marshal(p)
 		if err != nil {
 			return err
 		}
-		if err := json.Indent(&prettyJSON, statusJSON, "", "\t"); err != nil {
+		if err := json.Indent(&prettyJSON, jsonData, "", "\t"); err != nil {
 			return err
 		}
-		statusStr = prettyJSON.String()
+		str = prettyJSON.String()
 	}
 
-	fmt.Println(statusStr) //nolint:forbidigo
+	fmt.Println(str) //nolint:forbidigo
 	return nil
 }
 

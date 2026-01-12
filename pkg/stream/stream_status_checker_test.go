@@ -731,7 +731,7 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 			sc := NewStatusChecker()
 			sc.ruleValidatorBuilder = tc.ruleValidatorBuilder
 
-			status, err := sc.transformationRulesStatus(context.Background(), tc.config)
+			status, err := sc.TransformationRulesStatus(context.Background(), tc.config)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, status, tc.wantStatus)
 		})

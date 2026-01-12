@@ -77,7 +77,7 @@ func (s *StatusChecker) Status(ctx context.Context, config *Config) (*Status, er
 		return nil, fmt.Errorf("checking init status: %w", err)
 	}
 
-	transformationRulesStatus, err := s.transformationRulesStatus(ctx, config)
+	transformationRulesStatus, err := s.TransformationRulesStatus(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("checking transformation rules status: %w", err)
 	}
@@ -166,10 +166,10 @@ func (s *StatusChecker) initStatus(ctx context.Context, pgURL, replicationSlotNa
 	return initStatus, nil
 }
 
-// transformationRulesStatus validates that the transformation rules provided in
+// TransformationRulesStatus validates that the transformation rules provided in
 // the configuration are valid, in line with the validation performed during the
 // pgstream run/snapshot commands.
-func (s *StatusChecker) transformationRulesStatus(ctx context.Context, config *Config) (*TransformationRulesStatus, error) {
+func (s *StatusChecker) TransformationRulesStatus(ctx context.Context, config *Config) (*TransformationRulesStatus, error) {
 	if config.Processor.Transformer == nil {
 		return nil, nil
 	}
