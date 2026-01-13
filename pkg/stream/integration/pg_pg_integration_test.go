@@ -411,6 +411,131 @@ func Test_PostgresToPostgres_SchemaObjects(t *testing.T) {
 	}, 20*time.Second, 200*time.Millisecond)
 }
 
+func Test_PostgresToPostgres_Sequences(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfg(),
+		Processor: testPostgresProcessorCfg(pgurl, withoutBulkIngestion),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runStream(t, ctx, cfg)
+
+	sourceConn, err := pglib.NewConn(ctx, pgurl)
+	require.NoError(t, err)
+	defer sourceConn.Close(ctx)
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	suffix := time.Now().UnixNano()
+	sequenceName := fmt.Sprintf("test_sequence_%d", suffix)
+	sequenceRename := fmt.Sprintf("%s_renamed", sequenceName)
+
+	defer execQuery(t, ctx, fmt.Sprintf("DROP SEQUENCE IF EXISTS %s", sequenceName))
+	defer execQuery(t, ctx, fmt.Sprintf("DROP SEQUENCE IF EXISTS %s", sequenceRename))
+
+	// Create a sequence with specific parameters
+	execQuery(t, ctx, fmt.Sprintf(`
+		CREATE SEQUENCE %s
+			AS bigint
+			INCREMENT BY 5
+			MINVALUE 10
+			MAXVALUE 1000
+			START WITH 50
+			CYCLE
+	`, sequenceName))
+
+	sourceSequences := getSequences(t, ctx, sourceConn, "public")
+	require.Contains(t, sourceSequences, sequenceName)
+
+	sourceSeq := sourceSequences[sequenceName]
+	require.Equal(t, "bigint", sourceSeq.dataType)
+	require.Equal(t, "5", sourceSeq.increment)
+	require.Equal(t, "10", sourceSeq.minimumValue)
+	require.Equal(t, "1000", sourceSeq.maximumValue)
+	require.Equal(t, "50", sourceSeq.startValue)
+	require.Equal(t, "YES", sourceSeq.cycleOption)
+
+	// Validate sequence is replicated to target
+	require.Eventually(t, func() bool {
+		targetSequences := getSequences(t, ctx, targetConn, "public")
+		targetSeq, ok := targetSequences[sequenceName]
+		if !ok {
+			return false
+		}
+		return targetSeq.dataType == sourceSeq.dataType &&
+			targetSeq.increment == sourceSeq.increment &&
+			targetSeq.minimumValue == sourceSeq.minimumValue &&
+			targetSeq.maximumValue == sourceSeq.maximumValue &&
+			targetSeq.startValue == sourceSeq.startValue &&
+			targetSeq.cycleOption == sourceSeq.cycleOption
+	}, 20*time.Second, 200*time.Millisecond)
+
+	// Alter sequence parameters
+	execQuery(t, ctx, fmt.Sprintf(`
+		ALTER SEQUENCE %s
+			INCREMENT BY 10
+			MAXVALUE 2000
+			NO CYCLE
+	`, sequenceName))
+
+	sourceSequences = getSequences(t, ctx, sourceConn, "public")
+	require.Contains(t, sourceSequences, sequenceName)
+
+	sourceSeq = sourceSequences[sequenceName]
+	require.Equal(t, "10", sourceSeq.increment)
+	require.Equal(t, "2000", sourceSeq.maximumValue)
+	require.Equal(t, "NO", sourceSeq.cycleOption)
+
+	// Validate altered sequence in target
+	require.Eventually(t, func() bool {
+		targetSequences := getSequences(t, ctx, targetConn, "public")
+		targetSeq, ok := targetSequences[sequenceName]
+		if !ok {
+			return false
+		}
+		return targetSeq.increment == "10" &&
+			targetSeq.maximumValue == "2000" &&
+			targetSeq.cycleOption == "NO"
+	}, 20*time.Second, 200*time.Millisecond)
+
+	// Rename sequence
+	execQuery(t, ctx, fmt.Sprintf("ALTER SEQUENCE %s RENAME TO %s", sequenceName, sequenceRename))
+
+	sourceSequences = getSequences(t, ctx, sourceConn, "public")
+	require.Contains(t, sourceSequences, sequenceRename)
+	require.NotContains(t, sourceSequences, sequenceName)
+
+	// Validate renamed sequence in target
+	require.Eventually(t, func() bool {
+		targetSequences := getSequences(t, ctx, targetConn, "public")
+		if _, ok := targetSequences[sequenceName]; ok {
+			return false
+		}
+		_, ok := targetSequences[sequenceRename]
+		return ok
+	}, 20*time.Second, 200*time.Millisecond)
+
+	// Drop sequence
+	execQuery(t, ctx, fmt.Sprintf("DROP SEQUENCE %s", sequenceRename))
+
+	sourceSequences = getSequences(t, ctx, sourceConn, "public")
+	require.NotContains(t, sourceSequences, sequenceRename)
+
+	// Validate sequence is dropped from target
+	require.Eventually(t, func() bool {
+		targetSequences := getSequences(t, ctx, targetConn, "public")
+		_, ok := targetSequences[sequenceRename]
+		return !ok
+	}, 20*time.Second, 200*time.Millisecond)
+}
+
 func getInformationSchemaColumns(t *testing.T, ctx context.Context, conn pglib.Querier, tableName string) []*informationSchemaColumn {
 	rows, err := conn.Query(ctx, "select column_name, data_type, is_nullable from information_schema.columns where table_name = $1", tableName)
 	require.NoError(t, err)

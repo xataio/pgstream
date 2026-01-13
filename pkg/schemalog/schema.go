@@ -12,6 +12,7 @@ import (
 type Schema struct {
 	Tables            []Table            `json:"tables"`
 	MaterializedViews []MaterializedView `json:"materialized_views,omitempty"`
+	Sequences         []Sequence         `json:"sequences,omitempty"`
 	// Dropped will be true if the schema has been deleted
 	Dropped bool `json:"dropped,omitempty"`
 }
@@ -33,6 +34,20 @@ type MaterializedView struct {
 	Name       string  `json:"name"`
 	Definition string  `json:"definition"`
 	Indexes    []Index `json:"indexes,omitempty"`
+}
+
+type Sequence struct {
+	Oid                   string  `json:"oid"`
+	Name                  string  `json:"name"`
+	DataType              *string `json:"data_type,omitempty"`
+	NumericPrecision      *int64  `json:"numeric_precision,omitempty"`
+	NumericPrecisionRadix *int64  `json:"numeric_precision_radix,omitempty"`
+	NumericScale          *int64  `json:"numeric_scale,omitempty"`
+	StartValue            *string `json:"start_value,omitempty"`
+	MinimumValue          *string `json:"minimum_value,omitempty"`
+	MaximumValue          *string `json:"maximum_value,omitempty"`
+	Increment             *string `json:"increment,omitempty"`
+	CycleOption           *string `json:"cycle_option,omitempty"`
 }
 
 type Column struct {
@@ -92,6 +107,9 @@ func (s *Schema) IsEqual(other *Schema) bool {
 		if len(s.MaterializedViews) != len(other.MaterializedViews) {
 			return false
 		}
+		if len(s.Sequences) != len(other.Sequences) {
+			return false
+		}
 
 		for i := range s.Tables {
 			if !s.Tables[i].IsEqual(&other.Tables[i]) {
@@ -101,6 +119,12 @@ func (s *Schema) IsEqual(other *Schema) bool {
 
 		for i := range s.MaterializedViews {
 			if !s.MaterializedViews[i].IsEqual(&other.MaterializedViews[i]) {
+				return false
+			}
+		}
+
+		for i := range s.Sequences {
+			if !s.Sequences[i].IsEqual(&other.Sequences[i]) {
 				return false
 			}
 		}
@@ -137,6 +161,27 @@ func (mv *MaterializedView) IsEqual(other *MaterializedView) bool {
 			mv.Name == other.Name &&
 			mv.Definition == other.Definition &&
 			unorderedIndexesEqual(mv.Indexes, other.Indexes)
+	}
+}
+
+func (s *Sequence) IsEqual(other *Sequence) bool {
+	switch {
+	case s == nil && other == nil:
+		return true
+	case s == nil && other != nil, s != nil && other == nil:
+		return false
+	default:
+		return s.Oid == other.Oid &&
+			s.Name == other.Name &&
+			isEqualStrPtr(s.DataType, other.DataType) &&
+			isEqualInt64Ptr(s.NumericPrecision, other.NumericPrecision) &&
+			isEqualInt64Ptr(s.NumericPrecisionRadix, other.NumericPrecisionRadix) &&
+			isEqualInt64Ptr(s.NumericScale, other.NumericScale) &&
+			isEqualStrPtr(s.StartValue, other.StartValue) &&
+			isEqualStrPtr(s.MinimumValue, other.MinimumValue) &&
+			isEqualStrPtr(s.MaximumValue, other.MaximumValue) &&
+			isEqualStrPtr(s.Increment, other.Increment) &&
+			isEqualStrPtr(s.CycleOption, other.CycleOption)
 	}
 }
 
@@ -365,6 +410,17 @@ func unorderedForeignKeysEqual(a, b []ForeignKey) bool {
 }
 
 func isEqualStrPtr(a, b *string) bool {
+	switch {
+	case a == nil && b == nil:
+		return true
+	case a == nil && b != nil, a != nil && b == nil:
+		return false
+	default:
+		return *a == *b
+	}
+}
+
+func isEqualInt64Ptr(a, b *int64) bool {
 	switch {
 	case a == nil && b == nil:
 		return true
