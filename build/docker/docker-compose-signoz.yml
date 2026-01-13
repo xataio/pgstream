@@ -105,6 +105,7 @@ services:
     volumes:
       - ./signoz/clickhouse/config.xml:/etc/clickhouse-server/config.xml
       - ./signoz/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+      - ./signoz/clickhouse/users.d:/etc/clickhouse-server/users.d
       - ./signoz/clickhouse/custom-function.xml:/etc/clickhouse-server/custom-function.xml
       - ./signoz/clickhouse/user_scripts:/var/lib/clickhouse/user_scripts/
       - ./signoz/clickhouse/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml
@@ -126,13 +127,14 @@ services:
       - sqlite:/var/lib/signoz/
     environment:
       - SIGNOZ_ALERTMANAGER_PROVIDER=signoz
-      - SIGNOZ_TELEMETRYSTORE_CLICKHOUSE_DSN=tcp://clickhouse:9000
+      - SIGNOZ_TELEMETRYSTORE_CLICKHOUSE_DSN=tcp://default@clickhouse:9000
       - SIGNOZ_SQLSTORE_SQLITE_PATH=/var/lib/signoz/signoz.db
       - DASHBOARDS_PATH=/root/config/dashboards
       - STORAGE=clickhouse
       - GODEBUG=netdns=go
       - TELEMETRY_ENABLED=true
       - DEPLOYMENT_TYPE=docker-standalone-amd
+      - SIGNOZ_LOCAL_DB_PATH=/var/lib/signoz/signoz.db
     healthcheck:
       test:
         - CMD
@@ -174,7 +176,7 @@ services:
     container_name: schema-migrator-sync
     command:
       - sync
-      - --dsn=tcp://clickhouse:9000
+      - --dsn=tcp://default@clickhouse:9000
       - --up=
     depends_on:
       clickhouse:
@@ -187,7 +189,7 @@ services:
     container_name: schema-migrator-async
     command:
       - async
-      - --dsn=tcp://clickhouse:9000
+      - --dsn=tcp://default@clickhouse:9000
       - --up=
     restart: on-failure
     profiles: ["instrumentation"]
