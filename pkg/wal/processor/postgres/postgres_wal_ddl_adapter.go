@@ -328,8 +328,8 @@ func (a *ddlAdapter) buildColumnDefinition(column *schemalog.Column) string {
 			colDefinition = fmt.Sprintf("%s GENERATED ALWAYS AS (%s) STORED", colDefinition, *column.DefaultValue)
 		}
 	default:
-		// do not set default values with sequences since they must be aligned
-		// between source/target. Keep source database as source of truth.
+		// replicate default values (including those involving sequences) so that
+		// sequence behavior is explicitly aligned between source and target.
 		if column.DefaultValue != nil {
 			colDefinition = fmt.Sprintf("%s DEFAULT %s", colDefinition, *column.DefaultValue)
 		}
