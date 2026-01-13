@@ -19,6 +19,7 @@ type Handler struct {
 	GetCurrentLSNFn           func(context.Context) (replication.LSN, error)
 	ResetConnectionFn         func(ctx context.Context) error
 	GetReplicationLagFn       func(context.Context) (int64, error)
+	GetReplicationSlotNameFn  func() string
 	CloseFn                   func() error
 	SyncLSNCalls              uint64
 	ReceiveMessageCalls       uint64
@@ -72,4 +73,11 @@ func (m *Handler) GetReceiveMessageCalls() uint64 {
 
 func (m *Handler) ResetConnection(ctx context.Context) error {
 	return m.ResetConnectionFn(ctx)
+}
+
+func (m *Handler) GetReplicationSlotName() string {
+	if m.GetReplicationSlotNameFn == nil {
+		return "mock_slot"
+	}
+	return m.GetReplicationSlotNameFn()
 }
