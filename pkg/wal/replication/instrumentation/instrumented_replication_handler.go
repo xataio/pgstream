@@ -9,6 +9,7 @@ import (
 	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/wal/replication"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -75,6 +76,10 @@ func (h *Handler) GetLSNParser() replication.LSNParser {
 	return h.inner.GetLSNParser()
 }
 
+func (h *Handler) GetReplicationSlotName() string {
+	return h.inner.GetReplicationSlotName()
+}
+
 func (h *Handler) ResetConnection(ctx context.Context) error {
 	return h.inner.ResetConnection(ctx)
 }
@@ -101,7 +106,8 @@ func (h *Handler) initMetrics() error {
 		if err != nil {
 			return err
 		}
-		o.ObserveInt64(h.metrics.replicationLag, replicationLag)
+		o.ObserveInt64(h.metrics.replicationLag, replicationLag,
+			metric.WithAttributes(attribute.String("replication_slot", h.inner.GetReplicationSlotName())))
 		return nil
 	}
 

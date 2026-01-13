@@ -94,6 +94,10 @@ func (h *HandlerRetrier) GetLSNParser() replication.LSNParser {
 	return h.inner.GetLSNParser()
 }
 
+func (h *HandlerRetrier) GetReplicationSlotName() string {
+	return h.inner.GetReplicationSlotName()
+}
+
 func (h *HandlerRetrier) Close() error {
 	return h.inner.Close()
 }

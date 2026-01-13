@@ -255,6 +255,10 @@ func (h *Handler) GetCurrentLSN(ctx context.Context) (replication.LSN, error) {
 	return h.lsnParser.FromString(currentLSN)
 }
 
+func (h *Handler) GetReplicationSlotName() string {
+	return h.pgReplicationSlotName
+}
+
 func (h *Handler) ResetConnection(ctx context.Context) error {
 	conn, err := h.pgReplicationConnBuilder()
 	if err != nil {
