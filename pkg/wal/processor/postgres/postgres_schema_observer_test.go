@@ -381,6 +381,9 @@ func TestPGSchemaObserver_getSequenceColumns(t *testing.T) {
 	createdAtColumn := `"created_at"`
 	idSequenceName := "id_seq"
 	createdAtSequenceName := "created_at_seq"
+	quoteQualifiedSequenceName := func(seq string) string {
+		return pglib.QuoteQualifiedIdentifier("test_schema", seq)
+	}
 
 	tests := []struct {
 		name                 string
@@ -418,7 +421,7 @@ func TestPGSchemaObserver_getSequenceColumns(t *testing.T) {
 
 			wantColumns: []string{idColumn},
 			wantColumnTableSequences: map[string]map[string]string{
-				quotedQualifiedTableName: {idColumn: idSequenceName},
+				quotedQualifiedTableName: {idColumn: quoteQualifiedSequenceName(idSequenceName)},
 			},
 			wantErr: nil,
 		},
@@ -459,8 +462,8 @@ func TestPGSchemaObserver_getSequenceColumns(t *testing.T) {
 			wantColumns: []string{idColumn, createdAtColumn},
 			wantColumnTableSequences: map[string]map[string]string{
 				quotedQualifiedTableName: {
-					idColumn:        idSequenceName,
-					createdAtColumn: createdAtSequenceName,
+					idColumn:        quoteQualifiedSequenceName(idSequenceName),
+					createdAtColumn: quoteQualifiedSequenceName(createdAtSequenceName),
 				},
 			},
 			wantErr: nil,
@@ -468,7 +471,7 @@ func TestPGSchemaObserver_getSequenceColumns(t *testing.T) {
 		{
 			name: "ok - existing table in cache",
 			columnTableSequences: map[string]map[string]string{
-				quotedQualifiedTableName: {idColumn: idSequenceName},
+				quotedQualifiedTableName: {idColumn: quoteQualifiedSequenceName(idSequenceName)},
 			},
 			pgConn: &pgmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
@@ -478,7 +481,7 @@ func TestPGSchemaObserver_getSequenceColumns(t *testing.T) {
 
 			wantColumns: []string{idColumn},
 			wantColumnTableSequences: map[string]map[string]string{
-				quotedQualifiedTableName: {idColumn: idSequenceName},
+				quotedQualifiedTableName: {idColumn: quoteQualifiedSequenceName(idSequenceName)},
 			},
 			wantErr: nil,
 		},
@@ -779,7 +782,7 @@ func TestPGSchemaObserver_queryTableSequences(t *testing.T) {
 					}, nil
 				},
 			},
-			wantSeqCols: map[string]string{`"id"`: "id_seq"},
+			wantSeqCols: map[string]string{`"id"`: `"test_schema"."id_seq"`},
 			wantErr:     nil,
 		},
 		{
@@ -819,9 +822,9 @@ func TestPGSchemaObserver_queryTableSequences(t *testing.T) {
 				},
 			},
 			wantSeqCols: map[string]string{
-				`"id"`:         "id_seq",
-				`"order_id"`:   "order_id_seq",
-				`"created_at"`: "created_at_seq",
+				`"id"`:         `"test_schema"."id_seq"`,
+				`"order_id"`:   `"test_schema"."order_id_seq"`,
+				`"created_at"`: `"test_schema"."created_at_seq"`,
 			},
 			wantErr: nil,
 		},

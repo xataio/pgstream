@@ -8,12 +8,16 @@ import (
 )
 
 type Diff struct {
+	SchemaDropped            bool
 	TablesRemoved            []Table
 	TablesAdded              []Table
 	TablesChanged            []TableDiff
 	MaterializedViewsRemoved []MaterializedView
 	MaterializedViewsAdded   []MaterializedView
 	MaterializedViewsChanged []MaterializedViewsDiff
+	SequencesRemoved         []Sequence
+	SequencesAdded           []Sequence
+	SequencesChanged         []SequenceDiff
 }
 
 type MaterializedViewsDiff struct {
@@ -22,6 +26,17 @@ type MaterializedViewsDiff struct {
 	IndexesAdded         []Index
 	IndexesRemoved       []Index
 	IndexesChanged       []string
+}
+
+type SequenceDiff struct {
+	SequenceName       string
+	NameChange         *ValueChange[string]
+	DataTypeChange     *ValueChange[*string]
+	IncrementChange    *ValueChange[*string]
+	MinimumValueChange *ValueChange[*string]
+	MaximumValueChange *ValueChange[*string]
+	StartValueChange   *ValueChange[*string]
+	CycleOptionChange  *ValueChange[*string]
 }
 
 type TableDiff struct {
@@ -58,12 +73,16 @@ type ValueChange[T any] struct {
 }
 
 func (d *Diff) IsEmpty() bool {
-	return len(d.TablesAdded) == 0 &&
+	return !d.SchemaDropped &&
+		len(d.TablesAdded) == 0 &&
 		len(d.TablesChanged) == 0 &&
 		len(d.TablesRemoved) == 0 &&
 		len(d.MaterializedViewsAdded) == 0 &&
 		len(d.MaterializedViewsRemoved) == 0 &&
-		len(d.MaterializedViewsChanged) == 0
+		len(d.MaterializedViewsChanged) == 0 &&
+		len(d.SequencesAdded) == 0 &&
+		len(d.SequencesRemoved) == 0 &&
+		len(d.SequencesChanged) == 0
 }
 
 func (mv *MaterializedViewsDiff) IsEmpty() bool {
@@ -71,6 +90,16 @@ func (mv *MaterializedViewsDiff) IsEmpty() bool {
 		len(mv.IndexesRemoved) == 0 &&
 		len(mv.IndexesChanged) == 0 &&
 		mv.NameChange == nil
+}
+
+func (sd *SequenceDiff) IsEmpty() bool {
+	return sd.NameChange == nil &&
+		sd.DataTypeChange == nil &&
+		sd.IncrementChange == nil &&
+		sd.MinimumValueChange == nil &&
+		sd.MaximumValueChange == nil &&
+		sd.StartValueChange == nil &&
+		sd.CycleOptionChange == nil
 }
 
 func (td *TableDiff) IsEmpty() bool {
@@ -108,9 +137,16 @@ func ComputeSchemaDiff(old, new *LogEntry) *Diff {
 		new = &LogEntry{}
 	}
 
+	diff := &Diff{}
+
+	// Schema dropped
+	if !old.Schema.Dropped && new.Schema.Dropped {
+		diff.SchemaDropped = true
+		return diff
+	}
+
 	// Table changes
 
-	diff := &Diff{}
 	newTableMap := getSchemaTableMap(&new.Schema)
 	// if a table ID exists in the old schema, but not in the new, remove the table
 	for _, oldTable := range old.Schema.Tables {
@@ -159,6 +195,30 @@ func ComputeSchemaDiff(old, new *LogEntry) *Diff {
 		}
 	}
 
+	// Sequence changes
+
+	newSeqMap := getSchemaSequenceMap(&new.Schema)
+	for _, oldSeq := range old.Schema.Sequences {
+		if _, found := newSeqMap[oldSeq.Oid]; !found {
+			diff.SequencesRemoved = append(diff.SequencesRemoved, oldSeq)
+		}
+	}
+
+	oldSeqMap := getSchemaSequenceMap(&old.Schema)
+	for oid, newSeq := range newSeqMap {
+		oldSeq, found := oldSeqMap[oid]
+		if !found {
+			diff.SequencesAdded = append(diff.SequencesAdded, newSeq)
+			continue
+		}
+
+		// both schemas have the sequence, check for changes
+		seqDiff := computeSequenceDiff(&oldSeq, &newSeq)
+		if !seqDiff.IsEmpty() {
+			diff.SequencesChanged = append(diff.SequencesChanged, *seqDiff)
+		}
+	}
+
 	return diff
 }
 
@@ -195,6 +255,42 @@ func computeMaterializedViewDiff(old, new *MaterializedView) *MaterializedViewsD
 		if _, found := oldIndexMap[name]; !found {
 			diff.IndexesAdded = append(diff.IndexesAdded, newIdx)
 		}
+	}
+
+	return diff
+}
+
+func computeSequenceDiff(old, new *Sequence) *SequenceDiff {
+	diff := &SequenceDiff{
+		SequenceName: new.Name,
+	}
+
+	if old.Name != new.Name {
+		diff.NameChange = &ValueChange[string]{Old: old.Name, New: new.Name}
+	}
+
+	if !isEqualStrPtr(old.DataType, new.DataType) {
+		diff.DataTypeChange = &ValueChange[*string]{Old: old.DataType, New: new.DataType}
+	}
+
+	if !isEqualStrPtr(old.Increment, new.Increment) {
+		diff.IncrementChange = &ValueChange[*string]{Old: old.Increment, New: new.Increment}
+	}
+
+	if !isEqualStrPtr(old.MinimumValue, new.MinimumValue) {
+		diff.MinimumValueChange = &ValueChange[*string]{Old: old.MinimumValue, New: new.MinimumValue}
+	}
+
+	if !isEqualStrPtr(old.MaximumValue, new.MaximumValue) {
+		diff.MaximumValueChange = &ValueChange[*string]{Old: old.MaximumValue, New: new.MaximumValue}
+	}
+
+	if !isEqualStrPtr(old.StartValue, new.StartValue) {
+		diff.StartValueChange = &ValueChange[*string]{Old: old.StartValue, New: new.StartValue}
+	}
+
+	if !isEqualStrPtr(old.CycleOption, new.CycleOption) {
+		diff.CycleOptionChange = &ValueChange[*string]{Old: old.CycleOption, New: new.CycleOption}
 	}
 
 	return diff
@@ -359,6 +455,14 @@ func getSchemaMaterializedViewMap(s *Schema) map[string]MaterializedView {
 		mvMap[mv.Oid] = mv
 	}
 	return mvMap
+}
+
+func getSchemaSequenceMap(s *Schema) map[string]Sequence {
+	seqMap := make(map[string]Sequence, len(s.Sequences))
+	for _, seq := range s.Sequences {
+		seqMap[seq.Oid] = seq
+	}
+	return seqMap
 }
 
 func getMaterializedViewIndexMap(mv *MaterializedView) map[string]Index {

@@ -27,6 +27,8 @@ type schemaDiffer func(old, new *schemalog.LogEntry) *schemalog.Diff
 
 type logEntryAdapter func(*wal.Data) (*schemalog.LogEntry, error)
 
+const cycleOptionYes = "YES"
+
 func newDDLAdapter(querier schemalogQuerier) *ddlAdapter {
 	return &ddlAdapter{
 		schemalogQuerier: querier,
@@ -43,18 +45,10 @@ func (a *ddlAdapter) schemaLogToQueries(ctx context.Context, schemaLog *schemalo
 			return nil, fmt.Errorf("fetching existing schema log entry: %w", err)
 		}
 	}
+
 	diff := a.schemaDiffer(previousSchemaLog, schemaLog)
 
-	queries := []*query{
-		a.createSchemaIfNotExists(schemaLog.SchemaName),
-	}
-
-	schemaQueries, err := a.schemaDiffToQueries(schemaLog.SchemaName, diff)
-	if err != nil {
-		return nil, err
-	}
-
-	return append(queries, schemaQueries...), nil
+	return a.schemaDiffToQueries(schemaLog.SchemaName, diff)
 }
 
 const createSchemaIfNotExistsQuery = "CREATE SCHEMA IF NOT EXISTS %s"
@@ -69,13 +63,44 @@ func (a *ddlAdapter) schemaDiffToQueries(schemaName string, diff *schemalog.Diff
 		return []*query{}, nil
 	}
 
+	if diff.SchemaDropped {
+		dropQuery := fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", pglib.QuoteIdentifier(schemaName))
+		return []*query{a.newDDLQuery(schemaName, "", dropQuery)}, nil
+	}
+
+	queries := []*query{
+		a.createSchemaIfNotExists(schemaName),
+	}
+
+	sequenceQueries, dropSequenceQueries := a.buildSequenceQueries(schemaName, diff)
+	mvQueries, dropMVQueries := a.buildMaterializedViewQueries(schemaName, diff)
+	tableQueries, fkQueries := a.buildTableQueries(schemaName, diff)
+
+	// materialized views are dropped first to avoid dependency issues when they
+	// depend on tables/sequences that are being dropped
+	queries = append(queries, dropMVQueries...)
+	// create sequences first to avoid dependency issues when creating tables,
+	// since the columns may depend on them
+	queries = append(queries, sequenceQueries...)
+	queries = append(queries, tableQueries...)
+
+	queries = append(queries, mvQueries...)
+	// drop sequences last to avoid dependency issues when dropping sequences
+	// that are used by table columns
+	queries = append(queries, dropSequenceQueries...)
+
+	// append foreign key queries at the end to avoid dependency issues
+	return append(queries, fkQueries...), nil
+}
+
+func (a *ddlAdapter) buildTableQueries(schemaName string, diff *schemalog.Diff) ([]*query, []*query) {
 	queries := []*query{}
-	fkQueries := []*query{}
 	for _, table := range diff.TablesRemoved {
 		dropQuery := fmt.Sprintf("DROP TABLE IF EXISTS %s", quotedTableName(schemaName, table.Name))
 		queries = append(queries, a.newDDLQuery(schemaName, table.Name, dropQuery))
 	}
 
+	fkQueries := []*query{}
 	for _, table := range diff.TablesAdded {
 		queries = append(queries, a.buildCreateTableQuery(schemaName, table))
 		queries = append(queries, a.buildCreateTableIndexQueries(schemaName, table)...)
@@ -89,11 +114,17 @@ func (a *ddlAdapter) schemaDiffToQueries(schemaName string, diff *schemalog.Diff
 		fkQueries = append(fkQueries, alterFKQueries...)
 	}
 
+	return queries, fkQueries
+}
+
+func (a *ddlAdapter) buildMaterializedViewQueries(schemaName string, diff *schemalog.Diff) ([]*query, []*query) {
+	dropQueries := []*query{}
 	for _, mv := range diff.MaterializedViewsRemoved {
 		dropQuery := fmt.Sprintf("DROP MATERIALIZED VIEW IF EXISTS %s", pglib.QuoteQualifiedIdentifier(schemaName, mv.Name))
-		queries = append(queries, a.newDDLQuery(schemaName, mv.Name, dropQuery))
+		dropQueries = append(dropQueries, a.newDDLQuery(schemaName, mv.Name, dropQuery))
 	}
 
+	queries := []*query{}
 	for _, mv := range diff.MaterializedViewsAdded {
 		createQuery := fmt.Sprintf("CREATE MATERIALIZED VIEW IF NOT EXISTS %s AS %s", pglib.QuoteQualifiedIdentifier(schemaName, mv.Name), mv.Definition)
 		queries = append(queries, a.newDDLQuery(schemaName, mv.Name, createQuery))
@@ -104,8 +135,123 @@ func (a *ddlAdapter) schemaDiffToQueries(schemaName string, diff *schemalog.Diff
 		alterQueries := a.buildAlterMaterializedViewQueries(schemaName, mv)
 		queries = append(queries, alterQueries...)
 	}
+	return queries, dropQueries
+}
 
-	return append(queries, fkQueries...), nil
+func (a *ddlAdapter) buildSequenceQueries(schemaName string, diff *schemalog.Diff) ([]*query, []*query) {
+	dropQueries := []*query{}
+	for _, seq := range diff.SequencesRemoved {
+		dropQuery := fmt.Sprintf("DROP SEQUENCE IF EXISTS %s", pglib.QuoteQualifiedIdentifier(schemaName, seq.Name))
+		dropQueries = append(dropQueries, a.newDDLQuery(schemaName, seq.Name, dropQuery))
+	}
+
+	queries := []*query{}
+	for _, seq := range diff.SequencesAdded {
+		createQuery := a.buildCreateSequenceQuery(schemaName, seq)
+		queries = append(queries, a.newDDLQuery(schemaName, seq.Name, createQuery))
+	}
+
+	for _, seqDiff := range diff.SequencesChanged {
+		alterQueries := a.buildAlterSequenceQueries(schemaName, seqDiff)
+		queries = append(queries, alterQueries...)
+	}
+
+	return queries, dropQueries
+}
+
+func (a *ddlAdapter) buildCreateSequenceQuery(schemaName string, seq schemalog.Sequence) string {
+	var parts []string
+	parts = append(parts, fmt.Sprintf("CREATE SEQUENCE IF NOT EXISTS %s", pglib.QuoteQualifiedIdentifier(schemaName, seq.Name)))
+
+	// Add AS data_type clause
+	if seq.DataType != nil && *seq.DataType != "" {
+		parts = append(parts, fmt.Sprintf("AS %s", *seq.DataType))
+	}
+
+	// Add INCREMENT BY clause
+	if seq.Increment != nil && *seq.Increment != "" {
+		parts = append(parts, fmt.Sprintf("INCREMENT BY %s", *seq.Increment))
+	}
+
+	// Add MINVALUE/NO MINVALUE clause
+	if seq.MinimumValue != nil && *seq.MinimumValue != "" {
+		parts = append(parts, fmt.Sprintf("MINVALUE %s", *seq.MinimumValue))
+	}
+
+	// Add MAXVALUE/NO MAXVALUE clause
+	if seq.MaximumValue != nil && *seq.MaximumValue != "" {
+		parts = append(parts, fmt.Sprintf("MAXVALUE %s", *seq.MaximumValue))
+	}
+
+	// Add START WITH clause
+	if seq.StartValue != nil && *seq.StartValue != "" {
+		parts = append(parts, fmt.Sprintf("START WITH %s", *seq.StartValue))
+	}
+
+	// Add CYCLE/NO CYCLE clause
+	if seq.CycleOption != nil && *seq.CycleOption != "" {
+		if *seq.CycleOption == cycleOptionYes {
+			parts = append(parts, "CYCLE")
+		} else {
+			parts = append(parts, "NO CYCLE")
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func (a *ddlAdapter) buildAlterSequenceQueries(schemaName string, seqDiff schemalog.SequenceDiff) []*query {
+	queries := []*query{}
+	qualifiedName := pglib.QuoteQualifiedIdentifier(schemaName, seqDiff.SequenceName)
+
+	// Handle name change separately as it needs ALTER SEQUENCE ... RENAME TO
+	if seqDiff.NameChange != nil {
+		renameQuery := fmt.Sprintf("ALTER SEQUENCE IF EXISTS %s RENAME TO %s",
+			pglib.QuoteQualifiedIdentifier(schemaName, seqDiff.NameChange.Old),
+			pglib.QuoteIdentifier(seqDiff.NameChange.New))
+		queries = append(queries, a.newDDLQuery(schemaName, seqDiff.SequenceName, renameQuery))
+		// Update qualified name for subsequent alterations
+		qualifiedName = pglib.QuoteQualifiedIdentifier(schemaName, seqDiff.NameChange.New)
+	}
+
+	// Build ALTER SEQUENCE statement for other changes
+	var alterParts []string
+
+	if seqDiff.DataTypeChange != nil && seqDiff.DataTypeChange.New != nil && *seqDiff.DataTypeChange.New != "" {
+		alterParts = append(alterParts, fmt.Sprintf("AS %s", *seqDiff.DataTypeChange.New))
+	}
+
+	if seqDiff.IncrementChange != nil && seqDiff.IncrementChange.New != nil && *seqDiff.IncrementChange.New != "" {
+		alterParts = append(alterParts, fmt.Sprintf("INCREMENT BY %s", *seqDiff.IncrementChange.New))
+	}
+
+	if seqDiff.MinimumValueChange != nil && seqDiff.MinimumValueChange.New != nil && *seqDiff.MinimumValueChange.New != "" {
+		alterParts = append(alterParts, fmt.Sprintf("MINVALUE %s", *seqDiff.MinimumValueChange.New))
+	}
+
+	if seqDiff.MaximumValueChange != nil && seqDiff.MaximumValueChange.New != nil && *seqDiff.MaximumValueChange.New != "" {
+		alterParts = append(alterParts, fmt.Sprintf("MAXVALUE %s", *seqDiff.MaximumValueChange.New))
+	}
+
+	if seqDiff.StartValueChange != nil && seqDiff.StartValueChange.New != nil && *seqDiff.StartValueChange.New != "" {
+		// For existing sequences, use RESTART WITH instead of START WITH
+		alterParts = append(alterParts, fmt.Sprintf("RESTART WITH %s", *seqDiff.StartValueChange.New))
+	}
+
+	if seqDiff.CycleOptionChange != nil && seqDiff.CycleOptionChange.New != nil && *seqDiff.CycleOptionChange.New != "" {
+		if *seqDiff.CycleOptionChange.New == cycleOptionYes {
+			alterParts = append(alterParts, "CYCLE")
+		} else {
+			alterParts = append(alterParts, "NO CYCLE")
+		}
+	}
+
+	if len(alterParts) > 0 {
+		alterQuery := fmt.Sprintf("ALTER SEQUENCE IF EXISTS %s %s", qualifiedName, strings.Join(alterParts, " "))
+		queries = append(queries, a.newDDLQuery(schemaName, seqDiff.SequenceName, alterQuery))
+	}
+
+	return queries
 }
 
 func (a *ddlAdapter) buildCreateTableIndexQueries(schemaName string, table schemalog.Table) []*query {
@@ -162,16 +308,6 @@ func (a *ddlAdapter) buildCreateTableQuery(schemaName string, table schemalog.Ta
 
 func (a *ddlAdapter) buildColumnDefinition(column *schemalog.Column) string {
 	colDefinition := fmt.Sprintf("%s %s", pglib.QuoteIdentifier(column.Name), column.DataType)
-	if column.IsSerial() {
-		switch strings.ToUpper(column.DataType) {
-		case "SMALLINT":
-			colDefinition = fmt.Sprintf("%s SMALLSERIAL", pglib.QuoteIdentifier(column.Name))
-		case "INTEGER":
-			colDefinition = fmt.Sprintf("%s SERIAL", pglib.QuoteIdentifier(column.Name))
-		case "BIGINT":
-			colDefinition = fmt.Sprintf("%s BIGSERIAL", pglib.QuoteIdentifier(column.Name))
-		}
-	}
 	if !column.Nullable {
 		colDefinition = fmt.Sprintf("%s NOT NULL", colDefinition)
 	}
@@ -192,9 +328,9 @@ func (a *ddlAdapter) buildColumnDefinition(column *schemalog.Column) string {
 			colDefinition = fmt.Sprintf("%s GENERATED ALWAYS AS (%s) STORED", colDefinition, *column.DefaultValue)
 		}
 	default:
-		// do not set default values with sequences since they must be aligned
-		// between source/target. Keep source database as source of truth.
-		if column.DefaultValue != nil && !column.HasSequence() {
+		// replicate default values (including those involving sequences) so that
+		// sequence behavior is explicitly aligned between source and target.
+		if column.DefaultValue != nil {
 			colDefinition = fmt.Sprintf("%s DEFAULT %s", colDefinition, *column.DefaultValue)
 		}
 	}

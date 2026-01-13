@@ -100,6 +100,23 @@ func Test_ComputeSchemaDiff(t *testing.T) {
 			},
 		},
 		{
+			name: "schema dropped",
+			newSchema: &LogEntry{
+				Schema: Schema{
+					Dropped: true,
+				},
+			},
+			oldSchema: &LogEntry{
+				Schema: Schema{
+					Tables: []Table{testTable(table1, id1)},
+				},
+			},
+
+			wantDiff: &Diff{
+				SchemaDropped: true,
+			},
+		},
+		{
 			name: "materialized views added and removed",
 			newSchema: &LogEntry{
 				Schema: Schema{
@@ -748,6 +765,406 @@ func Test_computeColumnDiff(t *testing.T) {
 
 			diff := computeColumnDiff(tc.oldColumn, tc.newColumn)
 			require.Equal(t, tc.wantDiff, diff)
+		})
+	}
+}
+
+func Test_Diff_IsEmpty(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		diff     *Diff
+		expected bool
+	}{
+		{
+			name:     "empty diff",
+			diff:     &Diff{},
+			expected: true,
+		},
+		{
+			name: "schema dropped",
+			diff: &Diff{
+				SchemaDropped: true,
+			},
+			expected: false,
+		},
+		{
+			name: "tables added",
+			diff: &Diff{
+				TablesAdded: []Table{
+					{Name: "test_table", PgstreamID: "1"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "tables removed",
+			diff: &Diff{
+				TablesRemoved: []Table{
+					{Name: "test_table", PgstreamID: "1"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "tables changed",
+			diff: &Diff{
+				TablesChanged: []TableDiff{
+					{TableName: "test_table", TablePgstreamID: "1"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "materialized views added",
+			diff: &Diff{
+				MaterializedViewsAdded: []MaterializedView{
+					{Name: "test_mv", Oid: "1"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "materialized views removed",
+			diff: &Diff{
+				MaterializedViewsRemoved: []MaterializedView{
+					{Name: "test_mv", Oid: "1"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "materialized views changed",
+			diff: &Diff{
+				MaterializedViewsChanged: []MaterializedViewsDiff{
+					{MaterializedViewName: "test_mv"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "multiple changes",
+			diff: &Diff{
+				SchemaDropped: true,
+				TablesAdded: []Table{
+					{Name: "test_table", PgstreamID: "1"},
+				},
+				MaterializedViewsRemoved: []MaterializedView{
+					{Name: "test_mv", Oid: "1"},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := tc.diff.IsEmpty()
+			require.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func Test_computeSequenceDiff(t *testing.T) {
+	t.Parallel()
+
+	increment1 := "1"
+	increment2 := "5"
+	minValue1 := "1"
+	minValue2 := "10"
+	maxValue1 := "1000"
+	maxValue2 := "9999"
+	startValue1 := "1"
+	startValue2 := "100"
+	cycleOption1 := "NO"
+	cycleOption2 := "YES"
+	dataType1 := "bigint"
+	dataType2 := "integer"
+
+	tests := []struct {
+		name        string
+		oldSequence *Sequence
+		newSequence *Sequence
+		wantDiff    *SequenceDiff
+	}{
+		{
+			name: "no changes",
+			oldSequence: &Sequence{
+				Name: "seq1",
+				Oid:  "1001",
+			},
+			newSequence: &Sequence{
+				Name: "seq1",
+				Oid:  "1001",
+			},
+			wantDiff: &SequenceDiff{
+				SequenceName: "seq1",
+			},
+		},
+		{
+			name: "name change",
+			oldSequence: &Sequence{
+				Name: "seq_old",
+				Oid:  "1001",
+			},
+			newSequence: &Sequence{
+				Name: "seq_new",
+				Oid:  "1001",
+			},
+			wantDiff: &SequenceDiff{
+				SequenceName: "seq_new",
+				NameChange:   &ValueChange[string]{Old: "seq_old", New: "seq_new"},
+			},
+		},
+		{
+			name: "data type change",
+			oldSequence: &Sequence{
+				Name:     "seq1",
+				Oid:      "1001",
+				DataType: &dataType1,
+			},
+			newSequence: &Sequence{
+				Name:     "seq1",
+				Oid:      "1001",
+				DataType: &dataType2,
+			},
+			wantDiff: &SequenceDiff{
+				SequenceName:   "seq1",
+				DataTypeChange: &ValueChange[*string]{Old: &dataType1, New: &dataType2},
+			},
+		},
+		{
+			name: "increment change",
+			oldSequence: &Sequence{
+				Name:      "seq1",
+				Oid:       "1001",
+				Increment: &increment1,
+			},
+			newSequence: &Sequence{
+				Name:      "seq1",
+				Oid:       "1001",
+				Increment: &increment2,
+			},
+			wantDiff: &SequenceDiff{
+				SequenceName:    "seq1",
+				IncrementChange: &ValueChange[*string]{Old: &increment1, New: &increment2},
+			},
+		},
+		{
+			name: "minimum value change",
+			oldSequence: &Sequence{
+				Name:         "seq1",
+				Oid:          "1001",
+				MinimumValue: &minValue1,
+			},
+			newSequence: &Sequence{
+				Name:         "seq1",
+				Oid:          "1001",
+				MinimumValue: &minValue2,
+			},
+			wantDiff: &SequenceDiff{
+				SequenceName:       "seq1",
+				MinimumValueChange: &ValueChange[*string]{Old: &minValue1, New: &minValue2},
+			},
+		},
+		{
+			name: "maximum value change",
+			oldSequence: &Sequence{
+				Name:         "seq1",
+				Oid:          "1001",
+				MaximumValue: &maxValue1,
+			},
+			newSequence: &Sequence{
+				Name:         "seq1",
+				Oid:          "1001",
+				MaximumValue: &maxValue2,
+			},
+			wantDiff: &SequenceDiff{
+				SequenceName:       "seq1",
+				MaximumValueChange: &ValueChange[*string]{Old: &maxValue1, New: &maxValue2},
+			},
+		},
+		{
+			name: "start value change",
+			oldSequence: &Sequence{
+				Name:       "seq1",
+				Oid:        "1001",
+				StartValue: &startValue1,
+			},
+			newSequence: &Sequence{
+				Name:       "seq1",
+				Oid:        "1001",
+				StartValue: &startValue2,
+			},
+			wantDiff: &SequenceDiff{
+				SequenceName:     "seq1",
+				StartValueChange: &ValueChange[*string]{Old: &startValue1, New: &startValue2},
+			},
+		},
+		{
+			name: "cycle option change",
+			oldSequence: &Sequence{
+				Name:        "seq1",
+				Oid:         "1001",
+				CycleOption: &cycleOption1,
+			},
+			newSequence: &Sequence{
+				Name:        "seq1",
+				Oid:         "1001",
+				CycleOption: &cycleOption2,
+			},
+			wantDiff: &SequenceDiff{
+				SequenceName:      "seq1",
+				CycleOptionChange: &ValueChange[*string]{Old: &cycleOption1, New: &cycleOption2},
+			},
+		},
+		{
+			name: "multiple changes",
+			oldSequence: &Sequence{
+				Name:         "seq_old",
+				Oid:          "1001",
+				DataType:     &dataType1,
+				Increment:    &increment1,
+				MinimumValue: &minValue1,
+				MaximumValue: &maxValue1,
+				StartValue:   &startValue1,
+				CycleOption:  &cycleOption1,
+			},
+			newSequence: &Sequence{
+				Name:         "seq_new",
+				Oid:          "1001",
+				DataType:     &dataType2,
+				Increment:    &increment2,
+				MinimumValue: &minValue2,
+				MaximumValue: &maxValue2,
+				StartValue:   &startValue2,
+				CycleOption:  &cycleOption2,
+			},
+			wantDiff: &SequenceDiff{
+				SequenceName:       "seq_new",
+				NameChange:         &ValueChange[string]{Old: "seq_old", New: "seq_new"},
+				DataTypeChange:     &ValueChange[*string]{Old: &dataType1, New: &dataType2},
+				IncrementChange:    &ValueChange[*string]{Old: &increment1, New: &increment2},
+				MinimumValueChange: &ValueChange[*string]{Old: &minValue1, New: &minValue2},
+				MaximumValueChange: &ValueChange[*string]{Old: &maxValue1, New: &maxValue2},
+				StartValueChange:   &ValueChange[*string]{Old: &startValue1, New: &startValue2},
+				CycleOptionChange:  &ValueChange[*string]{Old: &cycleOption1, New: &cycleOption2},
+			},
+		},
+		{
+			name: "nil to value changes",
+			oldSequence: &Sequence{
+				Name: "seq1",
+				Oid:  "1001",
+			},
+			newSequence: &Sequence{
+				Name:         "seq1",
+				Oid:          "1001",
+				DataType:     &dataType1,
+				Increment:    &increment1,
+				MinimumValue: &minValue1,
+				MaximumValue: &maxValue1,
+				StartValue:   &startValue1,
+				CycleOption:  &cycleOption1,
+			},
+			wantDiff: &SequenceDiff{
+				SequenceName:       "seq1",
+				DataTypeChange:     &ValueChange[*string]{Old: nil, New: &dataType1},
+				IncrementChange:    &ValueChange[*string]{Old: nil, New: &increment1},
+				MinimumValueChange: &ValueChange[*string]{Old: nil, New: &minValue1},
+				MaximumValueChange: &ValueChange[*string]{Old: nil, New: &maxValue1},
+				StartValueChange:   &ValueChange[*string]{Old: nil, New: &startValue1},
+				CycleOptionChange:  &ValueChange[*string]{Old: nil, New: &cycleOption1},
+			},
+		},
+		{
+			name: "value to nil changes",
+			oldSequence: &Sequence{
+				Name:         "seq1",
+				Oid:          "1001",
+				DataType:     &dataType1,
+				Increment:    &increment1,
+				MinimumValue: &minValue1,
+				MaximumValue: &maxValue1,
+				StartValue:   &startValue1,
+				CycleOption:  &cycleOption1,
+			},
+			newSequence: &Sequence{
+				Name: "seq1",
+				Oid:  "1001",
+			},
+			wantDiff: &SequenceDiff{
+				SequenceName:       "seq1",
+				DataTypeChange:     &ValueChange[*string]{Old: &dataType1, New: nil},
+				IncrementChange:    &ValueChange[*string]{Old: &increment1, New: nil},
+				MinimumValueChange: &ValueChange[*string]{Old: &minValue1, New: nil},
+				MaximumValueChange: &ValueChange[*string]{Old: &maxValue1, New: nil},
+				StartValueChange:   &ValueChange[*string]{Old: &startValue1, New: nil},
+				CycleOptionChange:  &ValueChange[*string]{Old: &cycleOption1, New: nil},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			diff := computeSequenceDiff(tc.oldSequence, tc.newSequence)
+			require.Equal(t, tc.wantDiff, diff)
+		})
+	}
+}
+
+func Test_SequenceDiff_IsEmpty(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		diff      *SequenceDiff
+		wantEmpty bool
+	}{
+		{
+			name: "empty diff",
+			diff: &SequenceDiff{
+				SequenceName: "seq1",
+			},
+			wantEmpty: true,
+		},
+		{
+			name: "has name change",
+			diff: &SequenceDiff{
+				SequenceName: "seq1",
+				NameChange:   &ValueChange[string]{Old: "old", New: "new"},
+			},
+			wantEmpty: false,
+		},
+		{
+			name: "has data type change",
+			diff: &SequenceDiff{
+				SequenceName:   "seq1",
+				DataTypeChange: &ValueChange[*string]{Old: nil, New: stringPtr("bigint")},
+			},
+			wantEmpty: false,
+		},
+		{
+			name: "has increment change",
+			diff: &SequenceDiff{
+				SequenceName:    "seq1",
+				IncrementChange: &ValueChange[*string]{Old: stringPtr("1"), New: stringPtr("5")},
+			},
+			wantEmpty: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			isEmpty := tc.diff.IsEmpty()
+			require.Equal(t, tc.wantEmpty, isEmpty)
 		})
 	}
 }

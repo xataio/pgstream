@@ -445,3 +445,40 @@ func getTableIndexes(t *testing.T, ctx context.Context, conn pglib.Querier, sche
 
 	return indexes
 }
+
+type sequenceInfo struct {
+	dataType     string
+	increment    string
+	minimumValue string
+	maximumValue string
+	startValue   string
+	cycleOption  string
+}
+
+func getSequences(t *testing.T, ctx context.Context, conn pglib.Querier, schema string) map[string]sequenceInfo {
+	rows, err := conn.Query(ctx, `
+		SELECT sequence_name, data_type, increment, minimum_value, maximum_value, start_value, cycle_option
+		FROM information_schema.sequences
+		WHERE sequence_schema = $1
+	`, schema)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	sequences := make(map[string]sequenceInfo)
+	for rows.Next() {
+		var name, dataType, increment, minValue, maxValue, startValue, cycleOption string
+		err := rows.Scan(&name, &dataType, &increment, &minValue, &maxValue, &startValue, &cycleOption)
+		require.NoError(t, err)
+		sequences[name] = sequenceInfo{
+			dataType:     dataType,
+			increment:    increment,
+			minimumValue: minValue,
+			maximumValue: maxValue,
+			startValue:   startValue,
+			cycleOption:  cycleOption,
+		}
+	}
+	require.NoError(t, rows.Err())
+
+	return sequences
+}
