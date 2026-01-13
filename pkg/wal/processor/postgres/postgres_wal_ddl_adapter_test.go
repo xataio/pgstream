@@ -173,6 +173,21 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			wantErr:     nil,
 		},
 		{
+			name: "ok - schema dropped",
+			diff: &schemalog.Diff{
+				SchemaDropped: true,
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
+			},
+			wantErr: nil,
+		},
+		{
 			name: "ok - table removed",
 			diff: &schemalog.Diff{
 				TablesRemoved: []schemalog.Table{
@@ -181,6 +196,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			},
 
 			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
 				{
 					schema: testSchema,
 					table:  table1,
@@ -209,6 +229,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			wantQueries: []*query{
 				{
 					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
 					table:  table1,
 					sql:    fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n\"id\" uuid NOT NULL,\n\"name\" text,\n\"age\" int NOT NULL DEFAULT 0,\nUNIQUE (\"name\"),\nPRIMARY KEY (\"id\")\n)", quotedTableName(testSchema, table1)),
 					isDDL:  true,
@@ -232,6 +257,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			},
 
 			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
 				{
 					schema: testSchema,
 					table:  table1,
@@ -262,6 +292,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			},
 
 			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
 				{
 					schema: testSchema,
 					table:  table1,
@@ -303,6 +338,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			wantQueries: []*query{
 				{
 					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
 					table:  table1,
 					sql:    fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n\"id\" uuid NOT NULL,\n\"value\" text NOT NULL)", quotedTableName(testSchema, table1)),
 					isDDL:  true,
@@ -337,6 +377,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			},
 
 			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
 				{
 					schema: testSchema,
 					table:  table1,
@@ -380,6 +425,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			wantQueries: []*query{
 				{
 					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
 					table:  table1,
 					sql:    fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s UNIQUE (\"value\")", quotedTableName(testSchema, table1), pglib.QuoteIdentifier("uq_value")),
 					isDDL:  true,
@@ -402,6 +452,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			},
 
 			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
 				{
 					schema: testSchema,
 					table:  table2,
@@ -427,6 +482,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			wantQueries: []*query{
 				{
 					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
 					table:  table1,
 					sql:    fmt.Sprintf("ALTER TABLE %s DROP COLUMN \"age\"", quotedTableName(testSchema, table1)),
 					isDDL:  true,
@@ -448,6 +508,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			},
 
 			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
 				{
 					schema: testSchema,
 					table:  table1,
@@ -476,6 +541,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			wantQueries: []*query{
 				{
 					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
 					table:  table1,
 					sql:    fmt.Sprintf("ALTER TABLE %s RENAME COLUMN \"name\" TO \"new_name\"", quotedTableName(testSchema, table1)),
 					isDDL:  true,
@@ -500,6 +570,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			},
 
 			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
 				{
 					schema: testSchema,
 					table:  table1,
@@ -528,6 +603,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			wantQueries: []*query{
 				{
 					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
 					table:  table1,
 					sql:    fmt.Sprintf("ALTER TABLE %s ALTER COLUMN \"name\" DROP NOT NULL", quotedTableName(testSchema, table1)),
 					isDDL:  true,
@@ -552,6 +632,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			},
 
 			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
 				{
 					schema: testSchema,
 					table:  table1,
@@ -580,6 +665,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			wantQueries: []*query{
 				{
 					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
 					table:  table1,
 					sql:    fmt.Sprintf("ALTER TABLE %s ALTER COLUMN \"age\" DROP DEFAULT", quotedTableName(testSchema, table1)),
 					isDDL:  true,
@@ -604,6 +694,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			},
 
 			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
 				{
 					schema: testSchema,
 					table:  table1,
@@ -632,6 +727,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			wantQueries: []*query{
 				{
 					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
 					table:  table1,
 					sql:    fmt.Sprintf("ALTER TABLE %s ALTER COLUMN \"id\" SET GENERATED BY DEFAULT", quotedTableName(testSchema, table1)),
 					isDDL:  true,
@@ -656,6 +756,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			},
 
 			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
 				{
 					schema: testSchema,
 					table:  table1,
@@ -684,6 +789,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			wantQueries: []*query{
 				{
 					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
 					table:  table1,
 					sql:    fmt.Sprintf("ALTER TABLE %s ALTER COLUMN \"id\" ADD GENERATED ALWAYS AS IDENTITY", quotedTableName(testSchema, table1)),
 					isDDL:  true,
@@ -708,6 +818,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			},
 
 			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
 				{
 					schema: testSchema,
 					table:  table1,
@@ -736,6 +851,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			wantQueries: []*query{
 				{
 					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
 					table:  table1,
 					sql:    fmt.Sprintf("ALTER TABLE %s ALTER COLUMN \"id\" DROP EXPRESSION", quotedTableName(testSchema, table1)),
 					isDDL:  true,
@@ -757,6 +877,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			},
 
 			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
 				{
 					schema: testSchema,
 					table:  table1,
@@ -783,6 +908,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			},
 
 			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
 				{
 					schema: testSchema,
 					table:  table1,
@@ -815,6 +945,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			},
 
 			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
 				{
 					schema: testSchema,
 					table:  table1,
@@ -856,6 +991,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			wantQueries: []*query{
 				{
 					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
 					table:  "mv_old",
 					sql:    fmt.Sprintf("DROP MATERIALIZED VIEW IF EXISTS %s", pglib.QuoteQualifiedIdentifier(testSchema, "mv_old")),
 					isDDL:  true,
@@ -892,6 +1032,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			wantQueries: []*query{
 				{
 					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
 					table:  "mv_new",
 					sql:    fmt.Sprintf("ALTER MATERIALIZED VIEW IF EXISTS %s RENAME TO %s", pglib.QuoteQualifiedIdentifier(testSchema, "mv_old"), pglib.QuoteIdentifier("mv_new")),
 					isDDL:  true,
@@ -922,6 +1067,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			wantQueries: []*query{
 				{
 					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
+				{
+					schema: testSchema,
 					table:  "mv_test",
 					sql:    fmt.Sprintf("DROP INDEX IF EXISTS %s", pglib.QuoteQualifiedIdentifier(testSchema, "mv_old_idx")),
 					isDDL:  true,
@@ -949,6 +1099,11 @@ func TestDDLAdapter_schemaDiffToQueries(t *testing.T) {
 			},
 
 			wantQueries: []*query{
+				{
+					schema: testSchema,
+					sql:    fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pglib.QuoteIdentifier(testSchema)),
+					isDDL:  true,
+				},
 				{
 					schema: testSchema,
 					table:  "mv_test",

@@ -8,6 +8,7 @@ import (
 )
 
 type Diff struct {
+	SchemaDropped            bool
 	TablesRemoved            []Table
 	TablesAdded              []Table
 	TablesChanged            []TableDiff
@@ -58,7 +59,8 @@ type ValueChange[T any] struct {
 }
 
 func (d *Diff) IsEmpty() bool {
-	return len(d.TablesAdded) == 0 &&
+	return !d.SchemaDropped &&
+		len(d.TablesAdded) == 0 &&
 		len(d.TablesChanged) == 0 &&
 		len(d.TablesRemoved) == 0 &&
 		len(d.MaterializedViewsAdded) == 0 &&
@@ -108,9 +110,16 @@ func ComputeSchemaDiff(old, new *LogEntry) *Diff {
 		new = &LogEntry{}
 	}
 
+	diff := &Diff{}
+
+	// Schema dropped
+	if new.Schema.Dropped {
+		diff.SchemaDropped = true
+		return diff
+	}
+
 	// Table changes
 
-	diff := &Diff{}
 	newTableMap := getSchemaTableMap(&new.Schema)
 	// if a table ID exists in the old schema, but not in the new, remove the table
 	for _, oldTable := range old.Schema.Tables {
