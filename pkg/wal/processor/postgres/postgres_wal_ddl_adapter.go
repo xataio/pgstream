@@ -43,18 +43,10 @@ func (a *ddlAdapter) schemaLogToQueries(ctx context.Context, schemaLog *schemalo
 			return nil, fmt.Errorf("fetching existing schema log entry: %w", err)
 		}
 	}
+
 	diff := a.schemaDiffer(previousSchemaLog, schemaLog)
 
-	queries := []*query{
-		a.createSchemaIfNotExists(schemaLog.SchemaName),
-	}
-
-	schemaQueries, err := a.schemaDiffToQueries(schemaLog.SchemaName, diff)
-	if err != nil {
-		return nil, err
-	}
-
-	return append(queries, schemaQueries...), nil
+	return a.schemaDiffToQueries(schemaLog.SchemaName, diff)
 }
 
 const createSchemaIfNotExistsQuery = "CREATE SCHEMA IF NOT EXISTS %s"
@@ -69,7 +61,14 @@ func (a *ddlAdapter) schemaDiffToQueries(schemaName string, diff *schemalog.Diff
 		return []*query{}, nil
 	}
 
-	queries := []*query{}
+	if diff.SchemaDropped {
+		dropQuery := fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", pglib.QuoteIdentifier(schemaName))
+		return []*query{a.newDDLQuery(schemaName, "", dropQuery)}, nil
+	}
+
+	queries := []*query{
+		a.createSchemaIfNotExists(schemaName),
+	}
 	fkQueries := []*query{}
 	for _, table := range diff.TablesRemoved {
 		dropQuery := fmt.Sprintf("DROP TABLE IF EXISTS %s", quotedTableName(schemaName, table.Name))
