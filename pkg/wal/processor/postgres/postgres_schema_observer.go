@@ -238,7 +238,7 @@ func (o *pgSchemaObserver) queryTableSequences(ctx context.Context, conn pglib.Q
 		if err := rows.Scan(&columnName, &sequenceName); err != nil {
 			return nil, fmt.Errorf("scanning sequence column mapping: %w", err)
 		}
-		seqColMap[pglib.QuoteIdentifier(columnName)] = sequenceName
+		seqColMap[pglib.QuoteIdentifier(columnName)] = pglib.QuoteQualifiedIdentifier(schemaName, sequenceName)
 	}
 
 	if err := rows.Err(); err != nil {
