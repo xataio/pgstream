@@ -100,6 +100,23 @@ func Test_ComputeSchemaDiff(t *testing.T) {
 			},
 		},
 		{
+			name: "schema dropped",
+			newSchema: &LogEntry{
+				Schema: Schema{
+					Dropped: true,
+				},
+			},
+			oldSchema: &LogEntry{
+				Schema: Schema{
+					Tables: []Table{testTable(table1, id1)},
+				},
+			},
+
+			wantDiff: &Diff{
+				SchemaDropped: true,
+			},
+		},
+		{
 			name: "materialized views added and removed",
 			newSchema: &LogEntry{
 				Schema: Schema{
@@ -748,6 +765,105 @@ func Test_computeColumnDiff(t *testing.T) {
 
 			diff := computeColumnDiff(tc.oldColumn, tc.newColumn)
 			require.Equal(t, tc.wantDiff, diff)
+		})
+	}
+}
+
+func Test_Diff_IsEmpty(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		diff     *Diff
+		expected bool
+	}{
+		{
+			name:     "empty diff",
+			diff:     &Diff{},
+			expected: true,
+		},
+		{
+			name: "schema dropped",
+			diff: &Diff{
+				SchemaDropped: true,
+			},
+			expected: false,
+		},
+		{
+			name: "tables added",
+			diff: &Diff{
+				TablesAdded: []Table{
+					{Name: "test_table", PgstreamID: "1"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "tables removed",
+			diff: &Diff{
+				TablesRemoved: []Table{
+					{Name: "test_table", PgstreamID: "1"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "tables changed",
+			diff: &Diff{
+				TablesChanged: []TableDiff{
+					{TableName: "test_table", TablePgstreamID: "1"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "materialized views added",
+			diff: &Diff{
+				MaterializedViewsAdded: []MaterializedView{
+					{Name: "test_mv", Oid: "1"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "materialized views removed",
+			diff: &Diff{
+				MaterializedViewsRemoved: []MaterializedView{
+					{Name: "test_mv", Oid: "1"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "materialized views changed",
+			diff: &Diff{
+				MaterializedViewsChanged: []MaterializedViewsDiff{
+					{MaterializedViewName: "test_mv"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "multiple changes",
+			diff: &Diff{
+				SchemaDropped: true,
+				TablesAdded: []Table{
+					{Name: "test_table", PgstreamID: "1"},
+				},
+				MaterializedViewsRemoved: []MaterializedView{
+					{Name: "test_mv", Oid: "1"},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := tc.diff.IsEmpty()
+			require.Equal(t, tc.expected, result)
 		})
 	}
 }

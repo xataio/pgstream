@@ -113,7 +113,7 @@ func ComputeSchemaDiff(old, new *LogEntry) *Diff {
 	diff := &Diff{}
 
 	// Schema dropped
-	if new.Schema.Dropped {
+	if !old.Schema.Dropped && new.Schema.Dropped {
 		diff.SchemaDropped = true
 		return diff
 	}
