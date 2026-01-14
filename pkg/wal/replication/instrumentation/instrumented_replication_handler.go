@@ -15,14 +15,19 @@ import (
 )
 
 type Handler struct {
-	inner   replication.Handler
-	meter   metric.Meter
-	tracer  trace.Tracer
-	metrics *metrics
+	inner           replication.Handler
+	meter           metric.Meter
+	tracer          trace.Tracer
+	metrics         *metrics
+	metricRetriever metricRetriever
 }
 
 type metrics struct {
 	replicationLag metric.Int64ObservableGauge
+}
+
+type metricRetriever interface {
+	GetReplicationLag(ctx context.Context) (int64, error)
 }
 
 func NewHandler(inner replication.Handler, instrumentation *otel.Instrumentation) (replication.Handler, error) {
@@ -31,10 +36,11 @@ func NewHandler(inner replication.Handler, instrumentation *otel.Instrumentation
 	}
 
 	h := &Handler{
-		inner:   inner,
-		meter:   instrumentation.Meter,
-		tracer:  instrumentation.Tracer,
-		metrics: &metrics{},
+		inner:           inner,
+		meter:           instrumentation.Meter,
+		tracer:          instrumentation.Tracer,
+		metrics:         &metrics{},
+		metricRetriever: newMetricsCache(inner, defaultCacheTTL),
 	}
 
 	if err := h.initMetrics(); err != nil {
@@ -102,7 +108,7 @@ func (h *Handler) initMetrics() error {
 	}
 
 	observe := func(ctx context.Context, o metric.Observer) error {
-		replicationLag, err := h.inner.GetReplicationLag(ctx)
+		replicationLag, err := h.metricRetriever.GetReplicationLag(ctx)
 		if err != nil {
 			return err
 		}
