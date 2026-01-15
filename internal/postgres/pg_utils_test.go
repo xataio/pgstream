@@ -432,7 +432,7 @@ func Test_escapeConnectionURL_PercentEncodedPasswordContainingAtSign(t *testing.
 
 	// Password contains '@' which must be percent-encoded as %40 in URL userinfo.
 	// We expect parsing to yield the real password containing '@' (not the literal "%40").
-	rawURL := "postgresql://postgres:dhp8cqw%40yht!KDE*ewj@localhost:5432/postgres?sslmode=disable"
+	rawURL := "postgresql://testuser:abc123%40secret!pass@localhost:5432/testdb?sslmode=disable"
 
 	escaped, err := escapeConnectionURL(rawURL)
 	require.NoError(t, err)
@@ -440,5 +440,5 @@ func Test_escapeConnectionURL_PercentEncodedPasswordContainingAtSign(t *testing.
 	cfg, err := pgxpool.ParseConfig(escaped)
 	require.NoError(t, err)
 
-	require.Equal(t, "dhp8cqw@yht!KDE*ewj", cfg.ConnConfig.Password)
+	require.Equal(t, "abc123@secret!pass", cfg.ConnConfig.Password)
 }
