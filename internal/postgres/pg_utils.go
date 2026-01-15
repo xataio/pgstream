@@ -237,8 +237,18 @@ func escapeConnectionURL(rawURL string) (string, error) {
 	if username == "" {
 		return "", errInvalidURL
 	}
-	// URL encode the password
-	encodedPassword := url.QueryEscape(password)
+	// URL encode the password.
+	//
+	// Important: if the password already contains percent-encoded sequences
+	// (e.g. "@" encoded as "%40"), avoid double-escaping '%' (which would turn
+	// "%40" into "%2540" and break authentication).
+	decodedPassword := password
+	if strings.Contains(password, "%") {
+		if unescaped, err := url.PathUnescape(password); err == nil {
+			decodedPassword = unescaped
+		}
+	}
+	encodedPassword := url.QueryEscape(decodedPassword)
 
 	return fmt.Sprintf("%s%s:%s@%s", scheme, username, encodedPassword, hostAndPath), nil
 }

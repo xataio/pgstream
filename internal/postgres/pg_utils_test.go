@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 )
 
@@ -424,4 +425,20 @@ func Test_IsValidReplicationSlotName(t *testing.T) {
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
+}
+
+func Test_escapeConnectionURL_PercentEncodedPasswordContainingAtSign(t *testing.T) {
+	t.Parallel()
+
+	// Password contains '@' which must be percent-encoded as %40 in URL userinfo.
+	// We expect parsing to yield the real password containing '@' (not the literal "%40").
+	rawURL := "postgresql://postgres:dhp8cqw%40yht!KDE*ewj@localhost:5432/postgres?sslmode=disable"
+
+	escaped, err := escapeConnectionURL(rawURL)
+	require.NoError(t, err)
+
+	cfg, err := pgxpool.ParseConfig(escaped)
+	require.NoError(t, err)
+
+	require.Equal(t, "dhp8cqw@yht!KDE*ewj", cfg.ConnConfig.Password)
 }
