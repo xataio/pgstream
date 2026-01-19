@@ -325,6 +325,12 @@ func Test_escapeConnectionURL(t *testing.T) {
 			expected: "",
 			wantErr:  errInvalidURL,
 		},
+		{
+			name:     "postgres url escaped password",
+			rawURL:   "postgres://user:p%5Essword@localhost:5432/mydb",
+			expected: "postgres://user:p%5Essword@localhost:5432/mydb",
+			wantErr:  nil,
+		},
 	}
 
 	for _, tc := range tests {
