@@ -1,8 +1,8 @@
 version: "3.8"
 name: pgstream
 services:
-  db1:
-    build: postgres
+  db1-pg14:
+    build: postgres-14
     restart: always
     environment:
       - POSTGRES_USER=postgres
@@ -10,15 +10,15 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - data:/var/lib/postgresql/data
-      - ./postgres/postgresql.conf:/etc/postgresql.conf
+      - data-pg14:/var/lib/postgresql/data
+      - ./postgres-14/postgresql.conf:/etc/postgresql.conf
     command: -c config_file=/etc/postgresql.conf
-    profiles: ["pg2os", "pg2webhook", "pg2pg"]
+    profiles: ["pg2pg14"]
     networks:
       - pgstream-net
 
-  db2:
-    build: postgres
+  db2-pg14:
+    build: postgres-14
     restart: always
     environment:
       - POSTGRES_USER=postgres
@@ -26,7 +26,131 @@ services:
     ports:
       - "7654:5432"
     volumes:
-      - ./postgres/postgresql.conf:/etc/postgresql.conf
+      - ./postgres-14/postgresql.conf:/etc/postgresql.conf
+    command: -c config_file=/etc/postgresql.conf
+    profiles: ["pg2pg14"]
+    networks:
+      - pgstream-net
+
+  db1-pg15:
+    build: postgres-15
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - data-pg15:/var/lib/postgresql/data
+      - ./postgres-15/postgresql.conf:/etc/postgresql.conf
+    command: -c config_file=/etc/postgresql.conf
+    profiles: ["pg2pg15"]
+    networks:
+      - pgstream-net
+
+  db2-pg15:
+    build: postgres-15
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "7654:5432"
+    volumes:
+      - ./postgres-15/postgresql.conf:/etc/postgresql.conf
+    command: -c config_file=/etc/postgresql.conf
+    profiles: ["pg2pg15"]
+    networks:
+      - pgstream-net
+
+  db1-pg16:
+    build: postgres-16
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - data-pg16:/var/lib/postgresql/data
+      - ./postgres-16/postgresql.conf:/etc/postgresql.conf
+    command: -c config_file=/etc/postgresql.conf
+    profiles: ["pg2pg16"]
+    networks:
+      - pgstream-net
+
+  db2-pg16:
+    build: postgres-16
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "7654:5432"
+    volumes:
+      - ./postgres-16/postgresql.conf:/etc/postgresql.conf
+    command: -c config_file=/etc/postgresql.conf
+    profiles: ["pg2pg16"]
+    networks:
+      - pgstream-net
+
+  db1-pg17:
+    build: postgres-17
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - data-pg17:/var/lib/postgresql/data
+      - ./postgres-17/postgresql.conf:/etc/postgresql.conf
+    command: -c config_file=/etc/postgresql.conf
+    profiles: ["pg2pg17"]
+    networks:
+      - pgstream-net
+
+  db2-pg17:
+    build: postgres-17
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "7654:5432"
+    volumes:
+      - ./postgres-17/postgresql.conf:/etc/postgresql.conf
+    command: -c config_file=/etc/postgresql.conf
+    profiles: ["pg2pg17"]
+    networks:
+      - pgstream-net
+
+  db1-pg18:
+    build: postgres-18
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - data-pg18:/var/lib/postgresql
+      - ./postgres-18/postgresql.conf:/etc/postgresql.conf
+    command: -c config_file=/etc/postgresql.conf
+    profiles: ["pg2os", "pg2webhook", "pg2pg"]
+    networks:
+      - pgstream-net
+
+  db2-pg18:
+    build: postgres-18
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "7654:5432"
+    volumes:
+      - ./postgres-18/postgresql.conf:/etc/postgresql.conf
     command: -c config_file=/etc/postgresql.conf
     profiles: ["pg2pg"]
     networks:
@@ -82,7 +206,15 @@ services:
       - pgstream-net
 
 volumes:
-  data:
+  data-pg14:
+    driver: local
+  data-pg15:
+    driver: local
+  data-pg16:
+    driver: local
+  data-pg17:
+    driver: local
+  data-pg18:
     driver: local
 
 networks:
