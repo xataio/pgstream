@@ -1,10 +1,10 @@
-FROM postgres:17.6
+FROM postgres:18.1
 
 # Install wal2json and build dependencies for anonymizer
 RUN apt-get update \
 	&& apt-get install -y \
-	postgresql-17-wal2json \
-	postgresql-server-dev-17 \
+	postgresql-18-wal2json \
+	postgresql-server-dev-18 \
 	git \
 	make \
 	gcc \
