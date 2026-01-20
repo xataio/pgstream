@@ -271,15 +271,15 @@ func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo) 
 		rowColumns = append(rowColumns, pglib.QuoteIdentifier(c.Name))
 		val := c.Value
 
-		// Pre-serialize JSONB/JSON columns using Sonic to ensure consistent
-		// encoding. This prevents mismatches between Sonic (used for parsing
-		// wal2json) and encoding/json (used by pgx for wire protocol).
-		// Without this, complex JSON with Unicode, emojis, or special escapes
-		// can be serialized differently, causing "invalid input syntax for
-		// type json" errors on the target database.
+		// Pre-serialize JSONB/JSON map/slice values with Sonic to ensure consistent
+		// encoding between Sonic (wal2json parsing) and pgx (encoding/json).
+		// String values are passed through unchanged to avoid double-encoding.
 		if (c.Type == "jsonb" || c.Type == "json") && val != nil {
-			if jsonBytes, err := json.Marshal(val); err == nil {
-				val = jsonBytes // Pass as []byte - pgx will send as-is for JSONB
+			switch val.(type) {
+			case map[string]any, []any:
+				if jsonBytes, err := json.Marshal(val); err == nil {
+					val = jsonBytes
+				}
 			}
 		}
 
