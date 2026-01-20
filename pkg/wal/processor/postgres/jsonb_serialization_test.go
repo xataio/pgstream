@@ -80,3 +80,30 @@ func TestFilterRowColumnsJSONBArrayHandling(t *testing.T) {
 	require.Len(t, parsed, 2)
 	require.Equal(t, "🎉", parsed[0].(map[string]any)["emoji"])
 }
+
+func TestBuildWhereQueryJSONBHandling(t *testing.T) {
+	t.Parallel()
+
+	// Simulates REPLICA IDENTITY FULL with JSONB column in identity
+	var jsonbValue map[string]any
+	require.NoError(t, sonicjson.Unmarshal([]byte(`{"name": "test 🎉"}`), &jsonbValue))
+
+	d := &wal.Data{
+		Identity: []wal.Column{
+			{Name: "id", Type: "integer", Value: 1},
+			{Name: "data", Type: "jsonb", Value: jsonbValue},
+		},
+	}
+
+	adapter := &dmlAdapter{}
+	_, whereValues, err := adapter.buildWhereQuery(d, 0)
+	require.NoError(t, err)
+
+	// JSONB in WHERE clause should also be pre-serialized
+	jsonbResult, ok := whereValues[1].([]byte)
+	require.True(t, ok, "JSONB in WHERE should be pre-serialized to []byte, got %T", whereValues[1])
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal(jsonbResult, &parsed))
+	require.Equal(t, "test 🎉", parsed["name"])
+}
