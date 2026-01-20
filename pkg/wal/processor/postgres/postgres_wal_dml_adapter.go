@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/xataio/pgstream/internal/json"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -266,6 +267,19 @@ func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo) 
 		}
 		rowColumns = append(rowColumns, pglib.QuoteIdentifier(c.Name))
 		val := c.Value
+
+		// Pre-serialize JSONB/JSON columns using Sonic to ensure consistent
+		// encoding. This prevents mismatches between Sonic (used for parsing
+		// wal2json) and encoding/json (used by pgx for wire protocol).
+		// Without this, complex JSON with Unicode, emojis, or special escapes
+		// can be serialized differently, causing "invalid input syntax for
+		// type json" errors on the target database.
+		if (c.Type == "jsonb" || c.Type == "json") && val != nil {
+			if jsonBytes, err := json.Marshal(val); err == nil {
+				val = jsonBytes // Pass as []byte - pgx will send as-is for JSONB
+			}
+		}
+
 		if a.forCopy {
 			val = updateValueForCopy(val, c.Type)
 		}
