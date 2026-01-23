@@ -6,6 +6,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -49,8 +51,7 @@ const (
 	withBulkIngestion    = true
 	withoutBulkIngestion = false
 
-	withGeneratedColumn    = true
-	withoutGeneratedColumn = false
+	withGeneratedColumn = true
 )
 
 type mockProcessor struct {
@@ -387,9 +388,8 @@ type constraintInfo struct {
 	definition     string
 }
 
-func getTableConstraints(t *testing.T, ctx context.Context, conn pglib.Querier, schema, table string) map[string]constraintInfo {
-	rows, err := conn.Query(ctx, `
-		SELECT con.conname,
+const tableConstraintsQuery = `
+	SELECT con.conname,
 			   CASE con.contype
 					WHEN 'p' THEN 'PRIMARY KEY'
 					WHEN 'u' THEN 'UNIQUE'
@@ -402,48 +402,97 @@ func getTableConstraints(t *testing.T, ctx context.Context, conn pglib.Querier, 
 		JOIN pg_class rel ON rel.oid = con.conrelid
 		JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
 		WHERE nsp.nspname = $1 AND rel.relname = $2
-	`, schema, table)
-	require.NoError(t, err)
-	defer rows.Close()
+`
 
-	constraints := make(map[string]constraintInfo)
-	for rows.Next() {
-		var name, constraintType, definition string
-		err := rows.Scan(&name, &constraintType, &definition)
-		require.NoError(t, err)
-		constraints[name] = constraintInfo{
-			constraintType: constraintType,
-			definition:     definition,
+func getTableConstraints(t *testing.T, ctx context.Context, conn pglib.Querier, schema, table string) map[string]constraintInfo {
+	bo := backoff.NewConstantBackoff(ctx, &backoff.ConstantConfig{
+		Interval:   200 * time.Millisecond,
+		MaxRetries: 10,
+	})
+
+	var constraints map[string]constraintInfo
+	err := bo.Retry(func() error {
+		rows, err := conn.Query(ctx, tableConstraintsQuery, schema, table)
+		if err != nil {
+			return parseRetryError(err)
 		}
-	}
-	require.NoError(t, rows.Err())
+		defer rows.Close()
+
+		constraints = make(map[string]constraintInfo)
+		for rows.Next() {
+			var name, constraintType, definition string
+			err := rows.Scan(&name, &constraintType, &definition)
+			if err != nil {
+				return parseRetryError(err)
+			}
+			constraints[name] = constraintInfo{
+				constraintType: constraintType,
+				definition:     definition,
+			}
+		}
+
+		if err := rows.Err(); err != nil {
+			return parseRetryError(err)
+		}
+
+		return nil
+	})
+	require.NoError(t, err)
 
 	return constraints
 }
 
-func getTableIndexes(t *testing.T, ctx context.Context, conn pglib.Querier, schema, table string) map[string]string {
-	rows, err := conn.Query(ctx, `
-		SELECT indexname, indexdef
-		FROM pg_indexes
-		WHERE schemaname = $1 AND tablename = $2
-	`, schema, table)
-	require.NoError(t, err)
-	defer rows.Close()
+const tableIndexesQuery = `
+	SELECT indexname, indexdef
+	FROM pg_indexes
+	WHERE schemaname = $1 AND tablename = $2
+`
 
-	indexes := make(map[string]string)
-	for rows.Next() {
-		var name string
-		var def sql.NullString
-		err := rows.Scan(&name, &def)
-		require.NoError(t, err)
-		if !def.Valid {
-			continue
+func getTableIndexes(t *testing.T, ctx context.Context, conn pglib.Querier, schema, table string) map[string]string {
+	bo := backoff.NewConstantBackoff(ctx, &backoff.ConstantConfig{
+		Interval:   200 * time.Millisecond,
+		MaxRetries: 10,
+	})
+
+	var indexes map[string]string
+	err := bo.Retry(func() error {
+		rows, err := conn.Query(ctx, tableIndexesQuery, schema, table)
+		if err != nil {
+			return parseRetryError(err)
 		}
-		indexes[name] = def.String
-	}
-	require.NoError(t, rows.Err())
+		defer rows.Close()
+
+		indexes = make(map[string]string)
+		for rows.Next() {
+			var name string
+			var def sql.NullString
+			err := rows.Scan(&name, &def)
+			if err != nil {
+				return parseRetryError(err)
+			}
+			if !def.Valid {
+				continue
+			}
+			indexes[name] = def.String
+		}
+
+		if err := rows.Err(); err != nil {
+			return parseRetryError(err)
+		}
+
+		return nil
+	})
+	require.NoError(t, err)
 
 	return indexes
+}
+
+func parseRetryError(err error) error {
+	errCacheLookupFailed := &pglib.ErrCacheLookupFailed{}
+	if errors.As(pglib.MapError(err), &errCacheLookupFailed) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", err, backoff.ErrPermanent)
 }
 
 type sequenceInfo struct {
