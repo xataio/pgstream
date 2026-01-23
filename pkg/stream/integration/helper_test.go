@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -49,8 +50,7 @@ const (
 	withBulkIngestion    = true
 	withoutBulkIngestion = false
 
-	withGeneratedColumn    = true
-	withoutGeneratedColumn = false
+	withGeneratedColumn = true
 )
 
 type mockProcessor struct {
@@ -387,9 +387,8 @@ type constraintInfo struct {
 	definition     string
 }
 
-func getTableConstraints(t *testing.T, ctx context.Context, conn pglib.Querier, schema, table string) map[string]constraintInfo {
-	rows, err := conn.Query(ctx, `
-		SELECT con.conname,
+const tableConstraintsQuery = `
+	SELECT con.conname,
 			   CASE con.contype
 					WHEN 'p' THEN 'PRIMARY KEY'
 					WHEN 'u' THEN 'UNIQUE'
@@ -402,7 +401,33 @@ func getTableConstraints(t *testing.T, ctx context.Context, conn pglib.Querier, 
 		JOIN pg_class rel ON rel.oid = con.conrelid
 		JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
 		WHERE nsp.nspname = $1 AND rel.relname = $2
-	`, schema, table)
+`
+
+func getTableConstraints(t *testing.T, ctx context.Context, conn pglib.Querier, schema, table string) map[string]constraintInfo {
+	// Use constant backoff to retry on transient cache lookup failures
+	// These errors are common when querying system catalogs immediately
+	// after DDL operations like ALTER TABLE ADD/DROP CONSTRAINT
+	bo := backoff.NewConstantBackoff(ctx, &backoff.ConstantConfig{
+		Interval:   100 * time.Millisecond,
+		MaxRetries: 5,
+	})
+
+	var rows pglib.Rows
+	err := bo.Retry(func() error {
+		var err error
+		rows, err = conn.Query(ctx, tableConstraintsQuery, schema, table)
+		if err != nil {
+			// Retry on transient cache lookup failures that can occur
+			// during concurrent DDL operations
+			mappedErr := pglib.MapError(err)
+			errCacheLookupFailed := &pglib.ErrCacheLookupFailed{}
+			if errors.As(mappedErr, &errCacheLookupFailed) {
+				return err
+			}
+			return backoff.ErrPermanent
+		}
+		return nil
+	})
 	require.NoError(t, err)
 	defer rows.Close()
 
@@ -421,12 +446,37 @@ func getTableConstraints(t *testing.T, ctx context.Context, conn pglib.Querier, 
 	return constraints
 }
 
+const tableIndexesQuery = `
+	SELECT indexname, indexdef
+	FROM pg_indexes
+	WHERE schemaname = $1 AND tablename = $2
+`
+
 func getTableIndexes(t *testing.T, ctx context.Context, conn pglib.Querier, schema, table string) map[string]string {
-	rows, err := conn.Query(ctx, `
-		SELECT indexname, indexdef
-		FROM pg_indexes
-		WHERE schemaname = $1 AND tablename = $2
-	`, schema, table)
+	// Use constant backoff to retry on transient cache lookup failures
+	// These errors are common when querying system catalogs immediately
+	// after DDL operations like ALTER INDEX RENAME
+	bo := backoff.NewConstantBackoff(ctx, &backoff.ConstantConfig{
+		Interval:   100 * time.Millisecond,
+		MaxRetries: 5,
+	})
+
+	var rows pglib.Rows
+	err := bo.Retry(func() error {
+		var err error
+		rows, err = conn.Query(ctx, tableIndexesQuery, schema, table)
+		if err != nil {
+			// Retry on transient cache lookup failures that can occur
+			// during concurrent DDL operations
+			mappedErr := pglib.MapError(err)
+			errCacheLookupFailed := &pglib.ErrCacheLookupFailed{}
+			if errors.As(mappedErr, &errCacheLookupFailed) {
+				return err
+			}
+			return backoff.ErrPermanent
+		}
+		return nil
+	})
 	require.NoError(t, err)
 	defer rows.Close()
 

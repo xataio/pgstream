@@ -80,6 +80,14 @@ func (e *ErrPreconditionFailed) Error() string {
 	return fmt.Sprintf("precondition failed: %s", e.Details)
 }
 
+type ErrCacheLookupFailed struct {
+	Details string
+}
+
+func (e *ErrCacheLookupFailed) Error() string {
+	return fmt.Sprintf("cache lookup failed: %s", e.Details)
+}
+
 func MapError(err error) error {
 	if pgconn.Timeout(err) {
 		return fmt.Errorf("%w: %w", ErrConnTimeout, err)
@@ -123,6 +131,14 @@ func MapError(err error) error {
 			// 55000 	object_not_in_prerequisite_state
 			return &ErrPreconditionFailed{
 				Details: pgErr.Message,
+			}
+		case "XX000":
+			// XX000 	internal_error
+			// Only map cache lookup failures to a specific error type for retry logic
+			if strings.Contains(pgErr.Message, "cache lookup failed") {
+				return &ErrCacheLookupFailed{
+					Details: pgErr.Message,
+				}
 			}
 		case "42701", "42P03", "42P04", "42723", "42P05", "42P06", "42P07", "42712", "42710":
 			// 42701 	duplicate_column
