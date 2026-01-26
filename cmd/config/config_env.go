@@ -527,9 +527,7 @@ func parseInjectorConfig() *injector.Config {
 		return nil
 	}
 	return &injector.Config{
-		Store: pgschemalog.Config{
-			URL: pgURL,
-		},
+		URL: pgURL,
 	}
 }
 

@@ -213,9 +213,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 				},
 			},
 			Injector: &injector.Config{
-				Store: schemalogpg.Config{
-					URL: "postgresql://user:password@localhost:5432/mydatabase",
-				},
+				URL: "postgresql://user:password@localhost:5432/mydatabase",
 			},
 			Transformer: &transformer.Config{
 				InferFromSecurityLabels: false,
