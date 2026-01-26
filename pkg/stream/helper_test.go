@@ -2,21 +2,24 @@
 
 package stream
 
+import (
+	migratorlib "github.com/xataio/pgstream/internal/migrator"
+)
+
 type mockMigrator struct {
-	versionFn func() (uint, bool, error)
-	closeFn   func() (error, error)
+	statusFn func() ([]migratorlib.MigrationStatus, error)
+	closeFn  func()
 }
 
-func (m *mockMigrator) Version() (uint, bool, error) {
-	if m.versionFn != nil {
-		return m.versionFn()
+func (m *mockMigrator) Status() ([]migratorlib.MigrationStatus, error) {
+	if m.statusFn != nil {
+		return m.statusFn()
 	}
-	return 0, false, nil
+	return []migratorlib.MigrationStatus{}, nil
 }
 
-func (m *mockMigrator) Close() (error, error) {
+func (m *mockMigrator) Close() {
 	if m.closeFn != nil {
-		return m.closeFn()
+		m.closeFn()
 	}
-	return nil, nil
 }
