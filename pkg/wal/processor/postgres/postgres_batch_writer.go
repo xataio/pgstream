@@ -188,13 +188,15 @@ func (w *BatchWriter) isInternalError(err error) bool {
 	var errDataException *pglib.ErrDataException
 	var errRelationAlreadyExists *pglib.ErrRelationAlreadyExists
 	var errPreconditionFailed *pglib.ErrPreconditionFailed
+	var errFeatureNotSupported *pglib.ErrFeatureNotSupported
 	switch {
 	case errors.As(err, &errRelationDoesNotExist),
 		errors.As(err, &errConstraintViolation),
 		errors.As(err, &errSyntaxError),
 		errors.As(err, &errDataException),
 		errors.As(err, &errRelationAlreadyExists),
-		errors.As(err, &errPreconditionFailed):
+		errors.As(err, &errPreconditionFailed),
+		errors.As(err, &errFeatureNotSupported):
 		return false
 	default:
 		return true
