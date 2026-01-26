@@ -69,7 +69,6 @@ target:
         convergence_threshold: 0.05 # threshold for convergence as a fraction of batch size
     disable_triggers: false # whether to disable triggers on the target database
     on_conflict_action: "nothing" # options are update, nothing or error
-    schema_log_store_url: "postgresql://user:password@localhost:5432/mydatabase"
     bulk_ingest:
       enabled: true # whether to use bulk ingest for the target database
     retry_policy:
