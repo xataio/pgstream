@@ -18,7 +18,7 @@ source:
 target:
   search:
     engine: "opensearch" # options are elasticsearch or opensearch
-    url: "http://admin:admin@localhost:9200" # URL of the search engine
+    url: "http://admin:StrongAdmin123!@localhost:9200" # URL of the search engine
     batch:
       timeout: 5000 # batch timeout in milliseconds
       size: 100 # number of messages in a batch
@@ -32,3 +32,6 @@ target:
 modifiers:
   injector:
     enabled: true # whether to inject pgstream metadata into the WAL events
+  filter:
+    exclude_tables:
+    - pgstream.*
