@@ -89,7 +89,6 @@ target:
         min_batch_bytes: 1048576 # minimum batch size in bytes (1MB). Defaults to 1MB
         max_batch_bytes: 52428800 # maximum batch size in bytes (50MB). Defaults to 50MB
         convergence_threshold: 0.01 # convergence threshold as a fraction of max batch size. Defaults to 0.01
-    schema_log_store_url: "postgresql://user:password@localhost:5432/mydatabase" # url to the postgres database where the schema log is stored to be used when performing schema change diffs
     disable_triggers: false # whether to disable triggers on the target database. Defaults to false
     on_conflict_action: "nothing" # options are update, nothing or error. Defaults to error
     bulk_ingest:
@@ -325,7 +324,6 @@ One of exponential/constant/disable retries backoff policies can be provided for
 | PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES                       | 100MiB                          | No       | Max memory used by the postgres batch writer for inflight batches.                                                                                                                                             |
 | PGSTREAM_POSTGRES_WRITER_BATCH_BYTES                           | 1.5MiB, 80MiB with bulk enabled | No       | Max size in bytes for a given batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                               |
 | PGSTREAM_POSTGRES_WRITER_BATCH_IGNORE_SEND_ERRORS              | False                           | No       | Whether to ignore errors encountered while sending events to the target.                                                                                                                                       |
-| PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL                   | N/A                             | No       | URL of the store where the pgstream schemalog table which keeps track of schema changes is.                                                                                                                    |
 | PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS                      | False(run), True(snapshot)      | No       | Option to disable triggers on the target PostgreSQL database while performing the snaphot/replication streaming. It defaults to false when using the run command, and to true when using the snapshot command. |
 | PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION                    | error                           | No       | Action to apply to inserts on conflict. Options are `nothing`, `update` or `error`.                                                                                                                            |
 | PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED                   | False(run), True(snapshot)      | No       | Whether to use COPY FROM on insert only workloads. It defaults to false when using the run command, and to true when using the snapshot command.                                                               |
