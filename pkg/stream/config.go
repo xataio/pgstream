@@ -151,6 +151,18 @@ func (c *Config) PostgresReplicationSlot() string {
 	return ""
 }
 
+func (c *Config) isInjectorEnabled() bool {
+	return c.Processor.Injector != nil && c.Processor.Injector.URL != ""
+}
+
+func (c *Config) GetInitConfig() *InitConfig {
+	return &InitConfig{
+		PostgresURL:               c.SourcePostgresURL(),
+		ReplicationSlotName:       c.PostgresReplicationSlot(),
+		InjectorMigrationsEnabled: c.isInjectorEnabled(),
+	}
+}
+
 func (c *Config) RequiredTables() []string {
 	requiredTables := []string{}
 	if c.Listener.Postgres != nil {
