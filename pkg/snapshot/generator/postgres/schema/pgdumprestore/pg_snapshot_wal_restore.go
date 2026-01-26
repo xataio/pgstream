@@ -278,7 +278,7 @@ func extractSchemaAndObjects(statement, commandTag string) (string, []string) {
 	case strings.HasPrefix(commandTag, "DROP TABLE"):
 		re = dropTableRegex
 	default:
-		return "public", objects
+		return publicSchema, objects
 	}
 
 	matches := re.FindStringSubmatch(statement)
@@ -289,13 +289,13 @@ func extractSchemaAndObjects(statement, commandTag string) (string, []string) {
 			objects = append(objects, matches[1]+"."+matches[2])
 		} else if matches[3] != "" {
 			// Only table name was provided, assume public schema
-			schema = "public"
+			schema = publicSchema
 			objects = append(objects, "public."+matches[3])
 		}
 	}
 
 	if schema == "" {
-		schema = "public"
+		schema = publicSchema
 	}
 
 	return schema, objects
