@@ -11,7 +11,7 @@ import (
 	"github.com/xataio/pgstream/internal/json"
 	"github.com/xataio/pgstream/pkg/backoff"
 	loglib "github.com/xataio/pgstream/pkg/log"
-	"github.com/xataio/pgstream/pkg/schemalog"
+	"github.com/xataio/pgstream/pkg/wal"
 )
 
 // StoreRetrier applies a retry strategy to failed search store operations.
@@ -63,8 +63,8 @@ func (s *StoreRetrier) GetMapper() Mapper {
 	return s.inner.GetMapper()
 }
 
-func (s *StoreRetrier) ApplySchemaChange(ctx context.Context, logEntry *schemalog.LogEntry) error {
-	return s.inner.ApplySchemaChange(ctx, logEntry)
+func (s *StoreRetrier) ApplySchemaDiff(ctx context.Context, diff *wal.SchemaDiff) error {
+	return s.inner.ApplySchemaDiff(ctx, diff)
 }
 
 func (s *StoreRetrier) DeleteSchema(ctx context.Context, schemaName string) error {

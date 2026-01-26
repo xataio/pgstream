@@ -9,7 +9,6 @@ import (
 	"runtime/debug"
 
 	loglib "github.com/xataio/pgstream/pkg/log"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -102,7 +101,7 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, event *wal.Event) (e
 
 	msg, err := i.adapter.walEventToMsg(event)
 	if err != nil {
-		if errors.Is(err, errNilIDValue) || errors.Is(err, errNilVersionValue) || errors.Is(err, errMetadataMissing) {
+		if errors.Is(err, errNilIDValue) || errors.Is(err, errMetadataMissing) {
 			i.logger.Warn(err, "search batch indexer: invalid event, skipping message")
 			return nil
 		}
@@ -155,15 +154,18 @@ func (i *BatchIndexer) sendBatch(ctx context.Context, batch *batch.Batch[*msg]) 
 			// ignore
 		case msg.write != nil:
 			writes = append(writes, *msg.write)
-		case msg.schemaChange != nil:
+		case msg.schemaDiff != nil:
 			if err := flushWrites(); err != nil {
 				return err
 			}
-			if err := i.applySchemaChange(ctx, msg.schemaChange); err != nil {
+			if err := i.applySchemaDiff(ctx, msg.schemaDiff); err != nil {
 				if errors.Is(err, context.Canceled) {
 					return err
 				}
-				i.logDataLoss(msg.schemaChange, err)
+				i.logger.Error(err, "search batch indexer", loglib.Fields{
+					"severity": "DATALOSS",
+					"diff":     msg.schemaDiff,
+				})
 				return nil
 			}
 		case msg.truncate != nil:
@@ -195,43 +197,27 @@ func (i *BatchIndexer) truncateTable(ctx context.Context, item *truncateItem) er
 	return i.store.DeleteTableDocuments(ctx, item.schemaName, []string{item.tableID})
 }
 
-func (i *BatchIndexer) applySchemaChange(ctx context.Context, new *schemalog.LogEntry) error {
+func (i *BatchIndexer) applySchemaDiff(ctx context.Context, diff *wal.SchemaDiff) error {
 	// schema is filtered out, nothing to do
-	if i.skipSchema(new.SchemaName) {
-		i.logger.Info("search batch indexer: apply schema change: skipping schema", loglib.Fields{"schema_name": new.SchemaName})
+	if i.skipSchema(diff.SchemaName) {
+		i.logger.Info("search batch indexer: apply schema diff: skipping schema", loglib.Fields{"schema_name": diff.SchemaName})
 		return nil
 	}
 
-	if new.Schema.Dropped {
-		if err := i.store.DeleteSchema(ctx, new.SchemaName); err != nil {
+	if diff.SchemaDropped {
+		if err := i.store.DeleteSchema(ctx, diff.SchemaName); err != nil {
 			return fmt.Errorf("deleting schema: %w", err)
 		}
 		return nil
 	}
 
-	i.logger.Info("search batch indexer: apply schema change", loglib.Fields{
-		"logEntry": map[string]any{
-			"ID":        new.ID.String(),
-			"version":   new.Version,
-			"schema":    new.SchemaName,
-			"isDropped": new.Schema.Dropped,
-		},
+	i.logger.Info("search batch indexer: apply schema diff", loglib.Fields{
+		"diff": diff,
 	})
 
-	if err := i.store.ApplySchemaChange(ctx, new); err != nil {
-		return fmt.Errorf("applying schema change: %w", err)
+	if err := i.store.ApplySchemaDiff(ctx, diff); err != nil {
+		return fmt.Errorf("applying schema diff: %w", err)
 	}
 
 	return nil
-}
-
-func (i *BatchIndexer) logDataLoss(logEntry *schemalog.LogEntry, err error) {
-	i.logger.Error(err, "search batch indexer", loglib.Fields{
-		"severity": "DATALOSS",
-		"logEntry": map[string]any{
-			"ID":      logEntry.ID.String(),
-			"version": logEntry.Version,
-			"schema":  logEntry.SchemaName,
-		},
-	})
 }
