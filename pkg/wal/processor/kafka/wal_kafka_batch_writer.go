@@ -16,7 +16,6 @@ import (
 	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
-	"github.com/xataio/pgstream/pkg/wal/processor"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 )
 
@@ -31,7 +30,8 @@ type BatchWriter struct {
 	// optional checkpointer callback to mark what was safely processed
 	checkpointer checkpointer.Checkpoint
 
-	serialiser func(any) ([]byte, error)
+	serialiser        func(any) ([]byte, error)
+	walDataToDDLEvent func(*wal.Data) (*wal.DDLEvent, error)
 }
 
 type Option func(*BatchWriter)
@@ -45,9 +45,10 @@ var errRecordTooLarge = errors.New("record too large")
 
 func NewBatchWriter(ctx context.Context, config *Config, opts ...Option) (*BatchWriter, error) {
 	w := &BatchWriter{
-		serialiser:    json.Marshal,
-		logger:        loglib.NewNoopLogger(),
-		maxBatchBytes: config.Batch.GetMaxBatchBytes(),
+		serialiser:        json.Marshal,
+		logger:            loglib.NewNoopLogger(),
+		maxBatchBytes:     config.Batch.GetMaxBatchBytes(),
+		walDataToDDLEvent: wal.WalDataToDDLEvent,
 	}
 
 	// Since the batch kafka writer handles the batching, we don't want to have
@@ -198,34 +199,21 @@ func (w *BatchWriter) sendBatch(ctx context.Context, batch *batch.Batch[kafka.Me
 
 // getMessageKey returns the key to be used in a kafka message for the wal event
 // on input. The message key determines which partition the event is routed to,
-// and therefore which order the events will be executed in. For schema logs,
-// the event schema is that of the pgstream schema, so we extract the underlying
-// user schema they're linked to, to make sure they're routed to the same
-// partition as their writes. This gives us ordering per schema.
+// and therefore which order the events will be executed in. For DDL events, we
+// extract the underlying user schema they're linked to in the content, to make
+// sure they're routed to the same partition as their writes. This gives us
+// ordering per schema.
 func (w BatchWriter) getMessageKey(walData *wal.Data) []byte {
 	eventKey := walData.Schema
-	if processor.IsSchemaLogEvent(walData) {
-		var schemaName string
-		var found bool
-		for _, col := range walData.Columns {
-			if col.Name == "schema_name" {
-				var ok bool
-				if schemaName, ok = col.Value.(string); !ok {
-					// We've got schema name, but it's not a string. This would mean the schema_log has changed and
-					// this code has not been updated.
-					panic(fmt.Sprintf("schema_log schema_name received is not a string: %T", col.Value))
-				}
-				found = true
-				break
-			}
+	if walData.IsDDLEvent() {
+		ddlEvent, err := w.walDataToDDLEvent(walData)
+		if err != nil {
+			w.logger.Error(err, "parsing ddl event for schema", loglib.Fields{
+				"wal_data": walData,
+			})
+			return []byte(eventKey)
 		}
-		if !found {
-			// this means the schema name has not been found in the columns written. This would mean that we've
-			// received a schema_log event, but without enough columns to act on it. This indicates a schema
-			// change that we've not handled.
-			panic("schema_log schema_name not found in columns")
-		}
-		eventKey = schemaName
+		eventKey = ddlEvent.SchemaName
 	}
 
 	return []byte(eventKey)
