@@ -30,7 +30,7 @@ type SnapshotGenerator struct {
 	pgDumpFn               pglib.PGDumpFn
 	pgDumpAllFn            pglib.PGDumpAllFn
 	pgRestoreFn            pglib.PGRestoreFn
-	connBuilder            pglib.QuerierBuilder
+	sourceQuerier          pglib.Querier
 	logger                 loglib.Logger
 	generator              generator.SnapshotGenerator
 	dumpDebugFile          string
@@ -88,18 +88,23 @@ const (
 // NewSnapshotGenerator will return a postgres schema snapshot generator that
 // uses pg_dump and pg_restore to sync the schema of two postgres databases
 func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*SnapshotGenerator, error) {
+	sourceConnPool, err := pglib.NewConnPool(ctx, c.SourcePGURL)
+	if err != nil {
+		return nil, err
+	}
+
 	sg := &SnapshotGenerator{
 		sourceURL:              c.SourcePGURL,
 		targetURL:              c.TargetPGURL,
 		pgDumpFn:               pglib.RunPGDump,
 		pgDumpAllFn:            pglib.RunPGDumpAll,
 		pgRestoreFn:            pglib.RunPGRestore,
-		connBuilder:            pglib.ConnBuilder,
 		logger:                 loglib.NewNoopLogger(),
 		dumpDebugFile:          c.DumpDebugFile,
 		excludedSecurityLabels: c.ExcludedSecurityLabels,
 		roleSQLParser:          &roleSQLParser{},
-		optionGenerator:        newOptionGenerator(pglib.ConnBuilder, c),
+		sourceQuerier:          sourceConnPool,
+		optionGenerator:        newOptionGenerator(sourceConnPool, c),
 	}
 
 	for _, opt := range opts {
@@ -126,7 +131,7 @@ func WithSnapshotGenerator(g generator.SnapshotGenerator) Option {
 func WithInstrumentation(i *otel.Instrumentation) Option {
 	return func(sg *SnapshotGenerator) {
 		var err error
-		sg.connBuilder, err = pglibinstrumentation.NewQuerierBuilder(sg.connBuilder, i)
+		sg.sourceQuerier, err = pglibinstrumentation.NewQuerier(sg.sourceQuerier, i)
 		if err != nil {
 			// this should never happen
 			panic(err)
@@ -246,6 +251,12 @@ func (s *SnapshotGenerator) Close() error {
 		}
 	}
 
+	if s.sourceQuerier != nil {
+		if err := s.sourceQuerier.Close(context.Background()); err != nil {
+			s.logger.Error(err, "closing source querier")
+		}
+	}
+
 	return nil
 }
 
@@ -349,14 +360,14 @@ func (s *SnapshotGenerator) dumpRoles(ctx context.Context, rolesInSchemaDump map
 // not be dumped, so it needs to be created explicitly (except for public
 // schema)
 func (s *SnapshotGenerator) restoreSchemas(ctx context.Context, schemaTables map[string][]string) error {
+	schemaDump := strings.Builder{}
 	for schema, tables := range schemaTables {
 		if len(tables) > 0 && schema != publicSchema && schema != wildcard {
-			if err := s.createSchemaIfNotExists(ctx, schema); err != nil {
-				return err
-			}
+			schemaDump.WriteString(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s;\n", schema))
 		}
 	}
-	return nil
+
+	return s.restoreDump(ctx, []byte(schemaDump.String()))
 }
 
 func (s *SnapshotGenerator) restoreDump(ctx context.Context, dump []byte) error {
@@ -380,17 +391,6 @@ func (s *SnapshotGenerator) restoreDump(ctx context.Context, dump []byte) error 
 	}
 
 	return nil
-}
-
-func (s *SnapshotGenerator) createSchemaIfNotExists(ctx context.Context, schemaName string) error {
-	targetConn, err := s.connBuilder(ctx, s.targetURL)
-	if err != nil {
-		return err
-	}
-	defer targetConn.Close(context.Background())
-
-	_, err = targetConn.Exec(ctx, fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", schemaName))
-	return err
 }
 
 func (s *SnapshotGenerator) parseDump(d []byte) *dump {
