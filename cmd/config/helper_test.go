@@ -10,7 +10,6 @@ import (
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
 	"github.com/xataio/pgstream/pkg/otel"
-	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/stream"
@@ -136,9 +135,6 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 					DisableTriggers:   false,
 					OnConflictAction:  "nothing",
 					BulkIngestEnabled: true,
-					SchemaLogStore: schemalogpg.Config{
-						URL: "postgresql://user:password@localhost:5432/mydatabase",
-					},
 					RetryPolicy: backoff.Config{
 						DisableRetries: true,
 						Exponential: &backoff.ExponentialConfig{

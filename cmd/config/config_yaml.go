@@ -10,7 +10,6 @@ import (
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
 	"github.com/xataio/pgstream/pkg/otel"
-	pgschemalog "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/stream"
@@ -159,14 +158,13 @@ type ConstantBackoffConfig struct {
 }
 
 type PostgresTargetConfig struct {
-	URL               string            `mapstructure:"url" yaml:"url"`
-	Batch             *BatchConfig      `mapstructure:"batch" yaml:"batch"`
-	BulkIngest        *BulkIngestConfig `mapstructure:"bulk_ingest" yaml:"bulk_ingest"`
-	SchemaLogStoreURL string            `mapstructure:"schema_log_store_url" yaml:"schema_log_store_url"`
-	DisableTriggers   bool              `mapstructure:"disable_triggers" yaml:"disable_triggers"`
-	OnConflictAction  string            `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
-	RetryPolicy       BackoffConfig     `mapstructure:"retry_policy" yaml:"retry_policy"`
-	IgnoreDDL         bool              `mapstructure:"ignore_ddl" yaml:"ignore_ddl"`
+	URL              string            `mapstructure:"url" yaml:"url"`
+	Batch            *BatchConfig      `mapstructure:"batch" yaml:"batch"`
+	BulkIngest       *BulkIngestConfig `mapstructure:"bulk_ingest" yaml:"bulk_ingest"`
+	DisableTriggers  bool              `mapstructure:"disable_triggers" yaml:"disable_triggers"`
+	OnConflictAction string            `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
+	RetryPolicy      BackoffConfig     `mapstructure:"retry_policy" yaml:"retry_policy"`
+	IgnoreDDL        bool              `mapstructure:"ignore_ddl" yaml:"ignore_ddl"`
 }
 
 type KafkaTargetConfig struct {
@@ -320,7 +318,6 @@ var (
 	errInvalidTableValidationConfig            = errors.New("table level validation mode should be used when transformation validation mode is set to 'table_level'")
 	errUnsupportedSearchEngine                 = errors.New("unsupported search engine, must be one of 'opensearch' or 'elasticsearch'")
 	errUnsupportedRolesSnapshotMode            = errors.New("unsupported roles snapshot mode, must be one of 'enabled', 'disabled', or 'no_passwords'")
-	errInvalidPgdumpPgrestoreConfig            = errors.New("pgdump_pgrestore snapshot mode requires target postgres config")
 	errInvalidInjectorConfig                   = errors.New("injector config can't infer schemalog url from source postgres url, schemalog_url must be provided")
 	errInvalidSnapshotRecorderConfig           = errors.New("snapshot recorder config requires a postgres url")
 	errInvalidSampleRatio                      = errors.New("trace sample ratio must be a value between 0.0 and 1.0")
@@ -601,11 +598,8 @@ func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorCon
 
 	cfg := &stream.PostgresProcessorConfig{
 		BatchWriter: postgres.Config{
-			URL:         c.Target.Postgres.URL,
-			BatchConfig: c.Target.Postgres.Batch.parseBatchConfig(),
-			SchemaLogStore: pgschemalog.Config{
-				URL: c.Target.Postgres.SchemaLogStoreURL,
-			},
+			URL:              c.Target.Postgres.URL,
+			BatchConfig:      c.Target.Postgres.Batch.parseBatchConfig(),
 			DisableTriggers:  c.Target.Postgres.DisableTriggers,
 			OnConflictAction: c.Target.Postgres.OnConflictAction,
 			RetryPolicy:      c.Target.Postgres.RetryPolicy.parseBackoffConfig(),
