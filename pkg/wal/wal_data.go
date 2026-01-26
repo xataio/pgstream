@@ -43,9 +43,6 @@ type Metadata struct {
 	// This is the Pgstream ID of the "id" column(s). We track this specifically, as we extract it from the event
 	// in order to use as the ID for the record.
 	InternalColIDs []string `json:"id_col_pgstream_id"`
-	// This is the Pgstream ID of the "version" column. We track this specifically, as we extract it from the event
-	// in order to use as the version when working with optimistic concurrency checks.
-	InternalColVersion string `json:"version_col_pgstream_id"`
 }
 
 type Column struct {
@@ -85,16 +82,10 @@ func (d *Data) IsInsert() bool {
 // IsEmpty returns true if the pgstream metadata hasn't been populated, false
 // otherwise.
 func (m Metadata) IsEmpty() bool {
-	if m.TablePgstreamID == "" && len(m.InternalColIDs) == 0 && m.InternalColVersion == "" {
+	if m.TablePgstreamID == "" && len(m.InternalColIDs) == 0 {
 		return true
 	}
 	return false
-}
-
-// IsVersionColumn returns true if the column id on input matches the pgstream
-// identified version column.
-func (m Metadata) IsVersionColumn(colID string) bool {
-	return m.InternalColVersion == colID
 }
 
 // IsIDColumn returns true if the column id on input is part of the pgstream
