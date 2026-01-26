@@ -18,9 +18,6 @@ import (
 	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
-	"github.com/xataio/pgstream/pkg/schemalog"
-	schemaloginstrumentation "github.com/xataio/pgstream/pkg/schemalog/instrumentation"
-	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"github.com/xataio/pgstream/pkg/snapshot/generator"
 )
@@ -33,7 +30,6 @@ type SnapshotGenerator struct {
 	pgDumpFn               pglib.PGDumpFn
 	pgDumpAllFn            pglib.PGDumpAllFn
 	pgRestoreFn            pglib.PGRestoreFn
-	schemalogStore         schemalog.Store
 	connBuilder            pglib.QuerierBuilder
 	logger                 loglib.Logger
 	generator              generator.SnapshotGenerator
@@ -106,10 +102,6 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		optionGenerator:        newOptionGenerator(pglib.ConnBuilder, c),
 	}
 
-	if err := sg.initialiseSchemaLogStore(ctx); err != nil {
-		return nil, err
-	}
-
 	for _, opt := range opts {
 		opt(sg)
 	}
@@ -143,9 +135,6 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 		sg.pgDumpFn = pglibinstrumentation.NewPGDumpFn(sg.pgDumpFn, i)
 		sg.pgDumpAllFn = pglibinstrumentation.NewPGDumpAllFn(sg.pgDumpAllFn, i)
 		sg.pgRestoreFn = pglibinstrumentation.NewPGRestoreFn(sg.pgRestoreFn, i)
-		if sg.schemalogStore != nil {
-			sg.schemalogStore = schemaloginstrumentation.NewStore(sg.schemalogStore, i)
-		}
 	}
 }
 
@@ -162,14 +151,6 @@ func WithProgressTracking(ctx context.Context) Option {
 
 func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) (err error) {
 	s.logger.Info("creating schema snapshot", loglib.Fields{"schemaTables": ss.SchemaTables})
-	defer func() {
-		if err == nil {
-			// if we perform a schema snapshot using pg_dump/pg_restore, we need to make
-			// sure the schema_log table is updated accordingly with the schema view so that
-			// replication can work as expected if configured.
-			err = s.syncSchemaLog(ctx, ss.SchemaTables, ss.SchemaExcludedTables)
-		}
-	}()
 
 	// make sure any empty schemas are filtered out
 	dumpSchemas := make(map[string][]string, len(ss.SchemaTables))
@@ -253,12 +234,6 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 }
 
 func (s *SnapshotGenerator) Close() error {
-	if s.schemalogStore != nil {
-		if err := s.schemalogStore.Close(); err != nil {
-			s.logger.Error(err, "closing schemalog store")
-		}
-	}
-
 	if s.generator != nil {
 		if err := s.generator.Close(); err != nil {
 			s.logger.Error(err, "closing data snapshot generator")
@@ -407,43 +382,6 @@ func (s *SnapshotGenerator) restoreDump(ctx context.Context, dump []byte) error 
 	return nil
 }
 
-func (s *SnapshotGenerator) syncSchemaLog(ctx context.Context, schemaTables, excludeSchemaTables map[string][]string) error {
-	if s.schemalogStore == nil {
-		return nil
-	}
-
-	s.logger.Info("syncing schema log", loglib.Fields{"schemaTables": schemaTables, "excludeSchemaTables": excludeSchemaTables})
-
-	conn, err := s.connBuilder(ctx, s.sourceURL)
-	if err != nil {
-		return err
-	}
-	defer conn.Close(context.Background())
-
-	schemas := make([]string, 0, len(schemaTables))
-	switch {
-	case hasWildcardSchema(schemaTables):
-		schemas, err = pglib.DiscoverAllSchemas(ctx, conn)
-		if err != nil {
-			return fmt.Errorf("discovering schemas: %w", err)
-		}
-	default:
-		for schema := range schemaTables {
-			schemas = append(schemas, schema)
-		}
-	}
-
-	for _, schema := range schemas {
-		if _, found := excludeSchemaTables[schema]; found {
-			continue
-		}
-		if _, err := s.schemalogStore.Insert(ctx, schema); err != nil {
-			return fmt.Errorf("inserting schemalog entry for schema %q after schema snapshot: %w", schema, err)
-		}
-	}
-	return nil
-}
-
 func (s *SnapshotGenerator) createSchemaIfNotExists(ctx context.Context, schemaName string) error {
 	targetConn, err := s.connBuilder(ctx, s.targetURL)
 	if err != nil {
@@ -453,40 +391,6 @@ func (s *SnapshotGenerator) createSchemaIfNotExists(ctx context.Context, schemaN
 
 	_, err = targetConn.Exec(ctx, fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", schemaName))
 	return err
-}
-
-func (s *SnapshotGenerator) initialiseSchemaLogStore(ctx context.Context) error {
-	exists, err := s.schemalogExists(ctx)
-	if err != nil {
-		return err
-	}
-
-	if !exists {
-		return nil
-	}
-
-	s.schemalogStore, err = schemalogpg.NewStore(ctx, schemalogpg.Config{URL: s.sourceURL})
-	return err
-}
-
-const existsTableQuery = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2)"
-
-func (s *SnapshotGenerator) schemalogExists(ctx context.Context) (bool, error) {
-	conn, err := s.connBuilder(ctx, s.sourceURL)
-	if err != nil {
-		return false, err
-	}
-	defer conn.Close(context.Background())
-
-	// check if the pgstream.schema_log table exists, if not, we can skip the initialisation
-	// of the schemalog store
-	var exists bool
-	err = conn.QueryRow(ctx, []any{&exists}, existsTableQuery, schemalog.SchemaName, schemalog.TableName)
-	if err != nil {
-		return false, fmt.Errorf("checking schemalog table existence: %w", err)
-	}
-
-	return exists, nil
 }
 
 func (s *SnapshotGenerator) parseDump(d []byte) *dump {
