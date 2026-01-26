@@ -55,7 +55,6 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_MODE")
-	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_ROLE")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE")
@@ -292,32 +291,25 @@ func parseSnapshotConfig(pgURL string) (*snapshotbuilder.SnapshotListenerConfig,
 }
 
 func parseSchemaSnapshotConfig(pgurl string) (*snapshotbuilder.SchemaSnapshotConfig, error) {
-	useSchemaLog := viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG")
 	pgTargetURL := viper.GetString("PGSTREAM_POSTGRES_WRITER_TARGET_URL")
-	if pgTargetURL != "" && !useSchemaLog {
-		rolesSnapshotConfig, err := getRolesSnapshotMode(viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE"))
-		if err != nil {
-			return nil, err
-		}
-		return &snapshotbuilder.SchemaSnapshotConfig{
-			DumpRestore: &pgdumprestore.Config{
-				SourcePGURL:            pgurl,
-				TargetPGURL:            pgTargetURL,
-				CleanTargetDB:          viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB"),
-				CreateTargetDB:         viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB"),
-				IncludeGlobalDBObjects: viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS"),
-				Role:                   viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_ROLE"),
-				RolesSnapshotMode:      rolesSnapshotConfig,
-				DumpDebugFile:          viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE"),
-				NoOwner:                viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_NO_OWNER"),
-				NoPrivileges:           viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_NO_PRIVILEGES"),
-				ExcludedSecurityLabels: viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_SECURITY_LABELS"),
-			},
-		}, nil
+
+	rolesSnapshotConfig, err := getRolesSnapshotMode(viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE"))
+	if err != nil {
+		return nil, err
 	}
 	return &snapshotbuilder.SchemaSnapshotConfig{
-		SchemaLogStore: &pgschemalog.Config{
-			URL: pgurl,
+		DumpRestore: &pgdumprestore.Config{
+			SourcePGURL:            pgurl,
+			TargetPGURL:            pgTargetURL,
+			CleanTargetDB:          viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB"),
+			CreateTargetDB:         viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB"),
+			IncludeGlobalDBObjects: viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS"),
+			Role:                   viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_ROLE"),
+			RolesSnapshotMode:      rolesSnapshotConfig,
+			DumpDebugFile:          viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE"),
+			NoOwner:                viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_NO_OWNER"),
+			NoPrivileges:           viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_NO_PRIVILEGES"),
+			ExcludedSecurityLabels: viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_SECURITY_LABELS"),
 		},
 	}, nil
 }

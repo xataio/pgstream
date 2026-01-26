@@ -76,63 +76,6 @@ func TestYAMLConfig_toStreamConfig_ErrorCases(t *testing.T) {
 			wantErr: errInvalidSnapshotRecorderConfig,
 		},
 		{
-			name: "err - invalid postgres snapshot schema mode",
-			config: YAMLConfig{
-				Source: SourceConfig{
-					Postgres: &PostgresConfig{
-						Mode: snapshotMode,
-						Snapshot: &SnapshotConfig{
-							Mode: schemaSnapshotMode,
-							Schema: &SnapshotSchemaConfig{
-								Mode: "invalid",
-							},
-						},
-					},
-				},
-			},
-
-			wantErr: errUnsupportedSchemaSnapshotMode,
-		},
-		{
-			name: "err - invalid postgres snapshot schema mode",
-			config: YAMLConfig{
-				Source: SourceConfig{
-					Postgres: &PostgresConfig{
-						Mode: snapshotMode,
-						Snapshot: &SnapshotConfig{
-							Mode: schemaSnapshotMode,
-							Schema: &SnapshotSchemaConfig{
-								Mode: "invalid",
-							},
-						},
-					},
-				},
-			},
-
-			wantErr: errUnsupportedSchemaSnapshotMode,
-		},
-		{
-			name: "err - invalid pgdump pgrestore config",
-			config: YAMLConfig{
-				Source: SourceConfig{
-					Postgres: &PostgresConfig{
-						Mode: snapshotMode,
-						Snapshot: &SnapshotConfig{
-							Mode: schemaSnapshotMode,
-							Schema: &SnapshotSchemaConfig{
-								Mode: pgdumprestoreSchemaMode,
-								PgDumpPgRestore: &PgDumpPgRestoreConfig{
-									CleanTargetDB: false,
-								},
-							},
-						},
-					},
-				},
-			},
-
-			wantErr: errInvalidPgdumpPgrestoreConfig,
-		},
-		{
 			name: "err - invalid roles snapshot mode",
 			config: YAMLConfig{
 				Source: SourceConfig{
@@ -141,7 +84,6 @@ func TestYAMLConfig_toStreamConfig_ErrorCases(t *testing.T) {
 						Snapshot: &SnapshotConfig{
 							Mode: schemaSnapshotMode,
 							Schema: &SnapshotSchemaConfig{
-								Mode: pgdumprestoreSchemaMode,
 								PgDumpPgRestore: &PgDumpPgRestoreConfig{
 									CleanTargetDB:     false,
 									RolesSnapshotMode: "invalid",

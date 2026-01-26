@@ -96,7 +96,6 @@ type SnapshotDataConfig struct {
 }
 
 type SnapshotSchemaConfig struct {
-	Mode            string                 `mapstructure:"mode" yaml:"mode"`
 	PgDumpPgRestore *PgDumpPgRestoreConfig `mapstructure:"pgdump_pgrestore" yaml:"pgdump_pgrestore"`
 }
 
@@ -299,12 +298,6 @@ const (
 	noPasswordsRolesSnapshotMode = "no_passwords"
 )
 
-// schema snapshot modes
-const (
-	pgdumprestoreSchemaMode = "pgdump_pgrestore"
-	schemalogSchemaMode     = "schemalog"
-)
-
 // search engines
 const (
 	elasticsearchEngine = "elasticsearch"
@@ -319,7 +312,6 @@ const (
 )
 
 var (
-	errUnsupportedSchemaSnapshotMode           = errors.New("unsupported schema snapshot mode, must be one of 'pgdump_pgrestore' or 'schemalog'")
 	errUnsupportedSnapshotMode                 = errors.New("unsupported snapshot mode, must be one of 'full', 'schema' or 'data'")
 	errUnsupportedPostgresSourceMode           = errors.New("unsupported postgres source mode, must be one of 'replication', 'snapshot' or 'snapshot_and_replication'")
 	errUnsupportedTransformationValidationMode = errors.New("unsupported transformation validation mode, must be one of 'strict', 'table_level' or 'relaxed'")
@@ -529,45 +521,35 @@ func (c *YAMLConfig) parseSchemaSnapshotConfig() (*snapshotbuilder.SchemaSnapsho
 		return nil, nil
 	}
 
-	switch schemaSnapshotCfg.Mode {
-	case schemalogSchemaMode:
-		return &snapshotbuilder.SchemaSnapshotConfig{
-			SchemaLogStore: &pgschemalog.Config{
-				URL: c.Source.Postgres.URL,
-			},
-		}, nil
-	case pgdumprestoreSchemaMode:
-		if c.Target.Postgres == nil {
-			return nil, errInvalidPgdumpPgrestoreConfig
-		}
-		streamSchemaCfg := &snapshotbuilder.SchemaSnapshotConfig{
-			DumpRestore: &pgdumprestore.Config{
-				SourcePGURL: c.Source.Postgres.URL,
-				TargetPGURL: c.Target.Postgres.URL,
-			},
-		}
-
-		if schemaSnapshotCfg.PgDumpPgRestore != nil {
-			streamSchemaCfg.DumpRestore.CleanTargetDB = schemaSnapshotCfg.PgDumpPgRestore.CleanTargetDB
-			streamSchemaCfg.DumpRestore.IncludeGlobalDBObjects = schemaSnapshotCfg.PgDumpPgRestore.IncludeGlobalDBObjects
-			streamSchemaCfg.DumpRestore.CreateTargetDB = schemaSnapshotCfg.PgDumpPgRestore.CreateTargetDB
-			streamSchemaCfg.DumpRestore.Role = schemaSnapshotCfg.PgDumpPgRestore.Role
-			streamSchemaCfg.DumpRestore.NoOwner = schemaSnapshotCfg.PgDumpPgRestore.NoOwner
-			streamSchemaCfg.DumpRestore.NoPrivileges = schemaSnapshotCfg.PgDumpPgRestore.NoPrivileges
-			streamSchemaCfg.DumpRestore.DumpDebugFile = schemaSnapshotCfg.PgDumpPgRestore.DumpFile
-			streamSchemaCfg.DumpRestore.ExcludedSecurityLabels = schemaSnapshotCfg.PgDumpPgRestore.ExcludedSecurityLabels
-
-			var err error
-			streamSchemaCfg.DumpRestore.RolesSnapshotMode, err = getRolesSnapshotMode(schemaSnapshotCfg.PgDumpPgRestore.RolesSnapshotMode)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		return streamSchemaCfg, nil
-	default:
-		return nil, errUnsupportedSchemaSnapshotMode
+	targetURL := ""
+	if c.Target.Postgres != nil {
+		targetURL = c.Target.Postgres.URL
 	}
+	streamSchemaCfg := &snapshotbuilder.SchemaSnapshotConfig{
+		DumpRestore: &pgdumprestore.Config{
+			SourcePGURL: c.Source.Postgres.URL,
+			TargetPGURL: targetURL,
+		},
+	}
+
+	if schemaSnapshotCfg.PgDumpPgRestore != nil {
+		streamSchemaCfg.DumpRestore.CleanTargetDB = schemaSnapshotCfg.PgDumpPgRestore.CleanTargetDB
+		streamSchemaCfg.DumpRestore.IncludeGlobalDBObjects = schemaSnapshotCfg.PgDumpPgRestore.IncludeGlobalDBObjects
+		streamSchemaCfg.DumpRestore.CreateTargetDB = schemaSnapshotCfg.PgDumpPgRestore.CreateTargetDB
+		streamSchemaCfg.DumpRestore.Role = schemaSnapshotCfg.PgDumpPgRestore.Role
+		streamSchemaCfg.DumpRestore.NoOwner = schemaSnapshotCfg.PgDumpPgRestore.NoOwner
+		streamSchemaCfg.DumpRestore.NoPrivileges = schemaSnapshotCfg.PgDumpPgRestore.NoPrivileges
+		streamSchemaCfg.DumpRestore.DumpDebugFile = schemaSnapshotCfg.PgDumpPgRestore.DumpFile
+		streamSchemaCfg.DumpRestore.ExcludedSecurityLabels = schemaSnapshotCfg.PgDumpPgRestore.ExcludedSecurityLabels
+
+		var err error
+		streamSchemaCfg.DumpRestore.RolesSnapshotMode, err = getRolesSnapshotMode(schemaSnapshotCfg.PgDumpPgRestore.RolesSnapshotMode)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return streamSchemaCfg, nil
 }
 
 func (c *YAMLConfig) parseInjectorConfig() (*injector.Config, error) {
