@@ -27,7 +27,7 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("parsing stream config: %w", err)
 		}
 
-		if err := stream.Init(context.Background(), streamConfig.SourcePostgresURL(), streamConfig.PostgresReplicationSlot()); err != nil {
+		if err := stream.Init(context.Background(), streamConfig.GetInitConfig()); err != nil {
 			sp.Fail(err.Error())
 			return err
 		}
@@ -53,7 +53,7 @@ var destroyCmd = &cobra.Command{
 			return fmt.Errorf("parsing stream config: %w", err)
 		}
 
-		if err := stream.Destroy(context.Background(), streamConfig.SourcePostgresURL(), streamConfig.PostgresReplicationSlot()); err != nil {
+		if err := stream.Destroy(context.Background(), streamConfig.GetInitConfig()); err != nil {
 			sp.Fail(err.Error())
 			return err
 		}
@@ -79,7 +79,7 @@ var tearDownCmd = &cobra.Command{
 			return fmt.Errorf("parsing stream config: %w", err)
 		}
 
-		if err := stream.Destroy(context.Background(), streamConfig.SourcePostgresURL(), streamConfig.PostgresReplicationSlot()); err != nil {
+		if err := stream.Destroy(context.Background(), streamConfig.GetInitConfig()); err != nil {
 			sp.Fail(err.Error())
 			return err
 		}
@@ -99,10 +99,14 @@ func initDestroyFlagBinding(cmd *cobra.Command, _ []string) {
 	viper.BindPFlag("source.postgres.url", cmd.Flags().Lookup("postgres-url"))
 	viper.BindPFlag("source.postgres.replication.replication_slot", cmd.Flags().Lookup("replication-slot"))
 	viper.Set("source.postgres.mode", "replication")
+	viper.BindPFlag("modifiers.injector.enabled", cmd.Flags().Lookup("with-injector"))
 
 	// to be able to overwrite configuration with flags when env config file is
 	// provided or when no configuration is provided
 	viper.BindPFlag("PGSTREAM_POSTGRES_LISTENER_URL", cmd.Flags().Lookup("postgres-url"))
 	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL", cmd.Flags().Lookup("postgres-url"))
 	viper.BindPFlag("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME", cmd.Flags().Lookup("replication-slot"))
+	if cmd.Flags().Lookup("with-injector").Value.String() == "true" {
+		viper.BindPFlag("PGSTREAM_INJECTOR_STORE_POSTGRES_URL", cmd.Flags().Lookup("postgres-url"))
+	}
 }
