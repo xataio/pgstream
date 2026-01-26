@@ -45,7 +45,7 @@ func run(ctx context.Context) error {
 	})
 	zerolog.SetGlobalLogger(logger)
 
-	if isSnapshot() {
+	if isSnapshotMode() {
 		return fmt.Errorf("cannot use the 'run' command in snapshot-only mode; please use the 'snapshot' command instead")
 	}
 
@@ -206,7 +206,7 @@ func targetFlagBinding(cmd *cobra.Command) error {
 	return nil
 }
 
-func isSnapshot() bool {
+func isSnapshotMode() bool {
 	return viper.GetString("source.postgres.url") != "" &&
 		viper.GetString("source.postgres.mode") == "snapshot"
 }
