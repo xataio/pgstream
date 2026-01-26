@@ -20,6 +20,7 @@ import (
 	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"github.com/xataio/pgstream/pkg/snapshot/generator"
+	"github.com/xataio/pgstream/pkg/wal/processor"
 )
 
 // SnapshotGenerator generates postgres schema snapshots using pg_dump and
@@ -151,6 +152,12 @@ func WithProgressTracking(ctx context.Context) Option {
 			return
 		}
 		sg.snapshotTracker = snapshotTracker
+	}
+}
+
+func WithRestoreToWAL(processor processor.Processor) Option {
+	return func(sg *SnapshotGenerator) {
+		sg.pgRestoreFn = newPGSnapshotWALRestore(processor, sg.sourceQuerier).restoreToWAL
 	}
 }
 
