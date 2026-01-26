@@ -45,6 +45,10 @@ func run(ctx context.Context) error {
 	})
 	zerolog.SetGlobalLogger(logger)
 
+	if isSnapshot() {
+		return fmt.Errorf("cannot use the 'run' command in snapshot-only mode; please use the 'snapshot' command instead")
+	}
+
 	streamConfig, err := config.ParseStreamConfig()
 	if err != nil {
 		return fmt.Errorf("parsing stream config: %w", err)
@@ -72,6 +76,12 @@ func runFlagBinding(cmd *cobra.Command, args []string) error {
 	}
 
 	initialSnapshotFlagBinding(cmd)
+
+	// enable metadata injection if "with-injector" flag is set
+	viper.BindPFlag("modifiers.injector.enabled", cmd.Flags().Lookup("with-injector"))
+	if cmd.Flags().Lookup("with-injector").Value.String() == "true" && viper.GetString("source.postgres.url") != "" {
+		viper.Set("PGSTREAM_INJECTOR_STORE_POSTGRES_URL", viper.GetString("source.postgres.url"))
+	}
 
 	return nil
 }
@@ -141,9 +151,6 @@ func sourceFlagBinding(cmd *cobra.Command) error {
 	case postgres:
 		viper.BindPFlag("source.postgres.url", cmd.Flags().Lookup("source-url"))
 		viper.BindPFlag("PGSTREAM_POSTGRES_LISTENER_URL", cmd.Flags().Lookup("source-url"))
-		// enable metadata injection by default when using postgres as source
-		viper.Set("modifiers.injector.enabled", true)
-		viper.BindPFlag("PGSTREAM_INJECTOR_STORE_POSTGRES_URL", cmd.Flags().Lookup("source-url"))
 	case "kafka":
 		viper.BindPFlag("source.kafka.servers", cmd.Flags().Lookup("source-url"))
 		viper.Set("target.kafka.topic.name", defaultKafkaTopicName)
@@ -197,4 +204,9 @@ func targetFlagBinding(cmd *cobra.Command) error {
 	}
 
 	return nil
+}
+
+func isSnapshot() bool {
+	return viper.GetString("source.postgres.url") != "" &&
+		viper.GetString("source.postgres.mode") == "snapshot"
 }
