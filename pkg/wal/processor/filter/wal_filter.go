@@ -6,10 +6,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/xataio/pgstream/internal/json"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 )
@@ -17,10 +15,11 @@ import (
 // Filter is a processor wrapper that filter table WAL events based on the
 // configured table include/exclude lists.
 type Filter struct {
-	processor       processor.Processor
-	includeTableMap pglib.SchemaTableMap
-	excludeTableMap pglib.SchemaTableMap
-	logger          loglib.Logger
+	processor          processor.Processor
+	includeTableMap    pglib.SchemaTableMap
+	excludeTableMap    pglib.SchemaTableMap
+	logger             loglib.Logger
+	walEventToDDLEvent func(*wal.Data) (*wal.DDLEvent, error)
 }
 
 type Config struct {
@@ -55,8 +54,9 @@ func New(
 	}
 
 	f := &Filter{
-		processor: processor,
-		logger:    loglib.NewNoopLogger(),
+		processor:          processor,
+		logger:             loglib.NewNoopLogger(),
+		walEventToDDLEvent: wal.WalDataToDDLEvent,
 	}
 
 	var err error
@@ -111,9 +111,11 @@ func (f *Filter) ProcessWALEvent(ctx context.Context, event *wal.Event) error {
 	switch {
 	case event == nil || event.Data == nil:
 		// nothing to do, pass it along to the internal processor
-	case processor.IsSchemaLogEvent(event.Data):
-		// remove filtered tables from schema log events
-		f.updateSchemaEvent(event)
+	case event.Data.IsDDLEvent():
+		// skip events for filtered tables
+		if f.skipDDLEvent(event) {
+			return nil
+		}
 	default:
 		// data events
 		if f.skipEvent(event) {
@@ -145,68 +147,26 @@ func (f *Filter) skipEvent(event *wal.Event) bool {
 	return false
 }
 
-func (f *Filter) updateSchemaEvent(event *wal.Event) {
-	if !event.Data.IsInsert() {
-		// we only care about insert actions for schema log events
-		return
-	}
-
-	logEntry, err := processor.WalDataToLogEntry(event.Data)
+func (f *Filter) skipDDLEvent(event *wal.Event) bool {
+	ddlEvent, err := f.walEventToDDLEvent(event.Data)
 	if err != nil {
-		f.logger.Error(err, "failed to convert WAL data to log entry", loglib.Fields{"data": event.Data})
-		return
+		// if we can't determine the DDL event, don't filter it out
+		f.logger.Error(err, "failed to convert WAL data to DDL event", loglib.Fields{"data": event.Data})
+		return false
 	}
 
-	f.filterTablesFromSchema(logEntry.SchemaName, &logEntry.Schema)
-
-	f.logger.Debug("filtered schema", loglib.Fields{
-		"schema_name": logEntry.SchemaName,
-		"tables":      logEntry.Schema.TableNames(),
-	})
-
-	for i, c := range event.Data.Columns {
-		if c.Name == "schema" {
-			// Marshal the filtered schema to JSON
-			schemaBytes, err := json.Marshal(&logEntry.Schema)
-			if err != nil {
-				f.logger.Error(err, "failed to marshal schema", loglib.Fields{"schema": logEntry.SchemaName})
-				return
-			}
-
-			var schemaStr string
-			err = json.Unmarshal(schemaBytes, &schemaStr)
-			if err != nil {
-				f.logger.Error(err, "failed to unmarshal schema bytes to string", loglib.Fields{"schema": logEntry.SchemaName})
-				return
-			}
-
-			// Store the double-encoded value to ensure compatibility with downstream consumers
-			// who expect the schema to be a JSON-encoded string. This process ensures that the
-			// schema is serialized into a JSON string format that can be safely transmitted
-			// and interpreted by downstream systems.
-			event.Data.Columns[i].Value = string(schemaStr)
-			return
+	tableObjects := append(ddlEvent.GetTableObjects(), ddlEvent.GetTableColumnObjects()...)
+	for _, obj := range tableObjects {
+		table := obj.GetTable()
+		if f.skipEvent(&wal.Event{
+			Data: &wal.Data{
+				Schema: obj.Schema,
+				Table:  table,
+			},
+		}) {
+			f.logger.Trace("skipping DDL event", loglib.Fields{"schema": obj.Schema, "table": table})
+			return true
 		}
 	}
-}
-
-func (f *Filter) filterTablesFromSchema(schemaName string, schema *schemalog.Schema) {
-	if len(f.includeTableMap) == 0 && len(f.excludeTableMap) == 0 {
-		return // no filtering applied, keep all tables
-	}
-	filteredTables := make([]schemalog.Table, 0, len(schema.Tables))
-	for _, table := range schema.Tables {
-		switch {
-		case len(f.includeTableMap) != 0:
-			if f.includeTableMap.ContainsSchemaTable(schemaName, table.Name) {
-				filteredTables = append(filteredTables, table)
-			}
-		case len(f.excludeTableMap) != 0:
-			if !f.excludeTableMap.ContainsSchemaTable(schemaName, table.Name) {
-				filteredTables = append(filteredTables, table)
-			}
-		}
-	}
-
-	schema.Tables = filteredTables
+	return false
 }
