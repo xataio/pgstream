@@ -20,14 +20,18 @@ type Event struct {
 
 // Data contains the wal data properties identifying the table operation.
 type Data struct {
-	Action    string   `json:"action"`    // "I" -- insert, "U" -- update, "D" -- delete, "T" -- truncate
+	Action    string   `json:"action"`    // "I" -- insert, "U" -- update, "D" -- delete, "T" -- truncate, "M" -- logical message
 	Timestamp string   `json:"timestamp"` // ISO8601, i.e. 2019-12-29 04:58:34.806671
 	LSN       string   `json:"lsn"`
 	Schema    string   `json:"schema"`
 	Table     string   `json:"table"`
 	Columns   []Column `json:"columns"`
 	Identity  []Column `json:"identity"`
-	Metadata  Metadata `json:"metadata"` // pgstream specific metadata
+	// For logical messages (when Action == "M")
+	Prefix  string `json:"prefix,omitempty"`
+	Content string `json:"content,omitempty"`
+	// pgstream specific metadata
+	Metadata Metadata `json:"metadata"`
 }
 
 // Metadata is pgstream specific properties to help identify the id/version
