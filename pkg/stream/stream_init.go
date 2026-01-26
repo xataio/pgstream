@@ -6,18 +6,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
+	migratorlib "github.com/xataio/pgstream/internal/migrator"
 	pglib "github.com/xataio/pgstream/internal/postgres"
-	pgmigrations "github.com/xataio/pgstream/migrations/postgres"
 
-	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
-	bindata "github.com/golang-migrate/migrate/v4/source/go_bindata"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
+
+type InitConfig struct {
+	PostgresURL               string
+	ReplicationSlotName       string
+	InjectorMigrationsEnabled bool
+}
 
 const (
 	pgstreamSchema = "pgstream"
@@ -27,12 +30,12 @@ var errMissingPostgresURL = errors.New("postgres URL is required")
 
 // Init initialises the pgstream state in the postgres database provided, along
 // with creating the relevant replication slot if it doesn't already exist.
-func Init(ctx context.Context, pgURL, replicationSlotName string) error {
-	if pgURL == "" {
+func Init(ctx context.Context, config *InitConfig) error {
+	if config.PostgresURL == "" {
 		return errMissingPostgresURL
 	}
 
-	conn, err := newPGConn(ctx, pgURL)
+	conn, err := newPGConn(ctx, config.PostgresURL)
 	if err != nil {
 		return err
 	}
@@ -44,28 +47,34 @@ func Init(ctx context.Context, pgURL, replicationSlotName string) error {
 		return fmt.Errorf("failed to create pgstream schema: %w", err)
 	}
 
-	migrator, err := newPGMigrator(pgURL)
+	migrationAssets := []*migratorlib.MigrationAssets{
+		migratorlib.GetCoreMigrationAssets(),
+	}
+	if config.InjectorMigrationsEnabled {
+		migrationAssets = append(migrationAssets, migratorlib.GetInjectorMigrationAssets())
+	}
+	migrator, err := migratorlib.NewPGMigrator(config.PostgresURL, migrationAssets)
 	if err != nil {
 		return fmt.Errorf("error creating postgres migrator: %w", err)
 	}
 
-	if err := migrator.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+	if err := migrator.Up(); err != nil && !errors.Is(err, migratorlib.ErrNoChange) {
 		return fmt.Errorf("failed to run internal pgstream migrations: %w", err)
 	}
 
-	if replicationSlotName == "" {
-		replicationSlotName, err = getReplicationSlotName(pgURL)
+	if config.ReplicationSlotName == "" {
+		config.ReplicationSlotName, err = getReplicationSlotName(config.PostgresURL)
 		if err != nil {
 			return err
 		}
 	}
 
-	if err := pglib.IsValidReplicationSlotName(replicationSlotName); err != nil {
+	if err := pglib.IsValidReplicationSlotName(config.ReplicationSlotName); err != nil {
 		return err
 	}
 
 	// check if the replication slot already exists
-	exists, err := replicationSlotExists(ctx, conn, replicationSlotName)
+	exists, err := replicationSlotExists(ctx, conn, config.ReplicationSlotName)
 	if err != nil {
 		return fmt.Errorf("failed to check if replication slot exists: %w", err)
 	}
@@ -74,7 +83,7 @@ func Init(ctx context.Context, pgURL, replicationSlotName string) error {
 		return nil
 	}
 
-	if err := createReplicationSlot(ctx, conn, replicationSlotName); err != nil {
+	if err := createReplicationSlot(ctx, conn, config.ReplicationSlotName); err != nil {
 		return fmt.Errorf("failed to create replication slot: %w", err)
 	}
 
@@ -83,39 +92,45 @@ func Init(ctx context.Context, pgURL, replicationSlotName string) error {
 
 // Destroy removes the pgstream state from the postgres database provided,
 // as well as removing the replication slot.
-func Destroy(ctx context.Context, pgURL, replicationSlotName string) error {
-	if pgURL == "" {
+func Destroy(ctx context.Context, config *InitConfig) error {
+	if config.PostgresURL == "" {
 		return errMissingPostgresURL
 	}
 
-	conn, err := newPGConn(ctx, pgURL)
+	conn, err := newPGConn(ctx, config.PostgresURL)
 	if err != nil {
 		return err
 	}
 	defer conn.Close(ctx)
 
-	if replicationSlotName == "" {
-		replicationSlotName, err = getReplicationSlotName(pgURL)
+	if config.ReplicationSlotName == "" {
+		config.ReplicationSlotName, err = getReplicationSlotName(config.PostgresURL)
 		if err != nil {
 			return err
 		}
 	}
 
-	if err := pglib.IsValidReplicationSlotName(replicationSlotName); err != nil {
+	if err := pglib.IsValidReplicationSlotName(config.ReplicationSlotName); err != nil {
 		return err
 	}
 
-	if err := dropReplicationSlot(ctx, conn, replicationSlotName); err != nil {
+	if err := dropReplicationSlot(ctx, conn, config.ReplicationSlotName); err != nil {
 		return err
 	}
 
-	migrator, err := newPGMigrator(pgURL)
+	migrationAssets := []*migratorlib.MigrationAssets{
+		migratorlib.GetCoreMigrationAssets(),
+	}
+	if config.InjectorMigrationsEnabled {
+		migrationAssets = append(migrationAssets, migratorlib.GetInjectorMigrationAssets())
+	}
+	migrator, err := migratorlib.NewPGMigrator(config.PostgresURL, migrationAssets)
 	if err != nil {
 		return fmt.Errorf("error creating postgres migrator: %w", err)
 	}
 
-	if err := migrator.Down(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return fmt.Errorf("failed to run internal pgstream migrations: %w", err)
+	if err := migrator.Down(); err != nil && !errors.Is(err, migratorlib.ErrNoChange) {
+		return fmt.Errorf("failed to revert internal pgstream migrations: %w", err)
 	}
 
 	// delete the pgstream schema once the migration destroy has completed
@@ -174,28 +189,6 @@ func newPGConn(ctx context.Context, pgURL string) (*pgx.Conn, error) {
 		return nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}
 	return pgConn, nil
-}
-
-func newPGMigrator(pgURL string) (*migrate.Migrate, error) {
-	src := bindata.Resource(pgmigrations.AssetNames(), pgmigrations.Asset)
-	d, err := bindata.WithInstance(src)
-	if err != nil {
-		return nil, err
-	}
-
-	// Use x-migrations-table-quoted parameter to specify schema-qualified table name
-	// The value 1 means the table name should be used as-is with proper quoting
-	// This ensures the migrate library uses pgstream.schema_migrations,
-	// preventing issues when the search path is not honored by the provider
-	// URL-encode the double quotes as %22
-	var url string
-	if strings.Contains(pgURL, "?") {
-		url = pgURL + `&x-migrations-table=%22pgstream%22.%22schema_migrations%22&x-migrations-table-quoted=1`
-	} else {
-		url = pgURL + `?x-migrations-table=%22pgstream%22.%22schema_migrations%22&x-migrations-table-quoted=1`
-	}
-
-	return migrate.NewWithSourceInstance("go-bindata", d, url)
 }
 
 func isDuplicateObject(err error) bool {
