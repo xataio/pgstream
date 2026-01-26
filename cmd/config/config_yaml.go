@@ -247,8 +247,8 @@ type ModifiersConfig struct {
 }
 
 type InjectorConfig struct {
-	Enabled      bool   `mapstructure:"enabled" yaml:"enabled"`
-	SchemalogURL string `mapstructure:"schemalog_url" yaml:"schemalog_url"`
+	Enabled   bool   `mapstructure:"enabled" yaml:"enabled"`
+	SourceURL string `mapstructure:"source_url" yaml:"source_url"`
 }
 
 type FilterConfig struct {
@@ -318,7 +318,7 @@ var (
 	errInvalidTableValidationConfig            = errors.New("table level validation mode should be used when transformation validation mode is set to 'table_level'")
 	errUnsupportedSearchEngine                 = errors.New("unsupported search engine, must be one of 'opensearch' or 'elasticsearch'")
 	errUnsupportedRolesSnapshotMode            = errors.New("unsupported roles snapshot mode, must be one of 'enabled', 'disabled', or 'no_passwords'")
-	errInvalidInjectorConfig                   = errors.New("injector config can't infer schemalog url from source postgres url, schemalog_url must be provided")
+	errInvalidInjectorConfig                   = errors.New("injector config can't infer source url, must be provided")
 	errInvalidSnapshotRecorderConfig           = errors.New("snapshot recorder config requires a postgres url")
 	errInvalidSampleRatio                      = errors.New("trace sample ratio must be a value between 0.0 and 1.0")
 	errSchemaSnapshotNotConfigured             = errors.New("schema snapshot config must be provided when snapshot mode is 'full' or 'schema'")
@@ -554,7 +554,7 @@ func (c *YAMLConfig) parseInjectorConfig() (*injector.Config, error) {
 		return nil, nil
 	}
 
-	url := c.Modifiers.Injector.SchemalogURL
+	url := c.Modifiers.Injector.SourceURL
 	if url == "" {
 		if c.Source.Postgres == nil || c.Source.Postgres.URL == "" {
 			return nil, errInvalidInjectorConfig
@@ -563,9 +563,7 @@ func (c *YAMLConfig) parseInjectorConfig() (*injector.Config, error) {
 	}
 
 	return &injector.Config{
-		Store: pgschemalog.Config{
-			URL: url,
-		},
+		URL: url,
 	}, nil
 }
 
