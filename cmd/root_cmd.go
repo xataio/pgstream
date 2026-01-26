@@ -23,6 +23,8 @@ var (
 	Env     string
 )
 
+const trueStr = "true"
+
 func Prepare() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:          "pgstream",

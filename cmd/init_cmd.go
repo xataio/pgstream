@@ -106,7 +106,7 @@ func initDestroyFlagBinding(cmd *cobra.Command, _ []string) {
 	viper.BindPFlag("PGSTREAM_POSTGRES_LISTENER_URL", cmd.Flags().Lookup("postgres-url"))
 	viper.BindPFlag("PGSTREAM_POSTGRES_SNAPSHOT_LISTENER_URL", cmd.Flags().Lookup("postgres-url"))
 	viper.BindPFlag("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME", cmd.Flags().Lookup("replication-slot"))
-	if cmd.Flags().Lookup("with-injector").Value.String() == "true" {
+	if cmd.Flags().Lookup("with-injector").Value.String() == trueStr {
 		viper.BindPFlag("PGSTREAM_INJECTOR_STORE_POSTGRES_URL", cmd.Flags().Lookup("postgres-url"))
 	}
 }

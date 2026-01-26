@@ -79,7 +79,7 @@ func runFlagBinding(cmd *cobra.Command, args []string) error {
 
 	// enable metadata injection if "with-injector" flag is set
 	viper.BindPFlag("modifiers.injector.enabled", cmd.Flags().Lookup("with-injector"))
-	if cmd.Flags().Lookup("with-injector").Value.String() == "true" && viper.GetString("source.postgres.url") != "" {
+	if cmd.Flags().Lookup("with-injector").Value.String() == trueStr && viper.GetString("source.postgres.url") != "" {
 		viper.Set("PGSTREAM_INJECTOR_STORE_POSTGRES_URL", viper.GetString("source.postgres.url"))
 	}
 
