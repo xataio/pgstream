@@ -351,6 +351,33 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 			},
 		},
 		{
+			name: "insert with enum array using underscore prefix - for copy enabled",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(3), Name: "status_array", Value: "{EXAMPLE}", Type: "_ExampleEnum"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+			forCopy: true,
+
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: []string{`"id"`, `"name"`, `"status_array"`},
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\", \"status_array\") OVERRIDING SYSTEM VALUE VALUES($1, $2, $3)", quotedTestTable),
+					args:        []any{1, "alice", []string{"EXAMPLE"}},
+				},
+			},
+		},
+		{
 			name: "insert - on conflict do nothing",
 			walData: &wal.Data{
 				Action: "I",

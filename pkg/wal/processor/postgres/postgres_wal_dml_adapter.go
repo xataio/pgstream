@@ -287,7 +287,7 @@ func (a *dmlAdapter) updateValueForCopy(value any, colType string) any {
 		return getTypedTSTZRange(value)
 	}
 
-	// Handle array types - Check if column type ends with "[]" to indicate an array type
+	// Handle array types
 	// For COPY binary format, array values that come as PostgreSQL text literals (strings)
 	// need to be converted to Go slices. The pgx COPY encoder expects proper Go types,
 	// not text representations.
@@ -365,5 +365,9 @@ func getTypedTSTZRange(value any) any {
 }
 
 func isArray(colType string) bool {
-	return len(colType) > 2 && colType[len(colType)-2:] == "[]"
+	// PostgreSQL array types can be represented in two ways:
+	// 1. With [] suffix: text[], int[], etc.
+	// 2. With _ prefix: _text, _int4, _ExampleEnum, etc. (internal representation)
+	return (len(colType) > 2 && colType[len(colType)-2:] == "[]") ||
+		(len(colType) > 1 && colType[0] == '_')
 }
