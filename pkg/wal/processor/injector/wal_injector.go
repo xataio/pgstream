@@ -29,7 +29,6 @@ type Injector struct {
 	querier              pglib.Querier
 	deserializer         func([]byte, any) error
 
-	// TODO: add singleflight to prevent thundering herd problem
 	tableCache *synclib.Map[string, *wal.DDLObject]
 }
 
@@ -42,8 +41,6 @@ type Config struct {
 }
 
 type Option func(t *Injector)
-
-var ErrUseLSN = errors.New("use LSN as event version")
 
 // New will return an injector processor wrapper that will inject pgstream
 // metadata into the wal data events before passing them over to the processor
@@ -59,10 +56,9 @@ func New(ctx context.Context, cfg *Config, p processor.Processor, opts ...Option
 		logger:               loglib.NewNoopLogger(),
 		processor:            p,
 		walToDDLEventAdapter: wal.WalDataToDDLEvent,
-		// by default we look for the primary key to use as identity column
-		tableCache:   synclib.NewMap[string, *wal.DDLObject](),
-		querier:      connPool,
-		deserializer: json.Unmarshal,
+		tableCache:           synclib.NewMap[string, *wal.DDLObject](),
+		querier:              connPool,
+		deserializer:         json.Unmarshal,
 	}
 
 	for _, opt := range opts {

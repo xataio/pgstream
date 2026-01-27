@@ -18,6 +18,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor"
 )
 
+// PGSnapshotWALRestore handles restoring a pg_dump snapshot as WAL DDL events
 type PGSnapshotWALRestore struct {
 	processor processor.Processor
 	querier   pglib.Querier
