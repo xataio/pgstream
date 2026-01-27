@@ -32,6 +32,7 @@ type dmlAdapter struct {
 	logger           loglib.Logger
 	onConflictAction onConflictAction
 	forCopy          bool
+	pgTypeMap        *pgtype.Map
 }
 
 func newDMLAdapter(action string, forCopy bool, logger loglib.Logger) (*dmlAdapter, error) {
@@ -43,6 +44,7 @@ func newDMLAdapter(action string, forCopy bool, logger loglib.Logger) (*dmlAdapt
 		logger:           logger,
 		onConflictAction: oca,
 		forCopy:          forCopy,
+		pgTypeMap:        pgtype.NewMap(),
 	}, nil
 }
 
@@ -268,11 +270,41 @@ func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo) 
 		rowColumns = append(rowColumns, pglib.QuoteIdentifier(c.Name))
 		val := c.Value
 		if a.forCopy {
-			val = updateValueForCopy(val, c.Type)
+			val = a.updateValueForCopy(val, c.Type)
 		}
 		rowValues = append(rowValues, val)
 	}
 	return rowColumns, rowValues
+}
+
+func (a *dmlAdapter) updateValueForCopy(value any, colType string) any {
+	// For COPY, we might need to update the value for some data types,
+	// so that it will be able to be encoded into binary format correctly.
+	switch colType {
+	case "date", "timestamp", "timestamptz":
+		return getInfinityValueForDateTime(value, colType)
+	case "tstzrange":
+		return getTypedTSTZRange(value)
+	}
+
+	// Handle array types - Check if column type ends with "[]" to indicate an array type
+	// For COPY binary format, array values that come as PostgreSQL text literals (strings)
+	// need to be converted to Go slices. The pgx COPY encoder expects proper Go types,
+	// not text representations.
+	if isArray(colType) {
+		// If the value is a string (PostgreSQL array literal like "{val1,val2}"),
+		// we need to parse it into a Go slice for binary COPY format
+		if strVal, ok := value.(string); ok {
+			// Use pgtype to parse the array string into a slice
+			var arr pgtype.FlatArray[string]
+			if err := a.pgTypeMap.SQLScanner(&arr).Scan(strVal); err == nil {
+				return []string(arr)
+			}
+			// If parsing fails, return the original value and let pgx handle it
+		}
+	}
+
+	return value
 }
 
 func quotedTableName(schemaName, tableName string) string {
@@ -290,18 +322,6 @@ func parseOnConflictAction(action string) (onConflictAction, error) {
 	default:
 		return 0, errUnsupportedOnConflictAction
 	}
-}
-
-func updateValueForCopy(value any, colType string) any {
-	// For COPY, we might need to update the value for some data types,
-	// so that it will be able to be encoded into binary format correctly.
-	switch colType {
-	case "date", "timestamp", "timestamptz":
-		return getInfinityValueForDateTime(value, colType)
-	case "tstzrange":
-		return getTypedTSTZRange(value)
-	}
-	return value
 }
 
 func getInfinityValueForDateTime(value any, colType string) any {
@@ -342,4 +362,8 @@ func getTypedTSTZRange(value any) any {
 		UpperType: v.UpperType,
 		Valid:     v.Valid,
 	}
+}
+
+func isArray(colType string) bool {
+	return len(colType) > 2 && colType[len(colType)-2:] == "[]"
 }
