@@ -4,7 +4,7 @@ go 1.25.5
 
 require (
 	github.com/Masterminds/sprig/v3 v3.3.0
-	github.com/bytedance/sonic v1.14.2
+	github.com/bytedance/sonic v1.15.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/elastic/go-elasticsearch/v8 v8.19.1
 	github.com/eminano/greenmask v0.0.0-20250718112128-2fb5fa726c02
@@ -66,7 +66,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/OneOfOne/xxhash v1.2.8 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
-	github.com/bytedance/sonic/loader v0.4.0 // indirect
+	github.com/bytedance/sonic/loader v0.5.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
@@ -84,7 +84,7 @@ require (
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/ebitengine/purego v0.8.4 // indirect
 	github.com/elastic/elastic-transport-go/v8 v8.8.0 // indirect
-	github.com/expr-lang/expr v1.17.0 // indirect
+	github.com/expr-lang/expr v1.17.7 // indirect
 	github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
