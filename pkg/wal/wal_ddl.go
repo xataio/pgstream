@@ -74,7 +74,7 @@ func (e *DDLEvent) GetTableObjects() []DDLObject {
 	return e.GetObjectsByType("table")
 }
 
-// GetTableObjects returns only the table and table objects from the DDL event
+// GetTableColumnObjects returns only the table column objects from the DDL event
 func (e *DDLEvent) GetTableColumnObjects() []DDLObject {
 	return e.GetObjectsByType("table column")
 }
