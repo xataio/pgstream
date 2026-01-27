@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	pglib "github.com/xataio/pgstream/internal/postgres"
@@ -297,6 +298,8 @@ func updateValueForCopy(value any, colType string) any {
 	switch colType {
 	case "date", "timestamp", "timestamptz":
 		return getInfinityValueForDateTime(value, colType)
+	case "tstzrange":
+		return getTypedTSTZRange(value)
 	}
 	return value
 }
@@ -317,4 +320,26 @@ func getInfinityValueForDateTime(value any, colType string) any {
 		return pgtype.Timestamptz{Valid: true, InfinityModifier: v}
 	}
 	return value
+}
+
+func getTypedTSTZRange(value any) any {
+	v, ok := value.(pgtype.Range[any])
+	if !ok {
+		return value
+	}
+
+	lower, lowerOk := v.Lower.(time.Time)
+	upper, upperOk := v.Upper.(time.Time)
+
+	if !lowerOk || !upperOk {
+		return value
+	}
+
+	return pgtype.Range[time.Time]{
+		Lower:     lower,
+		Upper:     upper,
+		LowerType: v.LowerType,
+		UpperType: v.UpperType,
+		Valid:     v.Valid,
+	}
 }
