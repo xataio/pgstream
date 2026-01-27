@@ -88,6 +88,14 @@ func (e *ErrCacheLookupFailed) Error() string {
 	return fmt.Sprintf("cache lookup failed: %s", e.Details)
 }
 
+type ErrProgramLimitExceeded struct {
+	Details string
+}
+
+func (e *ErrProgramLimitExceeded) Error() string {
+	return fmt.Sprintf("program limit exceeded: %s", e.Details)
+}
+
 func MapError(err error) error {
 	if pgconn.Timeout(err) {
 		return fmt.Errorf("%w: %w", ErrConnTimeout, err)
@@ -164,6 +172,13 @@ func MapError(err error) error {
 		// Class 23 — Integrity Constraint Violation
 		if strings.HasPrefix(pgErr.Code, "23") {
 			return &ErrConstraintViolation{
+				Details: pgErr.Message,
+			}
+		}
+
+		// Class 54 — Program Limit Exceeded
+		if strings.HasPrefix(pgErr.Code, "54") {
+			return &ErrProgramLimitExceeded{
 				Details: pgErr.Message,
 			}
 		}
