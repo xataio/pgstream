@@ -240,6 +240,14 @@ func TestMapError(t *testing.T) {
 			},
 			wantErr: &ErrConstraintViolation{},
 		},
+		{
+			name: "54000 program_limit_exceeded",
+			err: &pgconn.PgError{
+				Code:    "54000",
+				Message: "number of array dimensions (2068142145) exceeds the maximum allowed (6)",
+			},
+			wantErr: &ErrProgramLimitExceeded{},
+		},
 	}
 
 	for _, tt := range tests {
