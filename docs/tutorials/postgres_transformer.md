@@ -111,7 +111,6 @@ The processor configuration will be the same as the one in the PostgreSQL to Pos
 PGSTREAM_POSTGRES_WRITER_TARGET_URL="postgres://postgres:postgres@localhost:7654?sslmode=disable"
 PGSTREAM_POSTGRES_WRITER_BATCH_SIZE=25
 PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT=5s
-PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 ```
 
 In addition to the processor configuration above, we will add the transformer processor wrapper which will apply the column transformations. The only configuration required is the path to the transformer rules.
@@ -156,7 +155,6 @@ PGSTREAM_TRANSFORMER_RULES_FILE="tutorial_transformer_rules.yaml"
 PGSTREAM_POSTGRES_WRITER_TARGET_URL="postgres://postgres:postgres@localhost:7654?sslmode=disable"
 PGSTREAM_POSTGRES_WRITER_BATCH_SIZE=25
 PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT=5s
-PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 ```
 
 ```yaml
@@ -211,7 +209,6 @@ PGSTREAM_TRANSFORMER_RULES_FILE="tutorial_transformer_rules.yaml"
 PGSTREAM_POSTGRES_WRITER_TARGET_URL="postgres://postgres:postgres@localhost:7654?sslmode=disable"
 PGSTREAM_POSTGRES_WRITER_BATCH_SIZE=25
 PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT=5s
-PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 ```
 
 ```yaml
@@ -228,7 +225,6 @@ source:
         repeatable_snapshots: true # whether to repeat snapshots that have already been taken
         postgres_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the database where the snapshot status is recorded
       schema: # when mode is full or schema
-        mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
         pgdump_pgrestore:
           clean_target_db: false # whether to clean the target database before restoring
 
@@ -276,7 +272,6 @@ We can validate that the initialisation and the configuration are valid by runni
 SUCCESS  pgstream status check encountered no issues
 Initialisation status:
  - Pgstream schema exists: true
- - Pgstream schema_log table exists: true
  - Migration current version: 7
  - Migration status: success
  - Replication slot name: pgstream_tutorial_slot
