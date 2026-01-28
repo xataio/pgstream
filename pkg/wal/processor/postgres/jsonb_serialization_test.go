@@ -78,7 +78,9 @@ func TestFilterRowColumnsJSONBArrayHandling(t *testing.T) {
 	var parsed []any
 	require.NoError(t, json.Unmarshal(jsonbResult, &parsed))
 	require.Len(t, parsed, 2)
-	require.Equal(t, "🎉", parsed[0].(map[string]any)["emoji"])
+	emoji, ok := parsed[0].(map[string]any)["emoji"]
+	require.True(t, ok, "first array item should have emoji field")
+	require.Equal(t, "🎉", emoji)
 }
 
 func TestBuildWhereQueryJSONBHandling(t *testing.T) {
