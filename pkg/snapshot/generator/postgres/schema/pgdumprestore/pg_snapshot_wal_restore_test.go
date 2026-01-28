@@ -105,8 +105,9 @@ SELECT * FROM users;`),
 			processor: &mocks.Processor{
 				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error { return errTest },
 			},
-			querier: newNoTableQuerier(),
-			wantErr: errTest,
+			querier:             newNoTableQuerier(),
+			wantProcessedEvents: 1,
+			wantErr:             errTest,
 		},
 		{
 			name: "ok - various DDL types",
@@ -139,6 +140,140 @@ GRANT SELECT ON public.users TO readonly;`),
 			wantProcessedEvents: 0,
 			wantErr:             nil,
 		},
+		{
+			name: "ok - function with dollar-quoted body containing semicolons",
+			dump: []byte(`CREATE FUNCTION foo() RETURNS void AS $$
+BEGIN
+    SELECT 1;
+    INSERT INTO test VALUES (2);
+    UPDATE test SET val = 3;
+END;
+$$ LANGUAGE plpgsql;`),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					require.NotNil(t, walEvent)
+					require.NotNil(t, walEvent.Data)
+					require.Equal(t, wal.LogicalMessageAction, walEvent.Data.Action)
+
+					var ddlEvent wal.DDLEvent
+					err := jsonlib.Unmarshal([]byte(walEvent.Data.Content), &ddlEvent)
+					require.NoError(t, err)
+					require.Equal(t, "CREATE FUNCTION", ddlEvent.CommandTag)
+
+					// Verify the complete DDL statement is preserved
+					expectedDDL := `CREATE FUNCTION foo() RETURNS void AS $$
+BEGIN
+    SELECT 1;
+    INSERT INTO test VALUES (2);
+    UPDATE test SET val = 3;
+END;
+$$ LANGUAGE plpgsql;`
+					require.Equal(t, expectedDDL, ddlEvent.DDL)
+					return nil
+				},
+			},
+			querier:             newNoTableQuerier(),
+			wantProcessedEvents: 1, // Should be treated as one complete statement
+			wantErr:             nil,
+		},
+		{
+			name: "ok - function with tagged dollar quotes",
+			dump: []byte(`CREATE FUNCTION bar() RETURNS text AS $body$
+BEGIN
+    RETURN 'test;semicolon';
+END;
+$body$ LANGUAGE plpgsql;`),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					require.NotNil(t, walEvent)
+					var ddlEvent wal.DDLEvent
+					err := jsonlib.Unmarshal([]byte(walEvent.Data.Content), &ddlEvent)
+					require.NoError(t, err)
+					require.Equal(t, "CREATE FUNCTION", ddlEvent.CommandTag)
+
+					expectedDDL := `CREATE FUNCTION bar() RETURNS text AS $body$
+BEGIN
+    RETURN 'test;semicolon';
+END;
+$body$ LANGUAGE plpgsql;`
+					require.Equal(t, expectedDDL, ddlEvent.DDL)
+					return nil
+				},
+			},
+			querier:             newNoTableQuerier(),
+			wantProcessedEvents: 1,
+			wantErr:             nil,
+		},
+		{
+			name: "ok - multiple functions with dollar quotes",
+			dump: []byte(`CREATE FUNCTION func1() RETURNS void AS $$
+BEGIN
+    SELECT 1;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION func2() RETURNS void AS $func$
+BEGIN
+    SELECT 2;
+    DELETE FROM test;
+END;
+$func$ LANGUAGE plpgsql;`),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					var ddlEvent wal.DDLEvent
+					err := jsonlib.Unmarshal([]byte(walEvent.Data.Content), &ddlEvent)
+					require.NoError(t, err)
+					require.Equal(t, "CREATE FUNCTION", ddlEvent.CommandTag)
+
+					// Verify we get complete function definitions
+					expectedDDL1 := `CREATE FUNCTION func1() RETURNS void AS $$
+BEGIN
+    SELECT 1;
+END;
+$$ LANGUAGE plpgsql;`
+					expectedDDL2 := `CREATE FUNCTION func2() RETURNS void AS $func$
+BEGIN
+    SELECT 2;
+    DELETE FROM test;
+END;
+$func$ LANGUAGE plpgsql;`
+
+					require.True(t, ddlEvent.DDL == expectedDDL1 || ddlEvent.DDL == expectedDDL2,
+						"expected one of the two function definitions, got: %s", ddlEvent.DDL)
+					return nil
+				},
+			},
+			querier:             newNoTableQuerier(),
+			wantProcessedEvents: 2, // Two separate function definitions
+			wantErr:             nil,
+		},
+		{
+			name: "ok - function with nested dollar quotes",
+			dump: []byte(`CREATE FUNCTION create_func() RETURNS void AS $outer$
+BEGIN
+    EXECUTE 'CREATE FUNCTION inner() RETURNS void AS $inner$ BEGIN SELECT 1; END; $inner$ LANGUAGE plpgsql';
+END;
+$outer$ LANGUAGE plpgsql;`),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					var ddlEvent wal.DDLEvent
+					err := jsonlib.Unmarshal([]byte(walEvent.Data.Content), &ddlEvent)
+					require.NoError(t, err)
+					require.Equal(t, "CREATE FUNCTION", ddlEvent.CommandTag)
+
+					expectedDDL := `CREATE FUNCTION create_func() RETURNS void AS $outer$
+BEGIN
+    EXECUTE 'CREATE FUNCTION inner() RETURNS void AS $inner$ BEGIN SELECT 1; END; $inner$ LANGUAGE plpgsql';
+END;
+$outer$ LANGUAGE plpgsql;`
+					require.Equal(t, expectedDDL, ddlEvent.DDL)
+					return nil
+				},
+			},
+			querier:             newNoTableQuerier(),
+			wantProcessedEvents: 1,
+			wantErr:             nil,
+		},
 	}
 
 	for _, tc := range tests {
@@ -148,14 +283,8 @@ GRANT SELECT ON public.users TO readonly;`),
 			restore := newPGSnapshotWALRestore(tc.processor, tc.querier)
 
 			_, err := restore.restoreToWAL(context.Background(), pglib.PGRestoreOptions{}, tc.dump)
-
-			if tc.wantErr != nil {
-				require.Error(t, err)
-				require.ErrorIs(t, err, tc.wantErr)
-			} else {
-				require.NoError(t, err)
-				require.Equal(t, uint(tc.wantProcessedEvents), tc.processor.GetProcessCalls())
-			}
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, uint(tc.wantProcessedEvents), tc.processor.GetProcessCalls())
 		})
 	}
 }

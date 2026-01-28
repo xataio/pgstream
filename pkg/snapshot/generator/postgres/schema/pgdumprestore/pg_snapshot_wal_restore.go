@@ -79,6 +79,8 @@ func (r *PGSnapshotWALRestore) restoreToWAL(ctx context.Context, _ pglib.PGResto
 	scanner.Split(bufio.ScanLines)
 
 	var currentStatement strings.Builder
+	var inDollarQuote bool
+	var dollarQuoteTag string
 	timestamp := time.Now().UTC().Format(time.RFC3339)
 
 	for scanner.Scan() {
@@ -98,9 +100,12 @@ func (r *PGSnapshotWALRestore) restoreToWAL(ctx context.Context, _ pglib.PGResto
 		}
 		currentStatement.WriteString(line)
 
-		// Check if the statement is complete (ends with semicolon)
+		// Track dollar-quoted strings
+		inDollarQuote, dollarQuoteTag = updateDollarQuoteState(line, inDollarQuote, dollarQuoteTag)
+
+		// Check if the statement is complete (ends with semicolon outside of dollar quotes)
 		trimmedLine := strings.TrimSpace(line)
-		if strings.HasSuffix(trimmedLine, ";") {
+		if !inDollarQuote && strings.HasSuffix(trimmedLine, ";") {
 			statement := currentStatement.String()
 			trimmedStatement := strings.TrimSpace(statement)
 
@@ -121,6 +126,29 @@ func (r *PGSnapshotWALRestore) restoreToWAL(ctx context.Context, _ pglib.PGResto
 	}
 
 	return "", nil
+}
+
+// updateDollarQuoteState tracks whether we're inside a dollar-quoted string
+// and returns the updated state and the current dollar quote tag
+func updateDollarQuoteState(line string, inDollarQuote bool, currentTag string) (bool, string) {
+	// Find all dollar quote markers in the line (e.g., $$, $tag$, $body$, etc.)
+	dollarQuoteRegex := regexp.MustCompile(`\$[^$]*\$`)
+	matches := dollarQuoteRegex.FindAllString(line, -1)
+
+	for _, match := range matches {
+		if !inDollarQuote {
+			// We're entering a dollar-quoted string
+			inDollarQuote = true
+			currentTag = match
+		} else if match == currentTag {
+			// We're exiting the dollar-quoted string (found matching closing tag)
+			inDollarQuote = false
+			currentTag = ""
+		}
+		// If we're in a dollar quote but this match doesn't match our tag, ignore it
+	}
+
+	return inDollarQuote, currentTag
 }
 
 // processDDLStatement creates a WAL event for a DDL statement and processes it
