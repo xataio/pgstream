@@ -28,4 +28,4 @@ target:
 modifiers:
   injector:
     enabled: true # whether to inject pgstream metadata into the WAL events
-    schemalog_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the schemalog database, if different from the source database
+    source_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # required when not using a postgres source

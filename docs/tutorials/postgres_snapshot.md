@@ -42,9 +42,7 @@ This will start two PostgreSQL databases on ports `5432` and `7654`.
 
 ## Database initialisation
 
-Normally we need to initialise pgstream on the source database. The initialisation step creates the `pgstream` schema in the configured Postgres database, along with the tables/functions/triggers required to keep track of the schema changes. It also creates the replication slot. However, this is only required if we're going to be using the replication slot or relying on the schema log. If we're using a PostgreSQL target for the snapshot, pgstream supports using `pg_dump`/`pg_restore` for the schema snapshot, which removes the need to keep any pgstream state in the source PostgreSQL database.
-
-If the target is not PostgreSQL, we'd need to initialise pgstream like we do normally, since it relies on the `pgstream.schema_log` table to provide a view of the schema for now. For more details on how to initialise pgstream in those cases, check out the [database initialisation](postgres_to_postgres.md#database-initialisation) section on one of the replication tutorials.
+Normally we need to initialise pgstream on the source database. The initialisation step creates the `pgstream` schema in the configured Postgres database, along with the tables/functions/triggers required for DDL tracking. It also creates the replication slot. However, this is only required if we're going to be using the replication slot. If we're using a PostgreSQL target for the snapshot, pgstream supports using `pg_dump`/`pg_restore` for the schema snapshot, which removes the need to keep any pgstream state in the source PostgreSQL database.
 
 ## Prepare `pgstream` configuration
 
@@ -121,8 +119,6 @@ PGSTREAM_POSTGRES_WRITER_BATCH_SIZE=25
 PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT=5s
 ```
 
-Since in this case there's no need to keep track of DDL changes, we don't need to set the schema log store variable (`PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL`).
-
 The full configuration for this tutorial can be put into a `snapshot2pg_tutorial.env` file to be used in the next step. An equivalent `snapshot2pg_tutorial.yaml` configuration can be found below the environment one, and can be used interchangeably.
 
 ```sh
@@ -160,7 +156,6 @@ source:
         table_workers: 4 # number of workers to snapshot a table in parallel
         batch_bytes: 83886080 # bytes to read per batch (defaults to 80MiB)
       schema: # when mode is full or schema
-        mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
         pgdump_pgrestore:
           clean_target_db: false # whether to clean the target database before restoring
 
@@ -284,7 +279,6 @@ Here are some common issues you might encounter while following this tutorial an
 
 - **Cause:** The snapshot process did not complete successfully or the target database URL is incorrect.
 - **Solution:**
-
   - Verify the target database URL in the configuration file.
   - Check the pgstream logs to confirm the snapshot process completed without errors.
   - Check the `pgstream.snapshot_requests` table for error details:
