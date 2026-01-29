@@ -353,10 +353,13 @@ func getTypedTSTZRange(value any) any {
 	}
 
 	lower, lowerOk := v.Lower.(time.Time)
-	upper, upperOk := v.Upper.(time.Time)
+	if !lowerOk {
+		lower = time.Time{}
+	}
 
-	if !lowerOk || !upperOk {
-		return value
+	upper, upperOk := v.Upper.(time.Time)
+	if !upperOk {
+		upper = time.Time{}
 	}
 
 	return pgtype.Range[time.Time]{
