@@ -747,18 +747,15 @@ func TestAdapter_parseIDColumns(t *testing.T) {
 	}
 }
 
-func TestAdapter_parseIDColumns_withHasher(t *testing.T) {
+func TestAdapter_IDHashing(t *testing.T) {
 	t.Parallel()
 
-	a := &adapter{
-		mapper:   &searchmocks.Mapper{MapColumnValueFn: func(schemalog.Column, any) (any, error) { return nil, nil }},
-		idHasher: func(id string) string { return "hashed_" + id },
-	}
+	a := &adapter{idHasher: func(id string) string { return "hashed_" + id }}
 	doc := &Document{Data: make(map[string]any)}
-	err := a.parseIDColumns("t1", []wal.Column{{Value: "id1"}}, doc)
+	err := a.parseIDColumns("tbl", []wal.Column{{Value: "myid"}}, doc)
 
 	require.NoError(t, err)
-	require.Equal(t, "t1_hashed_id1", doc.ID)
+	require.Equal(t, "tbl_hashed_myid", doc.ID)
 }
 
 func TestAdapter_parseVersionColumn(t *testing.T) {
