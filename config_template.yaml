@@ -95,6 +95,7 @@ target:
   search:
     engine: "elasticsearch" # options are elasticsearch or opensearch
     url: "http://localhost:9200" # URL of the search engine
+    hash_doc_ids: false # if true, hash document IDs using SHA256 to avoid exceeding the 512 byte limit
     batch:
       timeout: 1000 # batch timeout in milliseconds. Defaults to 1s
       size: 100 # number of messages in a batch. Defaults to 100

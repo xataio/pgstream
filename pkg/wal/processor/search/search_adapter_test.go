@@ -145,7 +145,7 @@ func TestAdapter_walEventToMsg(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			a := newAdapter(noopMapper, testLSNParser)
+			a := newAdapter(noopMapper, testLSNParser, nil)
 
 			if tc.marshaler != nil {
 				a.marshaler = tc.marshaler
@@ -222,7 +222,7 @@ func TestAdapter_walDataToLogEntry(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			a := newAdapter(&searchmocks.Mapper{}, &replicationmocks.LSNParser{})
+			a := newAdapter(&searchmocks.Mapper{}, &replicationmocks.LSNParser{}, nil)
 			if tc.marshaler != nil {
 				a.marshaler = tc.marshaler
 			}
@@ -407,7 +407,7 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			a := newAdapter(tc.mapper, testLSNParser)
+			a := newAdapter(tc.mapper, testLSNParser, nil)
 			doc, err := a.walDataToDocument(tc.data)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantDoc, doc)
@@ -599,7 +599,7 @@ func TestAdapter_parseColumns(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			a := newAdapter(tc.mapper, testLSNParser)
+			a := newAdapter(tc.mapper, testLSNParser, nil)
 			if tc.parser != nil {
 				a.lsnParser = tc.parser
 			}
@@ -745,6 +745,20 @@ func TestAdapter_parseIDColumns(t *testing.T) {
 			require.Equal(t, tc.wantDoc, doc)
 		})
 	}
+}
+
+func TestAdapter_parseIDColumns_withHasher(t *testing.T) {
+	t.Parallel()
+
+	a := &adapter{
+		mapper:   &searchmocks.Mapper{MapColumnValueFn: func(schemalog.Column, any) (any, error) { return nil, nil }},
+		idHasher: func(id string) string { return "hashed_" + id },
+	}
+	doc := &Document{Data: make(map[string]any)}
+	err := a.parseIDColumns("t1", []wal.Column{{Value: "id1"}}, doc)
+
+	require.NoError(t, err)
+	require.Equal(t, "t1_hashed_id1", doc.ID)
 }
 
 func TestAdapter_parseVersionColumn(t *testing.T) {

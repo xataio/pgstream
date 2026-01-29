@@ -122,6 +122,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_SEARCH_STORE_BACKOFF_INTERVAL")
 	viper.BindEnv("PGSTREAM_SEARCH_STORE_BACKOFF_MAX_RETRIES")
 	viper.BindEnv("PGSTREAM_SEARCH_STORE_DISABLE_RETRIES")
+	viper.BindEnv("PGSTREAM_SEARCH_INDEXER_HASH_DOC_IDS")
 
 	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_URL")
 	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_ENABLED")
@@ -423,6 +424,7 @@ func parseSearchProcessorConfig() *stream.SearchProcessorConfig {
 				MaxBatchBytes:    viper.GetInt64("PGSTREAM_SEARCH_INDEXER_BATCH_BYTES"),
 				IgnoreSendErrors: viper.GetBool("PGSTREAM_SEARCH_INDEXER_BATCH_IGNORE_SEND_ERRORS"),
 			},
+			HashDocIDs: viper.GetBool("PGSTREAM_SEARCH_INDEXER_HASH_DOC_IDS"),
 		},
 		Store: store.Config{
 			OpenSearchURL:    opensearchStore,
