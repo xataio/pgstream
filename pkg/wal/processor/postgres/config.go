@@ -6,14 +6,12 @@ import (
 	"time"
 
 	"github.com/xataio/pgstream/pkg/backoff"
-	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 )
 
 type Config struct {
 	URL               string
 	BatchConfig       batch.Config
-	SchemaLogStore    schemalogpg.Config
 	DisableTriggers   bool
 	OnConflictAction  string
 	BulkIngestEnabled bool

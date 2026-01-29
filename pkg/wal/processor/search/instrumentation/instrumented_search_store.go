@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/xataio/pgstream/pkg/otel"
-	"github.com/xataio/pgstream/pkg/schemalog"
+	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -45,13 +45,13 @@ func NewStore(inner search.Store, instrumentation *otel.Instrumentation) (search
 	return s, nil
 }
 
-func (s *SearchStore) ApplySchemaChange(ctx context.Context, logEntry *schemalog.LogEntry) (err error) {
-	ctx, span := otel.StartSpan(ctx, s.tracer, "searchstore.ApplySchemaChange", trace.WithAttributes(
-		attribute.String("schemaName", logEntry.SchemaName),
+func (s *SearchStore) ApplySchemaDiff(ctx context.Context, diff *wal.SchemaDiff) (err error) {
+	ctx, span := otel.StartSpan(ctx, s.tracer, "searchstore.ApplySchemaDiff", trace.WithAttributes(
+		attribute.String("schemaName", diff.SchemaName),
 	))
 	defer otel.CloseSpan(span, err)
 
-	return s.inner.ApplySchemaChange(ctx, logEntry)
+	return s.inner.ApplySchemaDiff(ctx, diff)
 }
 
 func (s *SearchStore) DeleteSchema(ctx context.Context, schemaName string) (err error) {

@@ -185,6 +185,7 @@ services:
       - discovery.type=single-node
       - bootstrap.memory_lock=true # along with the memlock settings below, disables swapping
       - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - "OPENSEARCH_INITIAL_ADMIN_PASSWORD=StrongAdmin123!"
       - "plugins.security.ssl.http.enabled=false"
     ports:
       - 9200:9200 # REST API

@@ -47,6 +47,7 @@
 - [Documentation](#documentation)
 - [Benchmarks](#benchmarks)
 - [Limitations](#limitations)
+- [Releases](#releases)
 - [Contributing](#contributing)
 - [License](#license)
 - [Support](#support)
@@ -240,6 +241,12 @@ Some of the limitations of the initial release include:
 - No row level filtering support
 - Primary key/unique not null column required for replication
 - Kafka serialisation support limited to JSON
+
+## Releases
+
+You can find below the release notes for major pgstream versions, along with migration guides whenever relevant:
+
+- [v1.0.0](docs/release/RELEASE_NOTES_v1.md)
 
 ## Contributing
 

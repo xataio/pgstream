@@ -9,10 +9,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/xataio/pgstream/internal/json"
 	"github.com/xataio/pgstream/pkg/kafka"
 	kafkamocks "github.com/xataio/pgstream/pkg/kafka/mocks"
 	loglib "github.com/xataio/pgstream/pkg/log"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
@@ -41,16 +41,39 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 		CommitPosition: wal.CommitPosition(testLSNStr),
 	}
 
+	testDDLEvent := &wal.DDLEvent{
+		DDL:        "CREATE TABLE test_schema.test_table (col-1 text PRIMARY KEY, col-2 integer);",
+		SchemaName: testSchema,
+		CommandTag: "CREATE TABLE",
+		Objects: []wal.DDLObject{
+			{
+				Type:     "table",
+				Identity: "test_schema.test_table",
+				Schema:   "test_schema",
+				OID:      "123456",
+				Columns: []wal.DDLColumn{
+					{Attnum: 1, Name: "col-1", Type: "text", Nullable: false, Generated: false, Unique: true},
+					{Attnum: 2, Name: "col-2", Type: "integer", Nullable: true, Generated: false, Unique: false},
+				},
+				PrimaryKeyColumns: []string{"col-1"},
+			},
+		},
+	}
+
+	ddlContentBytes, err := json.Marshal(testDDLEvent)
+	require.NoError(t, err)
+
 	testCommitPosition := wal.CommitPosition(testLSNStr)
 
 	testBytes := []byte("test")
 	mockMarshaler := func(any) ([]byte, error) { return testBytes, nil }
 
 	tests := []struct {
-		name            string
-		walEvent        *wal.Event
-		eventSerialiser func(any) ([]byte, error)
-		batchSender     *batchmocks.BatchSender[kafka.Message]
+		name              string
+		walEvent          *wal.Event
+		eventSerialiser   func(any) ([]byte, error)
+		batchSender       *batchmocks.BatchSender[kafka.Message]
+		walDataToDDLEvent func(*wal.Data) (*wal.DDLEvent, error)
 
 		wantMsgs []*batch.WALMessage[kafka.Message]
 		wantErr  error
@@ -81,16 +104,13 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "ok - pgstream schema event",
+			name: "ok - pgstream DDL event",
 			walEvent: &wal.Event{
 				Data: &wal.Data{
-					Action: "I",
-					LSN:    testLSNStr,
-					Schema: schemalog.SchemaName,
-					Table:  schemalog.TableName,
-					Columns: []wal.Column{
-						{Name: "schema_name", Value: testSchema},
-					},
+					Action:  wal.LogicalMessageAction,
+					Prefix:  wal.DDLPrefix,
+					LSN:     testLSNStr,
+					Content: string(ddlContentBytes),
 				},
 				CommitPosition: testCommitPosition,
 			},
@@ -123,39 +143,28 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 			wantErr:  errTest,
 		},
 		{
-			name: "panic recovery - invalid schema value type",
+			name: "error - parsing DDL event",
 			walEvent: &wal.Event{
 				Data: &wal.Data{
-					Action: "I",
-					LSN:    testLSNStr,
-					Schema: schemalog.SchemaName,
-					Table:  schemalog.TableName,
-					Columns: []wal.Column{
-						{Name: "schema_name", Value: 1},
-					},
+					Action:  wal.LogicalMessageAction,
+					Prefix:  wal.DDLPrefix,
+					LSN:     testLSNStr,
+					Content: string(ddlContentBytes),
 				},
 				CommitPosition: testCommitPosition,
 			},
 			batchSender: batchmocks.NewBatchSender[kafka.Message](),
-
-			wantMsgs: []*batch.WALMessage[kafka.Message]{},
-			wantErr:  errors.New("kafka batch writer: understanding event: schema_log schema_name received is not a string: int"),
-		},
-		{
-			name: "panic recovery - schema_name not found",
-			walEvent: &wal.Event{
-				Data: &wal.Data{
-					Action: "I",
-					LSN:    testLSNStr,
-					Schema: schemalog.SchemaName,
-					Table:  schemalog.TableName,
-				},
-				CommitPosition: testCommitPosition,
+			walDataToDDLEvent: func(*wal.Data) (*wal.DDLEvent, error) {
+				return nil, errTest
 			},
-			batchSender: batchmocks.NewBatchSender[kafka.Message](),
 
-			wantMsgs: []*batch.WALMessage[kafka.Message]{},
-			wantErr:  errors.New("kafka batch writer: understanding event: schema_log schema_name not found in columns"),
+			wantMsgs: []*batch.WALMessage[kafka.Message]{
+				batch.NewWALMessage(kafka.Message{
+					Key:   []byte(""),
+					Value: testBytes,
+				}, testCommitPosition),
+			},
+			wantErr: nil,
 		},
 	}
 
@@ -164,10 +173,15 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 			t.Parallel()
 
 			writer := &BatchWriter{
-				logger:        loglib.NewNoopLogger(),
-				maxBatchBytes: 100,
-				serialiser:    mockMarshaler,
-				batchSender:   tc.batchSender,
+				logger:            loglib.NewNoopLogger(),
+				maxBatchBytes:     100,
+				serialiser:        mockMarshaler,
+				batchSender:       tc.batchSender,
+				walDataToDDLEvent: wal.WalDataToDDLEvent,
+			}
+
+			if tc.walDataToDDLEvent != nil {
+				writer.walDataToDDLEvent = tc.walDataToDDLEvent
 			}
 
 			if tc.eventSerialiser != nil {

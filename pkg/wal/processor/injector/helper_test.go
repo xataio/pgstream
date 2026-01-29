@@ -3,12 +3,10 @@
 package injector
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
-	"github.com/rs/xid"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
@@ -18,46 +16,38 @@ const (
 	testTableID    = "t1"
 )
 
-var (
-	testSchemaID = xid.New()
-	errTest      = errors.New("oh noes")
-	now          = time.Now()
-)
+var errTest = errors.New("oh noes")
 
-func newTestLogEntry() *schemalog.LogEntry {
-	return &schemalog.LogEntry{
-		ID:         testSchemaID,
-		Version:    0,
-		SchemaName: testSchemaName,
-		CreatedAt:  schemalog.NewSchemaCreatedAtTimestamp(now),
-		Schema: schemalog.Schema{
-			Tables: []schemalog.Table{
-				{
-					Name:       testTableName,
-					PgstreamID: testTableID,
-					Columns: []schemalog.Column{
-						{Name: "col-1", DataType: "text", PgstreamID: fmt.Sprintf("%s_col-1", testTableID), Unique: true},
-						{Name: "col-2", DataType: "integer", PgstreamID: fmt.Sprintf("%s_col-2", testTableID)},
-					},
-					PrimaryKeyColumns: []string{"col-1"},
-				},
-			},
+func newTestWALDDLEvent() *wal.Event {
+	testDDLEvent := newTestDDLEvent()
+	testDDLEventJSON, _ := json.Marshal(testDDLEvent)
+
+	return &wal.Event{
+		Data: &wal.Data{
+			Action:  wal.LogicalMessageAction,
+			Prefix:  wal.DDLPrefix,
+			Content: string(testDDLEventJSON),
 		},
 	}
 }
 
-func newTestSchemaChangeEvent(action string) *wal.Event {
-	nowStr := now.Format("2006-01-02 15:04:05")
-	return &wal.Event{
-		Data: &wal.Data{
-			Action: action,
-			Schema: schemalog.SchemaName,
-			Table:  schemalog.TableName,
-			Columns: []wal.Column{
-				{ID: "id", Name: "id", Type: "text", Value: testSchemaID.String()},
-				{ID: "version", Name: "version", Type: "integer", Value: 0},
-				{ID: "schema_name", Name: "schema_name", Type: "text", Value: testSchemaName},
-				{ID: "created_at", Name: "created_at", Type: "timestamp", Value: nowStr},
+func newTestDDLEvent() *wal.DDLEvent {
+	return &wal.DDLEvent{
+		DDL:        "CREATE TABLE test_schema.test_table (col-1 text PRIMARY KEY, col-2 integer);",
+		SchemaName: testSchemaName,
+		CommandTag: "CREATE TABLE",
+		Objects: []wal.DDLObject{
+			{
+				Type:       "table",
+				Identity:   "test_schema.test_table",
+				Schema:     "test_schema",
+				OID:        "123456",
+				PgstreamID: testTableID,
+				Columns: []wal.DDLColumn{
+					{Attnum: 1, Name: "col-1", Type: "text", Nullable: false, Generated: false, Unique: true},
+					{Attnum: 2, Name: "col-2", Type: "integer", Nullable: true, Generated: false, Unique: false},
+				},
+				PrimaryKeyColumns: []string{"col-1"},
 			},
 		},
 	}
@@ -88,14 +78,68 @@ func newTestDataEvent(action string) *wal.Event {
 func newTestDataEventWithMetadata(action string) *wal.Event {
 	d := newTestDataEvent(action)
 	d.Data.Columns = []wal.Column{
-		{ID: fmt.Sprintf("%s_col-1", testTableID), Name: "col-1", Type: "text", Value: "id-1"},
-		{ID: fmt.Sprintf("%s_col-2", testTableID), Name: "col-2", Type: "integer", Value: int64(0)},
+		{ID: fmt.Sprintf("%s-1", testTableID), Name: "col-1", Type: "text", Value: "id-1"},
+		{ID: fmt.Sprintf("%s-2", testTableID), Name: "col-2", Type: "integer", Value: int64(0)},
 	}
 	d.Data.Metadata = wal.Metadata{
-		SchemaID:           testSchemaID,
-		TablePgstreamID:    testTableID,
-		InternalColIDs:     []string{fmt.Sprintf("%s_col-1", testTableID)},
-		InternalColVersion: fmt.Sprintf("%s_col-2", testTableID),
+		TablePgstreamID: testTableID,
+		InternalColIDs:  []string{fmt.Sprintf("%s-1", testTableID)},
 	}
 	return d
+}
+
+func newTestTableObject() *wal.DDLObject {
+	return &wal.DDLObject{
+		Type:       "table",
+		Identity:   fmt.Sprintf("%s.%s", testSchemaName, testTableName),
+		Schema:     testSchemaName,
+		OID:        "123456",
+		PgstreamID: testTableID,
+		Columns: []wal.DDLColumn{
+			{Attnum: 1, Name: "col-1", Type: "text", Nullable: false, Generated: false, Unique: true},
+			{Attnum: 2, Name: "col-2", Type: "integer", Nullable: true, Generated: false, Unique: false},
+		},
+		PrimaryKeyColumns: []string{"col-1"},
+	}
+}
+
+func newTestTableObjectNoPK() *wal.DDLObject {
+	return &wal.DDLObject{
+		Type:       "table",
+		Identity:   fmt.Sprintf("%s.%s", testSchemaName, testTableName),
+		Schema:     testSchemaName,
+		OID:        "123456",
+		PgstreamID: testTableID,
+		Columns: []wal.DDLColumn{
+			{Attnum: 1, Name: "col-1", Type: "text", Nullable: false, Generated: false, Unique: false},
+			{Attnum: 2, Name: "col-2", Type: "integer", Nullable: true, Generated: false, Unique: false},
+		},
+		PrimaryKeyColumns: []string{},
+	}
+}
+
+func newTestWALDDLDropEvent() *wal.Event {
+	testDDLEvent := &wal.DDLEvent{
+		DDL:        "DROP TABLE test_schema.test_table;",
+		SchemaName: testSchemaName,
+		CommandTag: "DROP TABLE",
+		Objects: []wal.DDLObject{
+			{
+				Type:       "table",
+				Identity:   "test_schema.test_table",
+				Schema:     "test_schema",
+				OID:        "123456",
+				PgstreamID: testTableID,
+			},
+		},
+	}
+	testDDLEventJSON, _ := json.Marshal(testDDLEvent)
+
+	return &wal.Event{
+		Data: &wal.Data{
+			Action:  wal.LogicalMessageAction,
+			Prefix:  wal.DDLPrefix,
+			Content: string(testDDLEventJSON),
+		},
+	}
 }

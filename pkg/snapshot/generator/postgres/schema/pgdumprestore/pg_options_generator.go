@@ -21,7 +21,7 @@ type optionGenerator struct {
 	rolesSnapshotMode      string
 	noOwner                bool
 	noPrivileges           bool
-	connBuilder            pglib.QuerierBuilder
+	querier                pglib.Querier
 }
 
 const (
@@ -29,7 +29,7 @@ const (
 	roleSnapshotNoPasswords = "no_passwords"
 )
 
-func newOptionGenerator(connBuilder pglib.QuerierBuilder, cfg *Config) *optionGenerator {
+func newOptionGenerator(querier pglib.Querier, cfg *Config) *optionGenerator {
 	return &optionGenerator{
 		sourceURL:              cfg.SourcePGURL,
 		targetURL:              cfg.TargetPGURL,
@@ -40,7 +40,7 @@ func newOptionGenerator(connBuilder pglib.QuerierBuilder, cfg *Config) *optionGe
 		rolesSnapshotMode:      cfg.RolesSnapshotMode,
 		noOwner:                cfg.NoOwner,
 		noPrivileges:           cfg.NoPrivileges,
-		connBuilder:            connBuilder,
+		querier:                querier,
 	}
 }
 
@@ -153,12 +153,6 @@ const (
 )
 
 func (o *optionGenerator) pgdumpExcludedTables(ctx context.Context, schemaName string, includeTables []string) ([]string, error) {
-	conn, err := o.connBuilder(ctx, o.sourceURL)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close(ctx)
-
 	paramRefs := make([]string, 0, len(includeTables))
 	tableParams := make([]any, 0, len(includeTables))
 	for i, table := range includeTables {
@@ -176,7 +170,7 @@ func (o *optionGenerator) pgdumpExcludedTables(ctx context.Context, schemaName s
 	}
 
 	// get all tables in the schema that are not in the include list
-	rows, err := conn.Query(ctx, query, tableParams...)
+	rows, err := o.querier.Query(ctx, query, tableParams...)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving tables from schema: %w", err)
 	}
@@ -201,12 +195,6 @@ func (o *optionGenerator) pgdumpExcludedTables(ctx context.Context, schemaName s
 const selectSchemasQuery = "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN (%s)"
 
 func (o *optionGenerator) pgdumpExcludedSchemas(ctx context.Context, includeSchemas []string) ([]string, error) {
-	conn, err := o.connBuilder(ctx, o.sourceURL)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close(ctx)
-
 	paramRefs := make([]string, 0, len(includeSchemas))
 	schemaParams := make([]any, 0, len(includeSchemas))
 	for i, schema := range includeSchemas {
@@ -216,7 +204,7 @@ func (o *optionGenerator) pgdumpExcludedSchemas(ctx context.Context, includeSche
 
 	// get all schemas in the database that are not in the snapshot request
 	query := fmt.Sprintf(selectSchemasQuery, strings.Join(paramRefs, ","))
-	rows, err := conn.Query(ctx, query, schemaParams...)
+	rows, err := o.querier.Query(ctx, query, schemaParams...)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving schemas: %w", err)
 	}

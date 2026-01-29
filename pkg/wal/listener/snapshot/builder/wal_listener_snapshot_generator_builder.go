@@ -4,19 +4,14 @@ package builder
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
-	"github.com/xataio/pgstream/pkg/schemalog"
-	schemaloginstrumentation "github.com/xataio/pgstream/pkg/schemalog/instrumentation"
-	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/snapshot/generator"
 	generatorinstrumentation "github.com/xataio/pgstream/pkg/snapshot/generator/instrumentation"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	pgdumprestoregenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
-	schemalogsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/schemalog"
 	pgtablefinder "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/tablefinder"
 	snapshotstore "github.com/xataio/pgstream/pkg/snapshot/store"
 	snapshotstoreinstrumentation "github.com/xataio/pgstream/pkg/snapshot/store/instrumentation"
@@ -25,8 +20,6 @@ import (
 	listenersnapshot "github.com/xataio/pgstream/pkg/wal/listener/snapshot"
 	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/adapter"
 )
-
-var errSchemaSnapshotNotConfigured = errors.New("no schema snapshot has been configured")
 
 // NewSnapshotGenerator builds a snapshot generator based on the
 // configuration on input, adapting the process wal event to fit with the
@@ -111,38 +104,21 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 }
 
 func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, g generator.SnapshotGenerator, processor listener.Processor, logger loglib.Logger, instrumentation *otel.Instrumentation, progressTracking bool) (generator.SnapshotGenerator, error) {
-	switch {
-	case cfg.SchemaLogStore != nil:
-		// postgres schemalog schema snapshot generator
-		var schemaLogStore schemalog.Store
-		var err error
-		schemaLogStore, err = schemalogpg.NewStore(ctx, *cfg.SchemaLogStore)
-		if err != nil {
-			return nil, fmt.Errorf("create schema log postgres store: %w", err)
-		}
-		schemaLogStore = schemalog.NewStoreCache(schemaLogStore)
-		if instrumentation.IsEnabled() {
-			schemaLogStore = schemaloginstrumentation.NewStore(schemaLogStore, instrumentation)
-		}
-		return schemalogsnapshotgenerator.NewSnapshotGenerator(
-			schemaLogStore,
-			processor,
-			schemalogsnapshotgenerator.WithSnapshotGenerator(g),
-			schemalogsnapshotgenerator.WithLogger(logger)), nil
-	case cfg.DumpRestore != nil:
-		// postgres pgdump/pgrestore schema snapshot generator
-		opts := []pgdumprestoregenerator.Option{
-			pgdumprestoregenerator.WithLogger(logger),
-			pgdumprestoregenerator.WithSnapshotGenerator(g),
-		}
-		if progressTracking {
-			opts = append(opts, pgdumprestoregenerator.WithProgressTracking(ctx))
-		}
-		if instrumentation.IsEnabled() {
-			opts = append(opts, pgdumprestoregenerator.WithInstrumentation(instrumentation))
-		}
-		return pgdumprestoregenerator.NewSnapshotGenerator(ctx, cfg.DumpRestore, opts...)
-	default:
-		return nil, errSchemaSnapshotNotConfigured
+	// postgres pgdump schema snapshot generator
+	opts := []pgdumprestoregenerator.Option{
+		pgdumprestoregenerator.WithLogger(logger),
+		pgdumprestoregenerator.WithSnapshotGenerator(g),
 	}
+	if progressTracking {
+		opts = append(opts, pgdumprestoregenerator.WithProgressTracking(ctx))
+	}
+	if instrumentation.IsEnabled() {
+		opts = append(opts, pgdumprestoregenerator.WithInstrumentation(instrumentation))
+	}
+	if cfg.DumpRestore.TargetPGURL == "" {
+		// if no target postgres is provided, use WAL restore instead of
+		// direct pgrestore
+		opts = append(opts, pgdumprestoregenerator.WithRestoreToWAL(processor))
+	}
+	return pgdumprestoregenerator.NewSnapshotGenerator(ctx, cfg.DumpRestore, opts...)
 }
