@@ -17,7 +17,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
 )
 
-func Test_PostgresToSearch_IDHashing(t *testing.T) {
+func Test_LongIDsAreHashedBeforeIndexing(t *testing.T) {
 	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
 		t.Skip("skipping integration test...")
 	}
@@ -49,7 +49,8 @@ func Test_PostgresToSearch_IDHashing(t *testing.T) {
 		case <-timer.C:
 			t.Fatal("timeout waiting for indexed document")
 		case <-ticker.C:
-			exists, _ := client.IndexExists(ctx, testIndex)
+			exists, err := client.IndexExists(ctx, testIndex)
+			require.NoError(t, err)
 			if !exists {
 				continue
 			}
