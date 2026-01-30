@@ -185,10 +185,11 @@ type KafkaTopicConfig struct {
 }
 
 type SearchConfig struct {
-	Engine  string         `mapstructure:"engine" yaml:"engine"`
-	URL     string         `mapstructure:"url" yaml:"url"`
-	Batch   *BatchConfig   `mapstructure:"batch" yaml:"batch"`
-	Backoff *BackoffConfig `mapstructure:"backoff" yaml:"backoff"`
+	Engine     string         `mapstructure:"engine" yaml:"engine"`
+	URL        string         `mapstructure:"url" yaml:"url"`
+	Batch      *BatchConfig   `mapstructure:"batch" yaml:"batch"`
+	Backoff    *BackoffConfig `mapstructure:"backoff" yaml:"backoff"`
+	HashDocIDs bool           `mapstructure:"hash_doc_ids" yaml:"hash_doc_ids"`
 }
 
 type BatchConfig struct {
@@ -659,7 +660,8 @@ func (c *YAMLConfig) parseSearchProcessorConfig() (*stream.SearchProcessorConfig
 	return &stream.SearchProcessorConfig{
 		Store: storeCfg,
 		Indexer: search.IndexerConfig{
-			Batch: c.Target.Search.Batch.parseBatchConfig(),
+			Batch:      c.Target.Search.Batch.parseBatchConfig(),
+			HashDocIDs: c.Target.Search.HashDocIDs,
 		},
 		Retrier: search.StoreRetryConfig{
 			Backoff: c.Target.Search.Backoff.parseBackoffConfig(),

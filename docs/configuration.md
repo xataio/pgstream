@@ -124,6 +124,7 @@ target:
   search:
     engine: "elasticsearch" # options are elasticsearch or opensearch
     url: "http://localhost:9200" # URL of the search engine
+    hash_doc_ids: false # if true, hash document IDs using SHA256 to avoid exceeding the 512 byte limit
     batch:
       timeout: 1000 # batch timeout in milliseconds. Defaults to 1s
       size: 100 # number of messages in a batch. Defaults to 100
@@ -280,6 +281,7 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 | -------------------------------------------------- | ------- | -------- | -------------------------------------------------------------------------------------------------------------- |
 | PGSTREAM_OPENSEARCH_STORE_URL                      | N/A     | Yes      | URL for the opensearch store to connect to (at least one of the URLs must be provided).                        |
 | PGSTREAM_ELASTICSEARCH_STORE_URL                   | N/A     | Yes      | URL for the elasticsearch store to connect to (at least one of the URLs must be provided).                     |
+| PGSTREAM_SEARCH_INDEXER_HASH_DOC_IDS               | False   | No       | If true, hash document IDs using SHA256 to avoid exceeding the Elasticsearch 512 byte limit.                   |
 | PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT              | 1s      | No       | Max time interval at which the batch sending to the search store is triggered.                                 |
 | PGSTREAM_SEARCH_INDEXER_BATCH_SIZE                 | 100     | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to the search store. |
 | PGSTREAM_SEARCH_INDEXER_BATCH_IGNORE_SEND_ERRORS   | False   | No       | Whether to ignore errors encountered while sending batches to the target.                                      |

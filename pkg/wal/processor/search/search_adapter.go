@@ -25,16 +25,18 @@ type adapter struct {
 	marshaler   func(any) ([]byte, error)
 	unmarshaler func([]byte, any) error
 	lsnParser   replication.LSNParser
+	idHasher    IDHasher
 }
 
 var errUnsupportedType = errors.New("type not supported for column")
 
-func newAdapter(m Mapper, parser replication.LSNParser) *adapter {
+func newAdapter(m Mapper, parser replication.LSNParser, idHasher IDHasher) *adapter {
 	return &adapter{
 		mapper:      m,
 		marshaler:   json.Marshal,
 		unmarshaler: json.Unmarshal,
 		lsnParser:   parser,
+		idHasher:    idHasher,
 	}
 }
 
@@ -279,6 +281,10 @@ func (a *adapter) parseIDColumns(tableName string, idColumns []wal.Column, doc *
 			}
 			doc.Data[col.ID] = parsedColumn
 		}
+	}
+
+	if a.idHasher != nil {
+		id = a.idHasher(id)
 	}
 
 	doc.ID = fmt.Sprintf("%s_%s", tableName, id)

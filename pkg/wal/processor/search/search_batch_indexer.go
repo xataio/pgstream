@@ -46,12 +46,17 @@ func NewBatchIndexer(ctx context.Context, config IndexerConfig, store Store, lsn
 		logger: loglib.NewNoopLogger(),
 		// by default all schemas are processed
 		skipSchema: func(string) bool { return false },
-		adapter:    newAdapter(store.GetMapper(), lsnParser),
 	}
 
 	for _, opt := range opts {
 		opt(indexer)
 	}
+
+	var idHasher IDHasher
+	if config.HashDocIDs {
+		idHasher = DefaultIDHasher()
+	}
+	indexer.adapter = newAdapter(store.GetMapper(), lsnParser, idHasher)
 
 	var err error
 	indexer.batchSender, err = batch.NewSender(ctx, &config.Batch, indexer.sendBatch, indexer.logger)
