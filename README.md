@@ -246,7 +246,7 @@ Some of the limitations of the initial release include:
 
 You can find below the release notes for major pgstream versions, along with migration guides whenever relevant:
 
-- [v1.0.0](docs/release/RELEASE_NOTES_v1.md)
+- [v1.0.0](docs/releases/RELEASE_NOTES_v1.md)
 
 ## Contributing
 
