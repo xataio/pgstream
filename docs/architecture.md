@@ -41,7 +41,6 @@ In addition to the implementations described above, there are optional processor
 There current implementations of the processor that act as modifier decorators are:
 
 - **Injector**: injects some of the pgstream logic into the WAL event. This includes:
-
   - Data events:
 
   - Setting the WAL event identity. It will use the table primary key/unique not null column.
@@ -61,6 +60,8 @@ One of the main differentiators of pgstream is the fact that it tracks and repli
 In version 0, it relied on SQL triggers that would populate a Postgres table (`pgstream.schema_log`) containing a history log of all DDL changes for a given schema. Whenever a schema change occurred, this trigger created a new row in the schema log table with the schema encoded as a JSON value. This table tracked all the schema changes, forming a linearised change log that is then parsed and used within the pgstream pipeline to identify modifications and push the relevant changes downstream.
 
 From version 1 onwards, schema changes are captured using event triggers that emit logical messages directly into the WAL, and are then processed downstream by the relevant processors. This new approach reduces a lot of overhead, since state is no longer required (no `pgstream.schema_log` table needed), as well as simplifying the delta when applying schema changes, which had to be computed each time with the previous approach.
+
+![v1 schema replication](img/pgstream_v1_schema_replication.png)
 
 The detailed SQL used for both versions can be found in the [migrations folder](https://github.com/xataio/pgstream/tree/main/migrations/postgres).
 
