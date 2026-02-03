@@ -5,7 +5,17 @@ This is a **major, breaking release**.
 pgstream v1.0.0 introduces a new **stateless DDL replication architecture**.
 The legacy schema log mechanism has been removed, and schema changes are now replicated directly from PostgreSQL WAL.
 
-## Audience
+## Table of Contents
+
+- [Audience](#audience)
+- [Summary of Required Actions](#summary-of-required-actions)
+- [Breaking Changes](#breaking-changes)
+- [Migration Guide](#migration-guide)
+- [Required Configuration Changes](#required-configuration-changes)
+- [Architecture Changes (Background)](#architecture-changes-background)
+- [Support](#support)
+
+## 👥 Audience
 
 These release notes is primarily intended for:
 
@@ -15,14 +25,14 @@ These release notes is primarily intended for:
 
 **Important:** Upgrading from any v0.x version **requires re-initialization**.
 
-## Summary of Required Actions
+## ✅ Summary of Required Actions
 
 - Existing installations must be **re-initialized**
 - All `schema_log`–related configuration must be removed
 - Injector configuration must be updated (`schemalog_url` → `source_url`)
 - Snapshot schema mode must be updated
 
-## Breaking Changes
+## 🚨 Breaking Changes
 
 ### Removal of Schema Log (High Impact)
 
@@ -70,7 +80,7 @@ PostgreSQL migrations are now split into two independent groups.
 
 These changes affect internal integrations and custom processors.
 
-## Migration Guide
+## 🚀 Migration Guide
 
 ### New Installations
 
@@ -120,7 +130,7 @@ Recommended steps:
    pgstream run --config config.yaml
    ```
 
-## Required Configuration Changes
+## ⚙️ Required Configuration Changes
 
 ### Injector Configuration Rename
 
@@ -160,7 +170,7 @@ snapshot:
     mode: pgdump_pgrestore
 ```
 
-## Architecture Changes (Background)
+## 🏗️ Architecture Changes (Background)
 
 The following sections describe the new replication model in more detail.
 
@@ -208,7 +218,7 @@ Migrations can now be applied selectively:
 
 This reduces database objects, permissions, and operational overhead.
 
-## Support
+## 💬 Support
 
 - Issues: <https://github.com/xataio/pgstream/issues>
 - Documentation: <https://github.com/xataio/pgstream/tree/main/docs>
