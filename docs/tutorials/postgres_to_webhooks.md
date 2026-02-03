@@ -195,7 +195,6 @@ source:
         repeatable_snapshots: true # whether to repeat snapshots that have already been taken
         postgres_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the database where the snapshot status is recorded
       schema: # when mode is full or schema
-        mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
         pgdump_pgrestore:
           clean_target_db: false # whether to clean the target database before restoring
 target:
@@ -227,7 +226,6 @@ We can validate that the initialisation and the configuration are valid by runni
 SUCCESS  pgstream status check encountered no issues
 Initialisation status:
  - Pgstream schema exists: true
- - Pgstream schema_log table exists: true
  - Migration current version: 7
  - Migration status: success
  - Replication slot name: pgstream_tutorial_slot
@@ -592,17 +590,17 @@ With a full replica identity the update event will now contain the old values fo
 
 ## Populate event metadata
 
-In this tutorial we haven't used the injector to populate the metadata event information, which is why it appears empty in the events. If the webhook notifier requires that metadata information, the processor configuration can be udpated by setting the injector store URL. This is the database that contains the `pgstream.schema_log` table, which the injector uses to retrieve schema information to populate the metadata (more details can be found in the [architecture section](../README.md#architecture)). In this case, it's the source PostgreSQL database.
+In this tutorial we haven't enabled the injector to populate the metadata event information, which is why it appears empty in the events. If the webhook notifier requires that metadata information, the modifiers configuration can be updated to enable the injector. The injector adds pgstream IDs and metadata to the events, which can be useful for tracking and versioning (more details can be found in the [architecture section](../README.md#architecture)).
 
-```sh
-PGSTREAM_INJECTOR_STORE_POSTGRES_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
+To enable the injector for webhooks, add to the configuration:
+
+```yaml
+modifiers:
+  injector:
+    enabled: true
 ```
 
-Since we weren't using the injector when the table was created, the schema log wasn't acked and won't be used until we trigger a new schema change. We can run a minimal change on the schema to trigger the schema to be acked. For this tutorial we'll rename the test table.
-
-```sql
-ALTER TABLE test RENAME TO tutorial_test;
-```
+With the injector enabled, the metadata fields in the webhook payloads will be populated with the appropriate pgstream information for each event.
 
 If we now run pgstream again with the updated configuration file, the events will have the metadata populated.
 
@@ -703,16 +701,15 @@ Here are some common issues you might encounter while following this tutorial an
 
 ### 6. **Error: `Event metadata not populated`**
 
-- **Cause:** The injector store URL is not configured, or the schema log is not acknowledged.
+- **Cause:** The injector is not enabled in the configuration.
 - **Solution:**
-  - Add the injector store URL to the configuration:
-    ```sh
-    PGSTREAM_INJECTOR_STORE_POSTGRES_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
+  - Enable the injector in your configuration:
+    ```yaml
+    modifiers:
+      injector:
+        enabled: true
     ```
-  - Trigger a schema change (e.g., rename a table) to acknowledge the schema log:
-    ```sql
-    ALTER TABLE test RENAME TO tutorial_test;
-    ```
+  - Restart pgstream for the changes to take effect.
 
 ### 7. **Error: `Stale webhook subscription cache`**
 

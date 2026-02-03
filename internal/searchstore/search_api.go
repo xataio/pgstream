@@ -246,12 +246,12 @@ type IndexStats struct {
 }
 
 type Mappings struct {
-	Properties map[string]any
-	Dynamic    string
+	Properties map[string]any `json:"properties"`
+	Dynamic    string         `json:"dynamic"`
 }
 
 type MappingResponse map[string]struct {
-	Mappings Mappings
+	Mappings Mappings `json:"mappings"`
 }
 
 type IndexStatsResponse struct {

@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -15,10 +16,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/internal/searchstore"
 	"github.com/xataio/pgstream/internal/searchstore/elasticsearch"
 	"github.com/xataio/pgstream/internal/searchstore/opensearch"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/stream"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
@@ -54,16 +55,10 @@ func Test_PostgresToSearch(t *testing.T) {
 				query: fmt.Sprintf("create table %s.%s(id serial primary key, name text)", testSchema, testTable),
 
 				validation: func() bool {
-					resp := searchSchemaLog(t, ctx, client, testSchema)
-					if resp.Hits.Total.Value <= 0 {
+					testTablePgstreamID = getTablePgstreamID(t, ctx, testSchema, testTable)
+					if testTablePgstreamID == "" {
 						return false
 					}
-					hit := resp.Hits.Hits[0].Source
-					testTablePgstreamID = getTablePgstreamID(t, hit, testTable)
-
-					require.Equal(t, false, hit["acked"])
-					require.Equal(t, testSchema, hit["schema_name"])
-					require.Equal(t, float64(2), hit["version"])
 
 					mapping := getIndexMapping(t, ctx, client, testIndex)
 					require.Equal(t, map[string]any{"type": "keyword"}, mapping["_table"])
@@ -75,6 +70,18 @@ func Test_PostgresToSearch(t *testing.T) {
 						"ignore_above": float64(32766),
 						"type":         "keyword",
 					}, mapping[fmt.Sprintf("%s-2", testTablePgstreamID)])
+					require.Equal(t, map[string]any{
+						"properties": map[string]any{
+							"id": map[string]any{
+								"type": "alias",
+								"path": fmt.Sprintf("%s-1", testTablePgstreamID),
+							},
+							"name": map[string]any{
+								"type": "alias",
+								"path": fmt.Sprintf("%s-2", testTablePgstreamID),
+							},
+						},
+					}, mapping[testTable])
 					return true
 				},
 			},
@@ -184,43 +191,21 @@ func Test_PostgresToSearch(t *testing.T) {
 				if !exists {
 					continue
 				}
-				resp := searchSchemaLog(t, ctx, client, testSchema)
-				if resp.Hits.Total.Value == 0 {
+				testTablePgstreamID := getTablePgstreamID(t, ctx, testSchema, testTable)
+				if testTablePgstreamID == "" {
 					continue
 				}
-				tableID := getTablePgstreamID(t, resp.Hits.Hits[0].Source, testTable)
-				if tableID == "" {
-					continue
-				}
-				resp = searchTable(t, ctx, client, testIndex, tableID)
+				resp := searchTable(t, ctx, client, testIndex, testTablePgstreamID)
 				if resp.Hits.Total.Value != 1 {
 					continue
 				}
 				hash := sha256.Sum256([]byte(longID))
-				expectedID := fmt.Sprintf("%s_%s", tableID, hex.EncodeToString(hash[:]))
+				expectedID := fmt.Sprintf("%s_%s", testTablePgstreamID, hex.EncodeToString(hash[:]))
 				require.Equal(t, expectedID, resp.Hits.Hits[0].ID)
 				return
 			}
 		}
 	})
-}
-
-func searchSchemaLog(t *testing.T, ctx context.Context, client searchstore.Client, schemaName string) *searchstore.SearchResponse {
-	query := searchstore.QueryBody{
-		Query: &searchstore.Query{
-			Bool: &searchstore.BoolFilter{
-				Filter: []searchstore.Condition{
-					{
-						Term: map[string]any{
-							"schema_name": schemaName,
-						},
-					},
-				},
-			},
-		},
-	}
-
-	return searchQuery(t, ctx, client, "pgstream", query, searchstore.Ptr("version:desc"))
 }
 
 func searchTable(t *testing.T, ctx context.Context, client searchstore.Client, index, tableID string) *searchstore.SearchResponse {
@@ -262,23 +247,26 @@ func getIndexMapping(t *testing.T, ctx context.Context, client searchstore.Clien
 	return mapping.Properties
 }
 
-func getTablePgstreamID(t *testing.T, source map[string]any, tableName string) string {
-	sourceBytes, err := json.Marshal(source)
+const pgstreamidQuery = `SELECT t.id
+FROM pgstream.table_ids t
+JOIN pg_class c ON t.oid = c.oid
+JOIN pg_namespace n ON c.relnamespace = n.oid
+WHERE n.nspname = $1
+  AND c.relname = $2`
+
+func getTablePgstreamID(t *testing.T, ctx context.Context, schemaName, tableName string) string {
+	conn, err := pglib.NewConn(ctx, pgurl)
 	require.NoError(t, err)
+	defer conn.Close(ctx)
 
-	schemaLog := &schemalog.LogEntry{}
-	err = json.Unmarshal(sourceBytes, schemaLog)
-	require.NoError(t, err)
-
-	if len(schemaLog.Schema.Tables) != 1 {
-		return ""
-	}
-
-	for _, table := range schemaLog.Schema.Tables {
-		if table.Name == tableName {
-			return table.PgstreamID
+	pgstreamID := ""
+	err = conn.QueryRow(ctx, []any{&pgstreamID}, pgstreamidQuery, schemaName, tableName)
+	if err != nil {
+		errRelationDoesNotExist := &pglib.ErrRelationDoesNotExist{}
+		if errors.Is(err, pglib.ErrNoRows) || errors.As(err, &errRelationDoesNotExist) {
+			return ""
 		}
 	}
-
-	return ""
+	require.NoError(t, err)
+	return pgstreamID
 }

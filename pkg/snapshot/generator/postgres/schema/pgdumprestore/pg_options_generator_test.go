@@ -457,9 +457,7 @@ func TestOptionsGenerator_pgdumpOptions(t *testing.T) {
 				cleanTargetDB:          false,
 				createTargetDB:         false,
 				includeGlobalDBObjects: tc.includeGlobal,
-				connBuilder: func(ctx context.Context, connStr string) (pglib.Querier, error) {
-					return tc.conn, nil
-				},
+				querier:                tc.conn,
 			}
 			opts, err := og.pgdumpOptions(
 				context.Background(),
@@ -480,7 +478,6 @@ func TestOptionsGenerator_pgdumpExcludedTables(t *testing.T) {
 	tests := []struct {
 		name         string
 		schemaTables map[string][]string
-		connBuilder  func(ctx context.Context, connStr string) (pglib.Querier, error)
 		conn         *pglibmocks.Querier
 		wantExcluded []string
 		wantErr      error
@@ -594,17 +591,6 @@ func TestOptionsGenerator_pgdumpExcludedTables(t *testing.T) {
 			wantExcluded: nil,
 			wantErr:      errTest,
 		},
-		{
-			name: "error getting connection",
-			schemaTables: map[string][]string{
-				"public": {"table1"},
-			},
-			connBuilder: func(ctx context.Context, connStr string) (pglib.Querier, error) {
-				return nil, errTest
-			},
-			wantExcluded: nil,
-			wantErr:      errTest,
-		},
 	}
 
 	for _, tc := range tests {
@@ -613,14 +599,9 @@ func TestOptionsGenerator_pgdumpExcludedTables(t *testing.T) {
 
 			og := &optionGenerator{
 				sourceURL: "source-url",
-				connBuilder: func(ctx context.Context, connStr string) (pglib.Querier, error) {
-					return tc.conn, nil
-				},
+				querier:   tc.conn,
 			}
 
-			if tc.connBuilder != nil {
-				og.connBuilder = tc.connBuilder
-			}
 			for schema, tables := range tc.schemaTables {
 				excluded, err := og.pgdumpExcludedTables(context.Background(), schema, tables)
 				require.ErrorIs(t, err, tc.wantErr)
@@ -638,7 +619,6 @@ func TestOptionsGenerator_pgdumpExcludedSchemas(t *testing.T) {
 	tests := []struct {
 		name           string
 		includeSchemas []string
-		connBuilder    func(ctx context.Context, connStr string) (pglib.Querier, error)
 		conn           *pglibmocks.Querier
 		wantExcluded   []string
 		wantErr        error
@@ -736,15 +716,6 @@ func TestOptionsGenerator_pgdumpExcludedSchemas(t *testing.T) {
 			wantExcluded: nil,
 			wantErr:      errTest,
 		},
-		{
-			name:           "error getting connection",
-			includeSchemas: []string{"public"},
-			connBuilder: func(ctx context.Context, connStr string) (pglib.Querier, error) {
-				return nil, errTest
-			},
-			wantExcluded: nil,
-			wantErr:      errTest,
-		},
 	}
 
 	for _, tc := range tests {
@@ -753,13 +724,7 @@ func TestOptionsGenerator_pgdumpExcludedSchemas(t *testing.T) {
 
 			og := &optionGenerator{
 				sourceURL: "source-url",
-				connBuilder: func(ctx context.Context, connStr string) (pglib.Querier, error) {
-					return tc.conn, nil
-				},
-			}
-
-			if tc.connBuilder != nil {
-				og.connBuilder = tc.connBuilder
+				querier:   tc.conn,
 			}
 
 			excluded, err := og.pgdumpExcludedSchemas(context.Background(), tc.includeSchemas)

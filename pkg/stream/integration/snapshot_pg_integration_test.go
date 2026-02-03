@@ -30,7 +30,7 @@ func Test_SnapshotToPostgres(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	run := func(testTable string, bulkIngestion bool) {
+	run := func(testTable string, opts ...option) {
 		// create table and populate it before initialising and running pgstream to
 		// ensure the snapshot captures pre-existing schema and data properly
 		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(`CREATE TABLE %s(id serial PRIMARY KEY, name TEXT, username TEXT GENERATED ALWAYS AS ('user_' || name ) STORED)`, testTable))
@@ -40,7 +40,7 @@ func Test_SnapshotToPostgres(t *testing.T) {
 
 		cfg := &stream.Config{
 			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
-			Processor: testPostgresProcessorCfg(snapshotPGURL, bulkIngestion),
+			Processor: testPostgresProcessorCfg(opts...),
 		}
 		initStream(t, ctx, snapshotPGURL)
 		runSnapshot(t, ctx, cfg)
@@ -99,9 +99,9 @@ func Test_SnapshotToPostgres(t *testing.T) {
 	}
 
 	t.Run("bulk ingest", func(t *testing.T) {
-		run("snapshot2pg_bulk_integration_test", withBulkIngestion)
+		run("snapshot2pg_bulk_integration_test", withBulkIngestionEnabled())
 	})
 	t.Run("batch writer", func(t *testing.T) {
-		run("snapshot2pg_batch_integration_test", withoutBulkIngestion)
+		run("snapshot2pg_batch_integration_test")
 	})
 }

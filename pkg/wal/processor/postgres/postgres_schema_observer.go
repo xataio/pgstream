@@ -9,7 +9,7 @@ import (
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	loglib "github.com/xataio/pgstream/pkg/log"
-	"github.com/xataio/pgstream/pkg/schemalog"
+	"github.com/xataio/pgstream/pkg/wal"
 )
 
 // pgSchemaObserver keeps track of schema metadata including generated column
@@ -107,17 +107,25 @@ func (o *pgSchemaObserver) getSequenceColumns(ctx context.Context, schema, table
 	return seqColMap, nil
 }
 
-func (o *pgSchemaObserver) update(logEntry *schemalog.LogEntry) {
-	o.updateGeneratedColumnNames(logEntry)
-	o.updateMaterializedViews(logEntry)
-	o.updateColumnSequences(logEntry)
+func (o *pgSchemaObserver) update(ddlEvent *wal.DDLEvent) {
+	if ddlEvent == nil {
+		return
+	}
+
+	tableObjects := append(ddlEvent.GetTableObjects(), ddlEvent.GetTableColumnObjects()...)
+	o.updateGeneratedColumnNames(tableObjects)
+	o.updateColumnSequences(tableObjects)
+	mvObjects := ddlEvent.GetMaterializedViewObjects()
+	if len(mvObjects) > 0 {
+		o.updateMaterializedViews(ddlEvent, mvObjects)
+	}
 }
 
 // updateGeneratedColumnNames will update the internal cache with the table
 // columns for the schema log on input.
-func (o *pgSchemaObserver) updateGeneratedColumnNames(logEntry *schemalog.LogEntry) {
-	for _, table := range logEntry.Schema.Tables {
-		key := pglib.QuoteQualifiedIdentifier(logEntry.SchemaName, table.Name)
+func (o *pgSchemaObserver) updateGeneratedColumnNames(tables []wal.DDLObject) {
+	for _, table := range tables {
+		key := pglib.QuoteQualifiedIdentifier(table.Schema, table.GetName())
 		generatedColumns := make(map[string]struct{}, len(table.Columns))
 		for _, c := range table.Columns {
 			if c.IsGenerated() {
@@ -131,18 +139,37 @@ func (o *pgSchemaObserver) updateGeneratedColumnNames(logEntry *schemalog.LogEnt
 
 // updateMaterializedViews will update the internal cache with the materialized
 // views for the schema log on input.
-func (o *pgSchemaObserver) updateMaterializedViews(logEntry *schemalog.LogEntry) {
-	key := pglib.QuoteIdentifier(logEntry.SchemaName)
-	mvNames := make(map[string]struct{}, len(logEntry.Schema.MaterializedViews))
-	for _, mv := range logEntry.Schema.MaterializedViews {
-		mvNames[pglib.QuoteIdentifier(mv.Name)] = struct{}{}
+func (o *pgSchemaObserver) updateMaterializedViews(ddlEvent *wal.DDLEvent, mvs []wal.DDLObject) {
+	key := pglib.QuoteIdentifier(ddlEvent.SchemaName)
+
+	existingMVs, found := o.materializedViews.Get(key)
+	switch {
+	case ddlEvent.IsDropEvent():
+		// remove dropped materialized views from the cache
+		if !found {
+			return
+		}
+		for _, mv := range mvs {
+			delete(existingMVs, pglib.QuoteIdentifier(mv.GetName()))
+		}
+		o.materializedViews.Set(key, existingMVs)
+
+	default:
+		mvNames := make(map[string]struct{}, len(mvs))
+		if found {
+			mvNames = existingMVs
+		}
+		for _, mv := range mvs {
+			mvNames[pglib.QuoteIdentifier(mv.GetName())] = struct{}{}
+		}
+		o.materializedViews.Set(key, mvNames)
+
 	}
-	o.materializedViews.Set(key, mvNames)
 }
 
-func (o *pgSchemaObserver) updateColumnSequences(logEntry *schemalog.LogEntry) {
-	for _, table := range logEntry.Schema.Tables {
-		key := pglib.QuoteQualifiedIdentifier(logEntry.SchemaName, table.Name)
+func (o *pgSchemaObserver) updateColumnSequences(tables []wal.DDLObject) {
+	for _, table := range tables {
+		key := pglib.QuoteQualifiedIdentifier(table.Schema, table.GetName())
 		seqColMap := make(map[string]string)
 		for _, col := range table.Columns {
 			if col.HasSequence() {

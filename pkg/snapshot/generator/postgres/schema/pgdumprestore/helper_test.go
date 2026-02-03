@@ -6,6 +6,7 @@ import (
 	"context"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 )
 
 type mockPgDump struct {
@@ -75,4 +76,13 @@ func (m *mockSnapshotTracker) close() error {
 		return m.closeFn()
 	}
 	return nil
+}
+
+// Helper function to create a mock querier that returns ErrNoRows (table not found)
+func newNoTableQuerier() *pgmocks.Querier {
+	return &pgmocks.Querier{
+		QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+			return pglib.ErrNoRows
+		},
+	}
 }

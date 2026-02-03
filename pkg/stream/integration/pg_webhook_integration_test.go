@@ -12,8 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/require"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/stream"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription"
@@ -39,7 +40,55 @@ func Test_PostgresToWebhook(t *testing.T) {
 	testTable := "pg2webhook_integration_test"
 	// create a subscription to the test table with the mock server url
 	createSubscription(t, mockWebhookServer.URL, "public", testTable)
-	createSubscription(t, mockWebhookServer.URL, schemalog.SchemaName, schemalog.TableName)
+
+	testDDLEvent := &wal.DDLEvent{
+		SchemaName: "public",
+		CommandTag: "CREATE TABLE",
+		DDL:        "create table pg2webhook_integration_test(id serial primary key, name text)",
+		Objects: []wal.DDLObject{
+			{
+				Type:     "table",
+				Identity: "public.pg2webhook_integration_test",
+				Schema:   "public",
+				Columns: []wal.DDLColumn{
+					{
+						Name:      "id",
+						Attnum:    1,
+						Type:      "integer",
+						Nullable:  false,
+						Generated: false,
+						Unique:    true,
+						Identity:  nil,
+						Default:   ptr("nextval('public.pg2webhook_integration_test_id_seq'::regclass)"),
+					},
+					{
+						Name:      "name",
+						Attnum:    2,
+						Type:      "text",
+						Nullable:  true,
+						Generated: false,
+						Unique:    false,
+						Identity:  nil,
+						Default:   nil,
+					},
+				},
+				PrimaryKeyColumns: []string{"id"},
+			},
+			{
+				Type:     "index",
+				Identity: "public.pg2webhook_integration_test_pkey",
+				Schema:   "public",
+			},
+			{
+				Type:     "sequence",
+				Identity: "public.pg2webhook_integration_test_id_seq",
+				Schema:   "public",
+			},
+		},
+	}
+
+	ddlEventBytes, err := json.Marshal(testDDLEvent)
+	require.NoError(t, err)
 
 	tests := []struct {
 		name  string
@@ -52,9 +101,9 @@ func Test_PostgresToWebhook(t *testing.T) {
 			query: fmt.Sprintf("create table %s(id serial primary key, name text)", testTable),
 
 			wantData: &wal.Data{
-				Action: "I",
-				Schema: schemalog.SchemaName,
-				Table:  schemalog.TableName,
+				Action:  wal.LogicalMessageAction,
+				Prefix:  wal.DDLPrefix,
+				Content: string(ddlEventBytes),
 			},
 		},
 		{
@@ -86,6 +135,14 @@ func Test_PostgresToWebhook(t *testing.T) {
 					require.Equal(t, tc.wantData.Action, data.Action)
 					require.Equal(t, tc.wantData.Schema, data.Schema)
 					require.Equal(t, tc.wantData.Table, data.Table)
+					require.Equal(t, tc.wantData.Prefix, data.Prefix)
+					if data.Content != "" && tc.wantData.Content != "" {
+						ddlEvent := &wal.DDLEvent{}
+						require.NoError(t, json.Unmarshal([]byte(data.Content), ddlEvent))
+						require.Empty(t, cmp.Diff(ddlEvent, testDDLEvent,
+							cmpopts.IgnoreFields(wal.DDLObject{}, "OID", "PgstreamID"),
+							cmpopts.SortSlices(func(a, b wal.DDLObject) bool { return a.Type < b.Type })))
+					}
 					return
 				}
 			}

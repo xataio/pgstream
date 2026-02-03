@@ -8,7 +8,7 @@ The snapshot behaviour is the same in both cases, with the only difference that 
 
 The snapshot implementation is different for schema and data.
 
-- Schema: depending on the configuration, it can use either the pgstream `schema_log` table to get the schema view and process it as events downstream, or rely on the `pg_dump`/`pg_restore` PostgreSQL utilities if the target is a PostgreSQL database.
+- Schema: it relies on `pg_dump` to produce the dump of the schema to be snapshotted. For Postgres targets it relies on `pg_restore` for restoring the schema, while for other targets it emits DDL events into the WAL pipeline to be processed.
 
 - Data: it relies on transaction snapshot ids to obtain a stable view of the database tables, and paralellises the read of all the rows by dividing them into ranges using the `ctid`.
 

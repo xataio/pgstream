@@ -9,25 +9,19 @@ import (
 	"time"
 
 	loglib "github.com/xataio/pgstream/pkg/log"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 	batchmocks "github.com/xataio/pgstream/pkg/wal/processor/batch/mocks"
 
-	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
 )
 
 func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now().UTC().Round(time.Second)
-	id := xid.New()
-	testSchemaLogEntry := newTestLogEntry(id, now)
 	testCommitPos := newTestCommitPosition()
-	testSize := 10
 
 	tests := []struct {
 		name        string
@@ -39,23 +33,21 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 		wantErr  error
 	}{
 		{
-			name: "ok",
+			name: "ok - ddl event",
 			adapter: &mockAdapter{
 				walEventToMsgFn: func(*wal.Event) (*msg, error) {
 					return &msg{
-						schemaChange: testSchemaLogEntry,
-						bytesSize:    testSize,
+						schemaDiff: newTestSchemaDiff(),
 					}, nil
 				},
 			},
-			event:       newTestSchemaChangeEvent("I", id, now),
+			event:       newTestWALDDLEvent(),
 			batchSender: batchmocks.NewBatchSender[*msg](),
 
 			wantMsgs: []*batch.WALMessage[*msg]{
 				batch.NewWALMessage(
 					&msg{
-						schemaChange: testSchemaLogEntry,
-						bytesSize:    testSize,
+						schemaDiff: newTestSchemaDiff(),
 					}, testCommitPos),
 			},
 			wantErr: nil,
@@ -97,7 +89,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 					return nil, errNilIDValue
 				},
 			},
-			event:       newTestSchemaChangeEvent("I", id, now),
+			event:       newTestWALDDLEvent(),
 			batchSender: batchmocks.NewBatchSender[*msg](),
 
 			wantMsgs: []*batch.WALMessage[*msg]{},
@@ -110,7 +102,7 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 					return nil, errTest
 				},
 			},
-			event:       newTestSchemaChangeEvent("I", id, now),
+			event:       newTestWALDDLEvent(),
 			batchSender: batchmocks.NewBatchSender[*msg](),
 
 			wantMsgs: []*batch.WALMessage[*msg]{},
@@ -159,9 +151,6 @@ func TestBatchIndexer_ProcessWALEvent(t *testing.T) {
 func TestBatchIndexer_sendBatch(t *testing.T) {
 	t.Parallel()
 
-	id := xid.New()
-	now := time.Now()
-	testLogEntry := newTestLogEntry(id, now)
 	testCommitPos := newTestCommitPosition()
 	testDocument1 := newTestDocument(withID("1"))
 	testDocument2 := newTestDocument(withID("2"))
@@ -204,7 +193,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 			batch: batch.NewBatch(
 				[]*msg{
 					{write: testDocument1},
-					{schemaChange: testLogEntry},
+					{schemaDiff: newTestSchemaDiff()},
 					{write: testDocument2},
 				},
 				[]wal.CommitPosition{testCommitPos}),
@@ -221,8 +210,8 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 					}
 					return nil, fmt.Errorf("sendDocumentsFn: unexpected call %d", i)
 				},
-				applySchemaChangeFn: func(ctx context.Context, le *schemalog.LogEntry) error {
-					require.Equal(t, testLogEntry, le)
+				applySchemaDiffFn: func(ctx context.Context, diff *wal.SchemaDiff) error {
+					require.Equal(t, newTestSchemaDiff(), diff)
 					return nil
 				},
 			},
@@ -264,7 +253,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 			name: "ok - schema change skipped",
 			batch: batch.NewBatch(
 				[]*msg{
-					{schemaChange: testLogEntry},
+					{schemaDiff: newTestSchemaDiff()},
 				},
 				[]wal.CommitPosition{testCommitPos}),
 
@@ -278,10 +267,10 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 			batch: batch.NewBatch(
 				[]*msg{
 					{
-						schemaChange: func() *schemalog.LogEntry {
-							le := newTestLogEntry(id, now)
-							le.Schema.Dropped = true
-							return le
+						schemaDiff: func() *wal.SchemaDiff {
+							diff := newTestSchemaDiff()
+							diff.SchemaDropped = true
+							return diff
 						}(),
 					},
 				},
@@ -300,12 +289,12 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 			name: "error - applying schema change",
 			batch: batch.NewBatch(
 				[]*msg{
-					{schemaChange: testLogEntry},
+					{schemaDiff: newTestSchemaDiff()},
 				},
 				[]wal.CommitPosition{testCommitPos}),
 
 			store: &mockStore{
-				applySchemaChangeFn: func(ctx context.Context, le *schemalog.LogEntry) error {
+				applySchemaDiffFn: func(ctx context.Context, diff *wal.SchemaDiff) error {
 					return errTest
 				},
 			},
@@ -317,10 +306,10 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 			batch: batch.NewBatch(
 				[]*msg{
 					{
-						schemaChange: func() *schemalog.LogEntry {
-							le := newTestLogEntry(id, now)
-							le.Schema.Dropped = true
-							return le
+						schemaDiff: func() *wal.SchemaDiff {
+							diff := newTestSchemaDiff()
+							diff.SchemaDropped = true
+							return diff
 						}(),
 					},
 				},
@@ -356,7 +345,7 @@ func TestBatchIndexer_sendBatch(t *testing.T) {
 			batch: batch.NewBatch(
 				[]*msg{
 					{write: testDocument1},
-					{schemaChange: testLogEntry},
+					{schemaDiff: newTestSchemaDiff()},
 				},
 				[]wal.CommitPosition{testCommitPos}),
 

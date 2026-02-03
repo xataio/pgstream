@@ -9,8 +9,8 @@ import (
 	"strings"
 	"syscall"
 
+	migratorlib "github.com/xataio/pgstream/internal/migrator"
 	pglib "github.com/xataio/pgstream/internal/postgres"
-	pgmigrations "github.com/xataio/pgstream/migrations/postgres"
 	"github.com/xataio/pgstream/pkg/transformers/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 
@@ -25,32 +25,39 @@ import (
 type StatusChecker struct {
 	connBuilder          pglib.QuerierBuilder
 	configParser         func(pgURL string) (*pgx.ConnConfig, error)
-	migratorBuilder      func(string) (migrator, error)
+	migratorBuilder      func(*InitConfig) (migrator, error)
 	ruleValidatorBuilder func(context.Context, string, []string) (ruleValidator, error)
 }
 
 type ruleValidator func(ctx context.Context, rules transformer.Rules) (map[string]transformer.ColumnTransformers, error)
 
 type migrator interface {
-	Version() (uint, bool, error)
-	Close() (error, error)
+	Status() ([]migratorlib.MigrationStatus, error)
+	Close()
 }
 
 const wal2jsonPlugin = "wal2json"
 
 const (
-	noPgstreamSchemaErrMsg         = "pgstream schema does not exist in the configured postgres database"
-	noPgstreamSchemaLogTableErrMsg = "pgstream schema_log table does not exist in the configured postgres database"
-	noMigrationsTableErrMsg        = "pgstream schema_migrations table does not exist in the configured postgres database"
-	sourceNotProvided              = "source not provided"
-	sourcePostgresNotReachable     = "source postgres not reachable"
+	noPgstreamSchemaErrMsg     = "pgstream schema does not exist in the configured postgres database"
+	noMigrationsTableErrMsg    = "pgstream schema migrations table does not exist in the configured postgres database"
+	sourceNotProvided          = "source not provided"
+	sourcePostgresNotReachable = "source postgres not reachable"
 )
 
 func NewStatusChecker() *StatusChecker {
 	return &StatusChecker{
-		connBuilder:     pglib.ConnBuilder,
-		configParser:    pglib.ParseConfig,
-		migratorBuilder: func(pgURL string) (migrator, error) { return newPGMigrator(pgURL) },
+		connBuilder:  pglib.ConnBuilder,
+		configParser: pglib.ParseConfig,
+		migratorBuilder: func(cfg *InitConfig) (migrator, error) {
+			migrationAssets := []*migratorlib.MigrationAssets{
+				migratorlib.GetCoreMigrationAssets(),
+			}
+			if cfg.InjectorMigrationsEnabled {
+				migrationAssets = append(migrationAssets, migratorlib.GetInjectorMigrationAssets())
+			}
+			return migratorlib.NewPGMigrator(cfg.PostgresURL, migrationAssets)
+		},
 		ruleValidatorBuilder: func(ctx context.Context, pgURL string, requiredTables []string) (ruleValidator, error) {
 			validator, err := transformer.NewPostgresTransformerParser(ctx, pgURL, builder.NewTransformerBuilder(), requiredTables)
 			if err != nil {
@@ -72,7 +79,7 @@ func (s *StatusChecker) Status(ctx context.Context, config *Config) (*Status, er
 		return nil, fmt.Errorf("checking source status: %w", err)
 	}
 
-	initStatus, err := s.initStatus(ctx, config.SourcePostgresURL(), config.PostgresReplicationSlot())
+	initStatus, err := s.initStatus(ctx, config.GetInitConfig())
 	if err != nil {
 		return nil, fmt.Errorf("checking init status: %w", err)
 	}
@@ -140,25 +147,36 @@ func (s *StatusChecker) sourceStatus(ctx context.Context, config *Config) (*Sour
 // initStatus checks the initialisation status of pgstream in the provided
 // postgres database. If the replicationSlotName is empty, it will check against
 // the default (pgstream_<database>_slot).
-func (s *StatusChecker) initStatus(ctx context.Context, pgURL, replicationSlotName string) (*InitStatus, error) {
-	if pgURL == "" {
+func (s *StatusChecker) initStatus(ctx context.Context, cfg *InitConfig) (*InitStatus, error) {
+	if cfg.PostgresURL == "" {
 		return nil, errMissingPostgresURL
 	}
 
 	initStatus := &InitStatus{}
 
 	var err error
-	initStatus.PgstreamSchema, err = s.validateSchemaStatus(ctx, pgURL)
+	initStatus.PgstreamSchema, err = s.validateSchemaStatus(ctx, cfg.PostgresURL)
 	if err != nil {
 		return nil, fmt.Errorf("validating pgstream schema: %w", err)
 	}
 
-	initStatus.Migration, err = s.validateMigrationStatus(pgURL)
-	if err != nil {
-		return nil, fmt.Errorf("validating pgstream migrations: %w", err)
+	if !initStatus.PgstreamSchema.SchemaExists {
+		initStatus.Migrations = []MigrationStatus{
+			{
+				Version: 0,
+				Dirty:   true,
+				Errors:  []string{noMigrationsTableErrMsg},
+			},
+		}
+	} else {
+		// only validate migrations if the pgstream schema exists
+		initStatus.Migrations, err = s.validateMigrationStatus(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("validating pgstream migrations: %w", err)
+		}
 	}
 
-	initStatus.ReplicationSlot, err = s.validateReplicationSlotStatus(ctx, pgURL, replicationSlotName)
+	initStatus.ReplicationSlot, err = s.validateReplicationSlotStatus(ctx, cfg.PostgresURL, cfg.ReplicationSlotName)
 	if err != nil {
 		return nil, fmt.Errorf("validating replication slot: %w", err)
 	}
@@ -209,17 +227,21 @@ func (s *StatusChecker) TransformationRulesStatus(ctx context.Context, config *C
 // validateMigrationStatus checks the migration status of the pgstream schema,
 // ensuring the number of migrations applied corresponds to the expected ones,
 // and they are not dirty (unsuccessfully applied).
-func (s *StatusChecker) validateMigrationStatus(pgURL string) (*MigrationStatus, error) {
-	migrator, err := s.migratorBuilder(pgURL)
+func (s *StatusChecker) validateMigrationStatus(cfg *InitConfig) ([]MigrationStatus, error) {
+	migrator, err := s.migratorBuilder(cfg)
 	if err != nil {
 		switch {
 		case strings.Contains(err.Error(), "failed to open database: no schema"):
-			return &MigrationStatus{
-				Errors: []string{noMigrationsTableErrMsg},
+			return []MigrationStatus{
+				{
+					Errors: []string{noMigrationsTableErrMsg},
+				},
 			}, nil
 		case errors.Is(err, syscall.ECONNREFUSED):
-			return &MigrationStatus{
-				Errors: []string{fmt.Sprintf("cannot validate migration status: %s", sourcePostgresNotReachable)},
+			return []MigrationStatus{
+				{
+					Errors: []string{fmt.Sprintf("cannot validate migration status: %s", sourcePostgresNotReachable)},
+				},
 			}, nil
 		default:
 			return nil, fmt.Errorf("error creating postgres migrator: %w", err)
@@ -227,30 +249,33 @@ func (s *StatusChecker) validateMigrationStatus(pgURL string) (*MigrationStatus,
 	}
 	defer migrator.Close()
 
-	version, dirty, err := migrator.Version()
+	migrationStatusList, err := migrator.Status()
 	if err != nil {
-		return nil, fmt.Errorf("error getting migration version: %w", err)
+		return nil, fmt.Errorf("error getting migration status: %w", err)
 	}
 
-	migrationErrs := func() []string {
+	migrationStatusResponseList := make([]MigrationStatus, 0, len(migrationStatusList))
+	for _, status := range migrationStatusList {
 		var errs []string
-		migrationAssets := pgmigrations.AssetNames()
-		if len(migrationAssets)/2 != int(version) {
-			errs = append(errs, fmt.Sprintf("migration version (%d) does not match the number of migration files (%d)", version, len(migrationAssets)/2))
+		if status.Version == 0 {
+			errs = append(errs, fmt.Sprintf("migration table %s does not exist", status.TableName))
+		}
+		if status.Version != status.ExpectedMigrationCount {
+			errs = append(errs, fmt.Sprintf("migration version (%d) does not match the number of migration files (%d) for table %s", status.Version, status.ExpectedMigrationCount, status.TableName))
+		}
+		if status.Dirty {
+			errs = append(errs, fmt.Sprintf("migration version %d is dirty for table %s", status.Version, status.TableName))
 		}
 
-		if dirty {
-			errs = append(errs, fmt.Sprintf("migration version %d is dirty", version))
-		}
+		migrationStatusResponseList = append(migrationStatusResponseList, MigrationStatus{
+			TableName: status.TableName,
+			Version:   status.Version,
+			Dirty:     status.Dirty || status.Version == 0,
+			Errors:    errs,
+		})
+	}
 
-		return errs
-	}()
-
-	return &MigrationStatus{
-		Version: version,
-		Dirty:   dirty,
-		Errors:  migrationErrs,
-	}, nil
+	return migrationStatusResponseList, nil
 }
 
 // validateSchemaStatus checks if the pgstream schema and schema_log table exist
@@ -277,28 +302,14 @@ func (s *StatusChecker) validateSchemaStatus(ctx context.Context, pgURL string) 
 	// table as it won't exist either
 	if !schemaExists {
 		return &SchemaStatus{
-			SchemaExists:         false,
-			SchemaLogTableExists: false,
-			Errors:               append([]string{}, noPgstreamSchemaErrMsg),
+			SchemaExists: false,
+			Errors:       append([]string{}, noPgstreamSchemaErrMsg),
 		}, nil
 	}
 
-	var schemaLogTableExists bool
-	err = conn.QueryRow(ctx, []any{&schemaLogTableExists}, "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'pgstream' AND table_name = 'schema_log')")
-	if err != nil && !errors.Is(err, pglib.ErrNoRows) {
-		return nil, fmt.Errorf("checking if pgstream schema_log table exists: %w", err)
-	}
-
-	status := &SchemaStatus{
-		SchemaExists:         schemaExists,
-		SchemaLogTableExists: schemaLogTableExists,
-	}
-
-	if !schemaLogTableExists {
-		status.Errors = append(status.Errors, noPgstreamSchemaLogTableErrMsg)
-	}
-
-	return status, nil
+	return &SchemaStatus{
+		SchemaExists: schemaExists,
+	}, nil
 }
 
 // validateReplicationSlotStatus checks if the replication slot exists in the

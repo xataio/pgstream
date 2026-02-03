@@ -5,7 +5,6 @@ package postgres
 import (
 	"context"
 
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
@@ -25,7 +24,7 @@ type mockSchemaObserver struct {
 	getGeneratedColumnNamesFn func(ctx context.Context, schema, table string) (map[string]struct{}, error)
 	getSequenceColumnsFn      func(ctx context.Context, schema, table string) (map[string]string, error)
 	isMaterializedViewFn      func(schema, table string) bool
-	updateFn                  func(logEntry *schemalog.LogEntry)
+	updateFn                  func(ddlEvent *wal.DDLEvent)
 	closeFn                   func() error
 }
 
@@ -41,8 +40,8 @@ func (m *mockSchemaObserver) isMaterializedView(ctx context.Context, schema, tab
 	return m.isMaterializedViewFn(schema, table)
 }
 
-func (m *mockSchemaObserver) update(logEntry *schemalog.LogEntry) {
-	m.updateFn(logEntry)
+func (m *mockSchemaObserver) update(ddlEvent *wal.DDLEvent) {
+	m.updateFn(ddlEvent)
 }
 
 func (m *mockSchemaObserver) close() error {
@@ -50,11 +49,11 @@ func (m *mockSchemaObserver) close() error {
 }
 
 type mockDDLAdapter struct {
-	schemaLogToQueriesFn func(ctx context.Context, l *schemalog.LogEntry) ([]*query, error)
+	walDataToQueriesFn func(ctx context.Context, d *wal.Data) ([]*query, error)
 }
 
-func (m *mockDDLAdapter) schemaLogToQueries(ctx context.Context, l *schemalog.LogEntry) ([]*query, error) {
-	return m.schemaLogToQueriesFn(ctx, l)
+func (m *mockDDLAdapter) walDataToQueries(ctx context.Context, d *wal.Data) ([]*query, error) {
+	return m.walDataToQueriesFn(ctx, d)
 }
 
 type mockDMLAdapter struct {

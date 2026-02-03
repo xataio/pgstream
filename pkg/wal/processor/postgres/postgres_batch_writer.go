@@ -10,8 +10,6 @@ import (
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
-	"github.com/xataio/pgstream/pkg/schemalog"
-	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
@@ -27,25 +25,10 @@ type BatchWriter struct {
 
 const batchWriter = "postgres_batch_writer"
 
-var errSchemaLogStoreNotProvided = errors.New("schema log store URL must be provided or DDL events will not be processed. If this is intended, set ignore DDL to true")
-
 // NewBatchWriter returns a postgres processor that batches and writes data to
 // the configured postgres instance.
 func NewBatchWriter(ctx context.Context, config *Config, opts ...WriterOption) (*BatchWriter, error) {
-	var schemaLogStore schemalog.Store
-	if !config.IgnoreDDL {
-		if config.SchemaLogStore.URL == "" {
-			return nil, errSchemaLogStoreNotProvided
-		}
-		var err error
-		schemaLogStore, err = schemalogpg.NewStore(ctx, config.SchemaLogStore)
-		if err != nil {
-			return nil, fmt.Errorf("create schema log postgres store: %w", err)
-		}
-		schemaLogStore = schemalog.NewStoreCache(schemaLogStore)
-	}
-
-	w, err := newWriter(ctx, config, schemaLogStore, batchWriter, opts...)
+	w, err := newWriter(ctx, config, batchWriter, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -205,13 +188,15 @@ func (w *BatchWriter) isInternalError(err error) bool {
 	var errDataException *pglib.ErrDataException
 	var errRelationAlreadyExists *pglib.ErrRelationAlreadyExists
 	var errPreconditionFailed *pglib.ErrPreconditionFailed
+	var errFeatureNotSupported *pglib.ErrFeatureNotSupported
 	switch {
 	case errors.As(err, &errRelationDoesNotExist),
 		errors.As(err, &errConstraintViolation),
 		errors.As(err, &errSyntaxError),
 		errors.As(err, &errDataException),
 		errors.As(err, &errRelationAlreadyExists),
-		errors.As(err, &errPreconditionFailed):
+		errors.As(err, &errPreconditionFailed),
+		errors.As(err, &errFeatureNotSupported):
 		return false
 	default:
 		return true

@@ -3,11 +3,8 @@
 package store
 
 import (
-	"fmt"
-
 	"github.com/xataio/pgstream/internal/json"
 	"github.com/xataio/pgstream/internal/searchstore"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 )
 
@@ -15,7 +12,6 @@ import (
 type SearchAdapter interface {
 	SearchDocToBulkItem(docs search.Document) searchstore.BulkItem
 	BulkItemsToSearchDocErrs(items []searchstore.BulkItem) []search.DocumentError
-	RecordToLogEntry(rec map[string]any) (*schemalog.LogEntry, error)
 }
 
 type adapter struct {
@@ -38,7 +34,7 @@ func (a *adapter) SearchDocToBulkItem(doc search.Document) searchstore.BulkItem 
 		Doc: doc.Data,
 	}
 	bulkIndex := &searchstore.BulkIndex{
-		Index:       indexName.Name(),
+		Index:       indexName.NameWithVersion(),
 		ID:          doc.ID,
 		Version:     &doc.Version,
 		VersionType: "external",
@@ -60,20 +56,6 @@ func (a *adapter) BulkItemsToSearchDocErrs(items []searchstore.BulkItem) []searc
 		failedDocs = append(failedDocs, a.bulkItemToSearchDocErr(item))
 	}
 	return failedDocs
-}
-
-func (a *adapter) RecordToLogEntry(rec map[string]any) (*schemalog.LogEntry, error) {
-	recBytes, err := a.marshaler(rec)
-	if err != nil {
-		return nil, fmt.Errorf("opensearch record to schemalog entry: failed to marshal document: %w", err)
-	}
-
-	var log schemalog.LogEntry
-	if err := a.unmarshaler(recBytes, &log); err != nil {
-		return nil, fmt.Errorf("opensearch record to schemalog entry: failed to unmarshal document: %w", err)
-	}
-
-	return &log, nil
 }
 
 func (a *adapter) bulkItemToSearchDocErr(item searchstore.BulkItem) search.DocumentError {

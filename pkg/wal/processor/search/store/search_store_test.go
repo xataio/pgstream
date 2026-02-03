@@ -3,176 +3,242 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"testing"
 
-	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/internal/searchstore"
 	searchstoremocks "github.com/xataio/pgstream/internal/searchstore/mocks"
-	"github.com/xataio/pgstream/pkg/schemalog"
+	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	searchmocks "github.com/xataio/pgstream/pkg/wal/processor/search/mocks"
 )
 
-func TestStore_ApplySchemaChange(t *testing.T) {
+func TestStore_ApplySchemaDiff(t *testing.T) {
 	t.Parallel()
 
 	testSchemaName := "test_schema"
-	id := xid.New()
-	testLogEntry := &schemalog.LogEntry{
-		ID:         id,
-		SchemaName: testSchemaName,
-		Version:    0,
-	}
-	newLogEntry := &schemalog.LogEntry{
-		ID:         id,
-		SchemaName: testSchemaName,
-		Version:    1,
-	}
-
-	testSearchResponse := &searchstore.SearchResponse{
-		Hits: searchstore.Hits{
-			Hits: []searchstore.Hit{
-				{ID: "doc-1"},
-			},
-		},
-	}
-
-	testAdapter := &mockAdapter{
-		recordToLogEntryFn: func(m map[string]any) (*schemalog.LogEntry, error) {
-			return testLogEntry, nil
-		},
-		schemaNameToIndexFn: newDefaultIndexName,
-	}
-
-	testMapper := &searchmocks.Mapper{
-		ColumnToSearchMappingFn: func(column schemalog.Column) (map[string]any, error) {
-			return map[string]any{
-				"test": "mapping",
-			}, nil
-		},
-	}
-
+	testIndexName := fmt.Sprintf("%s-1", testSchemaName)
 	errTest := errors.New("oh noes")
 
+	testMapping := map[string]any{
+		"type": "text",
+	}
+
 	tests := []struct {
-		name     string
-		client   searchstore.Client
-		logEntry *schemalog.LogEntry
+		name   string
+		client searchstore.Client
+		mapper search.Mapper
+		diff   *wal.SchemaDiff
 
 		wantErr error
 	}{
 		{
-			name: "ok - nil entry",
+			name: "ok - empty diff",
 			client: &searchstoremocks.Client{
 				GetMapperFn: func() searchstore.Mapper {
 					return &searchstoremocks.Mapper{}
 				},
 			},
-			logEntry: nil,
+			diff: &wal.SchemaDiff{},
 
 			wantErr: nil,
 		},
 		{
-			name: "ok",
+			name: "ok - diff with new columns",
 			client: &searchstoremocks.Client{
 				GetMapperFn: func() searchstore.Mapper {
 					return &searchstoremocks.Mapper{}
-				},
-				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
-					return testSearchResponse, nil
-				},
-				IndexExistsFn: func(ctx context.Context, index string) (bool, error) { return true, nil },
-				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
-					return nil
-				},
-			},
-			logEntry: newLogEntry,
-
-			wantErr: nil,
-		},
-		{
-			name: "ok - index doesn't exist",
-			client: &searchstoremocks.Client{
-				GetMapperFn: func() searchstore.Mapper {
-					return &searchstoremocks.Mapper{}
-				},
-				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
-					return nil, searchstore.ErrResourceNotFound
-				},
-				IndexExistsFn:   func(ctx context.Context, index string) (bool, error) { return false, nil },
-				CreateIndexFn:   func(ctx context.Context, index string, body map[string]any) error { return nil },
-				PutIndexAliasFn: func(ctx context.Context, index []string, name string) error { return nil },
-				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
-					return nil
-				},
-			},
-			logEntry: newLogEntry,
-
-			wantErr: nil,
-		},
-		{
-			name: "error - ensuring schema exists",
-			client: &searchstoremocks.Client{
-				GetMapperFn: func() searchstore.Mapper {
-					return &searchstoremocks.Mapper{}
-				},
-				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
-					return nil, searchstore.ErrResourceNotFound
 				},
 				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
-					if index == schemalogIndexName {
-						return true, nil
-					}
-					return false, nil
+					require.Equal(t, testIndexName, index)
+					return true, nil
 				},
-				CreateIndexFn: func(ctx context.Context, index string, body map[string]any) error { return errTest },
-			},
-			logEntry: newLogEntry,
-
-			wantErr: errTest,
-		},
-		{
-			name: "error - getting last schema",
-			client: &searchstoremocks.Client{
-				GetMapperFn: func() searchstore.Mapper {
-					return &searchstoremocks.Mapper{}
-				},
-				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
-					return nil, errTest
-				},
-			},
-			logEntry: newLogEntry,
-
-			wantErr: errTest,
-		},
-		{
-			name: "error - schema out of order",
-			client: &searchstoremocks.Client{
-				GetMapperFn: func() searchstore.Mapper {
-					return &searchstoremocks.Mapper{}
-				},
-				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
-					return testSearchResponse, nil
-				},
-				IndexExistsFn: func(ctx context.Context, index string) (bool, error) { return true, nil },
-				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
+				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
+					require.Equal(t, testSchemaName, index)
 					return nil
 				},
 			},
-			logEntry: testLogEntry,
-
-			wantErr: search.ErrSchemaUpdateOutOfOrder{
-				SchemaName:     testSchemaName,
-				SchemaID:       id.String(),
-				NewVersion:     0,
-				CurrentVersion: 0,
+			mapper: &searchmocks.Mapper{
+				ColumnToSearchMappingFn: func(column *wal.DDLColumn) (map[string]any, error) {
+					return testMapping, nil
+				},
 			},
+			diff: &wal.SchemaDiff{
+				SchemaName: testSchemaName,
+				TablesAdded: []wal.DDLObject{
+					{
+						Identity:   "public.table1",
+						PgstreamID: "pgstreamid",
+						Columns: []wal.DDLColumn{
+							{Attnum: 1, Name: "col1", Type: "text"},
+						},
+					},
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - diff with tables removed",
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
+					return true, nil
+				},
+				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
+					return nil
+				},
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
+					require.Equal(t, []string{testSchemaName}, req.Index)
+					return nil
+				},
+			},
+			diff: &wal.SchemaDiff{
+				SchemaName: testSchemaName,
+				TablesRemoved: []wal.DDLObject{
+					{Identity: "public.table1", PgstreamID: "table1_id"},
+					{Identity: "public.table2", PgstreamID: "table2_id"},
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - diff with table primary key change",
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
+					return true, nil
+				},
+				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
+					return nil
+				},
+			},
+			diff: &wal.SchemaDiff{
+				SchemaName: testSchemaName,
+				TablesChanged: []wal.TableDiff{
+					{
+						TableName:       "users",
+						TablePgstreamID: "pgstreamid",
+						TablePrimaryKeyChange: &wal.ValueChange[[]string]{
+							Old: []string{"id"},
+							New: []string{"uuid"},
+						},
+					},
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - create schema when it doesn't exist",
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
+					require.Equal(t, testIndexName, index)
+					return false, nil
+				},
+				CreateIndexFn: func(ctx context.Context, index string, body map[string]any) error {
+					require.Equal(t, testIndexName, index)
+					return nil
+				},
+				PutIndexAliasFn: func(ctx context.Context, index []string, name string) error {
+					require.Equal(t, []string{testIndexName}, index)
+					require.Equal(t, testSchemaName, name)
+					return nil
+				},
+				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
+					return nil
+				},
+			},
+			mapper: &searchmocks.Mapper{
+				ColumnToSearchMappingFn: func(column *wal.DDLColumn) (map[string]any, error) {
+					return testMapping, nil
+				},
+			},
+			diff: &wal.SchemaDiff{
+				SchemaName: testSchemaName,
+				TablesAdded: []wal.DDLObject{
+					{
+						Identity:   "public.table1",
+						PgstreamID: "pgstreamid",
+						Columns: []wal.DDLColumn{
+							{Attnum: 1, Name: "col1", Type: "text"},
+						},
+					},
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - create schema that doesn't exist but it does when trying to create",
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
+					require.Equal(t, testIndexName, index)
+					return false, nil
+				},
+				CreateIndexFn: func(ctx context.Context, index string, body map[string]any) error {
+					return search.ErrSchemaAlreadyExists{}
+				},
+				PutIndexAliasFn: func(ctx context.Context, index []string, name string) error {
+					return errors.New("PutIndexAliasFn: should not be called")
+				},
+				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
+					return nil
+				},
+			},
+			mapper: &searchmocks.Mapper{
+				ColumnToSearchMappingFn: func(column *wal.DDLColumn) (map[string]any, error) {
+					return testMapping, nil
+				},
+			},
+			diff: &wal.SchemaDiff{
+				SchemaName: testSchemaName,
+				TablesAdded: []wal.DDLObject{
+					{
+						Identity:   "public.table1",
+						PgstreamID: "pgstreamid",
+						Columns: []wal.DDLColumn{
+							{Attnum: 1, Name: "col1", Type: "text"},
+						},
+					},
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "error - ensuring schema existence",
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
+					return false, errTest
+				},
+			},
+			diff: &wal.SchemaDiff{
+				SchemaName: testSchemaName,
+				TablesAdded: []wal.DDLObject{
+					{Identity: "public.table1", PgstreamID: "pgstreamid"},
+				},
+			},
+
+			wantErr: errTest,
 		},
 		{
 			name: "error - updating mapping",
@@ -180,29 +246,71 @@ func TestStore_ApplySchemaChange(t *testing.T) {
 				GetMapperFn: func() searchstore.Mapper {
 					return &searchstoremocks.Mapper{}
 				},
-				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
-					return testSearchResponse, nil
+				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
+					return true, nil
 				},
-				IndexExistsFn: func(ctx context.Context, index string) (bool, error) { return true, nil },
-				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error { return errTest },
+				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
+					return errTest
+				},
 			},
-			logEntry: newLogEntry,
+			mapper: &searchmocks.Mapper{
+				ColumnToSearchMappingFn: func(column *wal.DDLColumn) (map[string]any, error) {
+					return testMapping, nil
+				},
+			},
+			diff: &wal.SchemaDiff{
+				SchemaName: testSchemaName,
+				TablesAdded: []wal.DDLObject{
+					{
+						Identity:   "public.table1",
+						PgstreamID: "pgstreamid",
+						Columns: []wal.DDLColumn{
+							{Attnum: 1, Name: "col1", Type: "text"},
+						},
+					},
+				},
+			},
 
 			wantErr: errTest,
 		},
 		{
-			name: "error - ensuring schema mapping",
+			name: "error - creating schema when it doesn't exist",
 			client: &searchstoremocks.Client{
 				GetMapperFn: func() searchstore.Mapper {
 					return &searchstoremocks.Mapper{}
 				},
-				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
-					return testSearchResponse, nil
+				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
+					require.Equal(t, testIndexName, index)
+					return false, nil
 				},
-				IndexExistsFn: func(ctx context.Context, index string) (bool, error) { return false, nil },
-				CreateIndexFn: func(ctx context.Context, index string, body map[string]any) error { return errTest },
+				CreateIndexFn: func(ctx context.Context, index string, body map[string]any) error {
+					require.Equal(t, testIndexName, index)
+					return errTest
+				},
+				PutIndexAliasFn: func(ctx context.Context, index []string, name string) error {
+					return errors.New("PutIndexAliasFn: should not be called")
+				},
+				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
+					return errors.New("PutIndexMappingsFn: should not be called")
+				},
 			},
-			logEntry: newLogEntry,
+			mapper: &searchmocks.Mapper{
+				ColumnToSearchMappingFn: func(column *wal.DDLColumn) (map[string]any, error) {
+					return testMapping, nil
+				},
+			},
+			diff: &wal.SchemaDiff{
+				SchemaName: testSchemaName,
+				TablesAdded: []wal.DDLObject{
+					{
+						Identity:   "public.table1",
+						PgstreamID: "pgstreamid",
+						Columns: []wal.DDLColumn{
+							{Attnum: 1, Name: "col1", Type: "text"},
+						},
+					},
+				},
+			},
 
 			wantErr: errTest,
 		},
@@ -213,10 +321,11 @@ func TestStore_ApplySchemaChange(t *testing.T) {
 			t.Parallel()
 
 			s := NewStoreWithClient(tc.client)
-			s.adapter = testAdapter
-			s.mapper = testMapper
+			if tc.mapper != nil {
+				s.mapper = tc.mapper
+			}
 
-			err := s.ApplySchemaChange(context.Background(), tc.logEntry)
+			err := s.ApplySchemaDiff(context.Background(), tc.diff)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
@@ -426,25 +535,6 @@ func TestStore_DeleteSchema(t *testing.T) {
 
 			wantErr: errTest,
 		},
-		{
-			name: "error - deleting schema from schema log",
-			client: &searchstoremocks.Client{
-				GetMapperFn: func() searchstore.Mapper {
-					return &searchstoremocks.Mapper{}
-				},
-				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
-					return false, nil
-				},
-				DeleteIndexFn: func(ctx context.Context, index []string) error {
-					return errTest
-				},
-				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
-					return errTest
-				},
-			},
-
-			wantErr: errTest,
-		},
 	}
 
 	for _, tc := range tests {
@@ -545,216 +635,6 @@ func TestStore_DeleteTableDocuments(t *testing.T) {
 	}
 }
 
-func TestStore_getLastSchemaLogEntry(t *testing.T) {
-	t.Parallel()
-
-	testSchemaName := "test_schema"
-	testLogEntry := &schemalog.LogEntry{
-		ID:         xid.New(),
-		SchemaName: testSchemaName,
-	}
-	testBody := []byte("test-body")
-
-	errTest := errors.New("oh noes")
-
-	tests := []struct {
-		name      string
-		client    searchstore.Client
-		adapter   SearchAdapter
-		marshaler func(any) ([]byte, error)
-
-		wantLogEntry *schemalog.LogEntry
-		wantErr      error
-	}{
-		{
-			name: "ok",
-			client: &searchstoremocks.Client{
-				GetMapperFn: func() searchstore.Mapper {
-					return &searchstoremocks.Mapper{}
-				},
-				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
-					require.Equal(t, &searchstore.SearchRequest{
-						Index: searchstore.Ptr(schemalogIndexName),
-						Size:  searchstore.Ptr(1),
-						Sort:  searchstore.Ptr("version:desc"),
-						Query: bytes.NewBuffer(testBody),
-					}, req)
-					return &searchstore.SearchResponse{
-						Hits: searchstore.Hits{
-							Hits: []searchstore.Hit{
-								{ID: "doc-1"},
-							},
-						},
-					}, nil
-				},
-			},
-			adapter: &mockAdapter{
-				recordToLogEntryFn: func(m map[string]any) (*schemalog.LogEntry, error) {
-					return testLogEntry, nil
-				},
-			},
-			marshaler: func(a any) ([]byte, error) { return testBody, nil },
-
-			wantLogEntry: testLogEntry,
-			wantErr:      nil,
-		},
-		{
-			name: "error - marshaling search query",
-			client: &searchstoremocks.Client{
-				GetMapperFn: func() searchstore.Mapper {
-					return &searchstoremocks.Mapper{}
-				},
-				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
-					return nil, errors.New("SearchFn: should not be called")
-				},
-			},
-			adapter: &mockAdapter{
-				recordToLogEntryFn: func(m map[string]any) (*schemalog.LogEntry, error) {
-					return nil, errors.New("recordToLogEntryFn: should not be called")
-				},
-			},
-			marshaler: func(a any) ([]byte, error) { return nil, errTest },
-
-			wantLogEntry: nil,
-			wantErr:      errTest,
-		},
-		{
-			name: "error - no hits in response",
-			client: &searchstoremocks.Client{
-				GetMapperFn: func() searchstore.Mapper {
-					return &searchstoremocks.Mapper{}
-				},
-				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
-					return &searchstore.SearchResponse{
-						Hits: searchstore.Hits{},
-					}, nil
-				},
-			},
-			adapter: &mockAdapter{
-				recordToLogEntryFn: func(m map[string]any) (*schemalog.LogEntry, error) {
-					return nil, errors.New("recordToLogEntryFn: should not be called")
-				},
-			},
-
-			wantLogEntry: nil,
-			wantErr:      search.ErrSchemaNotFound{SchemaName: testSchemaName},
-		},
-		{
-			name: "error - schema not found",
-			client: &searchstoremocks.Client{
-				GetMapperFn: func() searchstore.Mapper {
-					return &searchstoremocks.Mapper{}
-				},
-				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
-					return nil, searchstore.ErrResourceNotFound
-				},
-				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
-					require.Equal(t, schemalogIndexName, index)
-					return true, nil
-				},
-			},
-			adapter: &mockAdapter{
-				recordToLogEntryFn: func(m map[string]any) (*schemalog.LogEntry, error) {
-					return nil, errors.New("recordToLogEntryFn: should not be called")
-				},
-			},
-
-			wantLogEntry: nil,
-			wantErr:      search.ErrSchemaNotFound{SchemaName: testSchemaName},
-		},
-		{
-			name: "error - retrieving schema",
-			client: &searchstoremocks.Client{
-				GetMapperFn: func() searchstore.Mapper {
-					return &searchstoremocks.Mapper{}
-				},
-				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
-					return nil, errTest
-				},
-			},
-			adapter: &mockAdapter{
-				recordToLogEntryFn: func(m map[string]any) (*schemalog.LogEntry, error) {
-					return nil, errors.New("recordToLogEntryFn: should not be called")
-				},
-			},
-
-			wantLogEntry: nil,
-			wantErr:      errTest,
-		},
-		{
-			name: "error - schema not found with pgstream index creation",
-			client: &searchstoremocks.Client{
-				GetMapperFn: func() searchstore.Mapper {
-					return &searchstoremocks.Mapper{}
-				},
-				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
-					return nil, searchstore.ErrResourceNotFound
-				},
-				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
-					require.Equal(t, schemalogIndexName, index)
-					return false, nil
-				},
-				CreateIndexFn: func(ctx context.Context, index string, body map[string]any) error {
-					require.Equal(t, schemalogIndexName, index)
-					return nil
-				},
-			},
-			adapter: &mockAdapter{
-				recordToLogEntryFn: func(m map[string]any) (*schemalog.LogEntry, error) {
-					return nil, errors.New("recordToLogEntryFn: should not be called")
-				},
-			},
-
-			wantLogEntry: nil,
-			wantErr:      search.ErrSchemaNotFound{SchemaName: testSchemaName},
-		},
-		{
-			name: "error - schema not found, failed to create schemalog index",
-			client: &searchstoremocks.Client{
-				GetMapperFn: func() searchstore.Mapper {
-					return &searchstoremocks.Mapper{}
-				},
-				SearchFn: func(ctx context.Context, req *searchstore.SearchRequest) (*searchstore.SearchResponse, error) {
-					return nil, searchstore.ErrResourceNotFound
-				},
-				IndexExistsFn: func(ctx context.Context, index string) (bool, error) {
-					require.Equal(t, schemalogIndexName, index)
-					return false, nil
-				},
-				CreateIndexFn: func(ctx context.Context, index string, body map[string]any) error {
-					return errTest
-				},
-			},
-			adapter: &mockAdapter{
-				recordToLogEntryFn: func(m map[string]any) (*schemalog.LogEntry, error) {
-					return nil, errors.New("recordToLogEntryFn: should not be called")
-				},
-			},
-
-			wantLogEntry: nil,
-			wantErr:      errTest,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			s := NewStoreWithClient(tc.client)
-			if tc.adapter != nil {
-				s.adapter = tc.adapter
-			}
-			if tc.marshaler != nil {
-				s.marshaler = tc.marshaler
-			}
-
-			logEntry, err := s.getLastSchemaLogEntry(context.Background(), testSchemaName)
-			require.ErrorIs(t, err, tc.wantErr)
-			require.Equal(t, tc.wantLogEntry, logEntry)
-		})
-	}
-}
-
 func TestStore_createSchema(t *testing.T) {
 	t.Parallel()
 
@@ -836,10 +716,6 @@ func TestStore_updateMapping(t *testing.T) {
 
 	testSchemaName := "test_schema"
 	testIndexName := testSchemaName
-	testLogEntry := &schemalog.LogEntry{
-		ID:         xid.New(),
-		SchemaName: testSchemaName,
-	}
 
 	testMapping := map[string]any{
 		"test": "mapping",
@@ -850,7 +726,7 @@ func TestStore_updateMapping(t *testing.T) {
 	tests := []struct {
 		name   string
 		client searchstore.Client
-		diff   *schemalog.Diff
+		diff   *wal.SchemaDiff
 		mapper search.Mapper
 
 		wantErr error
@@ -875,7 +751,7 @@ func TestStore_updateMapping(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "ok - diff with columns to add",
+			name: "ok - diff with table to add",
 			client: &searchstoremocks.Client{
 				GetMapperFn: func() searchstore.Mapper {
 					return &searchstoremocks.Mapper{}
@@ -885,6 +761,10 @@ func TestStore_updateMapping(t *testing.T) {
 					require.Equal(t, map[string]any{
 						"properties": map[string]any{
 							"pgstreamid-1": testMapping,
+							"users.col-1": map[string]any{
+								"type": "alias",
+								"path": "pgstreamid-1",
+							},
 						},
 					}, body)
 					return nil
@@ -896,17 +776,65 @@ func TestStore_updateMapping(t *testing.T) {
 					return errors.New("DeleteByQueryFn: should not be called")
 				},
 			},
-			diff: &schemalog.Diff{
-				TablesChanged: []schemalog.TableDiff{
+			diff: &wal.SchemaDiff{
+				TablesAdded: []wal.DDLObject{
 					{
-						ColumnsAdded: []schemalog.Column{
-							{Name: "col-1", PgstreamID: "pgstreamid-1"},
+						Schema:     "public",
+						Identity:   "public.users",
+						PgstreamID: "pgstreamid",
+						Columns: []wal.DDLColumn{
+							{Attnum: 1, Name: "col-1"},
 						},
 					},
 				},
 			},
 			mapper: &searchmocks.Mapper{
-				ColumnToSearchMappingFn: func(column schemalog.Column) (map[string]any, error) {
+				ColumnToSearchMappingFn: func(column *wal.DDLColumn) (map[string]any, error) {
+					return testMapping, nil
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - diff with columns to add",
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
+					require.Equal(t, testIndexName, index)
+					require.Equal(t, map[string]any{
+						"properties": map[string]any{
+							"pgstreamid-1": testMapping,
+							"users.col-1": map[string]any{
+								"type": "alias",
+								"path": "pgstreamid-1",
+							},
+						},
+					}, body)
+					return nil
+				},
+				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
+					return nil
+				},
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
+					return errors.New("DeleteByQueryFn: should not be called")
+				},
+			},
+			diff: &wal.SchemaDiff{
+				TablesChanged: []wal.TableDiff{
+					{
+						TableName:       "users",
+						TablePgstreamID: "pgstreamid",
+						ColumnsAdded: []wal.DDLColumn{
+							{Attnum: 1, Name: "col-1"},
+						},
+					},
+				},
+			},
+			mapper: &searchmocks.Mapper{
+				ColumnToSearchMappingFn: func(column *wal.DDLColumn) (map[string]any, error) {
 					return testMapping, nil
 				},
 			},
@@ -938,10 +866,111 @@ func TestStore_updateMapping(t *testing.T) {
 					return nil
 				},
 			},
-			diff: &schemalog.Diff{
-				TablesRemoved: []schemalog.Table{
+			diff: &wal.SchemaDiff{
+				TablesRemoved: []wal.DDLObject{
 					{PgstreamID: "id-1"},
 					{PgstreamID: "id-2"},
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - diff with column rename",
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
+					require.Equal(t, testIndexName, index)
+					require.Equal(t, map[string]any{
+						"properties": map[string]any{
+							"users.new_name": map[string]any{
+								"type": "alias",
+								"path": "pgstreamid-1",
+							},
+						},
+					}, body)
+					return nil
+				},
+				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
+					return nil
+				},
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
+					return nil
+				},
+			},
+			diff: &wal.SchemaDiff{
+				SchemaName: testSchemaName,
+				TablesChanged: []wal.TableDiff{
+					{
+						TableName:       "users",
+						TablePgstreamID: "pgstreamid",
+						ColumnsChanged: []wal.ColumnDiff{
+							{
+								ColumnPgstreamID: "pgstreamid-1",
+								NameChange: &wal.ValueChange[string]{
+									Old: "old_name",
+									New: "new_name",
+								},
+							},
+						},
+					},
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - diff with table rename",
+			client: &searchstoremocks.Client{
+				GetMapperFn: func() searchstore.Mapper {
+					return &searchstoremocks.Mapper{}
+				},
+				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
+					require.Equal(t, testIndexName, index)
+					require.Equal(t, map[string]any{
+						"properties": map[string]any{
+							"new_name": map[string]any{
+								"col-1": map[string]any{
+									"type": "alias",
+									"path": "pgstreamid-1",
+								},
+							},
+						},
+					}, body)
+					return nil
+				},
+				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
+					return nil
+				},
+				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
+					return nil
+				},
+				GetIndexMappingsFn: func(ctx context.Context, index string) (*searchstore.Mappings, error) {
+					return &searchstore.Mappings{
+						Properties: map[string]any{
+							"old_name": map[string]any{
+								"col-1": map[string]any{
+									"type": "alias",
+									"path": "pgstreamid-1",
+								},
+							},
+						},
+					}, nil
+				},
+			},
+			diff: &wal.SchemaDiff{
+				SchemaName: testSchemaName,
+				TablesChanged: []wal.TableDiff{
+					{
+						TableName:       "new_name",
+						TablePgstreamID: "pgstreamid",
+						TableNameChange: &wal.ValueChange[string]{
+							Old: "old_name",
+							New: "new_name",
+						},
+					},
 				},
 			},
 
@@ -963,11 +992,12 @@ func TestStore_updateMapping(t *testing.T) {
 					return errors.New("DeleteByQueryFn: should not be called")
 				},
 			},
-			diff: &schemalog.Diff{
-				TablesChanged: []schemalog.TableDiff{
+			diff: &wal.SchemaDiff{
+				TablesChanged: []wal.TableDiff{
 					{
-						ColumnsAdded: []schemalog.Column{
-							{Name: "col-1", PgstreamID: "pgstreamid-1"},
+						TablePgstreamID: "pgstreamid",
+						ColumnsAdded: []wal.DDLColumn{
+							{Attnum: 1, Name: "col-1"},
 						},
 					},
 				},
@@ -991,29 +1021,10 @@ func TestStore_updateMapping(t *testing.T) {
 					return errTest
 				},
 			},
-			diff: &schemalog.Diff{
-				TablesRemoved: []schemalog.Table{
+			diff: &wal.SchemaDiff{
+				TablesRemoved: []wal.DDLObject{
 					{PgstreamID: "id-1"},
 					{PgstreamID: "id-2"},
-				},
-			},
-
-			wantErr: errTest,
-		},
-		{
-			name: "error - inserting schemalog",
-			client: &searchstoremocks.Client{
-				GetMapperFn: func() searchstore.Mapper {
-					return &searchstoremocks.Mapper{}
-				},
-				PutIndexMappingsFn: func(ctx context.Context, index string, body map[string]any) error {
-					return errors.New("PutIndexMappingsFn: should not be called")
-				},
-				IndexWithIDFn: func(ctx context.Context, req *searchstore.IndexWithIDRequest) error {
-					return errTest
-				},
-				DeleteByQueryFn: func(ctx context.Context, req *searchstore.DeleteByQueryRequest) error {
-					return errors.New("DeleteByQueryFn: should not be called")
 				},
 			},
 
@@ -1030,7 +1041,7 @@ func TestStore_updateMapping(t *testing.T) {
 				s.mapper = tc.mapper
 			}
 
-			err := s.updateMapping(context.Background(), testSchemaName, testLogEntry, tc.diff)
+			err := s.updateMapping(context.Background(), testSchemaName, tc.diff)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}

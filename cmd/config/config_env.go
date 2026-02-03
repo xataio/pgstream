@@ -9,7 +9,6 @@ import (
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
 	"github.com/xataio/pgstream/pkg/otel"
-	pgschemalog "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/stream"
@@ -55,7 +54,6 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_MODE")
-	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_ROLE")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE")
@@ -77,7 +75,6 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_MAX_BYTES")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_CONVERGENCE_THRESHOLD")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES")
-	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED")
@@ -292,32 +289,25 @@ func parseSnapshotConfig(pgURL string) (*snapshotbuilder.SnapshotListenerConfig,
 }
 
 func parseSchemaSnapshotConfig(pgurl string) (*snapshotbuilder.SchemaSnapshotConfig, error) {
-	useSchemaLog := viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG")
 	pgTargetURL := viper.GetString("PGSTREAM_POSTGRES_WRITER_TARGET_URL")
-	if pgTargetURL != "" && !useSchemaLog {
-		rolesSnapshotConfig, err := getRolesSnapshotMode(viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE"))
-		if err != nil {
-			return nil, err
-		}
-		return &snapshotbuilder.SchemaSnapshotConfig{
-			DumpRestore: &pgdumprestore.Config{
-				SourcePGURL:            pgurl,
-				TargetPGURL:            pgTargetURL,
-				CleanTargetDB:          viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB"),
-				CreateTargetDB:         viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB"),
-				IncludeGlobalDBObjects: viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS"),
-				Role:                   viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_ROLE"),
-				RolesSnapshotMode:      rolesSnapshotConfig,
-				DumpDebugFile:          viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE"),
-				NoOwner:                viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_NO_OWNER"),
-				NoPrivileges:           viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_NO_PRIVILEGES"),
-				ExcludedSecurityLabels: viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_SECURITY_LABELS"),
-			},
-		}, nil
+
+	rolesSnapshotConfig, err := getRolesSnapshotMode(viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE"))
+	if err != nil {
+		return nil, err
 	}
 	return &snapshotbuilder.SchemaSnapshotConfig{
-		SchemaLogStore: &pgschemalog.Config{
-			URL: pgurl,
+		DumpRestore: &pgdumprestore.Config{
+			SourcePGURL:            pgurl,
+			TargetPGURL:            pgTargetURL,
+			CleanTargetDB:          viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB"),
+			CreateTargetDB:         viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB"),
+			IncludeGlobalDBObjects: viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS"),
+			Role:                   viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_ROLE"),
+			RolesSnapshotMode:      rolesSnapshotConfig,
+			DumpDebugFile:          viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE"),
+			NoOwner:                viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_NO_OWNER"),
+			NoPrivileges:           viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_NO_PRIVILEGES"),
+			ExcludedSecurityLabels: viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_SECURITY_LABELS"),
 		},
 	}, nil
 }
@@ -484,9 +474,6 @@ func parsePostgresProcessorConfig() *stream.PostgresProcessorConfig {
 					ConvergenceThreshold: viper.GetFloat64("PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_CONVERGENCE_THRESHOLD"),
 				},
 			},
-			SchemaLogStore: pgschemalog.Config{
-				URL: viper.GetString("PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL"),
-			},
 			DisableTriggers:   viper.GetBool("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS"),
 			OnConflictAction:  viper.GetString("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION"),
 			BulkIngestEnabled: bulkIngestEnabled,
@@ -542,9 +529,7 @@ func parseInjectorConfig() *injector.Config {
 		return nil
 	}
 	return &injector.Config{
-		Store: pgschemalog.Config{
-			URL: pgURL,
-		},
+		URL: pgURL,
 	}
 }
 

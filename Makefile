@@ -28,9 +28,9 @@ license-check:
 
 .PHONY: gen-migrations
 gen-migrations:
-	@go install github.com/go-bindata/go-bindata/...
-	@go-bindata -o migrations/postgres/migrations.go -pkg pgmigrations -ignore migrations.go -prefix "migrations/postgres/" migrations/postgres/
-
+	@go install github.com/go-bindata/go-bindata/v3/go-bindata@latest
+	@go-bindata -o migrations/postgres/core/migrations.go -pkg pgcoremigrations -ignore migrations.go -prefix "migrations/postgres/core" migrations/postgres/core/
+	@go-bindata -o migrations/postgres/injector/migrations.go -pkg pginjectormigrations -ignore migrations.go -prefix "migrations/postgres/injector" migrations/postgres/injector/
 .PHONY: generate
 generate:
 	# Generate the cli-definition.json file

@@ -64,7 +64,7 @@ type printer interface {
 
 func print(cmd *cobra.Command, p printer) error {
 	str := p.PrettyPrint()
-	if cmd.Flags().Lookup("json").Value.String() == "true" {
+	if cmd.Flags().Lookup("json").Value.String() == trueStr {
 		var prettyJSON bytes.Buffer
 		jsonData, err := json.Marshal(p)
 		if err != nil {
