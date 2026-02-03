@@ -1,342 +1,215 @@
 # pgstream v1.0.0 Release Notes
 
-**Release Date:** February 4th, 2026
+This is a **major, breaking release**.
 
-## 🎉 Major Release: Stateless DDL Replication
+pgstream v1.0.0 introduces a new **stateless DDL replication architecture**.
+The legacy schema log mechanism has been removed, and schema changes are now replicated directly from PostgreSQL WAL.
 
-This is a **major breaking release** that fundamentally transforms how pgstream handles DDL (Data Definition Language) replication. Version 1.0.0 introduces a stateless architecture that eliminates the need for schema log tables and provides a more robust, maintainable solution for tracking database schema changes.
+## Audience
 
----
+These release notes is primarily intended for:
 
-## 🚨 Breaking Changes
+- Users upgrading from **v0.x** (action required)
+- Operators running pgstream in production
+- Developers integrating pgstream replication output
 
-Below you can find a description of the breaking changes included in this release. For more details on how to upgrade, check the [migration guide](#-migration-guide) below.
+**Important:** Upgrading from any v0.x version **requires re-initialization**.
 
-### Schema Log Removal
+## Summary of Required Actions
 
-**Impact: HIGH** - This change affects all existing pgstream installations.
+- Existing installations must be **re-initialized**
+- All `schema_log`–related configuration must be removed
+- Injector configuration must be updated (`schemalog_url` → `source_url`)
+- Snapshot schema mode must be updated
 
-- **Removed:** The `pgstream.schema_log` table and all related infrastructure
-- **Removed:** All schema log-based tracking mechanisms
-- **Result:** Existing installations must migrate to the new architecture
+## Breaking Changes
 
-### Migration Structure Changes
+### Removal of Schema Log (High Impact)
 
-**Impact: HIGH** - Changes to database migration organization.
+The schema log mechanism has been fully removed.
 
-The migration system has been completely restructured and split into two categories:
+- The `pgstream.schema_log` table no longer exists
+- All schema log–based tracking has been removed
+- Schema changes are no longer persisted as database state
 
-#### Core Migrations
+Existing installations **must migrate** to the new DDL-based model.
 
-Located in `migrations/postgres/core/`, and tracked under `pgstream.schema_migrations_core`:
+### Migration Framework Restructure (High Impact)
 
-- Basic DDL replication functionality
-- Event triggers for schema change capture
-- Functions for building DDL events metadata
-- **Required for all pgstream installations**
+PostgreSQL migrations are now split into two independent groups.
 
-#### Injector Migrations
+#### Core migrations
 
-Located in `migrations/postgres/injector/`, and tracked under `pgstream.schema_migrations_injector`:
+- Location: `migrations/postgres/core/`
+- Tracking table: `pgstream.schema_migrations_core`
+- Provide:
+  - DDL replication
+  - Event triggers
+  - Core replication infrastructure
+- **Required for all installations**
 
-- pgstream ID injection capabilities
-- `pgstream.table_ids` table for internal ID tracking
-- **Required only for search indexing or use cases where pgstream IDs are required**
+#### Injector migrations
 
-### Configuration Changes
+- Location: `migrations/postgres/injector/`
+- Tracking table: `pgstream.schema_migrations_injector`
+- Provide:
+  - ID injection
+  - Internal table ID tracking (`pgstream.table_ids`)
+- **Only required when using search indexing or ID-dependent features**
 
-**Impact: MEDIUM** - Configuration files need updates.
+### Configuration Defaults (Medium Impact)
 
-- **Removed:** `schema_log` configuration options from all components
-- **Changed:** LSN (Log Sequence Number) is now the default and only version identifier for events
+- All `schema_log` configuration options have been removed
+- LSN is now the default and only event version identifier
 
-### API Changes
+### Internal API Changes (Medium Impact)
 
-**Impact: MEDIUM** - Internal API modifications.
+- The `pkg/schemalog` package has been removed
+- Processors now consume DDL events directly
+- Snapshot schema generation is based on DDL events instead of schema log entries
 
-- **Removed:** `pkg/schemalog` package and all subpackages
-- **Changed:** Processor interfaces now work with DDL events instead of schema log entries
-- **Changed:** Snapshot schema generation now uses DDL events instead of schema log entries for non Postgres targets
+These changes affect internal integrations and custom processors.
 
----
+## Migration Guide
 
-## ✨ New Features
+### New Installations
 
-### Stateless DDL Tracking
+No special migration steps are required.
 
-The core innovation of v1.0.0 is the new stateless architecture:
-
-**How it works:**
-
-1. DDL changes are captured via [`pg_event_trigger_ddl_commands`](https://www.postgresql.org/docs/current/functions-event-triggers.html#PG-EVENT-TRIGGER-DDL-COMMAND-END-FUNCTIONS) and [`pg_event_trigger_dropped_objects`](https://www.postgresql.org/docs/current/functions-event-triggers.html#PG-EVENT-TRIGGER-SQL-DROP-FUNCTIONS) Postgres triggers
-2. Captured DDL changes are emitted as logical messages in the PostgreSQL WAL stream using [`pg_logical_emit_message`](https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-REPLICATION)
-3. Table metadata is computed on-the-fly and attached to the logical message alongside the DDL query
-4. Schema changes flow through the same replication stream as data changes
-5. Schema diffs are computed directly from DDL events during processing
-
-**Benefits:**
-
-- ✅ **No external state:** No separate schema log table to maintain or query
-- ✅ **Order preservation:** Schema changes are ordered with data events in the WAL stream
-- ✅ **Reduced footprint:** Fewer tables and triggers on source databases
-- ✅ **Simpler operations:** No schema log synchronization or consistency issues
-
-### WAL-Based DDL Events
-
-New DDL event structure captures schema changes directly in the WAL:
-
-```go
-type DDLEvent struct {
-    DDL        string      // The DDL statement executed
-    SchemaName string      // Schema where DDL was executed
-    CommandTag string      // Command type (e.g., CREATE TABLE, ALTER TABLE)
-    Objects    []DDLObject // Objects affected by the DDL
-}
-
-type DDLObject struct {
-    Type              string      // Object type (e.g., table, index)
-    Identity          string      // Full object identifier
-    Schema            string      // Schema name
-    OID               string      // PostgreSQL object ID
-    PgstreamID        string      // Internal pgstream ID (for injector)
-    Columns           []DDLColumn // Column definitions
-    PrimaryKeyColumns []string    // Primary key column names
-}
-
-type DDLColumn struct {
-    Attnum    int     // Column attribute number
-    Name      string  // Column name
-    Type      string  // PostgreSQL data type
-    Nullable  bool    // Whether column accepts NULL
-    Default   *string // Default value expression
-    Generated bool    // Whether column is generated
-    Identity  *string // Identity column type
-    Unique    bool    // Whether column has unique constraint
-}
-```
-
-### Enhanced Search Processor
-
-**Impact: MEDIUM** - Improved search indexing capabilities.
-
-The search processor has been completely refactored to work without schema logs, including the removal of the `pgstream` index created to keep track of the schema log history.
-
-**New features:**
-
-- **Field aliasing:** Index mappings now use aliases to map human-readable names to internal pgstream IDs instead of relying on the `pgstream` schema log for field mapping.
-- **Rename handling:**
-  - Column renames add new aliases while preserving original storage
-  - Table renames transfer all column aliases to the new table name
-- **User-friendly:** Search queries use actual table/column names instead of internal IDs
-
-### Simplified Snapshot Generation
-
-**Impact: LOW** - Internal implementation change.
-
-The snapshot schema generator is now dramatically simpler:
-
-**How it works:**
-
-1. Parse DDL statements directly from `pg_dump` output
-2. Convert DDL to WAL DDL events using `restoreToWAL` function as if they were coming from the event trigger
-3. Process snapshot DDL events through the same pipeline as runtime DDL
-4. Single unified processing path for all schema changes
-
-**Benefits:**
-
-- Eliminates duplicate schema log generation code
-- Consistent schema handling between snapshots and live replication
-- Reduced maintenance burden
-
-### Modular Migration System
-
-**Impact: LOW** - Better resource utilization.
-
-New migration structure allows selective installation:
-
-- **Minimal deployments:** Install only core migrations for basic WAL replication
-- **Search use cases:** Add injector migrations for search indexing capabilities
-- **Reduced permissions:** Fewer database objects = smaller security footprint
-
-## 🚀 Migration Guide
-
-### For New Installations
-
-Simply install pgstream v1.0.0 - no migration needed.
+#### Initialize
 
 ```bash
-# Option 1: Initialize separately
 pgstream init --config config.yaml
-
-# Option 2: Initialize and run in one command
+# or
 pgstream run --config config.yaml --init
+```
 
-# Option 3: Run only database migrations (without creating replication slot)
+#### Install migrations only (no replication slot)
+
+```bash
 pgstream init --config config.yaml --migrations-only
 ```
 
-The system will automatically install the appropriate migrations based on your configuration.
+### Upgrading Existing Installations (v0.x → v1.0.0)
 
-**Note:** The `--migrations-only` flag runs only the database migrations (creating the pgstream schema, tables, functions, and triggers) without creating the replication slot. This is useful when you want to set up the schema separately or when using different database credentials for migrations versus replication.
+Upgrading requires re-initialization.
 
-### For Existing Installations
+Recommended steps:
 
-**⚠️ Important:** Upgrading from v0.x to v1.0.0 requires running init again due to breaking changes.
-
-#### Migration Steps
-
-1. **Stop your current pgstream instance**
+1. Stop the running pgstream instance
+2. Remove existing state
 
    ```bash
-   # Stop running pgstream processes
-   ```
-
-2. **Clean up old pgstream state** (recommended)
-
-   v1.0.0 initialization will not automatically remove old v0.x migrations. To clean up the old state, use `pgstream destroy` before upgrading:
-
-   ```bash
-   # Run with v0.x (before upgrading) or v1 (after upgrading)
-   pgstream destroy --config config.yaml
-
-   # Or remove only migrations without dropping the replication slot
    pgstream destroy --config config.yaml --migrations-only
    ```
 
-   **Full destroy** removes:
-   - The `pgstream` schema, including the `schema_log` table
-   - Old migration tracking tables
-   - Replication slot
-   - Functions and triggers from v0.x
+   Using `--migrations-only` preserves the replication slot and the pgstream schema, along with any non migration tables (e.g., `snapshot_requests`) and can reduce downtime.
 
-   **Migrations-only destroy** (`--migrations-only` flag) removes:
-   - Migration tracking tables
-   - Functions and triggers from v0.x
-   - **Preserves** the replication slot (useful for minimal downtime migrations) and the `pgstream` schema (including any non migration tables in it)
-
-   ⚠️ If you're using snapshots, full destroy will reset the snapshot recorder (`pgstream.snapshot_requests`), losing any tracking of past snapshot history.
-
-3. **Install and initialize v1.0.0**
+3. Initialize v1.0.0
 
    ```bash
-   # Download new version
-   ```
-
-   **Update your configuration file** to remove v0.x-specific settings.
-   See the [Configuration Updates](#configuration-updates) section below for detailed examples.
-
-   ```bash
-   # Initialize with new migrations
    pgstream init --config config.yaml
-
-   # Or run migrations only (without creating replication slot)
-   pgstream init --config config.yaml --migrations-only
 
    # Or initialize and run in one command:
    pgstream run --config config.yaml --init
    ```
 
-4. **Start replication** (if using separate init)
+4. Start replication
+
    ```bash
    pgstream run --config config.yaml
    ```
 
-#### Configuration Updates
+## Required Configuration Changes
 
-The following configuration changes are required when upgrading from v0.x to v1.0.0:
+### Injector Configuration Rename
 
-##### 1. Rename `schemalog_url` to `source_url` in Injector Configuration
-
-The injector modifier's `schemalog_url` parameter has been renamed to `source_url`. DDL events now flow through the WAL automatically without requiring a separate schema log table.
-
-**Important**: When using a PostgreSQL source, the `source_url` is optional (defaults to source postgres URL). However, for **non-Postgres sources** (e.g., Kafka), the `source_url` is **required** to connect to the source PostgreSQL database for DDL replication.
-
-**Before (v0.x):**
+Old configuration:
 
 ```yaml
 modifiers:
   injector:
     enabled: true
-    schemalog_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    schemalog_url: "..."
 ```
 
-**After (v1.0.0) - PostgreSQL source:**
+New configuration:
 
 ```yaml
 modifiers:
   injector:
     enabled: true
-    # source_url is optional, defaults to source postgres URL
+    source_url: "..."
 ```
 
-**After (v1.0.0) - Kafka or other non-Postgres source:**
+For PostgreSQL sources, `source_url` is not required.
+
+### Schema Log Store Removal
+
+PostgreSQL targets no longer require `schema_log_store_url`.
+
+### Snapshot Schema Mode Change
+
+The `schemalog` snapshot schema mode has been removed. It will always use `pgdump_pgrestore`.
+
+Use:
 
 ```yaml
-modifiers:
-  injector:
-    enabled: true
-    source_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # required for non-postgres sources
+snapshot:
+  schema:
+    mode: pgdump_pgrestore
 ```
 
-##### 2. Remove `schema_log_store_url` from PostgreSQL Target
+## Architecture Changes (Background)
 
-PostgreSQL targets no longer need a separate schema log store URL.
+The following sections describe the new replication model in more detail.
 
-**Before (v0.x):**
+### Stateless DDL Replication
 
-```yaml
-target:
-  postgres:
-    url: "postgres://postgres:postgres@localhost:7654?sslmode=disable"
-    batch:
-      timeout: 5000
-      size: 100
-    schema_log_store_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
-```
+DDL is now captured directly from PostgreSQL using event triggers and logical WAL messages.
 
-**After (v1.0.0):**
+High-level flow:
 
-```yaml
-target:
-  postgres:
-    url: "postgres://postgres:postgres@localhost:7654?sslmode=disable"
-    batch:
-      timeout: 5000
-      size: 100
-    # schema_log_store_url removed
-```
+1. DDL is captured using PostgreSQL event triggers
+2. DDL events are enriched with metadata
+3. DDL events are emitted as logical WAL messages
+4. Schema changes are streamed inline with data changes
 
-##### 3. Update Snapshot Schema Mode
+This removes persistent schema state while preserving event ordering.
 
-The `schemalog` mode for snapshot schema generation has been removed. Use `pgdump_pgrestore` instead.
+### WAL-Based DDL Events
 
-**Before (v0.x):**
+Schema changes are now represented as first-class WAL events.
 
-```yaml
-source:
-  postgres:
-    snapshot:
-      mode: full
-      schema:
-        mode: schemalog # No longer supported
-```
+This release introduces new Go structs describing DDL events and their associated metadata.
 
-**After (v1.0.0):**
+### Search Processor Changes
 
-```yaml
-source:
-  postgres:
-    snapshot:
-      mode: full
-      schema:
-        pgdump_pgrestore:
-          clean_target_db: true # Optional: clean target before restore
-```
+Search indexing no longer depends on the schema log.
 
-## 📞 Support
+- Field aliasing replaces schema-log-based mappings
+- Column renames preserve aliases to maintain query compatibility
+- Search results use actual table and column names instead of internal IDs
 
-If you encounter issues during migration or have questions:
+### Snapshot Changes
 
-- **GitHub Issues:** https://github.com/xataio/pgstream/issues
-- **Documentation:** https://github.com/xataio/pgstream/tree/main/docs
-- **Discussions:** https://github.com/xataio/pgstream/discussions
+Snapshot processing has been unified for all targets. Instead of having a dedicated schema snapshot for non Postgres targets, now:
+
+- DDL is extracted from `pg_dump` output
+- DDL is converted into WAL-style DDL events
+- Snapshot and live events are processed through the same pipeline
+
+### Modular Migration Strategy
+
+Migrations can now be applied selectively:
+
+- Core migrations for standard replication
+- Injector migrations only when search or ID tracking is required
+
+This reduces database objects, permissions, and operational overhead.
+
+## Support
+
+- Issues: <https://github.com/xataio/pgstream/issues>
+- Documentation: <https://github.com/xataio/pgstream/tree/main/docs>
+- Discussions: <https://github.com/xataio/pgstream/discussions>
