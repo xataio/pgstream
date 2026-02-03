@@ -170,9 +170,14 @@ pgstream init --config config.yaml
 
 # Option 2: Initialize and run in one command
 pgstream run --config config.yaml --init
+
+# Option 3: Run only database migrations (without creating replication slot)
+pgstream init --config config.yaml --migrations-only
 ```
 
 The system will automatically install the appropriate migrations based on your configuration.
+
+**Note:** The `--migrations-only` flag runs only the database migrations (creating the pgstream schema, tables, functions, and triggers) without creating the replication slot. This is useful when you want to set up the schema separately or when using different database credentials for migrations versus replication.
 
 ### For Existing Installations
 
@@ -193,15 +198,23 @@ The system will automatically install the appropriate migrations based on your c
    ```bash
    # Run with v0.x (before upgrading) or v1 (after upgrading)
    pgstream destroy --config config.yaml
+
+   # Or remove only migrations without dropping the replication slot
+   pgstream destroy --config config.yaml --migrations-only
    ```
 
-   This will remove:
+   **Full destroy** removes:
    - The `pgstream` schema, including the `schema_log` table
    - Old migration tracking tables
    - Replication slot
    - Functions and triggers from v0.x
 
-   ⚠️ If you're using the snapshot recorder, this will drop the `pgstream.snapshot_requests` table and lose all snapshot history.
+   **Migrations-only destroy** (`--migrations-only` flag) removes:
+   - Migration tracking tables
+   - Functions and triggers from v0.x
+   - **Preserves** the replication slot (useful for minimal downtime migrations) and the `pgstream` schema (including any non migration tables in it)
+
+   ⚠️ If you're using snapshots, full destroy will reset the snapshot recorder (`pgstream.snapshot_requests`), losing any tracking of past snapshot history.
 
 3. **Install and initialize v1.0.0**
 
@@ -215,6 +228,9 @@ The system will automatically install the appropriate migrations based on your c
    ```bash
    # Initialize with new migrations
    pgstream init --config config.yaml
+
+   # Or run migrations only (without creating replication slot)
+   pgstream init --config config.yaml --migrations-only
 
    # Or initialize and run in one command:
    pgstream run --config config.yaml --init

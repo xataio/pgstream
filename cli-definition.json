@@ -8,6 +8,11 @@
       "example": "\n\tpgstream destroy --postgres-url <source-postgres-url> --replication-slot <replication-slot-name>\n\tpgstream destroy -c config.yaml\n\tpgstream destroy -c config.env",
       "flags": [
         {
+          "name": "migrations-only",
+          "description": "Whether to only revert the database migrations",
+          "default": "false"
+        },
+        {
           "name": "postgres-url",
           "description": "Source postgres URL where pgstream destroy will be run",
           "default": ""
@@ -32,6 +37,11 @@
       "use": "init",
       "example": "\n\tpgstream init --postgres-url <source-postgres-url> --replication-slot <replication-slot-name>\n\tpgstream init -c config.yaml\n\tpgstream init -c config.env",
       "flags": [
+        {
+          "name": "migrations-only",
+          "description": "Whether to only run the initialization database migrations",
+          "default": "false"
+        },
         {
           "name": "postgres-url",
           "description": "Source postgres URL where pgstream setup will be run",
@@ -192,6 +202,11 @@
       "use": "tear-down",
       "example": "\n\tpgstream tear-down --postgres-url <source-postgres-url> --replication-slot <replication-slot-name>\n\tpgstream tear-down -c config.yaml\n\tpgstream tear-down -c config.env",
       "flags": [
+        {
+          "name": "migrations-only",
+          "description": "Whether to only revert the database migrations",
+          "default": "false"
+        },
         {
           "name": "postgres-url",
           "description": "Source postgres URL where pgstream tear down will be run",

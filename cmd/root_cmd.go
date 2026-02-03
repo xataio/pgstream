@@ -52,16 +52,20 @@ func Prepare() *cobra.Command {
 	initCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream setup will be run")
 	initCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be created by pgstream on the source url")
 	initCmd.Flags().Bool("with-injector", false, "Whether to initialise pgstream with the injector database migrations")
+	initCmd.Flags().Bool("migrations-only", false, "Whether to only run the initialization database migrations")
 
 	// destroy cmd
 	destroyCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream destroy will be run")
 	destroyCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be deleted by pgstream from the source url")
 	destroyCmd.Flags().Bool("with-injector", false, "Whether to also destroy the injector related database objects")
+	destroyCmd.Flags().Bool("migrations-only", false, "Whether to only revert the database migrations")
 
 	// tear down cmd
 	tearDownCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream tear down will be run")
 	tearDownCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be deleted by pgstream from the source url")
 	tearDownCmd.Flags().Bool("with-injector", false, "Whether to also tear down the injector related database objects")
+	tearDownCmd.Flags().Bool("migrations-only", false, "Whether to only revert the database migrations")
+
 	// snapshot cmd
 	snapshotCmd.Flags().String("postgres-url", "", "Source postgres database to perform the snapshot from")
 	snapshotCmd.Flags().String("target", "", "Target type. One of postgres, opensearch, elasticsearch, kafka")
