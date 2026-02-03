@@ -17,7 +17,7 @@ The legacy schema log mechanism has been removed, and schema changes are now rep
 
 ## 👥 Audience
 
-These release notes is primarily intended for:
+These release notes are primarily intended for:
 
 - Users upgrading from **v0.x** (action required)
 - Operators running pgstream in production
