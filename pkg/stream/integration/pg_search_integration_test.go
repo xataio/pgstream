@@ -191,20 +191,16 @@ func Test_PostgresToSearch(t *testing.T) {
 				if !exists {
 					continue
 				}
-				resp := searchSchemaLog(t, ctx, client, testSchema)
-				if resp.Hits.Total.Value == 0 {
+				testTablePgstreamID := getTablePgstreamID(t, ctx, testSchema, testTable)
+				if testTablePgstreamID == "" {
 					continue
 				}
-				tableID := getTablePgstreamID(t, resp.Hits.Hits[0].Source, testTable)
-				if tableID == "" {
-					continue
-				}
-				resp = searchTable(t, ctx, client, testIndex, tableID)
+				resp := searchTable(t, ctx, client, testIndex, testTablePgstreamID)
 				if resp.Hits.Total.Value != 1 {
 					continue
 				}
 				hash := sha256.Sum256([]byte(longID))
-				expectedID := fmt.Sprintf("%s_%s", tableID, hex.EncodeToString(hash[:]))
+				expectedID := fmt.Sprintf("%s_%s", testTablePgstreamID, hex.EncodeToString(hash[:]))
 				require.Equal(t, expectedID, resp.Hits.Hits[0].ID)
 				return
 			}
