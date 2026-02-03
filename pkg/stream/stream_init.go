@@ -20,6 +20,15 @@ type InitConfig struct {
 	PostgresURL               string
 	ReplicationSlotName       string
 	InjectorMigrationsEnabled bool
+	MigrationsOnly            bool
+}
+
+type InitOption func(*InitConfig)
+
+func WithMigrationsOnly() InitOption {
+	return func(cfg *InitConfig) {
+		cfg.MigrationsOnly = true
+	}
 }
 
 const (
@@ -60,6 +69,11 @@ func Init(ctx context.Context, config *InitConfig) error {
 
 	if err := migrator.Up(); err != nil && !errors.Is(err, migratorlib.ErrNoChange) {
 		return fmt.Errorf("failed to run internal pgstream migrations: %w", err)
+	}
+
+	// if only migrations need to be run, return early
+	if config.MigrationsOnly {
+		return nil
 	}
 
 	if config.ReplicationSlotName == "" {
@@ -103,21 +117,6 @@ func Destroy(ctx context.Context, config *InitConfig) error {
 	}
 	defer conn.Close(ctx)
 
-	if config.ReplicationSlotName == "" {
-		config.ReplicationSlotName, err = getReplicationSlotName(config.PostgresURL)
-		if err != nil {
-			return err
-		}
-	}
-
-	if err := pglib.IsValidReplicationSlotName(config.ReplicationSlotName); err != nil {
-		return err
-	}
-
-	if err := dropReplicationSlot(ctx, conn, config.ReplicationSlotName); err != nil {
-		return err
-	}
-
 	migrationAssets := []*migratorlib.MigrationAssets{
 		migratorlib.GetCoreMigrationAssets(),
 	}
@@ -133,9 +132,34 @@ func Destroy(ctx context.Context, config *InitConfig) error {
 		return fmt.Errorf("failed to revert internal pgstream migrations: %w", err)
 	}
 
+	// if only migrations need to be reverted, delete the schema migration
+	// tables and return early. Otherwise the pgstream schema drop will take
+	// care of cleaning up the migration tables.
+	if config.MigrationsOnly {
+		if err := dropMigrationTables(ctx, conn, migrationAssets); err != nil {
+			return err
+		}
+		return nil
+	}
+
 	// delete the pgstream schema once the migration destroy has completed
 	if err := dropPGStreamSchema(ctx, conn); err != nil {
 		return fmt.Errorf("failed to drop pgstream schema: %w", err)
+	}
+
+	if config.ReplicationSlotName == "" {
+		config.ReplicationSlotName, err = getReplicationSlotName(config.PostgresURL)
+		if err != nil {
+			return err
+		}
+	}
+
+	if err := pglib.IsValidReplicationSlotName(config.ReplicationSlotName); err != nil {
+		return err
+	}
+
+	if err := dropReplicationSlot(ctx, conn, config.ReplicationSlotName); err != nil {
+		return err
 	}
 
 	return nil
@@ -154,6 +178,15 @@ func dropPGStreamSchema(ctx context.Context, conn *pgx.Conn) error {
 		return fmt.Errorf("failed to drop postgres pgstream schema: %w", err)
 	}
 
+	return nil
+}
+
+func dropMigrationTables(ctx context.Context, conn *pgx.Conn, migrationAssets []*migratorlib.MigrationAssets) error {
+	for _, assets := range migrationAssets {
+		if _, err := conn.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", pglib.QuoteQualifiedIdentifier("pgstream", assets.TableName))); err != nil {
+			return fmt.Errorf("failed to delete migration table %s: %w", assets.TableName, err)
+		}
+	}
 	return nil
 }
 
