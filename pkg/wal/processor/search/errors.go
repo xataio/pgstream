@@ -51,7 +51,6 @@ var (
 	ErrInvalidQuery = errors.New("invalid query")
 
 	errNilIDValue      = errors.New("id has nil value")
-	errNilVersionValue = errors.New("version has nil value")
 	errMetadataMissing = errors.New("missing wal event metadata")
 	errEmptyQueueMsg   = errors.New("invalid empty queue message")
 	errIncompatibleLSN = errors.New("incompatible LSN value")

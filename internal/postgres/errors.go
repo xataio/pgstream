@@ -80,6 +80,31 @@ func (e *ErrPreconditionFailed) Error() string {
 	return fmt.Sprintf("precondition failed: %s", e.Details)
 }
 
+type ErrCacheLookupFailed struct {
+	Details string
+}
+
+func (e *ErrCacheLookupFailed) Error() string {
+	return fmt.Sprintf("cache lookup failed: %s", e.Details)
+}
+
+type ErrProgramLimitExceeded struct {
+	Details string
+}
+
+func (e *ErrProgramLimitExceeded) Error() string {
+	return fmt.Sprintf("program limit exceeded: %s", e.Details)
+}
+
+type ErrFeatureNotSupported struct {
+	Details string
+}
+
+func (e *ErrFeatureNotSupported) Error() string {
+	return fmt.Sprintf("feature not supported: %s", e.Details)
+}
+
+// MapError maps a Postgres error to a more specific error type
 func MapError(err error) error {
 	if pgconn.Timeout(err) {
 		return fmt.Errorf("%w: %w", ErrConnTimeout, err)
@@ -124,6 +149,19 @@ func MapError(err error) error {
 			return &ErrPreconditionFailed{
 				Details: pgErr.Message,
 			}
+		case "XX000":
+			// XX000 	internal_error
+			// Only map cache lookup failures to a specific error type for retry logic
+			if strings.Contains(pgErr.Message, "cache lookup failed") {
+				return &ErrCacheLookupFailed{
+					Details: pgErr.Message,
+				}
+			}
+		case "0A000":
+			// 0A000 	feature_not_supported
+			return &ErrFeatureNotSupported{
+				Details: pgErr.Message,
+			}
 		case "42701", "42P03", "42P04", "42723", "42P05", "42P06", "42P07", "42712", "42710":
 			// 42701 	duplicate_column
 			// 42P03 	duplicate_cursor
@@ -148,6 +186,13 @@ func MapError(err error) error {
 		// Class 23 — Integrity Constraint Violation
 		if strings.HasPrefix(pgErr.Code, "23") {
 			return &ErrConstraintViolation{
+				Details: pgErr.Message,
+			}
+		}
+
+		// Class 54 — Program Limit Exceeded
+		if strings.HasPrefix(pgErr.Code, "54") {
+			return &ErrProgramLimitExceeded{
 				Details: pgErr.Message,
 			}
 		}

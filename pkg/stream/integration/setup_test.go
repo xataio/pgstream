@@ -22,7 +22,11 @@ func TestMain(m *testing.M) {
 		}
 		defer pgcleanup()
 
-		if err := stream.Init(ctx, pgurl, ""); err != nil {
+		if err := stream.Init(ctx, &stream.InitConfig{
+			PostgresURL:               pgurl,
+			ReplicationSlotName:       "",
+			InjectorMigrationsEnabled: true,
+		}); err != nil {
 			log.Fatal(err)
 		}
 

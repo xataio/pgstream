@@ -28,7 +28,7 @@ The current implementations of the processor include:
 
 - **Kafka batch writer**: it writes the WAL events into a Kafka topic, using the event schema as the Kafka key for partitioning. This implementation allows to fan-out the sequential WAL events, while acting as an intermediate buffer to avoid the replication slot to grow when there are slow consumers. It has a memory guarded buffering system internally to limit the memory usage of the buffer. The buffer is sent to Kafka based on the configured linger time and maximum size. It treats both data and schema events equally, since it doesn't care about the content.
 
-- **Search batch indexer**: it indexes the WAL events into an OpenSearch/Elasticsearch compatible search store. It implements the same kind of mechanism than the Kafka batch writer to ensure continuous processing from the listener, and it also uses a batching mechanism to minimise search store calls. The WAL event identity is used as the search store document id, and if no other version is provided, the LSN is used as the document version. Events that do not have an identity are not indexed. Schema events are stored in a separate search store index (`pgstream`), where the schema log history is kept for use within the search store (i.e, read queries).
+- **Search batch indexer**: it indexes the WAL events into an OpenSearch/Elasticsearch compatible search store. It implements the same kind of mechanism than the Kafka batch writer to ensure continuous processing from the listener, and it also uses a batching mechanism to minimise search store calls. The WAL event identity is used as the search store document id, and the LSN is used as the document version. Events that do not have an identity are not indexed.
 
 - **Webhook notifier**: it sends a notification to any webhooks that have subscribed to the relevant wal event. It relies on a subscription HTTP server receiving the subscription requests and storing them in the shared subscription store which is accessed whenever a wal event is processed. It sends the notifications to the different subscribed webhook urls in parallel based on a configurable number of workers (client timeouts apply). Similar to the two previous processor implementations, it uses a memory guarded buffering system internally, which allows to separate the wal event processing from the webhook url sending, optimising the processor latency.
 
@@ -41,15 +41,13 @@ In addition to the implementations described above, there are optional processor
 There current implementations of the processor that act as modifier decorators are:
 
 - **Injector**: injects some of the pgstream logic into the WAL event. This includes:
-
   - Data events:
 
-  - Setting the WAL event identity. If provided, it will use the configured id finder (only available when used as a library), otherwise it will default to using the table primary key/unique not null column.
-  - Setting the WAL event version. If provided, it will use the configured version finder (only available when used as a library), otherwise it will default to using the event LSN.
+  - Setting the WAL event identity. It will use the table primary key/unique not null column.
   - Adding pgstream IDs to all columns. This allows us to have a constant identifier for a column, so that if there are renames the column id doesn't change. This is particularly helpful for the search store, where a rename would require a reindex, which can be costly depending on the data.
 
   - Schema events:
-  - Acknolwedging the new incoming schema in the Postgres `pgstream.schema_log` table.
+  - Extracting pgstream ids from the DDL event and caching them to be used during the data event injection step.
 
 - **Filter**: allows to filter out WAL events for certain schemas/tables. It can be configured by providing either an include or exclude table list. WAL events for the tables in the include list will be processed, while those for the tables in the exclude list or not present in the include list will be skipped. The format for the lists is similar to the snapshot tables, tables are expected to be schema qualified, and if not, the `public` schema will be assumed. Wildcards are supported, but not regex. Example of table list: `["test_table", "public.test_table", "test_schema.test_table", "test_schema.*", "*.test", "*.*"]`. By default, the filter will include the `pgstream.schema_log` table in the include table list, since pgstream relies on it to replicate DDL changes. It can be disabled by adding it to the exclude list.
 
@@ -57,8 +55,14 @@ There current implementations of the processor that act as modifier decorators a
 
 ## Tracking schema changes
 
-One of the main differentiators of pgstream is the fact that it tracks and replicates schema changes automatically. It relies on SQL triggers that will populate a Postgres table (`pgstream.schema_log`) containing a history log of all DDL changes for a given schema. Whenever a schema change occurs, this trigger creates a new row in the schema log table with the schema encoded as a JSON value. This table tracks all the schema changes, forming a linearised change log that is then parsed and used within the pgstream pipeline to identify modifications and push the relevant changes downstream.
+One of the main differentiators of pgstream is the fact that it tracks and replicates schema changes automatically.
 
-The detailed SQL used can be found in the [migrations folder](https://github.com/xataio/pgstream/tree/main/migrations/postgres).
+In version 0, it relied on SQL triggers that would populate a Postgres table (`pgstream.schema_log`) containing a history log of all DDL changes for a given schema. Whenever a schema change occurred, this trigger created a new row in the schema log table with the schema encoded as a JSON value. This table tracked all the schema changes, forming a linearised change log that is then parsed and used within the pgstream pipeline to identify modifications and push the relevant changes downstream.
+
+From version 1 onwards, schema changes are captured using event triggers that emit logical messages directly into the WAL, and are then processed downstream by the relevant processors. This new approach reduces a lot of overhead, since state is no longer required (no `pgstream.schema_log` table needed), as well as simplifying the delta when applying schema changes, which had to be computed each time with the previous approach.
+
+![v1 schema replication](img/pgstream_v1_schema_replication.png)
+
+The detailed SQL used for both versions can be found in the [migrations folder](https://github.com/xataio/pgstream/tree/main/migrations/postgres).
 
 The schema and data changes are part of the same linear stream - the downstream consumers always observe the schema changes as soon as they happen, before any data arrives that relies on the new schema. This prevents data loss and manual intervention.

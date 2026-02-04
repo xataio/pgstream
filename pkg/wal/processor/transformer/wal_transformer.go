@@ -107,7 +107,7 @@ func (t *Transformer) Close() error {
 }
 
 func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event) error {
-	if event.Data == nil || len(t.transformerMap) == 0 {
+	if event.Data == nil || len(t.transformerMap) == 0 || event.Data.IsDDLEvent() {
 		return nil
 	}
 

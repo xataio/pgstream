@@ -6,6 +6,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -17,7 +19,6 @@ import (
 	"github.com/xataio/pgstream/pkg/backoff"
 	kafkalib "github.com/xataio/pgstream/pkg/kafka"
 	loglib "github.com/xataio/pgstream/pkg/log"
-	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/stream"
@@ -46,18 +47,18 @@ var (
 )
 
 const (
-	withBulkIngestion    = true
-	withoutBulkIngestion = false
-
-	withGeneratedColumn    = true
-	withoutGeneratedColumn = false
+	withGeneratedColumn = true
 )
 
 type mockProcessor struct {
-	eventChan chan *wal.Event
+	eventChan   chan *wal.Event
+	skipEventFn func(event *wal.Event) bool
 }
 
 func (mp *mockProcessor) process(ctx context.Context, event *wal.Event) error {
+	if mp.skipEventFn != nil && mp.skipEventFn(event) {
+		return nil
+	}
 	mp.eventChan <- event
 	return nil
 }
@@ -108,7 +109,10 @@ func runSnapshot(t *testing.T, ctx context.Context, cfg *stream.Config) {
 }
 
 func initStream(t *testing.T, ctx context.Context, url string) {
-	err := stream.Init(ctx, url, "")
+	err := stream.Init(ctx, &stream.InitConfig{
+		PostgresURL:         url,
+		ReplicationSlotName: "",
+	})
 	require.NoError(t, err)
 }
 
@@ -187,9 +191,7 @@ func testKafkaProcessorCfg() stream.ProcessorConfig {
 			},
 		},
 		Injector: &injector.Config{
-			Store: schemalogpg.Config{
-				URL: pgurl,
-			},
+			URL: pgurl,
 		},
 	}
 }
@@ -200,9 +202,7 @@ func testSearchProcessorCfg(storeCfg store.Config) stream.ProcessorConfig {
 			Store: storeCfg,
 		},
 		Injector: &injector.Config{
-			Store: schemalogpg.Config{
-				URL: pgurl,
-			},
+			URL: pgurl,
 		},
 	}
 }
@@ -216,15 +216,23 @@ func testWebhookProcessorCfg() stream.ProcessorConfig {
 			},
 		},
 		Injector: &injector.Config{
-			Store: schemalogpg.Config{
-				URL: pgurl,
-			},
+			URL: pgurl,
 		},
 	}
 }
 
-func testPostgresProcessorCfg(sourcePGURL string, bulkIngestion bool) stream.ProcessorConfig {
-	return stream.ProcessorConfig{
+type option func(*stream.ProcessorConfig)
+
+func withBulkIngestionEnabled() option {
+	return func(cfg *stream.ProcessorConfig) {
+		if cfg.Postgres != nil {
+			cfg.Postgres.BatchWriter.BulkIngestEnabled = true
+		}
+	}
+}
+
+func testPostgresProcessorCfg(opts ...option) stream.ProcessorConfig {
+	cfg := stream.ProcessorConfig{
 		Postgres: &stream.PostgresProcessorConfig{
 			BatchWriter: postgres.Config{
 				URL: targetPGURL,
@@ -232,21 +240,18 @@ func testPostgresProcessorCfg(sourcePGURL string, bulkIngestion bool) stream.Pro
 					MaxBatchSize: 1,
 					// BatchTimeout: 50 * time.Millisecond,
 				},
-				SchemaLogStore: schemalogpg.Config{
-					URL: sourcePGURL,
-				},
-				BulkIngestEnabled: bulkIngestion,
 				RetryPolicy: backoff.Config{
 					DisableRetries: true,
 				},
 			},
 		},
-		Injector: &injector.Config{
-			Store: schemalogpg.Config{
-				URL: sourcePGURL,
-			},
-		},
 	}
+
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	return cfg
 }
 
 func testPostgresProcessorCfgWithTransformer(sourcePGURL string) stream.ProcessorConfig {
@@ -257,15 +262,10 @@ func testPostgresProcessorCfgWithTransformer(sourcePGURL string) stream.Processo
 				BatchConfig: batch.Config{
 					BatchTimeout: 50 * time.Millisecond,
 				},
-				SchemaLogStore: schemalogpg.Config{
-					URL: sourcePGURL,
-				},
 			},
 		},
 		Injector: &injector.Config{
-			Store: schemalogpg.Config{
-				URL: sourcePGURL,
-			},
+			URL: sourcePGURL,
 		},
 		Transformer: &transformer.Config{
 			TransformerRules: testTransformationRules(),
@@ -387,9 +387,8 @@ type constraintInfo struct {
 	definition     string
 }
 
-func getTableConstraints(t *testing.T, ctx context.Context, conn pglib.Querier, schema, table string) map[string]constraintInfo {
-	rows, err := conn.Query(ctx, `
-		SELECT con.conname,
+const tableConstraintsQuery = `
+	SELECT con.conname,
 			   CASE con.contype
 					WHEN 'p' THEN 'PRIMARY KEY'
 					WHEN 'u' THEN 'UNIQUE'
@@ -402,46 +401,132 @@ func getTableConstraints(t *testing.T, ctx context.Context, conn pglib.Querier, 
 		JOIN pg_class rel ON rel.oid = con.conrelid
 		JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
 		WHERE nsp.nspname = $1 AND rel.relname = $2
-	`, schema, table)
-	require.NoError(t, err)
-	defer rows.Close()
+`
 
-	constraints := make(map[string]constraintInfo)
-	for rows.Next() {
-		var name, constraintType, definition string
-		err := rows.Scan(&name, &constraintType, &definition)
-		require.NoError(t, err)
-		constraints[name] = constraintInfo{
-			constraintType: constraintType,
-			definition:     definition,
+func getTableConstraints(t *testing.T, ctx context.Context, conn pglib.Querier, schema, table string) map[string]constraintInfo {
+	bo := backoff.NewConstantBackoff(ctx, &backoff.ConstantConfig{
+		Interval:   200 * time.Millisecond,
+		MaxRetries: 10,
+	})
+
+	var constraints map[string]constraintInfo
+	err := bo.Retry(func() error {
+		rows, err := conn.Query(ctx, tableConstraintsQuery, schema, table)
+		if err != nil {
+			return parseRetryError(err)
 		}
-	}
-	require.NoError(t, rows.Err())
+		defer rows.Close()
+
+		constraints = make(map[string]constraintInfo)
+		for rows.Next() {
+			var name, constraintType, definition string
+			err := rows.Scan(&name, &constraintType, &definition)
+			if err != nil {
+				return parseRetryError(err)
+			}
+			constraints[name] = constraintInfo{
+				constraintType: constraintType,
+				definition:     definition,
+			}
+		}
+
+		if err := rows.Err(); err != nil {
+			return parseRetryError(err)
+		}
+
+		return nil
+	})
+	require.NoError(t, err)
 
 	return constraints
 }
 
+const tableIndexesQuery = `
+	SELECT indexname, indexdef
+	FROM pg_indexes
+	WHERE schemaname = $1 AND tablename = $2
+`
+
 func getTableIndexes(t *testing.T, ctx context.Context, conn pglib.Querier, schema, table string) map[string]string {
+	bo := backoff.NewConstantBackoff(ctx, &backoff.ConstantConfig{
+		Interval:   200 * time.Millisecond,
+		MaxRetries: 10,
+	})
+
+	var indexes map[string]string
+	err := bo.Retry(func() error {
+		rows, err := conn.Query(ctx, tableIndexesQuery, schema, table)
+		if err != nil {
+			return parseRetryError(err)
+		}
+		defer rows.Close()
+
+		indexes = make(map[string]string)
+		for rows.Next() {
+			var name string
+			var def sql.NullString
+			err := rows.Scan(&name, &def)
+			if err != nil {
+				return parseRetryError(err)
+			}
+			if !def.Valid {
+				continue
+			}
+			indexes[name] = def.String
+		}
+
+		if err := rows.Err(); err != nil {
+			return parseRetryError(err)
+		}
+
+		return nil
+	})
+	require.NoError(t, err)
+
+	return indexes
+}
+
+func parseRetryError(err error) error {
+	errCacheLookupFailed := &pglib.ErrCacheLookupFailed{}
+	if errors.As(pglib.MapError(err), &errCacheLookupFailed) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", err, backoff.ErrPermanent)
+}
+
+type sequenceInfo struct {
+	dataType     string
+	increment    string
+	minimumValue string
+	maximumValue string
+	startValue   string
+	cycleOption  string
+}
+
+func getSequences(t *testing.T, ctx context.Context, conn pglib.Querier, schema string) map[string]sequenceInfo {
 	rows, err := conn.Query(ctx, `
-		SELECT indexname, indexdef
-		FROM pg_indexes
-		WHERE schemaname = $1 AND tablename = $2
-	`, schema, table)
+		SELECT sequence_name, data_type, increment, minimum_value, maximum_value, start_value, cycle_option
+		FROM information_schema.sequences
+		WHERE sequence_schema = $1
+	`, schema)
 	require.NoError(t, err)
 	defer rows.Close()
 
-	indexes := make(map[string]string)
+	sequences := make(map[string]sequenceInfo)
 	for rows.Next() {
-		var name string
-		var def sql.NullString
-		err := rows.Scan(&name, &def)
+		var name, dataType, increment, minValue, maxValue, startValue, cycleOption string
+		err := rows.Scan(&name, &dataType, &increment, &minValue, &maxValue, &startValue, &cycleOption)
 		require.NoError(t, err)
-		if !def.Valid {
-			continue
+		sequences[name] = sequenceInfo{
+			dataType:     dataType,
+			increment:    increment,
+			minimumValue: minValue,
+			maximumValue: maxValue,
+			startValue:   startValue,
+			cycleOption:  cycleOption,
 		}
-		indexes[name] = def.String
 	}
 	require.NoError(t, rows.Err())
 
-	return indexes
+	return sequences
 }

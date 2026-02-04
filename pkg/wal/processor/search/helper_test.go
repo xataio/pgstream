@@ -6,10 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
-	"github.com/rs/xid"
-	"github.com/xataio/pgstream/pkg/schemalog"
+	"github.com/xataio/pgstream/internal/json"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
@@ -23,7 +21,7 @@ func (m *mockAdapter) walEventToMsg(e *wal.Event) (*msg, error) {
 
 type mockStore struct {
 	getMapperFn            func() Mapper
-	applySchemaChangeFn    func(ctx context.Context, le *schemalog.LogEntry) error
+	applySchemaDiffFn      func(ctx context.Context, diff *wal.SchemaDiff) error
 	deleteSchemaFn         func(ctx context.Context, i uint, schemaName string) error
 	deleteTableDocumentsFn func(ctx context.Context, schemaName string, tableIDs []string) error
 	sendDocumentsFn        func(ctx context.Context, i uint, docs []Document) ([]DocumentError, error)
@@ -35,8 +33,8 @@ func (m *mockStore) GetMapper() Mapper {
 	return m.getMapperFn()
 }
 
-func (m *mockStore) ApplySchemaChange(ctx context.Context, le *schemalog.LogEntry) error {
-	return m.applySchemaChangeFn(ctx, le)
+func (m *mockStore) ApplySchemaDiff(ctx context.Context, diff *wal.SchemaDiff) error {
+	return m.applySchemaDiffFn(ctx, diff)
 }
 
 func (m *mockStore) DeleteSchema(ctx context.Context, schemaName string) error {
@@ -57,27 +55,10 @@ const (
 	testSchemaName = "test_schema"
 	testTableName  = "test_table"
 	testTableID    = "t1"
+	testLSN        = 7773397064
 )
 
 var errTest = errors.New("oh noes")
-
-func newTestSchemaChangeEvent(action string, id xid.ID, now time.Time) *wal.Event {
-	nowStr := now.Format("2006-01-02 15:04:05")
-	return &wal.Event{
-		Data: &wal.Data{
-			Action: action,
-			Schema: schemalog.SchemaName,
-			Table:  schemalog.TableName,
-			Columns: []wal.Column{
-				{ID: "id", Name: "id", Type: "text", Value: id.String()},
-				{ID: "version", Name: "version", Type: "integer", Value: 0},
-				{ID: "schema_name", Name: "schema_name", Type: "text", Value: testSchemaName},
-				{ID: "created_at", Name: "created_at", Type: "timestamp", Value: nowStr},
-			},
-		},
-		CommitPosition: newTestCommitPosition(),
-	}
-}
 
 func newTestDataEvent(action string) *wal.Event {
 	cols := []wal.Column{
@@ -90,9 +71,8 @@ func newTestDataEvent(action string) *wal.Event {
 		Schema: testSchemaName,
 		Table:  testTableName,
 		Metadata: wal.Metadata{
-			TablePgstreamID:    testTableID,
-			InternalColIDs:     []string{"col-1"},
-			InternalColVersion: "col-2",
+			TablePgstreamID: testTableID,
+			InternalColIDs:  []string{"col-1"},
 		},
 	}
 
@@ -120,9 +100,10 @@ func newTestDocument(opts ...testDocOption) *Document {
 	doc := &Document{
 		Schema:  testSchemaName,
 		ID:      fmt.Sprintf("%s_id-1", testTableID),
-		Version: 0,
+		Version: testLSN,
 		Data: map[string]any{
 			"_table": testTableID,
+			"col-2":  int64(0),
 			"col-3":  "a",
 		},
 	}
@@ -133,15 +114,62 @@ func newTestDocument(opts ...testDocOption) *Document {
 	return doc
 }
 
-func newTestLogEntry(id xid.ID, now time.Time) *schemalog.LogEntry {
-	return &schemalog.LogEntry{
-		ID:         id,
-		Version:    0,
-		SchemaName: testSchemaName,
-		CreatedAt:  schemalog.NewSchemaCreatedAtTimestamp(now),
+func newTestCommitPosition() wal.CommitPosition {
+	return wal.CommitPosition("test_topic/0/1")
+}
+
+func newTestWALDDLEvent() *wal.Event {
+	testDDLEvent := newTestDDLEvent()
+	testDDLEventJSON, _ := json.Marshal(testDDLEvent)
+
+	return &wal.Event{
+		Data: &wal.Data{
+			Action:  wal.LogicalMessageAction,
+			Prefix:  wal.DDLPrefix,
+			Content: string(testDDLEventJSON),
+		},
+		CommitPosition: newTestCommitPosition(),
 	}
 }
 
-func newTestCommitPosition() wal.CommitPosition {
-	return wal.CommitPosition("test_topic/0/1")
+func newTestDDLEvent() *wal.DDLEvent {
+	return &wal.DDLEvent{
+		DDL:        "CREATE TABLE test_schema.test_table (col-1 text PRIMARY KEY, col-2 integer);",
+		SchemaName: testSchemaName,
+		CommandTag: "CREATE TABLE",
+		Objects: []wal.DDLObject{
+			{
+				Type:       "table",
+				Identity:   "test_schema.test_table",
+				Schema:     "test_schema",
+				OID:        "123456",
+				PgstreamID: testTableID,
+				Columns: []wal.DDLColumn{
+					{Attnum: 1, Name: "col-1", Type: "text", Nullable: false, Generated: false, Unique: true},
+					{Attnum: 2, Name: "col-2", Type: "integer", Nullable: true, Generated: false, Unique: false},
+				},
+				PrimaryKeyColumns: []string{"col-1"},
+			},
+		},
+	}
+}
+
+func newTestSchemaDiff() *wal.SchemaDiff {
+	return &wal.SchemaDiff{
+		SchemaName: "test_schema",
+		TablesAdded: []wal.DDLObject{
+			{
+				Type:       "table",
+				OID:        "123456",
+				Identity:   "test_schema.test_table",
+				Schema:     "test_schema",
+				PgstreamID: testTableID,
+				Columns: []wal.DDLColumn{
+					{Attnum: 1, Name: "col-1", Type: "text", Nullable: false, Generated: false, Unique: true},
+					{Attnum: 2, Name: "col-2", Type: "integer", Nullable: true, Generated: false, Unique: false},
+				},
+				PrimaryKeyColumns: []string{"col-1"},
+			},
+		},
+	}
 }

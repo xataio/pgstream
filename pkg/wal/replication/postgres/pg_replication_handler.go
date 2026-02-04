@@ -10,7 +10,6 @@ import (
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal/replication"
 )
 
@@ -101,10 +100,6 @@ func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, erro
 	if len(cfg.IncludeTables) > 0 {
 		h.includedTables, err = pglib.NewSchemaTableMap(cfg.IncludeTables)
 		if err != nil {
-			return nil, err
-		}
-		// make sure we never ignore the pgstream schema_log table
-		if err := h.includedTables.Add(pglib.QuoteQualifiedIdentifier(schemalog.SchemaName, schemalog.TableName)); err != nil {
 			return nil, err
 		}
 	}
@@ -253,6 +248,10 @@ func (h *Handler) GetCurrentLSN(ctx context.Context) (replication.LSN, error) {
 		return 0, err
 	}
 	return h.lsnParser.FromString(currentLSN)
+}
+
+func (h *Handler) GetReplicationSlotName() string {
+	return h.pgReplicationSlotName
 }
 
 func (h *Handler) ResetConnection(ctx context.Context) error {

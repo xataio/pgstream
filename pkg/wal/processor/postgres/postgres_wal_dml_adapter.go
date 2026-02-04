@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/xataio/pgstream/internal/json"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -31,6 +33,7 @@ type dmlAdapter struct {
 	logger           loglib.Logger
 	onConflictAction onConflictAction
 	forCopy          bool
+	pgTypeMap        *pgtype.Map
 }
 
 func newDMLAdapter(action string, forCopy bool, logger loglib.Logger) (*dmlAdapter, error) {
@@ -42,6 +45,7 @@ func newDMLAdapter(action string, forCopy bool, logger loglib.Logger) (*dmlAdapt
 		logger:           logger,
 		onConflictAction: oca,
 		forCopy:          forCopy,
+		pgTypeMap:        pgtype.NewMap(),
 	}, nil
 }
 
@@ -190,7 +194,7 @@ func (a *dmlAdapter) buildWhereQuery(d *wal.Data, placeholderOffset int) (string
 			whereQuery = fmt.Sprintf("%s AND", whereQuery)
 		}
 		whereQuery = fmt.Sprintf("%s %s = $%d", whereQuery, pglib.QuoteIdentifier(c.Name), i+placeholderOffset+1)
-		whereValues = append(whereValues, c.Value)
+		whereValues = append(whereValues, serializeJSONBValue(c.Type, c.Value))
 	}
 	return whereQuery, whereValues, nil
 }
@@ -266,12 +270,45 @@ func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo) 
 		}
 		rowColumns = append(rowColumns, pglib.QuoteIdentifier(c.Name))
 		val := c.Value
+
+		val = serializeJSONBValue(c.Type, val)
+
 		if a.forCopy {
-			val = updateValueForCopy(val, c.Type)
+			val = a.updateValueForCopy(val, c.Type)
 		}
 		rowValues = append(rowValues, val)
 	}
 	return rowColumns, rowValues
+}
+
+func (a *dmlAdapter) updateValueForCopy(value any, colType string) any {
+	// For COPY, we might need to update the value for some data types,
+	// so that it will be able to be encoded into binary format correctly.
+	switch colType {
+	case "date", "timestamp", "timestamptz":
+		return getInfinityValueForDateTime(value, colType)
+	case "tstzrange":
+		return getTypedTSTZRange(value)
+	}
+
+	// Handle array types
+	// For COPY binary format, array values that come as PostgreSQL text literals (strings)
+	// need to be converted to Go slices. The pgx COPY encoder expects proper Go types,
+	// not text representations.
+	if isArray(colType) {
+		// If the value is a string (PostgreSQL array literal like "{val1,val2}"),
+		// we need to parse it into a Go slice for binary COPY format
+		if strVal, ok := value.(string); ok {
+			// Use pgtype to parse the array string into a slice
+			var arr pgtype.FlatArray[string]
+			if err := a.pgTypeMap.SQLScanner(&arr).Scan(strVal); err == nil {
+				return []string(arr)
+			}
+			// If parsing fails, return the original value and let pgx handle it
+		}
+	}
+
+	return value
 }
 
 func quotedTableName(schemaName, tableName string) string {
@@ -291,16 +328,6 @@ func parseOnConflictAction(action string) (onConflictAction, error) {
 	}
 }
 
-func updateValueForCopy(value any, colType string) any {
-	// For COPY, we might need to update the value for some data types,
-	// so that it will be able to be encoded into binary format correctly.
-	switch colType {
-	case "date", "timestamp", "timestamptz":
-		return getInfinityValueForDateTime(value, colType)
-	}
-	return value
-}
-
 func getInfinityValueForDateTime(value any, colType string) any {
 	v, ok := value.(pgtype.InfinityModifier)
 	if !ok {
@@ -317,4 +344,52 @@ func getInfinityValueForDateTime(value any, colType string) any {
 		return pgtype.Timestamptz{Valid: true, InfinityModifier: v}
 	}
 	return value
+}
+
+func getTypedTSTZRange(value any) any {
+	v, ok := value.(pgtype.Range[any])
+	if !ok {
+		return value
+	}
+
+	lower, lowerOk := v.Lower.(time.Time)
+	if !lowerOk {
+		lower = time.Time{}
+	}
+
+	upper, upperOk := v.Upper.(time.Time)
+	if !upperOk {
+		upper = time.Time{}
+	}
+
+	return pgtype.Range[time.Time]{
+		Lower:     lower,
+		Upper:     upper,
+		LowerType: v.LowerType,
+		UpperType: v.UpperType,
+		Valid:     v.Valid,
+	}
+}
+
+func isArray(colType string) bool {
+	// PostgreSQL array types can be represented in two ways:
+	// 1. With [] suffix: text[], int[], etc.
+	// 2. With _ prefix: _text, _int4, _ExampleEnum, etc. (internal representation)
+	return (len(colType) > 2 && colType[len(colType)-2:] == "[]") ||
+		(len(colType) > 1 && colType[0] == '_')
+}
+
+// serializeJSONBValue pre-serializes JSONB/JSON map/slice values with Sonic to
+// ensure consistent encoding between Sonic (wal2json parsing) and pgx (encoding/json).
+// String values pass through unchanged to avoid double-encoding.
+func serializeJSONBValue(colType string, val any) any {
+	if (colType == "jsonb" || colType == "json") && val != nil {
+		switch val.(type) {
+		case map[string]any, []any:
+			if jsonBytes, err := json.Marshal(val); err == nil {
+				return jsonBytes
+			}
+		}
+	}
+	return val
 }

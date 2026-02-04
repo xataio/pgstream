@@ -9,19 +9,25 @@ import (
 	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/wal/replication"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
 
 type Handler struct {
-	inner   replication.Handler
-	meter   metric.Meter
-	tracer  trace.Tracer
-	metrics *metrics
+	inner           replication.Handler
+	meter           metric.Meter
+	tracer          trace.Tracer
+	metrics         *metrics
+	metricRetriever metricRetriever
 }
 
 type metrics struct {
 	replicationLag metric.Int64ObservableGauge
+}
+
+type metricRetriever interface {
+	GetReplicationLag(ctx context.Context) (int64, error)
 }
 
 func NewHandler(inner replication.Handler, instrumentation *otel.Instrumentation) (replication.Handler, error) {
@@ -30,10 +36,11 @@ func NewHandler(inner replication.Handler, instrumentation *otel.Instrumentation
 	}
 
 	h := &Handler{
-		inner:   inner,
-		meter:   instrumentation.Meter,
-		tracer:  instrumentation.Tracer,
-		metrics: &metrics{},
+		inner:           inner,
+		meter:           instrumentation.Meter,
+		tracer:          instrumentation.Tracer,
+		metrics:         &metrics{},
+		metricRetriever: newMetricsCache(inner, defaultCacheTTL),
 	}
 
 	if err := h.initMetrics(); err != nil {
@@ -75,6 +82,10 @@ func (h *Handler) GetLSNParser() replication.LSNParser {
 	return h.inner.GetLSNParser()
 }
 
+func (h *Handler) GetReplicationSlotName() string {
+	return h.inner.GetReplicationSlotName()
+}
+
 func (h *Handler) ResetConnection(ctx context.Context) error {
 	return h.inner.ResetConnection(ctx)
 }
@@ -97,11 +108,12 @@ func (h *Handler) initMetrics() error {
 	}
 
 	observe := func(ctx context.Context, o metric.Observer) error {
-		replicationLag, err := h.inner.GetReplicationLag(ctx)
+		replicationLag, err := h.metricRetriever.GetReplicationLag(ctx)
 		if err != nil {
 			return err
 		}
-		o.ObserveInt64(h.metrics.replicationLag, replicationLag)
+		o.ObserveInt64(h.metrics.replicationLag, replicationLag,
+			metric.WithAttributes(attribute.String("replication_slot", h.inner.GetReplicationSlotName())))
 		return nil
 	}
 

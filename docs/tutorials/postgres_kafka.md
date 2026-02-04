@@ -146,13 +146,7 @@ PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT=5s
 PGSTREAM_KAFKA_WRITER_BATCH_BYTE=1572864
 ```
 
-Since we'll be replicating data to OpenSearch, we need to add the injector processor wrapper in order to inject metadata into the WAL events. This helps identify the id and version of the event. By adding the wrapper to the kafka processor, we make the metadata available to all processors downstream of Kafka. If we only wanted to apply it to the OpenSearch processor we could add it to its configuration instead. More details about the injector can be found in the [architecture](../README.md#architecture) section.
-
-We point the injector to the database where the `pgstream.schema_log` table is stored, which in our case it's the source PostgreSQL database.
-
-```sh
-PGSTREAM_INJECTOR_STORE_POSTGRES_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
-```
+Since we'll be replicating data to OpenSearch, we need to add the injector processor in order to inject pgstream metadata into the WAL events. This helps identify the id and version of the event. By enabling the injector for the kafka processor, we make the metadata available to all processors downstream of Kafka. If we only wanted to apply it to the OpenSearch processor we could add it to its configuration instead. More details about the injector can be found in the [architecture](../README.md#architecture) section.
 
 The full configuration for the pg2kafka step can be put into a `pg2kafka_tutorial.env` file to be used later on. An equivalent `pg2kafka_tutorial.yaml` configuration can be found below the environment one, and can be used interchangeably.
 
@@ -225,7 +219,6 @@ source:
         repeatable_snapshots: true # whether to repeat snapshots that have already been taken
         postgres_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the database where the snapshot status is recorded
       schema: # when mode is full or schema
-        mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
         pgdump_pgrestore:
           clean_target_db: false # whether to clean the target database before restoring
 target:
@@ -291,7 +284,6 @@ PGSTREAM_KAFKA_READER_CONSUMER_GROUP_ID=pgstream-postgres-consumer-group
 PGSTREAM_POSTGRES_WRITER_TARGET_URL="postgres://postgres:postgres@localhost:7654?sslmode=disable"
 PGSTREAM_POSTGRES_WRITER_BATCH_SIZE=25
 PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT=5s
-PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 ```
 
 ```yaml
@@ -309,7 +301,6 @@ target:
     batch:
       timeout: 5000 # batch timeout in milliseconds
       size: 25 # number of messages in a batch
-    schema_log_store_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
     disable_triggers: false # whether to disable triggers on the target database
     on_conflict_action: "nothing" # options are update, nothing or error
 ```
@@ -377,7 +368,6 @@ We can validate that the initialisation and the configuration are valid by runni
 SUCCESS  pgstream status check encountered no issues
 Initialisation status:
  - Pgstream schema exists: true
- - Pgstream schema_log table exists: true
  - Migration current version: 7
  - Migration status: success
  - Replication slot name: pgstream_tutorial_slot

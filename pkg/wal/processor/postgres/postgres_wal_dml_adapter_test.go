@@ -5,6 +5,7 @@ package postgres
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/xid"
@@ -24,6 +25,8 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 	columnID := func(i int) string {
 		return fmt.Sprintf("%s-%d", testTableID, i)
 	}
+
+	now := time.Now()
 
 	tests := []struct {
 		name             string
@@ -282,6 +285,177 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 			},
 		},
 		{
+			name: "insert with tstzrange",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(3), Name: "datetime_range", Value: pgtype.Range[any]{
+						Lower:     now.Add(-1 * time.Minute),
+						Upper:     now.Add(time.Minute),
+						LowerType: pgtype.Inclusive,
+						UpperType: pgtype.Exclusive,
+						Valid:     true,
+					}, Type: "tstzrange"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+			forCopy: true,
+
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: []string{`"id"`, `"name"`, `"datetime_range"`},
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\", \"datetime_range\") OVERRIDING SYSTEM VALUE VALUES($1, $2, $3)", quotedTestTable),
+					args: []any{1, "alice", pgtype.Range[time.Time]{
+						Lower:     now.Add(-1 * time.Minute),
+						Upper:     now.Add(time.Minute),
+						LowerType: pgtype.Inclusive,
+						UpperType: pgtype.Exclusive,
+						Valid:     true,
+					}},
+				},
+			},
+		},
+		{
+			name: "insert with tstzrange will no upper value",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(3), Name: "datetime_range", Value: pgtype.Range[any]{
+						Lower:     now.Add(-1 * time.Minute),
+						Upper:     nil,
+						LowerType: pgtype.Inclusive,
+						UpperType: pgtype.Exclusive,
+						Valid:     true,
+					}, Type: "tstzrange"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+			forCopy: true,
+
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: []string{`"id"`, `"name"`, `"datetime_range"`},
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\", \"datetime_range\") OVERRIDING SYSTEM VALUE VALUES($1, $2, $3)", quotedTestTable),
+					args: []any{1, "alice", pgtype.Range[time.Time]{
+						Lower:     now.Add(-1 * time.Minute),
+						Upper:     time.Time{},
+						LowerType: pgtype.Inclusive,
+						UpperType: pgtype.Exclusive,
+						Valid:     true,
+					}},
+				},
+			},
+		},
+		{
+			name: "insert with tstzrange will no lower value",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(3), Name: "datetime_range", Value: pgtype.Range[any]{
+						Lower:     nil,
+						Upper:     now.Add(time.Minute),
+						LowerType: pgtype.Inclusive,
+						UpperType: pgtype.Exclusive,
+						Valid:     true,
+					}, Type: "tstzrange"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+			forCopy: true,
+
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: []string{`"id"`, `"name"`, `"datetime_range"`},
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\", \"datetime_range\") OVERRIDING SYSTEM VALUE VALUES($1, $2, $3)", quotedTestTable),
+					args: []any{1, "alice", pgtype.Range[time.Time]{
+						Lower:     time.Time{},
+						Upper:     now.Add(time.Minute),
+						LowerType: pgtype.Inclusive,
+						UpperType: pgtype.Exclusive,
+						Valid:     true,
+					}},
+				},
+			},
+		},
+		{
+			name: "insert with enum array - for copy enabled",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(3), Name: "status_array", Value: "{EXAMPLE}", Type: "text[]"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+			forCopy: true,
+
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: []string{`"id"`, `"name"`, `"status_array"`},
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\", \"status_array\") OVERRIDING SYSTEM VALUE VALUES($1, $2, $3)", quotedTestTable),
+					args:        []any{1, "alice", []string{"EXAMPLE"}},
+				},
+			},
+		},
+		{
+			name: "insert with enum array using underscore prefix - for copy enabled",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(3), Name: "status_array", Value: "{EXAMPLE}", Type: "_ExampleEnum"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+			forCopy: true,
+
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: []string{`"id"`, `"name"`, `"status_array"`},
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\", \"status_array\") OVERRIDING SYSTEM VALUE VALUES($1, $2, $3)", quotedTestTable),
+					args:        []any{1, "alice", []string{"EXAMPLE"}},
+				},
+			},
+		},
+		{
 			name: "insert - on conflict do nothing",
 			walData: &wal.Data{
 				Action: "I",
@@ -502,6 +676,7 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				logger:           log.NewNoopLogger(),
 				onConflictAction: tc.action,
 				forCopy:          tc.forCopy,
+				pgTypeMap:        pgtype.NewMap(),
 			}
 			queries, err := a.walDataToQueries(tc.walData, schemaInfo{
 				generatedColumns: tc.generatedColumns,

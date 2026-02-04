@@ -9,7 +9,6 @@ import (
 
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/transformers/builder"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -227,7 +226,7 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 		if instrumentation.IsEnabled() {
 			opts = append(opts, injector.WithInstrumentation(instrumentation))
 		}
-		processor, err = injector.New(config.Processor.Injector, processor, opts...)
+		processor, err = injector.New(ctx, config.Processor.Injector, processor, opts...)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error creating processor injection layer: %w", err)
 		}
@@ -237,11 +236,7 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 		logger.Info("adding filtering to processor...")
 		var err error
 		processor, err = filter.New(processor, config.Processor.Filter,
-			filter.WithLogger(logger),
-			// by default we include the pgstream schema log table, since we won't
-			// be able to replicate DDL changes otherwise. This behaviour can be
-			// disabled by adding it to the exclude tables.
-			filter.WithDefaultIncludeTables([]string{schemalog.SchemaName + "." + schemalog.TableName}))
+			filter.WithLogger(logger))
 		if err != nil {
 			return nil, nil, err
 		}

@@ -8,6 +8,11 @@
       "example": "\n\tpgstream destroy --postgres-url <source-postgres-url> --replication-slot <replication-slot-name>\n\tpgstream destroy -c config.yaml\n\tpgstream destroy -c config.env",
       "flags": [
         {
+          "name": "migrations-only",
+          "description": "Whether to only revert the database migrations",
+          "default": "false"
+        },
+        {
           "name": "postgres-url",
           "description": "Source postgres URL where pgstream destroy will be run",
           "default": ""
@@ -16,6 +21,11 @@
           "name": "replication-slot",
           "description": "Name of the postgres replication slot to be deleted by pgstream from the source url",
           "default": ""
+        },
+        {
+          "name": "with-injector",
+          "description": "Whether to also destroy the injector related database objects",
+          "default": "false"
         }
       ],
       "subcommands": [],
@@ -28,6 +38,11 @@
       "example": "\n\tpgstream init --postgres-url <source-postgres-url> --replication-slot <replication-slot-name>\n\tpgstream init -c config.yaml\n\tpgstream init -c config.env",
       "flags": [
         {
+          "name": "migrations-only",
+          "description": "Whether to only run the initialization database migrations",
+          "default": "false"
+        },
+        {
           "name": "postgres-url",
           "description": "Source postgres URL where pgstream setup will be run",
           "default": ""
@@ -36,6 +51,11 @@
           "name": "replication-slot",
           "description": "Name of the postgres replication slot to be created by pgstream on the source url",
           "default": ""
+        },
+        {
+          "name": "with-injector",
+          "description": "Whether to initialise pgstream with the injector database migrations",
+          "default": "false"
         }
       ],
       "subcommands": [],
@@ -96,6 +116,11 @@
           "name": "target-url",
           "description": "Target URL",
           "default": ""
+        },
+        {
+          "name": "with-injector",
+          "description": "Whether to enable the injection of pgstream metadata to the WAL events. Required for search targets.",
+          "default": "false"
         }
       ],
       "subcommands": [],
@@ -178,6 +203,11 @@
       "example": "\n\tpgstream tear-down --postgres-url <source-postgres-url> --replication-slot <replication-slot-name>\n\tpgstream tear-down -c config.yaml\n\tpgstream tear-down -c config.env",
       "flags": [
         {
+          "name": "migrations-only",
+          "description": "Whether to only revert the database migrations",
+          "default": "false"
+        },
+        {
           "name": "postgres-url",
           "description": "Source postgres URL where pgstream tear down will be run",
           "default": ""
@@ -186,6 +216,11 @@
           "name": "replication-slot",
           "description": "Name of the postgres replication slot to be deleted by pgstream from the source url",
           "default": ""
+        },
+        {
+          "name": "with-injector",
+          "description": "Whether to also tear down the injector related database objects",
+          "default": "false"
         }
       ],
       "subcommands": [],

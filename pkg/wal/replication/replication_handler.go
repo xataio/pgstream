@@ -18,6 +18,7 @@ type Handler interface {
 	GetCurrentLSN(ctx context.Context) (LSN, error)
 	ResetConnection(ctx context.Context) error
 	GetLSNParser() LSNParser
+	GetReplicationSlotName() string
 	Close() error
 }
 

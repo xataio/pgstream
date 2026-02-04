@@ -140,12 +140,6 @@ PGSTREAM_POSTGRES_WRITER_BATCH_SIZE=25
 PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT=5s
 ```
 
-For the PostgreSQL writer to keep track of DDL changes, it needs to keep track of the schema log. To enable this behaviour, an environment variable needs to be configured to point to the `pgstream.schema_log` store database. In this case, it will be the same as the source PostgreSQL database, since that's where we've initialised pgstream.
-
-```sh
-PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
-```
-
 Save the configuration in a file named `pg2pg_tutorial.env`. An equivalent `pg2pg_tutorial.yaml` configuration can be found below the environment one, and can be used interchangeably.
 
 ```sh
@@ -157,7 +151,6 @@ PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME=pgstream_tutorial_slot
 PGSTREAM_POSTGRES_WRITER_TARGET_URL="postgres://postgres:postgres@localhost:7654?sslmode=disable"
 PGSTREAM_POSTGRES_WRITER_BATCH_SIZE=25
 PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT=5s
-PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
 PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS=true
 PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION=nothing
 ```
@@ -176,7 +169,6 @@ target:
     batch:
       timeout: 5000 # batch timeout in milliseconds
       size: 25 # number of messages in a batch
-    schema_log_store_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # url to the postgres database where the schema log is stored to be used when performing schema change diffs
     disable_triggers: false # whether to disable triggers on the target database
     on_conflict_action: "nothing" # options are update, nothing or error
 ```
@@ -196,7 +188,6 @@ We can validate that the initialisation and the configuration are valid by runni
 SUCCESS  pgstream status check encountered no issues
 Initialisation status:
  - Pgstream schema exists: true
- - Pgstream schema_log table exists: true
  - Migration current version: 7
  - Migration status: success
  - Replication slot name: pgstream_tutorial_slot

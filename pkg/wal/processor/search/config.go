@@ -7,5 +7,6 @@ import (
 )
 
 type IndexerConfig struct {
-	Batch batch.Config
+	Batch      batch.Config
+	HashDocIDs bool
 }
