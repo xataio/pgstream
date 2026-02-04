@@ -1,9 +1,10 @@
 # pgstream v1.0.0 Release Notes
 
-This is a **major, breaking release**.
+**Release Date:** February 4th, 2026
 
-pgstream v1.0.0 introduces a new **stateless DDL replication architecture**.
-The legacy schema log mechanism has been removed, and schema changes are now replicated directly from PostgreSQL WAL.
+## 🎉 Major Release: Stateless DDL Replication
+
+This is a **major breaking release** that fundamentally transforms how pgstream handles DDL (Data Definition Language) replication. Version 1.0.0 introduces a stateless architecture that eliminates the need for schema log tables and provides a more robust, maintainable solution for tracking database schema changes.
 
 ## Table of Contents
 
@@ -84,21 +85,22 @@ These changes affect internal integrations and custom processors.
 
 ### New Installations
 
-No special migration steps are required.
-
-#### Initialize
+Simply install pgstream v1.0.0 - no migration needed.
 
 ```bash
+# Option 1: Initialize separately
 pgstream init --config config.yaml
-# or
+
+# Option 2: Initialize and run in one command
 pgstream run --config config.yaml --init
-```
 
-#### Install migrations only (no replication slot)
-
-```bash
+# Option 3: Run only database migrations (without creating replication slot)
 pgstream init --config config.yaml --migrations-only
 ```
+
+The system will automatically install the appropriate migrations based on your configuration.
+
+**Note:** The `--migrations-only` flag runs only the database migrations (creating the pgstream schema, tables, functions, and triggers) without creating the replication slot. This is useful when you want to set up the schema separately or when using different database credentials for migrations versus replication.
 
 ### Upgrading Existing Installations (v0.x → v1.0.0)
 
@@ -115,7 +117,8 @@ Recommended steps:
 
    Using `--migrations-only` preserves the replication slot and the pgstream schema, along with any non migration tables (e.g., `snapshot_requests`) and can reduce downtime.
 
-3. Initialize v1.0.0
+3. Download pgstream v1.0.0
+4. Initialize v1.0.0
 
    ```bash
    pgstream init --config config.yaml
@@ -124,7 +127,7 @@ Recommended steps:
    pgstream run --config config.yaml --init
    ```
 
-4. Start replication
+5. Start replication
 
    ```bash
    pgstream run --config config.yaml
