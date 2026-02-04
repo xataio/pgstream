@@ -13,7 +13,7 @@ import (
 
 	"github.com/xataio/pgstream/internal/json"
 	"github.com/xataio/pgstream/internal/searchstore"
-	"github.com/xataio/pgstream/pkg/schemalog"
+	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 )
 
@@ -41,10 +41,10 @@ func NewPostgresMapper(mapper searchstore.Mapper) *PgMapper {
 }
 
 // ColumnToSearchMapping maps the column on input into the equivalent search mapping
-func (m *PgMapper) ColumnToSearchMapping(column schemalog.Column) (map[string]any, error) {
-	searchField, err := m.columnToSearchField(column)
+func (m *PgMapper) ColumnToSearchMapping(column *wal.DDLColumn) (map[string]any, error) {
+	searchField, err := m.columnTypeToSearchField(column.Type)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse pg type (%s): %w", column.DataType, err)
+		return nil, fmt.Errorf("failed to parse pg type (%s): %w", column.Type, err)
 	}
 
 	return m.searchMapper.FieldMapping(searchField)
@@ -55,32 +55,32 @@ func (m *PgMapper) ColumnToSearchMapping(column schemalog.Column) (map[string]an
 // column is an array of any type except json, we need to map it to a Go slice.
 // If column type is unknown we return nil. This avoids dropping the whole
 // record if one field type is unknown.
-func (m *PgMapper) MapColumnValue(column schemalog.Column, value any) (any, error) {
-	searchField, err := m.columnToSearchField(column)
+func (m *PgMapper) MapColumnValue(column *wal.Column) (any, error) {
+	searchField, err := m.columnTypeToSearchField(column.Type)
 	if err != nil {
 		return nil, fmt.Errorf("mapping column from pg to search store: %w", err)
 	}
 
-	if value == nil {
+	if column.Value == nil {
 		return nil, nil
 	}
 
 	switch searchField.SearchType {
 	case searchstore.DateTimeTZType, searchstore.DateTimeType:
 		if searchField.IsArray {
-			return m.mapDateTimeArray(searchField, value)
+			return m.mapDateTimeArray(searchField, column.Value)
 		} else {
-			return m.mapDateTime(searchField, value)
+			return m.mapDateTime(searchField, column.Value)
 		}
 	case searchstore.DateType:
 		var d pgtype.Date
-		if err := d.Scan(value); err != nil {
-			return nil, fmt.Errorf("mapping date from pg to search store failed: %w (value: %s)", err, value)
+		if err := d.Scan(column.Value); err != nil {
+			return nil, fmt.Errorf("mapping date from pg to search store failed: %w (value: %s)", err, column.Value)
 		}
 		return d.Time.Format(dateFormat), nil
 	case searchstore.PGVectorType:
 		// pgvector vectors come as strings. We need to parse them into arrays of floats.
-		stringContent, ok := value.(string)
+		stringContent, ok := column.Value.(string)
 		if !ok {
 			return nil, fmt.Errorf("unexpected value type for jsonb column")
 		}
@@ -91,35 +91,35 @@ func (m *PgMapper) MapColumnValue(column schemalog.Column, value any) (any, erro
 		}
 		return array, nil
 	case searchstore.StringType:
-		if column.DataType == "uuid" {
+		if column.Type == "uuid" {
 			// handle uuid type for cases when the uuid is represented as a
 			// [16]uint8, we need to convert it to a string
-			if uuidBytes, ok := value.([16]uint8); ok {
+			if uuidBytes, ok := column.Value.([16]uint8); ok {
 				return uuid.UUID(uuidBytes).String(), nil
 			}
 		}
 		if searchField.IsArray {
 			// handle arrays of strings
 			var a pgtype.FlatArray[string]
-			err := m.pgTypeMap.SQLScanner(&a).Scan(value)
+			err := m.pgTypeMap.SQLScanner(&a).Scan(column.Value)
 			return []string(a), err
 		}
-		return value, nil
+		return column.Value, nil
 	default:
 		if searchField.IsArray {
 			// catches all other array types
 			switch searchField.SearchType {
 			case searchstore.IntegerType:
 				var a pgtype.FlatArray[int64]
-				err := m.pgTypeMap.SQLScanner(&a).Scan(value)
+				err := m.pgTypeMap.SQLScanner(&a).Scan(column.Value)
 				return []int64(a), err
 			case searchstore.FloatType:
 				var a pgtype.FlatArray[float64]
-				err := m.pgTypeMap.SQLScanner(&a).Scan(value)
+				err := m.pgTypeMap.SQLScanner(&a).Scan(column.Value)
 				return []float64(a), err
 			case searchstore.BoolType:
 				var a pgtype.FlatArray[bool]
-				err := m.pgTypeMap.SQLScanner(&a).Scan(value)
+				err := m.pgTypeMap.SQLScanner(&a).Scan(column.Value)
 				return []bool(a), err
 			case searchstore.JSONType:
 				// nothing to do for json array types
@@ -131,12 +131,11 @@ func (m *PgMapper) MapColumnValue(column schemalog.Column, value any) (any, erro
 	}
 
 	// otherwise: do nothing, return the original value
-	return value, nil
+	return column.Value, nil
 }
 
-func (m *PgMapper) columnToSearchField(column schemalog.Column) (*searchstore.Field, error) {
-	pgTypeName := column.DataType
-	typeName, isArray, err := m.parsePGType(pgTypeName)
+func (m *PgMapper) columnTypeToSearchField(columnType string) (*searchstore.Field, error) {
+	typeName, isArray, err := m.parsePGType(columnType)
 	if err != nil {
 		return nil, fmt.Errorf("pg to search type: failed to parse pg type: %w", err)
 	}
@@ -169,10 +168,10 @@ func (m *PgMapper) columnToSearchField(column schemalog.Column) (*searchstore.Fi
 			searchType = searchstore.PGVectorType
 			metadata.VectorDimension, err = getPGVectorDimension(typeName)
 			if err != nil {
-				return nil, search.ErrTypeInvalid{Input: pgTypeName}
+				return nil, search.ErrTypeInvalid{Input: typeName}
 			}
 		} else {
-			return nil, search.ErrTypeInvalid{Input: pgTypeName}
+			return nil, search.ErrTypeInvalid{Input: typeName}
 		}
 	}
 

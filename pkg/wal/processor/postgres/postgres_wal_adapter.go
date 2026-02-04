@@ -6,9 +6,7 @@ import (
 	"context"
 
 	loglib "github.com/xataio/pgstream/pkg/log"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
-	"github.com/xataio/pgstream/pkg/wal/processor"
 )
 
 type walAdapter interface {
@@ -20,7 +18,7 @@ type schemaObserver interface {
 	getGeneratedColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error)
 	getSequenceColumns(ctx context.Context, schema, table string) (map[string]string, error)
 	isMaterializedView(ctx context.Context, schema, table string) bool
-	update(logEntry *schemalog.LogEntry)
+	update(ddlEvent *wal.DDLEvent)
 	close() error
 }
 
@@ -29,7 +27,7 @@ type dmlQueryAdapter interface {
 }
 
 type ddlQueryAdapter interface {
-	schemaLogToQueries(ctx context.Context, l *schemalog.LogEntry) ([]*query, error)
+	walDataToQueries(ctx context.Context, d *wal.Data) ([]*query, error)
 }
 
 type schemaInfo struct {
@@ -40,12 +38,16 @@ type schemaInfo struct {
 type adapter struct {
 	dmlAdapter      dmlQueryAdapter
 	ddlAdapter      ddlQueryAdapter
-	logEntryAdapter logEntryAdapter
+	ddlEventAdapter ddlEventAdapter
 
 	schemaObserver schemaObserver
 }
 
-func newAdapter(ctx context.Context, schemaQuerier schemalogQuerier, logger loglib.Logger, pgURL string, onConflictAction string, forCopy bool) (*adapter, error) {
+type (
+	ddlEventAdapter func(*wal.Data) (*wal.DDLEvent, error)
+)
+
+func newAdapter(ctx context.Context, logger loglib.Logger, ignoreDDL bool, pgURL string, onConflictAction string, forCopy bool) (*adapter, error) {
 	schemaObserver, err := newPGSchemaObserver(ctx, pgURL, logger)
 	if err != nil {
 		return nil, err
@@ -57,14 +59,15 @@ func newAdapter(ctx context.Context, schemaQuerier schemalogQuerier, logger logl
 	}
 
 	var ddl ddlQueryAdapter
-	if schemaQuerier != nil {
-		ddl = newDDLAdapter(schemaQuerier)
+	if !ignoreDDL {
+		ddl = newDDLAdapter()
 	}
+
 	return &adapter{
 		dmlAdapter:      dmlAdapter,
 		ddlAdapter:      ddl,
 		schemaObserver:  schemaObserver,
-		logEntryAdapter: processor.WalDataToLogEntry,
+		ddlEventAdapter: wal.WalDataToDDLEvent,
 	}, nil
 }
 
@@ -75,19 +78,19 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 		// skip DML processing for materialized views (read only)
 		return []*query{{}}, nil
 
-	case processor.IsSchemaLogEvent(e.Data):
-		schemaLog, err := a.logEntryAdapter(e.Data)
+	case e.Data.IsDDLEvent():
+		ddlEvent, err := a.ddlEventAdapter(e.Data)
 		if err != nil {
 			return nil, err
 		}
-		a.schemaObserver.update(schemaLog)
+		a.schemaObserver.update(ddlEvent)
 
 		// there's no ddl adapter, the ddl query will not be processed
 		if a.ddlAdapter == nil {
 			return []*query{{}}, nil
 		}
 
-		return a.ddlAdapter.schemaLogToQueries(ctx, schemaLog)
+		return a.ddlAdapter.walDataToQueries(ctx, e.Data)
 
 	default:
 		generatedColumns, err := a.schemaObserver.getGeneratedColumnNames(ctx, e.Data.Schema, e.Data.Table)

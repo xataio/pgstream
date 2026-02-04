@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/xataio/pgstream/internal/json"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 	"github.com/xataio/pgstream/pkg/wal/replication"
@@ -21,22 +20,26 @@ type walAdapter interface {
 }
 
 type adapter struct {
-	mapper      Mapper
-	marshaler   func(any) ([]byte, error)
-	unmarshaler func([]byte, any) error
-	lsnParser   replication.LSNParser
-	idHasher    IDHasher
+	mapper               Mapper
+	marshaler            func(any) ([]byte, error)
+	unmarshaler          func([]byte, any) error
+	lsnParser            replication.LSNParser
+	walDataToDDLEvent    func(*wal.Data) (*wal.DDLEvent, error)
+	ddlEventToSchemaDiff func(*wal.DDLEvent) (*wal.SchemaDiff, error)
+	idHasher             IDHasher
 }
 
 var errUnsupportedType = errors.New("type not supported for column")
 
 func newAdapter(m Mapper, parser replication.LSNParser, idHasher IDHasher) *adapter {
 	return &adapter{
-		mapper:      m,
-		marshaler:   json.Marshal,
-		unmarshaler: json.Unmarshal,
-		lsnParser:   parser,
-		idHasher:    idHasher,
+		mapper:               m,
+		marshaler:            json.Marshal,
+		unmarshaler:          json.Unmarshal,
+		lsnParser:            parser,
+		walDataToDDLEvent:    wal.WalDataToDDLEvent,
+		ddlEventToSchemaDiff: wal.DDLEventToSchemaDiff,
+		idHasher:             idHasher,
 	}
 }
 
@@ -45,21 +48,20 @@ func (a *adapter) walEventToMsg(e *wal.Event) (*msg, error) {
 		return &msg{}, nil
 	}
 
-	if processor.IsSchemaLogEvent(e.Data) {
-		// we only care about inserts - updates can happen when the schema log
-		// is acked
-		if !e.Data.IsInsert() {
-			return nil, nil
+	if e.Data.IsDDLEvent() {
+		ddlEvent, err := a.walDataToDDLEvent(e.Data)
+		if err != nil {
+			return nil, err
 		}
 
-		logEntry, size, err := a.walDataToLogEntry(e.Data)
+		diff, err := a.ddlEventToSchemaDiff(ddlEvent)
 		if err != nil {
 			return nil, err
 		}
 
 		return &msg{
-			schemaChange: logEntry,
-			bytesSize:    size,
+			schemaDiff: diff,
+			// TODO: calculate size
 		}, nil
 	}
 
@@ -98,29 +100,6 @@ func (a *adapter) walEventToMsg(e *wal.Event) (*msg, error) {
 	}
 }
 
-func (a *adapter) walDataToLogEntry(d *wal.Data) (*schemalog.LogEntry, int, error) {
-	if !processor.IsSchemaLogEvent(d) {
-		return nil, 0, processor.ErrIncompatibleWalData
-	}
-
-	intermediateRec := make(map[string]any, len(d.Columns))
-	for _, col := range d.Columns { // we only process inserts, so identity columns should never be set
-		intermediateRec[col.Name] = col.Value
-	}
-
-	intermediateRecBytes, err := a.marshaler(intermediateRec)
-	if err != nil {
-		return nil, 0, fmt.Errorf("parsing wal event into schema log entry, intermediate record is not valid JSON: %w", err)
-	}
-
-	var le schemalog.LogEntry
-	if err := a.unmarshaler(intermediateRecBytes, &le); err != nil {
-		return nil, 0, fmt.Errorf("parsing wal event into schema, intermediate record is not valid JSON: %w", err)
-	}
-
-	return &le, len(intermediateRecBytes), nil
-}
-
 func (a *adapter) walDataToDocument(data *wal.Data) (*Document, error) {
 	var doc *Document
 	var err error
@@ -143,15 +122,11 @@ func (a *adapter) walDataToDocument(data *wal.Data) (*Document, error) {
 		// This is needed because TOAST columns are not included in the replication
 		// event unless they change in the transaction.
 		for _, col := range data.Identity {
-			if data.Metadata.IsIDColumn(col.ID) || data.Metadata.IsVersionColumn(col.ID) {
+			if data.Metadata.IsIDColumn(col.ID) {
 				continue
 			}
 			if _, exists := doc.Data[col.ID]; !exists {
-				parsedColumn, err := a.mapper.MapColumnValue(schemalog.Column{
-					Name:       col.Name,
-					DataType:   col.Type,
-					PgstreamID: col.ID,
-				}, col.Value)
+				parsedColumn, err := a.mapper.MapColumnValue(&col)
 				if err != nil {
 					// we do not map unsupported types
 					if errors.As(err, &ErrTypeInvalid{}) {
@@ -165,7 +140,7 @@ func (a *adapter) walDataToDocument(data *wal.Data) (*Document, error) {
 
 		// if we use the LSN as version, we need to increment it manually on
 		// update operations to avoid version conflicts
-		if useLSNAsVersion(data.Metadata) && data.IsUpdate() {
+		if data.IsUpdate() {
 			doc.Version += 1
 		}
 	}
@@ -175,28 +150,17 @@ func (a *adapter) walDataToDocument(data *wal.Data) (*Document, error) {
 }
 
 func (a *adapter) parseColumns(columns []wal.Column, metadata wal.Metadata, lsnStr string) (*Document, error) {
-	versionFound := false
 	doc := &Document{
 		Data: map[string]any{},
 	}
 
-	var err error
 	idColumns := []wal.Column{}
 	for _, col := range columns {
 		switch {
 		case metadata.IsIDColumn(col.ID):
 			idColumns = append(idColumns, col)
-		case metadata.IsVersionColumn(col.ID):
-			if doc.Version, err = a.parseVersionColumn(col.Value); err != nil {
-				return nil, fmt.Errorf("version found, but unable to parse: %w", err)
-			}
-			versionFound = true
 		default:
-			parsedColumn, err := a.mapper.MapColumnValue(schemalog.Column{
-				Name:       col.Name,
-				DataType:   col.Type,
-				PgstreamID: col.ID,
-			}, col.Value)
+			parsedColumn, err := a.mapper.MapColumnValue(&col)
 			if err != nil {
 				// we do not map unsupported types
 				if errors.As(err, &ErrTypeInvalid{}) {
@@ -212,19 +176,12 @@ func (a *adapter) parseColumns(columns []wal.Column, metadata wal.Metadata, lsnS
 		return nil, fmt.Errorf("parsing id columns: %w", err)
 	}
 
-	// if version is not found, default to use the LSN if no version column is
-	// provided. Return an error otherwise.
-	if !versionFound {
-		if useLSNAsVersion(metadata) {
-			lsn, err := a.lsnParser.FromString(lsnStr)
-			if err != nil {
-				return nil, fmt.Errorf("%w: %w", errIncompatibleLSN, err)
-			}
-			doc.Version = int(lsn)
-		} else {
-			return nil, processor.ErrVersionNotFound
-		}
+	// Use the LSN as document version
+	lsn, err := a.lsnParser.FromString(lsnStr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errIncompatibleLSN, err)
 	}
+	doc.Version = int(lsn)
 
 	doc.Data["_table"] = metadata.TablePgstreamID
 
@@ -271,11 +228,7 @@ func (a *adapter) parseIDColumns(tableName string, idColumns []wal.Column, doc *
 		// the individual fields as part of the document. Otherwise, the
 		// identity will be the document id.
 		if isCompositeID {
-			parsedColumn, err := a.mapper.MapColumnValue(schemalog.Column{
-				Name:       col.Name,
-				DataType:   col.Type,
-				PgstreamID: col.ID,
-			}, col.Value)
+			parsedColumn, err := a.mapper.MapColumnValue(&col)
 			if err != nil {
 				return fmt.Errorf("mapping id column value: %w", err)
 			}
@@ -291,35 +244,10 @@ func (a *adapter) parseIDColumns(tableName string, idColumns []wal.Column, doc *
 	return nil
 }
 
-func (a *adapter) parseVersionColumn(version any) (int, error) {
-	switch v := version.(type) {
-	case int64:
-		return int(v), nil
-	case float64:
-		return roundFloat64(v), nil
-	case nil:
-		return 0, errNilVersionValue
-	default:
-		return 0, fmt.Errorf("%T: %w", v, errUnsupportedType)
-	}
-}
-
 func (a *adapter) documentSize(doc *Document) (int, error) {
 	bytes, err := a.marshaler(doc.Data)
 	if err != nil {
 		return 0, err
 	}
 	return len(bytes), nil
-}
-
-// roundFloat64 converts a float64 to int by rounding.
-func roundFloat64(val float64) int {
-	if val < 0 {
-		return int(val - 0.5)
-	}
-	return int(val + 0.5)
-}
-
-func useLSNAsVersion(metadata wal.Metadata) bool {
-	return metadata.InternalColVersion == ""
 }

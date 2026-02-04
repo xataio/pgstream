@@ -4,11 +4,11 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
@@ -18,12 +18,12 @@ func TestAdapter_walEventToQueries(t *testing.T) {
 	testDDLQuery := &query{
 		schema: "public",
 		table:  "users",
-		sql:    "ALTER TABLE users ADD COLUMN age INT",
+		sql:    "CREATE TABLE users (id INT PRIMARY KEY, name TEXT);",
 		isDDL:  true,
 	}
 
 	testDDLAdapter := &mockDDLAdapter{
-		schemaLogToQueriesFn: func(ctx context.Context, l *schemalog.LogEntry) ([]*query, error) {
+		walDataToQueriesFn: func(ctx context.Context, d *wal.Data) ([]*query, error) {
 			return []*query{testDDLQuery}, nil
 		},
 	}
@@ -41,6 +41,38 @@ func TestAdapter_walEventToQueries(t *testing.T) {
 		},
 	}
 
+	testDDLEvent := wal.DDLEvent{
+		DDL:        "CREATE TABLE users (id INT PRIMARY KEY, name TEXT);",
+		SchemaName: "public",
+		Objects: []wal.DDLObject{
+			{
+				Type:     "table",
+				Identity: "public.users",
+				Schema:   "public",
+				Columns: []wal.DDLColumn{
+					{
+						Attnum: 1, Name: "id", Type: "integer", Nullable: false, Generated: false, Unique: true,
+					},
+					{
+						Attnum: 2, Name: "name", Type: "text", Nullable: true, Generated: false, Unique: false,
+					},
+				},
+				PrimaryKeyColumns: []string{"id"},
+			},
+		},
+	}
+
+	testDDLEventJSON, err := json.Marshal(testDDLEvent)
+	require.NoError(t, err)
+
+	testDDLWalEvent := &wal.Event{
+		Data: &wal.Data{
+			Action:  wal.LogicalMessageAction,
+			Prefix:  wal.DDLPrefix,
+			Content: string(testDDLEventJSON),
+		},
+	}
+
 	errTest := errors.New("oh noes")
 
 	tests := []struct {
@@ -49,7 +81,7 @@ func TestAdapter_walEventToQueries(t *testing.T) {
 		schemaObserver  schemaObserver
 		ddlAdapter      ddlQueryAdapter
 		dmlAdapter      dmlQueryAdapter
-		logEntryAdapter logEntryAdapter
+		ddlEventAdapter ddlEventAdapter
 
 		wantQueries []*query
 		wantErr     error
@@ -86,45 +118,22 @@ func TestAdapter_walEventToQueries(t *testing.T) {
 			wantErr:     nil,
 		},
 		{
-			name: "schema log event with ddl adapter",
-			event: &wal.Event{
-				Data: &wal.Data{
-					Schema: "pgstream",
-					Table:  "schema_log",
-				},
-			},
+			name:  "ddl event with ddl adapter",
+			event: testDDLWalEvent,
+
 			schemaObserver: &mockSchemaObserver{
 				isMaterializedViewFn: func(schema, table string) bool { return false },
-				updateFn:             func(logEntry *schemalog.LogEntry) {},
+				updateFn:             func(ddlEvent *wal.DDLEvent) {},
 			},
-			logEntryAdapter: func(data *wal.Data) (*schemalog.LogEntry, error) {
-				return &schemalog.LogEntry{}, nil
+			ddlEventAdapter: func(d *wal.Data) (*wal.DDLEvent, error) {
+				require.Equal(t, testDDLWalEvent.Data, d)
+				return &testDDLEvent, nil
 			},
+
 			dmlAdapter: testDMLAdapter,
 			ddlAdapter: testDDLAdapter,
 
 			wantQueries: []*query{testDDLQuery},
-			wantErr:     nil,
-		},
-		{
-			name: "schema log event without ddl adapter",
-			event: &wal.Event{
-				Data: &wal.Data{
-					Schema: "pgstream",
-					Table:  "schema_log",
-				},
-			},
-			schemaObserver: &mockSchemaObserver{
-				isMaterializedViewFn: func(schema, table string) bool { return false },
-				updateFn:             func(logEntry *schemalog.LogEntry) {},
-			},
-			logEntryAdapter: func(data *wal.Data) (*schemalog.LogEntry, error) {
-				return &schemalog.LogEntry{}, nil
-			},
-			dmlAdapter: testDMLAdapter,
-			ddlAdapter: nil,
-
-			wantQueries: []*query{{}},
 			wantErr:     nil,
 		},
 		{
@@ -151,18 +160,13 @@ func TestAdapter_walEventToQueries(t *testing.T) {
 			wantErr:     nil,
 		},
 		{
-			name: "error - log entry adapter",
-			event: &wal.Event{
-				Data: &wal.Data{
-					Schema: "pgstream",
-					Table:  "schema_log",
-				},
-			},
+			name:  "error - ddl event adapter",
+			event: testDDLWalEvent,
 			schemaObserver: &mockSchemaObserver{
 				isMaterializedViewFn: func(schema, table string) bool { return false },
-				updateFn:             func(logEntry *schemalog.LogEntry) {},
+				updateFn:             func(ddlEvent *wal.DDLEvent) {},
 			},
-			logEntryAdapter: func(data *wal.Data) (*schemalog.LogEntry, error) {
+			ddlEventAdapter: func(d *wal.Data) (*wal.DDLEvent, error) {
 				return nil, errTest
 			},
 			dmlAdapter: testDMLAdapter,
@@ -254,7 +258,7 @@ func TestAdapter_walEventToQueries(t *testing.T) {
 				dmlAdapter:      tc.dmlAdapter,
 				ddlAdapter:      tc.ddlAdapter,
 				schemaObserver:  tc.schemaObserver,
-				logEntryAdapter: tc.logEntryAdapter,
+				ddlEventAdapter: tc.ddlEventAdapter,
 			}
 
 			queries, err := a.walEventToQueries(context.Background(), tc.event)

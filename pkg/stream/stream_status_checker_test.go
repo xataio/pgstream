@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
+	migratorlib "github.com/xataio/pgstream/internal/migrator"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 	pgmigrations "github.com/xataio/pgstream/migrations/postgres"
@@ -24,9 +25,9 @@ func TestStatusChecker_Status(t *testing.T) {
 	t.Parallel()
 
 	errTest := errors.New("oh noes")
-	migrationVersion := uint(len(pgmigrations.AssetNames()) / 2)
 	const testReplicationSlot = "pgstream_db_slot"
 	const testDB = "db"
+	const migrationVersion = 2
 
 	validConfig := &Config{
 		Listener: ListenerConfig{
@@ -54,10 +55,17 @@ func TestStatusChecker_Status(t *testing.T) {
 		return &pgx.ConnConfig{Config: pgconn.Config{Database: testDB}}, nil
 	}
 
-	validMigratorBuilder := func(s string) (migrator, error) {
+	validMigratorBuilder := func(cfg *InitConfig) (migrator, error) {
 		return &mockMigrator{
-			versionFn: func() (uint, bool, error) {
-				return migrationVersion, false, nil
+			statusFn: func() ([]migratorlib.MigrationStatus, error) {
+				return []migratorlib.MigrationStatus{
+					{
+						TableName:              "schema_migrations_test",
+						Version:                migrationVersion,
+						Dirty:                  false,
+						ExpectedMigrationCount: migrationVersion,
+					},
+				}, nil
 			},
 		}, nil
 	}
@@ -112,7 +120,7 @@ func TestStatusChecker_Status(t *testing.T) {
 	tests := []struct {
 		name                 string
 		connBuilder          pglib.QuerierBuilder
-		migratorBuilder      func(string) (migrator, error)
+		migratorBuilder      func(*InitConfig) (migrator, error)
 		config               *Config
 		ruleValidatorBuilder func(context.Context, string, []string) (ruleValidator, error)
 
@@ -129,12 +137,14 @@ func TestStatusChecker_Status(t *testing.T) {
 			wantStatus: &Status{
 				Init: &InitStatus{
 					PgstreamSchema: &SchemaStatus{
-						SchemaExists:         true,
-						SchemaLogTableExists: true,
+						SchemaExists: true,
 					},
-					Migration: &MigrationStatus{
-						Version: migrationVersion,
-						Dirty:   false,
+					Migrations: []MigrationStatus{
+						{
+							TableName: "schema_migrations_test",
+							Version:   migrationVersion,
+							Dirty:     false,
+						},
 					},
 					ReplicationSlot: &ReplicationSlotStatus{
 						Name:     testReplicationSlot,
@@ -169,7 +179,7 @@ func TestStatusChecker_Status(t *testing.T) {
 		{
 			name:        "error - checking init status",
 			connBuilder: validConnBuilder,
-			migratorBuilder: func(s string) (migrator, error) {
+			migratorBuilder: func(cfg *InitConfig) (migrator, error) {
 				return nil, errTest
 			},
 			config:               validConfig,
@@ -398,7 +408,7 @@ func TestStatusChecker_initStatus(t *testing.T) {
 		name                string
 		connBuilder         pglib.QuerierBuilder
 		configParser        func(pgURL string) (*pgx.ConnConfig, error)
-		migratorBuilder     func(string) (migrator, error)
+		migratorBuilder     func(*InitConfig) (migrator, error)
 		pgurl               string
 		replicationSlotName string
 
@@ -447,10 +457,17 @@ func TestStatusChecker_initStatus(t *testing.T) {
 					},
 				}, nil
 			},
-			migratorBuilder: func(s string) (migrator, error) {
+			migratorBuilder: func(cfg *InitConfig) (migrator, error) {
 				return &mockMigrator{
-					versionFn: func() (uint, bool, error) {
-						return migrationVersion, false, nil
+					statusFn: func() ([]migratorlib.MigrationStatus, error) {
+						return []migratorlib.MigrationStatus{
+							{
+								TableName:              "schema_migrations_test",
+								Version:                migrationVersion,
+								ExpectedMigrationCount: migrationVersion,
+								Dirty:                  false,
+							},
+						}, nil
 					},
 				}, nil
 			},
@@ -461,17 +478,19 @@ func TestStatusChecker_initStatus(t *testing.T) {
 
 			wantstatus: &InitStatus{
 				PgstreamSchema: &SchemaStatus{
-					SchemaExists:         true,
-					SchemaLogTableExists: true,
+					SchemaExists: true,
 				},
 				ReplicationSlot: &ReplicationSlotStatus{
 					Name:     testReplicationSlot,
 					Plugin:   wal2jsonPlugin,
 					Database: testDB,
 				},
-				Migration: &MigrationStatus{
-					Version: migrationVersion,
-					Dirty:   false,
+				Migrations: []MigrationStatus{
+					{
+						TableName: "schema_migrations_test",
+						Version:   migrationVersion,
+						Dirty:     false,
+					},
 				},
 			},
 			wantErr: nil,
@@ -495,7 +514,7 @@ func TestStatusChecker_initStatus(t *testing.T) {
 					},
 				}, nil
 			},
-			migratorBuilder: func(s string) (migrator, error) {
+			migratorBuilder: func(cfg *InitConfig) (migrator, error) {
 				return nil, errors.New("unexpected call to migrator builder")
 			},
 			configParser: func(pgURL string) (*pgx.ConnConfig, error) {
@@ -530,7 +549,7 @@ func TestStatusChecker_initStatus(t *testing.T) {
 					},
 				}, nil
 			},
-			migratorBuilder: func(s string) (migrator, error) {
+			migratorBuilder: func(cfg *InitConfig) (migrator, error) {
 				return nil, errTest
 			},
 			configParser: func(pgURL string) (*pgx.ConnConfig, error) {
@@ -567,10 +586,17 @@ func TestStatusChecker_initStatus(t *testing.T) {
 					},
 				}, nil
 			},
-			migratorBuilder: func(s string) (migrator, error) {
+			migratorBuilder: func(cfg *InitConfig) (migrator, error) {
 				return &mockMigrator{
-					versionFn: func() (uint, bool, error) {
-						return migrationVersion, false, nil
+					statusFn: func() ([]migratorlib.MigrationStatus, error) {
+						return []migratorlib.MigrationStatus{
+							{
+								TableName:              "schema_migrations_test",
+								Version:                migrationVersion,
+								ExpectedMigrationCount: migrationVersion,
+								Dirty:                  false,
+							},
+						}, nil
 					},
 				}, nil
 			},
@@ -593,7 +619,10 @@ func TestStatusChecker_initStatus(t *testing.T) {
 			sc.connBuilder = tc.connBuilder
 			sc.migratorBuilder = tc.migratorBuilder
 
-			status, err := sc.initStatus(context.Background(), tc.pgurl, tc.replicationSlotName)
+			status, err := sc.initStatus(context.Background(), &InitConfig{
+				PostgresURL:         tc.pgurl,
+				ReplicationSlotName: tc.replicationSlotName,
+			})
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, status, tc.wantstatus)
 		})
@@ -752,7 +781,7 @@ func TestStatusChecker_validateSchemaStatus(t *testing.T) {
 		wantErr    error
 	}{
 		{
-			name: "ok - schema and schema_log table exist",
+			name: "ok - schema exists",
 			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
 				return &pgmocks.Querier{
 					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
@@ -777,40 +806,7 @@ func TestStatusChecker_validateSchemaStatus(t *testing.T) {
 			},
 			pgurl: "postgres://user:password@localhost:5432/db",
 			wantStatus: &SchemaStatus{
-				SchemaExists:         true,
-				SchemaLogTableExists: true,
-			},
-			wantErr: nil,
-		},
-		{
-			name: "ok - schema exists but schema_log table does not",
-			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
-				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
-						switch sql {
-						case "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgstream')":
-							require.Len(t, dest, 1)
-							exists, ok := dest[0].(*bool)
-							require.True(t, ok)
-							*exists = true
-							return nil
-						case "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'pgstream' AND table_name = 'schema_log')":
-							require.Len(t, dest, 1)
-							exists, ok := dest[0].(*bool)
-							require.True(t, ok)
-							*exists = false
-							return nil
-						default:
-							return fmt.Errorf("unexpected query: %v", sql)
-						}
-					},
-				}, nil
-			},
-			pgurl: "postgres://user:password@localhost:5432/db",
-			wantStatus: &SchemaStatus{
-				SchemaExists:         true,
-				SchemaLogTableExists: false,
-				Errors:               []string{noPgstreamSchemaLogTableErrMsg},
+				SchemaExists: true,
 			},
 			wantErr: nil,
 		},
@@ -834,9 +830,8 @@ func TestStatusChecker_validateSchemaStatus(t *testing.T) {
 			},
 			pgurl: "postgres://user:password@localhost:5432/db",
 			wantStatus: &SchemaStatus{
-				SchemaExists:         false,
-				SchemaLogTableExists: false,
-				Errors:               []string{noPgstreamSchemaErrMsg},
+				SchemaExists: false,
+				Errors:       []string{noPgstreamSchemaErrMsg},
 			},
 			wantErr: nil,
 		},
@@ -847,30 +842,6 @@ func TestStatusChecker_validateSchemaStatus(t *testing.T) {
 					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
 						switch sql {
 						case "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgstream')":
-							return errTest
-						default:
-							return fmt.Errorf("unexpected query: %v", sql)
-						}
-					},
-				}, nil
-			},
-			pgurl:      "postgres://user:password@localhost:5432/db",
-			wantStatus: nil,
-			wantErr:    errTest,
-		},
-		{
-			name: "error - query failure when checking schema_log table existence",
-			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
-				return &pgmocks.Querier{
-					QueryRowFn: func(ctx context.Context, dest []any, sql string, args ...any) error {
-						switch sql {
-						case "SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'pgstream')":
-							require.Len(t, dest, 1)
-							exists, ok := dest[0].(*bool)
-							require.True(t, ok)
-							*exists = true
-							return nil
-						case "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'pgstream' AND table_name = 'schema_log')":
 							return errTest
 						default:
 							return fmt.Errorf("unexpected query: %v", sql)
@@ -902,97 +873,139 @@ func TestStatusChecker_validateMigrationStatus(t *testing.T) {
 	t.Parallel()
 
 	errTest := errors.New("oh noes")
-	okMigrationVersion := uint(len(pgmigrations.AssetNames()) / 2)
+	okMigrationVersion := uint(2)
 
 	tests := []struct {
 		name            string
-		migratorBuilder func(string) (migrator, error)
+		migratorBuilder func(cfg *InitConfig) (migrator, error)
 		pgurl           string
 
-		wantStatus *MigrationStatus
+		wantStatus []MigrationStatus
 		wantErr    error
 	}{
 		{
 			name: "ok - valid migration status",
-			migratorBuilder: func(pgURL string) (migrator, error) {
+			migratorBuilder: func(cfg *InitConfig) (migrator, error) {
 				return &mockMigrator{
-					versionFn: func() (uint, bool, error) {
-						return okMigrationVersion, false, nil
+					statusFn: func() ([]migratorlib.MigrationStatus, error) {
+						return []migratorlib.MigrationStatus{
+							{
+								TableName:              "schema_migrations_test",
+								Version:                okMigrationVersion,
+								Dirty:                  false,
+								ExpectedMigrationCount: okMigrationVersion,
+							},
+						}, nil
 					},
 				}, nil
 			},
 			pgurl: "postgres://user:password@localhost:5432/db",
-			wantStatus: &MigrationStatus{
-				Version: okMigrationVersion,
-				Dirty:   false,
+			wantStatus: []MigrationStatus{
+				{
+					TableName: "schema_migrations_test",
+					Version:   okMigrationVersion,
+					Dirty:     false,
+				},
 			},
 			wantErr: nil,
 		},
 		{
 			name: "ok - pgstream schema doesn't exist",
-			migratorBuilder: func(pgURL string) (migrator, error) {
+			migratorBuilder: func(cfg *InitConfig) (migrator, error) {
 				return nil, errors.New("failed to open database: no schema")
 			},
 			pgurl: "postgres://user:password@localhost:5432/db",
-			wantStatus: &MigrationStatus{
-				Errors: []string{noMigrationsTableErrMsg},
+			wantStatus: []MigrationStatus{
+				{
+					Errors: []string{noMigrationsTableErrMsg},
+				},
 			},
 			wantErr: nil,
 		},
 		{
 			name: "ok - dirty migration",
-			migratorBuilder: func(pgURL string) (migrator, error) {
+			migratorBuilder: func(cfg *InitConfig) (migrator, error) {
 				return &mockMigrator{
-					versionFn: func() (uint, bool, error) {
-						return okMigrationVersion, true, nil
+					statusFn: func() ([]migratorlib.MigrationStatus, error) {
+						return []migratorlib.MigrationStatus{
+							{
+								TableName:              "schema_migrations_test",
+								Version:                okMigrationVersion,
+								Dirty:                  true,
+								ExpectedMigrationCount: okMigrationVersion,
+							},
+						}, nil
 					},
 				}, nil
 			},
 			pgurl: "postgres://user:password@localhost:5432/db",
-			wantStatus: &MigrationStatus{
-				Version: okMigrationVersion,
-				Dirty:   true,
-				Errors:  []string{fmt.Sprintf("migration version %d is dirty", okMigrationVersion)},
+			wantStatus: []MigrationStatus{
+				{
+					TableName: "schema_migrations_test",
+					Version:   okMigrationVersion,
+					Dirty:     true,
+					Errors:    []string{fmt.Sprintf("migration version %d is dirty for table schema_migrations_test", okMigrationVersion)},
+				},
 			},
 			wantErr: nil,
 		},
 		{
 			name: "ok - mismatched migration files",
-			migratorBuilder: func(pgURL string) (migrator, error) {
+			migratorBuilder: func(cfg *InitConfig) (migrator, error) {
 				return &mockMigrator{
-					versionFn: func() (uint, bool, error) {
-						return 3, false, nil
+					statusFn: func() ([]migratorlib.MigrationStatus, error) {
+						return []migratorlib.MigrationStatus{
+							{
+								TableName:              "schema_migrations_test",
+								Version:                3,
+								Dirty:                  false,
+								ExpectedMigrationCount: okMigrationVersion,
+							},
+						}, nil
 					},
 				}, nil
 			},
 			pgurl: "postgres://user:password@localhost:5432/db",
-			wantStatus: &MigrationStatus{
-				Version: 3,
-				Dirty:   false,
-				Errors:  []string{fmt.Sprintf("migration version (3) does not match the number of migration files (%d)", okMigrationVersion)},
+			wantStatus: []MigrationStatus{
+				{
+					TableName: "schema_migrations_test",
+					Version:   3,
+					Dirty:     false,
+					Errors:    []string{fmt.Sprintf("migration version (3) does not match the number of migration files (%d) for table schema_migrations_test", okMigrationVersion)},
+				},
 			},
 			wantErr: nil,
 		},
 		{
 			name: "ok - multiple migration errors",
-			migratorBuilder: func(pgURL string) (migrator, error) {
+			migratorBuilder: func(cfg *InitConfig) (migrator, error) {
 				return &mockMigrator{
-					versionFn: func() (uint, bool, error) {
-						return 3, true, nil
+					statusFn: func() ([]migratorlib.MigrationStatus, error) {
+						return []migratorlib.MigrationStatus{
+							{
+								TableName:              "schema_migrations_test",
+								Version:                3,
+								Dirty:                  true,
+								ExpectedMigrationCount: okMigrationVersion,
+							},
+						}, nil
 					},
 				}, nil
 			},
 			pgurl: "postgres://user:password@localhost:5432/db",
-			wantStatus: &MigrationStatus{
-				Version: 3,
-				Dirty:   true,
-				Errors:  []string{fmt.Sprintf("migration version (3) does not match the number of migration files (%d)", okMigrationVersion), "migration version 3 is dirty"},
+			wantStatus: []MigrationStatus{
+				{
+					TableName: "schema_migrations_test",
+					Version:   3,
+					Dirty:     true,
+					Errors:    []string{fmt.Sprintf("migration version (3) does not match the number of migration files (%d) for table schema_migrations_test", okMigrationVersion), "migration version 3 is dirty for table schema_migrations_test"},
+				},
 			},
 			wantErr: nil,
 		},
 		{
 			name: "error - failed to create migrator",
-			migratorBuilder: func(pgURL string) (migrator, error) {
+			migratorBuilder: func(cfg *InitConfig) (migrator, error) {
 				return nil, errTest
 			},
 			pgurl:      "postgres://user:password@localhost:5432/db",
@@ -1001,10 +1014,10 @@ func TestStatusChecker_validateMigrationStatus(t *testing.T) {
 		},
 		{
 			name: "error - failed to get migration version",
-			migratorBuilder: func(pgURL string) (migrator, error) {
+			migratorBuilder: func(cfg *InitConfig) (migrator, error) {
 				return &mockMigrator{
-					versionFn: func() (uint, bool, error) {
-						return 0, false, errTest
+					statusFn: func() ([]migratorlib.MigrationStatus, error) {
+						return nil, errTest
 					},
 				}, nil
 			},
@@ -1021,9 +1034,9 @@ func TestStatusChecker_validateMigrationStatus(t *testing.T) {
 			sc := NewStatusChecker()
 			sc.migratorBuilder = tc.migratorBuilder
 
-			status, err := sc.validateMigrationStatus(tc.pgurl)
+			statusList, err := sc.validateMigrationStatus(&InitConfig{PostgresURL: tc.pgurl})
 			require.ErrorIs(t, err, tc.wantErr)
-			require.Equal(t, status, tc.wantStatus)
+			require.Equal(t, statusList, tc.wantStatus)
 		})
 	}
 }

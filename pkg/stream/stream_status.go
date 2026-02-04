@@ -31,14 +31,15 @@ type SourceStatus struct {
 
 type InitStatus struct {
 	PgstreamSchema  *SchemaStatus
-	Migration       *MigrationStatus
+	Migrations      []MigrationStatus
 	ReplicationSlot *ReplicationSlotStatus
 }
 
 type MigrationStatus struct {
-	Version uint
-	Dirty   bool
-	Errors  []string
+	TableName string
+	Version   uint
+	Dirty     bool
+	Errors    []string
 }
 
 type ReplicationSlotStatus struct {
@@ -49,9 +50,8 @@ type ReplicationSlotStatus struct {
 }
 
 type SchemaStatus struct {
-	SchemaExists         bool
-	SchemaLogTableExists bool
-	Errors               []string
+	SchemaExists bool
+	Errors       []string
 }
 
 type StatusErrors map[string][]string
@@ -117,8 +117,12 @@ func (is *InitStatus) GetErrors() []string {
 		errors = append(errors, is.PgstreamSchema.Errors...)
 	}
 
-	if is.Migration != nil && len(is.Migration.Errors) > 0 {
-		errors = append(errors, is.Migration.Errors...)
+	if len(is.Migrations) > 0 {
+		for _, migration := range is.Migrations {
+			if len(migration.Errors) > 0 {
+				errors = append(errors, migration.Errors...)
+			}
+		}
 	}
 
 	if is.ReplicationSlot != nil && len(is.ReplicationSlot.Errors) > 0 {
@@ -137,17 +141,19 @@ func (is *InitStatus) PrettyPrint() string {
 	prettyPrint.WriteString("Initialisation status:\n")
 	if is.PgstreamSchema != nil {
 		prettyPrint.WriteString(fmt.Sprintf(" - Pgstream schema exists: %t\n", is.PgstreamSchema.SchemaExists))
-		prettyPrint.WriteString(fmt.Sprintf(" - Pgstream schema_log table exists: %t\n", is.PgstreamSchema.SchemaLogTableExists))
 		if len(is.PgstreamSchema.Errors) > 0 {
 			prettyPrint.WriteString(fmt.Sprintf(" - Pgstream schema errors: %s\n", is.PgstreamSchema.Errors))
 		}
 	}
 
-	if is.Migration != nil {
-		prettyPrint.WriteString(fmt.Sprintf(" - Migration current version: %d\n", is.Migration.Version))
-		prettyPrint.WriteString(fmt.Sprintf(" - Migration status: %s\n", migrationStatus(is.Migration.Dirty)))
-		if len(is.Migration.Errors) > 0 {
-			prettyPrint.WriteString(fmt.Sprintf(" - Migration errors: %s\n", is.Migration.Errors))
+	if len(is.Migrations) > 0 {
+		for _, migration := range is.Migrations {
+			prettyPrint.WriteString(fmt.Sprintf(" - Migration for table %s:\n", migration.TableName))
+			prettyPrint.WriteString(fmt.Sprintf("\t- Migration current version: %d\n", migration.Version))
+			prettyPrint.WriteString(fmt.Sprintf("\t- Migration status: %s\n", migrationStatus(migration.Dirty)))
+			if len(migration.Errors) > 0 {
+				prettyPrint.WriteString(fmt.Sprintf("\t- Migration errors: [%s]\n", strings.Join(migration.Errors, "; ")))
+			}
 		}
 	}
 

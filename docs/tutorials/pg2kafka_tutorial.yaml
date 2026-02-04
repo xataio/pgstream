@@ -15,3 +15,4 @@ target:
 modifiers:
   injector:
     enabled: true # whether to inject pgstream metadata into the WAL events
+    source_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # optional for postgres sources, defaults to source URL

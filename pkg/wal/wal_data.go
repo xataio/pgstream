@@ -20,14 +20,18 @@ type Event struct {
 
 // Data contains the wal data properties identifying the table operation.
 type Data struct {
-	Action    string   `json:"action"`    // "I" -- insert, "U" -- update, "D" -- delete, "T" -- truncate
+	Action    string   `json:"action"`    // "I" -- insert, "U" -- update, "D" -- delete, "T" -- truncate, "M" -- logical message
 	Timestamp string   `json:"timestamp"` // ISO8601, i.e. 2019-12-29 04:58:34.806671
 	LSN       string   `json:"lsn"`
 	Schema    string   `json:"schema"`
 	Table     string   `json:"table"`
 	Columns   []Column `json:"columns"`
 	Identity  []Column `json:"identity"`
-	Metadata  Metadata `json:"metadata"` // pgstream specific metadata
+	// For logical messages (when Action == "M")
+	Prefix  string `json:"prefix,omitempty"`
+	Content string `json:"content,omitempty"`
+	// pgstream specific metadata
+	Metadata Metadata `json:"metadata"`
 }
 
 // Metadata is pgstream specific properties to help identify the id/version
@@ -39,9 +43,6 @@ type Metadata struct {
 	// This is the Pgstream ID of the "id" column(s). We track this specifically, as we extract it from the event
 	// in order to use as the ID for the record.
 	InternalColIDs []string `json:"id_col_pgstream_id"`
-	// This is the Pgstream ID of the "version" column. We track this specifically, as we extract it from the event
-	// in order to use as the version when working with optimistic concurrency checks.
-	InternalColVersion string `json:"version_col_pgstream_id"`
 }
 
 type Column struct {
@@ -81,16 +82,10 @@ func (d *Data) IsInsert() bool {
 // IsEmpty returns true if the pgstream metadata hasn't been populated, false
 // otherwise.
 func (m Metadata) IsEmpty() bool {
-	if m.TablePgstreamID == "" && len(m.InternalColIDs) == 0 && m.InternalColVersion == "" {
+	if m.TablePgstreamID == "" && len(m.InternalColIDs) == 0 {
 		return true
 	}
 	return false
-}
-
-// IsVersionColumn returns true if the column id on input matches the pgstream
-// identified version column.
-func (m Metadata) IsVersionColumn(colID string) bool {
-	return m.InternalColVersion == colID
 }
 
 // IsIDColumn returns true if the column id on input is part of the pgstream

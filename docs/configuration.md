@@ -33,7 +33,6 @@ source:
         batch_bytes: 83886080 # bytes to read per batch (defaults to 80MiB)
         max_connections: 50 # maximum number of connections that the data snapshot can open to Postgres. Should  be higher or equal than the number of schema/table workers.
       schema: # when mode is full or schema
-        mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
         pgdump_pgrestore:
           clean_target_db: true # whether to clean the target database before restoring. Defaults to false
           create_target_db: true # whether to create the database on the target postgres. Defaults to false
@@ -90,7 +89,6 @@ target:
         min_batch_bytes: 1048576 # minimum batch size in bytes (1MB). Defaults to 1MB
         max_batch_bytes: 52428800 # maximum batch size in bytes (50MB). Defaults to 50MB
         convergence_threshold: 0.01 # convergence threshold as a fraction of max batch size. Defaults to 0.01
-    schema_log_store_url: "postgresql://user:password@localhost:5432/mydatabase" # url to the postgres database where the schema log is stored to be used when performing schema change diffs
     disable_triggers: false # whether to disable triggers on the target database. Defaults to false
     on_conflict_action: "nothing" # options are update, nothing or error. Defaults to error
     bulk_ingest:
@@ -158,7 +156,7 @@ target:
 modifiers:
   injector:
     enabled: true # whether to inject pgstream metadata into the WAL events. Defaults to false
-    schemalog_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the schemalog database, if different from the source database
+    source_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # optional for postgres sources (defaults to source URL), required for non-postgres sources
   filter: # one of include_tables or exclude_tables
     include_tables: # list of tables for which events should be allowed. Tables should be schema qualified. If no schema is provided, the public schema will be assumed. Wildcards "*" are supported.
       - "test"
@@ -202,7 +200,6 @@ Here's a list of all the environment variables that can be used to configure the
 | PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES                  | 83886080 (80MiB)             | No       | Max batch size in bytes to be read and processed by each table worker at a time. The number of pages in the select queries will be based on this value.                                                                                                                                                      |
 | PGSTREAM_POSTGRES_SNAPSHOT_WORKERS                      | 1                            | No       | Number of schemas that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                            |
 | PGSTREAM_POSTGRES_SNAPSHOT_MAX_CONNECTIONS              | 50                           | No       | Maximum number of Postgres connections that will be opened by the snapshotting process. This value shouldn't be lower than the number of schema/table workers selected.                                                                                                                                      |
-| PGSTREAM_POSTGRES_SNAPSHOT_USE_SCHEMALOG                | False                        | No       | Forces the use of the `pgstream.schema_log` for the schema snapshot instead of using `pg_dump`/`pg_restore` for Postgres targets.                                                                                                                                                                            |
 | PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB              | False                        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to issue commands to DROP all the objects that will be restored.                                                                                                                                                           |
 | PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS    | False                        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to snapshot all global database objects outside of the selected schema (such as extensions, triggers, etc).                                                                                                                |
 | PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB             | False                        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to create the database being restored.                                                                                                                                                                                     |
@@ -327,7 +324,6 @@ One of exponential/constant/disable retries backoff policies can be provided for
 | PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES                       | 100MiB                          | No       | Max memory used by the postgres batch writer for inflight batches.                                                                                                                                             |
 | PGSTREAM_POSTGRES_WRITER_BATCH_BYTES                           | 1.5MiB, 80MiB with bulk enabled | No       | Max size in bytes for a given batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                               |
 | PGSTREAM_POSTGRES_WRITER_BATCH_IGNORE_SEND_ERRORS              | False                           | No       | Whether to ignore errors encountered while sending events to the target.                                                                                                                                       |
-| PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL                   | N/A                             | No       | URL of the store where the pgstream schemalog table which keeps track of schema changes is.                                                                                                                    |
 | PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS                      | False(run), True(snapshot)      | No       | Option to disable triggers on the target PostgreSQL database while performing the snaphot/replication streaming. It defaults to false when using the run command, and to true when using the snapshot command. |
 | PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION                    | error                           | No       | Action to apply to inserts on conflict. Options are `nothing`, `update` or `error`.                                                                                                                            |
 | PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED                   | False(run), True(snapshot)      | No       | Whether to use COPY FROM on insert only workloads. It defaults to false when using the run command, and to true when using the snapshot command.                                                               |
@@ -352,9 +348,9 @@ One of exponential/constant/disable retries retry policies can be provided for t
 <details>
   <summary>Injector</summary>
 
-| Environment Variable                 | Default | Required | Description                                                    |
-| ------------------------------------ | ------- | -------- | -------------------------------------------------------------- |
-| PGSTREAM_INJECTOR_STORE_POSTGRES_URL | N/A     | Yes      | URL for the postgres URL where the schema log table is stored. |
+| Environment Variable                 | Default | Required | Description                         |
+| ------------------------------------ | ------- | -------- | ----------------------------------- |
+| PGSTREAM_INJECTOR_STORE_POSTGRES_URL | N/A     | Yes      | PostgreSQL URL for DDL replication. |
 
 </details>
 
