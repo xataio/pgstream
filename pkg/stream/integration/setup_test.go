@@ -36,6 +36,12 @@ func TestMain(m *testing.M) {
 		}
 		defer kafkacleanup()
 
+		natscleanup, err := testcontainers.SetupNATSContainer(ctx, &natsURL)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer natscleanup()
+
 		oscleanup, err := testcontainers.SetupOpenSearchContainer(ctx, &opensearchURL)
 		if err != nil {
 			log.Fatal(err)

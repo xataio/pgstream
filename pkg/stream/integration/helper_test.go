@@ -19,17 +19,20 @@ import (
 	"github.com/xataio/pgstream/pkg/backoff"
 	kafkalib "github.com/xataio/pgstream/pkg/kafka"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	natslib "github.com/xataio/pgstream/pkg/nats"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/stream"
 	"github.com/xataio/pgstream/pkg/tls"
 	"github.com/xataio/pgstream/pkg/wal"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
+	natsjscheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/natsjetstream"
 	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/adapter"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
+	natsjsprocessor "github.com/xataio/pgstream/pkg/wal/processor/natsjetstream"
 	"github.com/xataio/pgstream/pkg/wal/processor/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
 	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
@@ -42,6 +45,7 @@ var (
 	pgurl            string
 	targetPGURL      string
 	kafkaBrokers     []string
+	natsURL          string
 	opensearchURL    string
 	elasticsearchURL string
 )
@@ -282,6 +286,47 @@ func testKafkaCfg() kafkalib.ConnConfig {
 		},
 		TLS: tls.Config{
 			Enabled: false,
+		},
+	}
+}
+
+func testNATSJetstreamConnCfg() natslib.ConnConfig {
+	return natslib.ConnConfig{
+		URL: natsURL,
+		Stream: natslib.StreamConfig{
+			Name:       "integration-tests",
+			Subjects:   []string{"integration-tests.>"},
+			AutoCreate: true,
+			Replicas:   1,
+		},
+		TLS: tls.Config{
+			Enabled: false,
+		},
+	}
+}
+
+func testNATSJetstreamListenerCfg() stream.ListenerConfig {
+	return stream.ListenerConfig{
+		NATSJetstream: &stream.NATSJetstreamListenerConfig{
+			Reader: natslib.ReaderConfig{
+				Conn:          testNATSJetstreamConnCfg(),
+				ConsumerName:  "integration-test-consumer",
+				DeliverPolicy: "all",
+			},
+			Checkpointer: natsjscheckpoint.Config{},
+		},
+	}
+}
+
+func testNATSJetstreamProcessorCfg() stream.ProcessorConfig {
+	return stream.ProcessorConfig{
+		NATSJetstream: &stream.NATSJetstreamProcessorConfig{
+			Writer: &natsjsprocessor.Config{
+				NATS: testNATSJetstreamConnCfg(),
+			},
+		},
+		Injector: &injector.Config{
+			URL: pgurl,
 		},
 	}
 }
