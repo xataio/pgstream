@@ -1,0 +1,28 @@
+source:
+  nats_jetstream:
+    url: "nats://localhost:4222"
+    stream:
+      name: "pgstream"
+      subjects: ["pgstream.>"]
+    consumer:
+      name: "pgstream-consumer"
+      deliver_policy: "all" # options are all, last or new
+    backoff: # one of exponential or constant
+      exponential:
+        max_retries: 60 # maximum number of retries
+        initial_interval: 1000 # initial interval in milliseconds
+        max_interval: 60000 # maximum interval in milliseconds
+
+target:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:7654?sslmode=disable"
+    batch:
+      timeout: 5000 # batch timeout in milliseconds
+      size: 100 # number of messages in a batch
+    disable_triggers: false # whether to disable triggers on the target database
+    on_conflict_action: "nothing" # options are update, nothing or error
+
+modifiers:
+  injector:
+    enabled: true # whether to inject pgstream metadata into the WAL events
+    source_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # required when not using a postgres source

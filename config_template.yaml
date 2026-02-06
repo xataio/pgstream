@@ -55,6 +55,31 @@ source:
       constant:
         max_retries: 5 # maximum number of retries
         interval: 1000 # interval in milliseconds
+  nats_jetstream:
+    url: "nats://localhost:4222" # NATS server URL
+    stream:
+      name: "pgstream" # name of the JetStream stream
+      subjects: ["pgstream.>"] # subjects the stream captures
+      replicas: 1 # number of stream replicas. Defaults to 1
+      auto_create: true # whether to create the stream if it doesn't exist. Defaults to false
+      max_bytes: -1 # maximum bytes for the stream. Defaults to -1 (unlimited)
+      max_age: 0 # maximum age of messages in seconds. Defaults to 0 (unlimited)
+    consumer:
+      name: "pgstream-consumer" # name of the durable consumer. Defaults to pgstream-consumer
+      deliver_policy: "all" # options are all, last or new. Defaults to all
+    tls:
+      ca_cert: "/path/to/ca.crt" # path to CA certificate
+      client_cert: "/path/to/client.crt" # path to client certificate
+      client_key: "/path/to/client.key" # path to client key
+    credentials: "/path/to/creds.creds" # path to NATS credentials file
+    backoff: # one of exponential or constant
+      exponential:
+        max_retries: 5 # maximum number of retries
+        initial_interval: 1000 # initial interval in milliseconds
+        max_interval: 60000 # maximum interval in milliseconds
+      constant:
+        max_retries: 5 # maximum number of retries
+        interval: 1000 # interval in milliseconds
 
 target:
   postgres:
@@ -86,6 +111,26 @@ target:
       ca_cert: "/path/to/ca.crt" # path to CA certificate
       client_cert: "/path/to/client.crt" # path to client certificate
       client_key: "/path/to/client.key" # path to client key
+    batch:
+      timeout: 1000 # batch timeout in milliseconds. Defaults to 1s
+      size: 100 # number of messages in a batch. Defaults to 100
+      max_bytes: 1572864 # max size of batch in bytes (1.5MiB). Defaults to 1.5MiB
+      max_queue_bytes: 104857600 # max size of memory guard queue in bytes (100MiB). Defaults to 100MiB
+      ignore_send_errors: false # if true, log and ignore errors during batch sending. Warning: can result in consistency errors.
+  nats_jetstream:
+    url: "nats://localhost:4222" # NATS server URL
+    stream:
+      name: "pgstream" # name of the JetStream stream
+      subjects: ["pgstream.>"] # subjects the stream captures
+      replicas: 1 # number of stream replicas. Defaults to 1
+      auto_create: true # whether to create the stream if it doesn't exist. Defaults to false
+      max_bytes: -1 # maximum bytes for the stream. Defaults to -1 (unlimited)
+      max_age: 0 # maximum age of messages in seconds. Defaults to 0 (unlimited)
+    tls:
+      ca_cert: "/path/to/ca.crt" # path to CA certificate
+      client_cert: "/path/to/client.crt" # path to client certificate
+      client_key: "/path/to/client.key" # path to client key
+    credentials: "/path/to/creds.creds" # path to NATS credentials file
     batch:
       timeout: 1000 # batch timeout in milliseconds. Defaults to 1s
       size: 100 # number of messages in a batch. Defaults to 100

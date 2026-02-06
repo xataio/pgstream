@@ -1,0 +1,19 @@
+source:
+  postgres:
+    url: "postgres://postgres:postgres@localhost:5432?sslmode=disable"
+    mode: replication
+    replication:
+      replication_slot: "pgstream_nats_slot"
+
+target:
+  nats_jetstream:
+    url: "nats://localhost:4222"
+    stream:
+      name: "pgstream" # name of the JetStream stream
+      subjects: ["pgstream.>"] # subjects the stream captures
+      replicas: 1 # number of stream replicas
+      auto_create: true # whether to create the stream if it doesn't exist
+    batch:
+      timeout: 2000 # batch timeout in milliseconds
+      size: 100 # number of messages in a batch
+      max_bytes: 1572864 # max size of batch in bytes (1.5MiB)
