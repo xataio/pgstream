@@ -9,18 +9,21 @@ import (
 
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
+	natslib "github.com/xataio/pgstream/pkg/nats"
 	"github.com/xataio/pgstream/pkg/otel"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/stream"
 	"github.com/xataio/pgstream/pkg/tls"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
+	natsjscheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/natsjetstream"
 	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/adapter"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 	"github.com/xataio/pgstream/pkg/wal/processor/filter"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
+	natsjsprocessor "github.com/xataio/pgstream/pkg/wal/processor/natsjetstream"
 	"github.com/xataio/pgstream/pkg/wal/processor/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
@@ -52,15 +55,17 @@ type YAMLConfig struct {
 }
 
 type SourceConfig struct {
-	Postgres *PostgresConfig `mapstructure:"postgres" yaml:"postgres"`
-	Kafka    *KafkaConfig    `mapstructure:"kafka" yaml:"kafka"`
+	Postgres      *PostgresConfig            `mapstructure:"postgres" yaml:"postgres"`
+	Kafka         *KafkaConfig               `mapstructure:"kafka" yaml:"kafka"`
+	NATSJetstream *NATSJetstreamSourceConfig `mapstructure:"nats_jetstream" yaml:"nats_jetstream"`
 }
 
 type TargetConfig struct {
-	Postgres *PostgresTargetConfig `mapstructure:"postgres" yaml:"postgres"`
-	Kafka    *KafkaTargetConfig    `mapstructure:"kafka" yaml:"kafka"`
-	Search   *SearchConfig         `mapstructure:"search" yaml:"search"`
-	Webhooks *WebhooksConfig       `mapstructure:"webhooks" yaml:"webhooks"`
+	Postgres      *PostgresTargetConfig            `mapstructure:"postgres" yaml:"postgres"`
+	Kafka         *KafkaTargetConfig               `mapstructure:"kafka" yaml:"kafka"`
+	Search        *SearchConfig                    `mapstructure:"search" yaml:"search"`
+	Webhooks      *WebhooksConfig                  `mapstructure:"webhooks" yaml:"webhooks"`
+	NATSJetstream *NATSJetstreamTargetConfig       `mapstructure:"nats_jetstream" yaml:"nats_jetstream"`
 }
 
 type PostgresConfig struct {
@@ -179,6 +184,37 @@ type KafkaTopicConfig struct {
 	Partitions        int    `mapstructure:"partitions" yaml:"partitions"`
 	ReplicationFactor int    `mapstructure:"replication_factor" yaml:"replication_factor"`
 	AutoCreate        bool   `mapstructure:"auto_create" yaml:"auto_create"`
+}
+
+type NATSJetstreamTargetConfig struct {
+	URL         string           `mapstructure:"url" yaml:"url"`
+	Stream      NATSStreamConfig `mapstructure:"stream" yaml:"stream"`
+	TLS         *TLSConfig       `mapstructure:"tls" yaml:"tls"`
+	Credentials string           `mapstructure:"credentials" yaml:"credentials"`
+	Batch       *BatchConfig     `mapstructure:"batch" yaml:"batch"`
+}
+
+type NATSJetstreamSourceConfig struct {
+	URL         string             `mapstructure:"url" yaml:"url"`
+	Stream      NATSStreamConfig   `mapstructure:"stream" yaml:"stream"`
+	Consumer    NATSConsumerConfig `mapstructure:"consumer" yaml:"consumer"`
+	TLS         *TLSConfig         `mapstructure:"tls" yaml:"tls"`
+	Credentials string             `mapstructure:"credentials" yaml:"credentials"`
+	Backoff     *BackoffConfig     `mapstructure:"backoff" yaml:"backoff"`
+}
+
+type NATSStreamConfig struct {
+	Name       string   `mapstructure:"name" yaml:"name"`
+	Subjects   []string `mapstructure:"subjects" yaml:"subjects"`
+	Replicas   int      `mapstructure:"replicas" yaml:"replicas"`
+	AutoCreate bool     `mapstructure:"auto_create" yaml:"auto_create"`
+	MaxBytes   int64    `mapstructure:"max_bytes" yaml:"max_bytes"`
+	MaxAge     int      `mapstructure:"max_age" yaml:"max_age"`
+}
+
+type NATSConsumerConfig struct {
+	Name          string `mapstructure:"name" yaml:"name"`
+	DeliverPolicy string `mapstructure:"deliver_policy" yaml:"deliver_policy"`
 }
 
 type SearchConfig struct {
@@ -369,17 +405,19 @@ func (c *YAMLConfig) parseListenerConfig() (stream.ListenerConfig, error) {
 	}
 
 	return stream.ListenerConfig{
-		Kafka:    c.Source.Kafka.parseKafkaListenerConfig(),
-		Postgres: pgCfg,
+		Kafka:         c.Source.Kafka.parseKafkaListenerConfig(),
+		Postgres:      pgCfg,
+		NATSJetstream: c.Source.NATSJetstream.parseNATSJetstreamListenerConfig(),
 	}, nil
 }
 
 func (c *YAMLConfig) parseProcessorConfig() (stream.ProcessorConfig, error) {
 	streamCfg := stream.ProcessorConfig{
-		Kafka:    c.parseKafkaProcessorConfig(),
-		Postgres: c.parsePostgresProcessorConfig(),
-		Webhook:  c.parseWebhookProcessorConfig(),
-		Filter:   c.parseFilterConfig(),
+		Kafka:         c.parseKafkaProcessorConfig(),
+		Postgres:      c.parsePostgresProcessorConfig(),
+		Webhook:       c.parseWebhookProcessorConfig(),
+		NATSJetstream: c.parseNATSJetstreamProcessorConfig(),
+		Filter:        c.parseFilterConfig(),
 	}
 
 	var err error
@@ -856,4 +894,58 @@ func (bc *BatchConfig) parseBatchConfig() batch.Config {
 	}
 
 	return cfg
+}
+
+func (c *YAMLConfig) parseNATSJetstreamProcessorConfig() *stream.NATSJetstreamProcessorConfig {
+	if c.Target.NATSJetstream == nil {
+		return nil
+	}
+
+	return &stream.NATSJetstreamProcessorConfig{
+		Writer: &natsjsprocessor.Config{
+			NATS: natslib.ConnConfig{
+				URL: c.Target.NATSJetstream.URL,
+				Stream: natslib.StreamConfig{
+					Name:       c.Target.NATSJetstream.Stream.Name,
+					Subjects:   c.Target.NATSJetstream.Stream.Subjects,
+					Replicas:   c.Target.NATSJetstream.Stream.Replicas,
+					AutoCreate: c.Target.NATSJetstream.Stream.AutoCreate,
+					MaxBytes:   c.Target.NATSJetstream.Stream.MaxBytes,
+					MaxAge:     time.Duration(c.Target.NATSJetstream.Stream.MaxAge) * time.Second,
+				},
+				TLS:             c.Target.NATSJetstream.TLS.parseTLSConfig(),
+				CredentialsFile: c.Target.NATSJetstream.Credentials,
+			},
+			Batch: c.Target.NATSJetstream.Batch.parseBatchConfig(),
+		},
+	}
+}
+
+func (c *NATSJetstreamSourceConfig) parseNATSJetstreamListenerConfig() *stream.NATSJetstreamListenerConfig {
+	if c == nil {
+		return nil
+	}
+
+	return &stream.NATSJetstreamListenerConfig{
+		Reader: natslib.ReaderConfig{
+			Conn: natslib.ConnConfig{
+				URL: c.URL,
+				Stream: natslib.StreamConfig{
+					Name:       c.Stream.Name,
+					Subjects:   c.Stream.Subjects,
+					Replicas:   c.Stream.Replicas,
+					AutoCreate: c.Stream.AutoCreate,
+					MaxBytes:   c.Stream.MaxBytes,
+					MaxAge:     time.Duration(c.Stream.MaxAge) * time.Second,
+				},
+				TLS:             c.TLS.parseTLSConfig(),
+				CredentialsFile: c.Credentials,
+			},
+			ConsumerName:  c.Consumer.Name,
+			DeliverPolicy: c.Consumer.DeliverPolicy,
+		},
+		Checkpointer: natsjscheckpoint.Config{
+			CommitBackoff: c.Backoff.parseBackoffConfig(),
+		},
+	}
 }

@@ -35,8 +35,10 @@ var (
 )
 
 const (
-	defaultKafkaTopicName = "pgstream"
-	postgres              = "postgres"
+	defaultKafkaTopicName         = "pgstream"
+	defaultNATSJetstreamName      = "pgstream"
+	defaultNATSJetstreamSubject   = "pgstream.>"
+	postgres                      = "postgres"
 )
 
 func run(ctx context.Context) error {
@@ -157,6 +159,14 @@ func sourceFlagBinding(cmd *cobra.Command) error {
 
 		viper.BindPFlag("PGSTREAM_KAFKA_READER_SERVERS", cmd.Flags().Lookup("source-url"))
 		viper.Set("PGSTREAM_KAFKA_TOPIC_NAME", defaultKafkaTopicName)
+	case "nats-jetstream":
+		viper.BindPFlag("source.nats_jetstream.url", cmd.Flags().Lookup("source-url"))
+		viper.Set("source.nats_jetstream.stream.name", defaultNATSJetstreamName)
+		viper.Set("source.nats_jetstream.stream.subjects", []string{defaultNATSJetstreamSubject})
+
+		viper.BindPFlag("PGSTREAM_NATS_JETSTREAM_READER_URL", cmd.Flags().Lookup("source-url"))
+		viper.Set("PGSTREAM_NATS_JETSTREAM_STREAM_NAME", defaultNATSJetstreamName)
+		viper.Set("PGSTREAM_NATS_JETSTREAM_STREAM_SUBJECTS", []string{defaultNATSJetstreamSubject})
 	default:
 		return errUnsupportedSource
 	}
@@ -199,6 +209,16 @@ func targetFlagBinding(cmd *cobra.Command) error {
 		viper.BindPFlag("PGSTREAM_KAFKA_WRITER_SERVERS", cmd.Flags().Lookup("target-url"))
 		viper.Set("PGSTREAM_KAFKA_TOPIC_NAME", defaultKafkaTopicName)
 		viper.Set("PGSTREAM_KAFKA_TOPIC_AUTO_CREATE", true)
+	case "nats-jetstream":
+		viper.BindPFlag("target.nats_jetstream.url", cmd.Flags().Lookup("target-url"))
+		viper.Set("target.nats_jetstream.stream.name", defaultNATSJetstreamName)
+		viper.Set("target.nats_jetstream.stream.subjects", []string{defaultNATSJetstreamSubject})
+		viper.Set("target.nats_jetstream.stream.auto_create", true)
+
+		viper.BindPFlag("PGSTREAM_NATS_JETSTREAM_WRITER_URL", cmd.Flags().Lookup("target-url"))
+		viper.Set("PGSTREAM_NATS_JETSTREAM_STREAM_NAME", defaultNATSJetstreamName)
+		viper.Set("PGSTREAM_NATS_JETSTREAM_STREAM_SUBJECTS", []string{defaultNATSJetstreamSubject})
+		viper.Set("PGSTREAM_NATS_JETSTREAM_STREAM_AUTO_CREATE", true)
 	default:
 		return errUnsupportedTarget
 	}

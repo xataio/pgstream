@@ -8,18 +8,21 @@ import (
 	"github.com/spf13/viper"
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
+	natslib "github.com/xataio/pgstream/pkg/nats"
 	"github.com/xataio/pgstream/pkg/otel"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/stream"
 	"github.com/xataio/pgstream/pkg/tls"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
+	natsjscheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/natsjetstream"
 	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/adapter"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 	"github.com/xataio/pgstream/pkg/wal/processor/filter"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
+	natsjsprocessor "github.com/xataio/pgstream/pkg/wal/processor/natsjetstream"
 	"github.com/xataio/pgstream/pkg/wal/processor/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
@@ -140,6 +143,33 @@ func init() {
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CA_CERT_FILE")
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CLIENT_CERT_FILE")
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE")
+
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_WRITER_URL")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_READER_URL")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_STREAM_NAME")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_STREAM_SUBJECTS")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_STREAM_REPLICAS")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_STREAM_AUTO_CREATE")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_STREAM_MAX_BYTES")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_STREAM_MAX_AGE")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_CONSUMER_NAME")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_CONSUMER_DELIVER_POLICY")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_WRITER_BATCH_TIMEOUT")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_WRITER_BATCH_BYTES")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_WRITER_BATCH_SIZE")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_WRITER_BATCH_IGNORE_SEND_ERRORS")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_WRITER_MAX_QUEUE_BYTES")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_TLS_ENABLED")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_TLS_CA_CERT_FILE")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_TLS_CLIENT_CERT_FILE")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_TLS_CLIENT_KEY_FILE")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_CREDENTIALS_FILE")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_COMMIT_EXP_BACKOFF_INITIAL_INTERVAL")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_COMMIT_EXP_BACKOFF_MAX_INTERVAL")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_COMMIT_EXP_BACKOFF_MAX_RETRIES")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_COMMIT_BACKOFF_INTERVAL")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_COMMIT_BACKOFF_MAX_RETRIES")
+	viper.BindEnv("PGSTREAM_NATS_JETSTREAM_COMMIT_DISABLE_RETRIES")
 }
 
 func envToOtelConfig() (*otel.Config, error) {
@@ -195,8 +225,9 @@ func parseListenerConfig() (stream.ListenerConfig, error) {
 	}
 
 	return stream.ListenerConfig{
-		Postgres: postgresConfig,
-		Kafka:    parseKafkaListenerConfig(),
+		Postgres:      postgresConfig,
+		Kafka:         parseKafkaListenerConfig(),
+		NATSJetstream: parseNATSJetstreamListenerConfig(),
 	}, nil
 }
 
@@ -354,13 +385,14 @@ func parseProcessorConfig() (stream.ProcessorConfig, error) {
 		return stream.ProcessorConfig{}, err
 	}
 	return stream.ProcessorConfig{
-		Kafka:       parseKafkaProcessorConfig(),
-		Search:      parseSearchProcessorConfig(),
-		Webhook:     parseWebhookProcessorConfig(),
-		Postgres:    parsePostgresProcessorConfig(),
-		Injector:    parseInjectorConfig(),
-		Transformer: transformerCfg,
-		Filter:      parseFilterConfig(),
+		Kafka:         parseKafkaProcessorConfig(),
+		Search:        parseSearchProcessorConfig(),
+		Webhook:       parseWebhookProcessorConfig(),
+		Postgres:      parsePostgresProcessorConfig(),
+		NATSJetstream: parseNATSJetstreamProcessorConfig(),
+		Injector:      parseInjectorConfig(),
+		Transformer:   transformerCfg,
+		Filter:        parseFilterConfig(),
 	}, nil
 }
 
@@ -557,5 +589,69 @@ func parseTLSConfig(prefix string) tls.Config {
 		CaCertFile:     viper.GetString(fmt.Sprintf("%s_TLS_CA_CERT_FILE", prefix)),
 		ClientCertFile: viper.GetString(fmt.Sprintf("%s_TLS_CLIENT_CERT_FILE", prefix)),
 		ClientKeyFile:  viper.GetString(fmt.Sprintf("%s_TLS_CLIENT_KEY_FILE", prefix)),
+	}
+}
+
+func parseNATSJetstreamListenerConfig() *stream.NATSJetstreamListenerConfig {
+	natsURL := viper.GetString("PGSTREAM_NATS_JETSTREAM_READER_URL")
+	streamName := viper.GetString("PGSTREAM_NATS_JETSTREAM_STREAM_NAME")
+	if natsURL == "" || streamName == "" {
+		return nil
+	}
+
+	return &stream.NATSJetstreamListenerConfig{
+		Reader: natslib.ReaderConfig{
+			Conn: natslib.ConnConfig{
+				URL: natsURL,
+				Stream: natslib.StreamConfig{
+					Name:       streamName,
+					Subjects:   viper.GetStringSlice("PGSTREAM_NATS_JETSTREAM_STREAM_SUBJECTS"),
+					Replicas:   viper.GetInt("PGSTREAM_NATS_JETSTREAM_STREAM_REPLICAS"),
+					AutoCreate: viper.GetBool("PGSTREAM_NATS_JETSTREAM_STREAM_AUTO_CREATE"),
+					MaxBytes:   viper.GetInt64("PGSTREAM_NATS_JETSTREAM_STREAM_MAX_BYTES"),
+					MaxAge:     viper.GetDuration("PGSTREAM_NATS_JETSTREAM_STREAM_MAX_AGE"),
+				},
+				TLS:             parseTLSConfig("PGSTREAM_NATS_JETSTREAM"),
+				CredentialsFile: viper.GetString("PGSTREAM_NATS_JETSTREAM_CREDENTIALS_FILE"),
+			},
+			ConsumerName:  viper.GetString("PGSTREAM_NATS_JETSTREAM_CONSUMER_NAME"),
+			DeliverPolicy: viper.GetString("PGSTREAM_NATS_JETSTREAM_CONSUMER_DELIVER_POLICY"),
+		},
+		Checkpointer: natsjscheckpoint.Config{
+			CommitBackoff: parseBackoffConfig("PGSTREAM_NATS_JETSTREAM_COMMIT"),
+		},
+	}
+}
+
+func parseNATSJetstreamProcessorConfig() *stream.NATSJetstreamProcessorConfig {
+	natsURL := viper.GetString("PGSTREAM_NATS_JETSTREAM_WRITER_URL")
+	streamName := viper.GetString("PGSTREAM_NATS_JETSTREAM_STREAM_NAME")
+	if natsURL == "" || streamName == "" {
+		return nil
+	}
+
+	return &stream.NATSJetstreamProcessorConfig{
+		Writer: &natsjsprocessor.Config{
+			NATS: natslib.ConnConfig{
+				URL: natsURL,
+				Stream: natslib.StreamConfig{
+					Name:       streamName,
+					Subjects:   viper.GetStringSlice("PGSTREAM_NATS_JETSTREAM_STREAM_SUBJECTS"),
+					Replicas:   viper.GetInt("PGSTREAM_NATS_JETSTREAM_STREAM_REPLICAS"),
+					AutoCreate: viper.GetBool("PGSTREAM_NATS_JETSTREAM_STREAM_AUTO_CREATE"),
+					MaxBytes:   viper.GetInt64("PGSTREAM_NATS_JETSTREAM_STREAM_MAX_BYTES"),
+					MaxAge:     viper.GetDuration("PGSTREAM_NATS_JETSTREAM_STREAM_MAX_AGE"),
+				},
+				TLS:             parseTLSConfig("PGSTREAM_NATS_JETSTREAM"),
+				CredentialsFile: viper.GetString("PGSTREAM_NATS_JETSTREAM_CREDENTIALS_FILE"),
+			},
+			Batch: batch.Config{
+				BatchTimeout:     viper.GetDuration("PGSTREAM_NATS_JETSTREAM_WRITER_BATCH_TIMEOUT"),
+				MaxBatchBytes:    viper.GetInt64("PGSTREAM_NATS_JETSTREAM_WRITER_BATCH_BYTES"),
+				MaxBatchSize:     viper.GetInt64("PGSTREAM_NATS_JETSTREAM_WRITER_BATCH_SIZE"),
+				MaxQueueBytes:    viper.GetInt64("PGSTREAM_NATS_JETSTREAM_WRITER_MAX_QUEUE_BYTES"),
+				IgnoreSendErrors: viper.GetBool("PGSTREAM_NATS_JETSTREAM_WRITER_BATCH_IGNORE_SEND_ERRORS"),
+			},
+		},
 	}
 }
