@@ -10,12 +10,16 @@ import (
 	"github.com/xataio/pgstream/pkg/kafka"
 	kafkainstrumentation "github.com/xataio/pgstream/pkg/kafka/instrumentation"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	natslib "github.com/xataio/pgstream/pkg/nats"
+	natsinstrumentation "github.com/xataio/pgstream/pkg/nats/instrumentation"
 	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
+	natsjscheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/natsjetstream"
 	pgcheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/postgres"
 	"github.com/xataio/pgstream/pkg/wal/listener"
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
+	natsjslistener "github.com/xataio/pgstream/pkg/wal/listener/natsjetstream"
 	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -88,6 +92,24 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 		}
 	}
 
+	var natsReader natslib.MessageReader
+	if config.Listener.NATSJetstream != nil {
+		var err error
+		natsReader, err = natslib.NewReader(config.Listener.NATSJetstream.Reader, logger)
+		if err != nil {
+			return fmt.Errorf("error setting up nats jetstream reader: %w", err)
+		}
+		defer natsReader.Close()
+	}
+
+	if natsReader != nil && instrumentation.IsEnabled() {
+		var err error
+		natsReader, err = natsinstrumentation.NewReader(natsReader, instrumentation)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Checkpointer
 
 	var checkpoint checkpointer.Checkpoint
@@ -102,6 +124,17 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 		}
 		defer kafkaCheckpointer.Close()
 		checkpoint = kafkaCheckpointer.CommitOffsets
+
+	case config.Listener.NATSJetstream != nil:
+		natsCheckpointer, err := natsjscheckpoint.New(ctx,
+			config.Listener.NATSJetstream.Checkpointer,
+			natsReader,
+			natsjscheckpoint.WithLogger(logger))
+		if err != nil {
+			return fmt.Errorf("error setting up nats jetstream checkpointer: %w", err)
+		}
+		defer natsCheckpointer.Close()
+		checkpoint = natsCheckpointer.CommitOffsets
 
 	case config.Listener.Postgres != nil:
 		pgCheckpointer := pgcheckpoint.New(replicationHandler)
@@ -160,6 +193,15 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 			kafkaReader,
 			processor.ProcessWALEvent,
 			kafkalistener.WithLogger(logger))
+		if err != nil {
+			return err
+		}
+	case config.Listener.NATSJetstream != nil:
+		logger.Info("nats-jetstream listener configured")
+		listener, err = natsjslistener.NewWALReader(
+			natsReader,
+			processor.ProcessWALEvent,
+			natsjslistener.WithLogger(logger))
 		if err != nil {
 			return err
 		}

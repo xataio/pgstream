@@ -9,11 +9,14 @@ import (
 
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
+	natslib "github.com/xataio/pgstream/pkg/nats"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
+	natsjscheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/natsjetstream"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/filter"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
+	natsjsprocessor "github.com/xataio/pgstream/pkg/wal/processor/natsjetstream"
 	"github.com/xataio/pgstream/pkg/wal/processor/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
@@ -29,8 +32,9 @@ type Config struct {
 }
 
 type ListenerConfig struct {
-	Postgres *PostgresListenerConfig
-	Kafka    *KafkaListenerConfig
+	Postgres      *PostgresListenerConfig
+	Kafka         *KafkaListenerConfig
+	NATSJetstream *NATSJetstreamListenerConfig
 }
 
 type PostgresListenerConfig struct {
@@ -46,13 +50,14 @@ type KafkaListenerConfig struct {
 }
 
 type ProcessorConfig struct {
-	Kafka       *KafkaProcessorConfig
-	Search      *SearchProcessorConfig
-	Webhook     *WebhookProcessorConfig
-	Postgres    *PostgresProcessorConfig
-	Injector    *injector.Config
-	Transformer *transformer.Config
-	Filter      *filter.Config
+	Kafka         *KafkaProcessorConfig
+	Search        *SearchProcessorConfig
+	Webhook       *WebhookProcessorConfig
+	Postgres      *PostgresProcessorConfig
+	NATSJetstream *NATSJetstreamProcessorConfig
+	Injector      *injector.Config
+	Transformer   *transformer.Config
+	Filter        *filter.Config
 }
 
 type KafkaProcessorConfig struct {
@@ -75,6 +80,15 @@ type PostgresProcessorConfig struct {
 	BatchWriter postgres.Config
 }
 
+type NATSJetstreamProcessorConfig struct {
+	Writer *natsjsprocessor.Config
+}
+
+type NATSJetstreamListenerConfig struct {
+	Reader       natslib.ReaderConfig
+	Checkpointer natsjscheckpoint.Config
+}
+
 type WebhookSubscriptionStoreConfig struct {
 	URL                  string
 	CacheEnabled         bool
@@ -95,6 +109,9 @@ func (c *ListenerConfig) IsValid() error {
 		listenerCount++
 	}
 	if c.Postgres != nil {
+		listenerCount++
+	}
+	if c.NATSJetstream != nil {
 		listenerCount++
 	}
 
@@ -122,6 +139,9 @@ func (c *ProcessorConfig) IsValid() error {
 		processorCount++
 	}
 	if c.Webhook != nil {
+		processorCount++
+	}
+	if c.NATSJetstream != nil {
 		processorCount++
 	}
 

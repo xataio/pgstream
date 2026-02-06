@@ -16,6 +16,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	processinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/instrumentation"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
+	natsjsprocessor "github.com/xataio/pgstream/pkg/wal/processor/natsjetstream"
 	pgwriter "github.com/xataio/pgstream/pkg/wal/processor/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	searchinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/search/instrumentation"
@@ -137,6 +138,21 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 				logger.Error(err, "shutting down webhook notifier")
 			}
 		}()
+
+	case config.NATSJetstream != nil:
+		logger.Info("nats-jetstream processor configured")
+		opts := []natsjsprocessor.Option{
+			natsjsprocessor.WithCheckpoint(checkpoint),
+			natsjsprocessor.WithLogger(logger),
+		}
+		if instrumentation.IsEnabled() {
+			opts = append(opts, natsjsprocessor.WithInstrumentation(instrumentation))
+		}
+		natsWriter, err := natsjsprocessor.NewBatchWriter(ctx, config.NATSJetstream.Writer, opts...)
+		if err != nil {
+			return nil, err
+		}
+		processor = natsWriter
 
 	case config.Postgres != nil:
 		logger.Info("postgres processor configured")
