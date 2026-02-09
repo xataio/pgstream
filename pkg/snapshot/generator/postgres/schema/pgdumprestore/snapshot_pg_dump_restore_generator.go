@@ -370,7 +370,7 @@ func (s *SnapshotGenerator) restoreSchemas(ctx context.Context, schemaTables map
 	schemaDump := strings.Builder{}
 	for schema, tables := range schemaTables {
 		if len(tables) > 0 && schema != publicSchema && schema != wildcard {
-			schemaDump.WriteString(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s;\n", schema))
+			schemaDump.WriteString(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s;\n", pglib.QuoteIdentifier(schema)))
 		}
 	}
 
