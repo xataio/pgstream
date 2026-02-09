@@ -85,7 +85,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	validMaxPageQueryFn := func(args ...any) error {
 		require.Len(t, args, 1)
 		ctid, ok := args[0].(*pgtype.TID)
-		require.True(t, ok, fmt.Sprintf("ctid, expected *pgtype.TID, got %t", args[0]))
+		require.True(t, ok, fmt.Sprintf("ctid, expected *pgtype.TID, got %T", args[0]))
 		*ctid = testMaxCTID
 		return nil
 	}
