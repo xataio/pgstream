@@ -84,7 +84,7 @@ func (o *optionGenerator) pgrestoreOptions() pglib.PGRestoreOptions {
 func (o *optionGenerator) pgdumpOptions(ctx context.Context, schemaTables map[string][]string, excludedTables map[string][]string) (*pglib.PGDumpOptions, error) {
 	schemas := make([]string, 0, len(schemaTables))
 	for schema := range schemaTables {
-		schemas = append(schemas, schema)
+		schemas = append(schemas, quoteSchema(schema))
 	}
 	opts := &pglib.PGDumpOptions{
 		ConnectionString: o.sourceURL,
@@ -108,7 +108,7 @@ func (o *optionGenerator) pgdumpOptions(ctx context.Context, schemaTables map[st
 		// created. pg_dump will not include them when using the schema filter,
 		// since they do not belong to the schema.
 		var err error
-		opts.ExcludeSchemas, err = o.pgdumpExcludedSchemas(ctx, schemas)
+		opts.ExcludeSchemas, err = o.pgdumpExcludedSchemas(ctx, schemaTables)
 		if err != nil {
 			return nil, err
 		}
@@ -166,7 +166,7 @@ func (o *optionGenerator) pgdumpExcludedTables(ctx context.Context, schemaName s
 		query = fmt.Sprintf(selectTablesQuery, strings.Join(paramRefs, ","))
 	default:
 		// if the schema is not wildcard, we need to filter by schema name
-		query = fmt.Sprintf(selectSchemaTablesQuery, schemaName, strings.Join(paramRefs, ","))
+		query = fmt.Sprintf(selectSchemaTablesQuery, quoteSchema(schemaName), strings.Join(paramRefs, ","))
 	}
 
 	// get all tables in the schema that are not in the include list
@@ -194,12 +194,16 @@ func (o *optionGenerator) pgdumpExcludedTables(ctx context.Context, schemaName s
 
 const selectSchemasQuery = "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN (%s)"
 
-func (o *optionGenerator) pgdumpExcludedSchemas(ctx context.Context, includeSchemas []string) ([]string, error) {
+func (o *optionGenerator) pgdumpExcludedSchemas(ctx context.Context, includeSchemas map[string][]string) ([]string, error) {
 	paramRefs := make([]string, 0, len(includeSchemas))
 	schemaParams := make([]any, 0, len(includeSchemas))
-	for i, schema := range includeSchemas {
+	paramIdx := 0
+	for schema := range includeSchemas {
+		paramIdx++
+		// The NOT IN condition does not work with quoted identifiers, so we
+		// need to pass the schema names without quotes as parameters.
 		schemaParams = append(schemaParams, schema)
-		paramRefs = append(paramRefs, fmt.Sprintf("$%d", i+1))
+		paramRefs = append(paramRefs, fmt.Sprintf("$%d", paramIdx))
 	}
 
 	// get all schemas in the database that are not in the snapshot request
@@ -224,4 +228,11 @@ func (o *optionGenerator) pgdumpExcludedSchemas(ctx context.Context, includeSche
 	}
 
 	return excludeSchemas, nil
+}
+
+func quoteSchema(schema string) string {
+	if schema == wildcard {
+		return wildcard
+	}
+	return pglib.QuoteIdentifier(schema)
 }

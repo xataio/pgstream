@@ -86,7 +86,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	validQuerier := func() *mocks.Querier {
 		return &mocks.Querier{
 			ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
-				require.Equal(t, "CREATE SCHEMA IF NOT EXISTS "+testSchema, query)
+				require.Equal(t, "CREATE SCHEMA IF NOT EXISTS "+quoteSchema(testSchema), query)
 				return pglib.CommandTag{}, nil
 			},
 			QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
@@ -837,7 +837,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			},
 			conn: &mocks.Querier{
 				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
-					require.Equal(t, "CREATE SCHEMA IF NOT EXISTS "+testSchema, query)
+					require.Equal(t, "CREATE SCHEMA IF NOT EXISTS "+quoteSchema(testSchema), query)
 					return pglib.CommandTag{}, nil
 				},
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
