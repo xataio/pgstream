@@ -31,7 +31,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	rolesDumpOriginal := []byte("roles dump\nCREATE ROLE postgres\nCREATE ROLE test_role\nCREATE ROLE test_role2\nALTER ROLE test_role3 INHERIT FROM test_role;\n")
 	rolesDumpFiltered := []byte("roles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\nGRANT \"test_role\" TO CURRENT_USER;\n")
 	cleanupDump := []byte("cleanup dump\n")
-	testSchema := "test_schema"
+	testSchema := `"test_schema"`
 	testTable := "test_table"
 	excludedTable := "excluded_test_table"
 	excludedTable2 := "excluded_test_table_2"
