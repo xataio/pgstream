@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
 	"github.com/xataio/pgstream/internal/progress"
@@ -398,10 +399,10 @@ func (sg *SnapshotGenerator) markProgressBarCompleted(schema string) {
 	sg.progressBars.Delete(schema)
 }
 
-// use pg_table_size instead of pg_total_relation_size since we only care about the size of the table itself and toast tables, not indices.
-// pg_relation_size will return only the size of the table itself, without toast tables.
-const tableInfoQuery = `SELECT
-  c.relpages AS page_count,
+const (
+	// use pg_table_size instead of pg_total_relation_size since we only care about the size of the table itself and toast tables, not indices.
+	// pg_relation_size will return only the size of the table itself, without toast tables.
+	tableInfoQuery = `SELECT
   (pg_table_size(c.oid) / COALESCE(NULLIF(c.relpages, 0),1)) AS avg_page_size_bytes,
   CASE
 	WHEN c.reltuples > 0 THEN
@@ -417,21 +418,27 @@ WHERE
   AND n.nspname = $2
   AND c.relkind = 'r';`
 
+	// select the max page for the relation instead of using pg_class.relpages, it may not contain an accurate value if
+	// the table is small, the table has active inserts, or the database has not been vacuumed/analyzed recently.
+	maxPageQuery = `SELECT MAX(ctid) FROM %s;`
+)
+
 func (sg *SnapshotGenerator) getTableInfo(ctx context.Context, schemaName, tableName, snapshotID string) (*tableInfo, error) {
 	tableInfo := &tableInfo{}
 	err := sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
-		if err := tx.QueryRow(ctx, []any{&tableInfo.pageCount, &tableInfo.avgPageBytes, &tableInfo.avgRowBytes}, tableInfoQuery, tableName, schemaName); err != nil {
+		if err := tx.QueryRow(ctx, []any{&tableInfo.avgPageBytes, &tableInfo.avgRowBytes}, tableInfoQuery, tableName, schemaName); err != nil {
 			return fmt.Errorf("getting page information for table %s.%s: %w", schemaName, tableName, err)
 		}
 
+		var ctid pgtype.TID
+		if err := tx.QueryRow(ctx, []any{&ctid}, fmt.Sprintf(maxPageQuery, pglib.QuoteQualifiedIdentifier(schemaName, tableName))); err != nil {
+			return fmt.Errorf("getting max page for table %s.%s: %w", schemaName, tableName, err)
+		}
+		tableInfo.pageCount = int(ctid.BlockNumber)
+
 		tableInfo.calculateBatchPageSize(sg.batchBytes)
 
-		missedPages, err := sg.getMissedPages(ctx, tx, schemaName, tableName, tableInfo)
-		if err != nil {
-			return err
-		}
-		tableInfo.pageCount += missedPages
-		sg.logger.Debug(fmt.Sprintf("table page count: %d, missed pages: %d, batch page size: %d", tableInfo.pageCount, missedPages, tableInfo.batchPageSize), loglib.Fields{
+		sg.logger.Debug(fmt.Sprintf("table page count: %d, batch page size: %d", tableInfo.pageCount, tableInfo.batchPageSize), loglib.Fields{
 			"schema": schemaName, "table": tableName, "snapshotID": snapshotID,
 		})
 		return nil
@@ -441,36 +448,6 @@ func (sg *SnapshotGenerator) getTableInfo(ctx context.Context, schemaName, table
 	}
 
 	return tableInfo, nil
-}
-
-var pageRangeQueryCount = "SELECT COUNT(*) FROM %s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'"
-
-// getMissedPages makes sure the page count is accurate, and we don't miss any
-// pages due to inaccurate estimates from the relpages. This is likely to happen
-// with small tables, tables with active inserts or databases that have not been
-// vacuumed/analyzed recently.
-func (sg *SnapshotGenerator) getMissedPages(ctx context.Context, tx pglib.Tx, schemaName, tableName string, tableInfo *tableInfo) (int, error) {
-	missedPages := 0
-	start := tableInfo.pageCount
-	if start == 0 {
-		start = 1
-	}
-	end := start + int(tableInfo.batchPageSize)
-	for {
-		pageRows := 0
-		err := tx.QueryRow(ctx, []any{&pageRows}, fmt.Sprintf(pageRangeQueryCount, pglib.QuoteQualifiedIdentifier(schemaName, tableName), start, end))
-		if err != nil {
-			return 0, fmt.Errorf("getting missed pages for table %s.%s: %w", schemaName, tableName, err)
-		}
-
-		if pageRows == 0 {
-			return missedPages, nil
-		}
-
-		missedPages += int(tableInfo.batchPageSize)
-		start = end
-		end += int(tableInfo.batchPageSize)
-	}
 }
 
 const tablesBytesQuery = `SELECT SUM(pg_table_size(c.oid)) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = '%s' AND c.relname IN (%s) AND c.relkind = 'r';`
