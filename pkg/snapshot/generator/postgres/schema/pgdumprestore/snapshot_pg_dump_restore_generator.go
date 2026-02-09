@@ -168,7 +168,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	dumpSchemas := make(map[string][]string, len(ss.SchemaTables))
 	for schema, tables := range ss.SchemaTables {
 		if len(tables) > 0 {
-			dumpSchemas[quoteSchema(schema)] = tables
+			dumpSchemas[schema] = tables
 		}
 	}
 	// nothing to dump
@@ -716,11 +716,4 @@ func extractEventTriggerSchema(line string) (string, error) {
 	}
 
 	return pglib.QuoteIdentifier(functionParts[0]), nil
-}
-
-func quoteSchema(schema string) string {
-	if schema == wildcard {
-		return wildcard
-	}
-	return pglib.QuoteIdentifier(schema)
 }
