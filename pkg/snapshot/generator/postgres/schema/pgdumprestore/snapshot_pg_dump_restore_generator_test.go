@@ -31,7 +31,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	rolesDumpOriginal := []byte("roles dump\nCREATE ROLE postgres\nCREATE ROLE test_role\nCREATE ROLE test_role2\nALTER ROLE test_role3 INHERIT FROM test_role;\n")
 	rolesDumpFiltered := []byte("roles dump\nCREATE ROLE test_role\nCREATE ROLE test_role2\nGRANT \"test_role\" TO CURRENT_USER;\n")
 	cleanupDump := []byte("cleanup dump\n")
-	testSchema := `"test_schema"`
+	testSchema := "test_schema"
+	quotedTestSchema := `"test_schema"`
 	testTable := "test_table"
 	excludedTable := "excluded_test_table"
 	excludedTable2 := "excluded_test_table_2"
@@ -39,7 +40,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	errTest := errors.New("oh noes")
 	testSequence := pglib.QuoteQualifiedIdentifier("test", "test_sequence")
 	testRole := "test_role"
-	schemaCreateDump := []byte(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s;\n", testSchema))
+	schemaCreateDump := fmt.Appendf(nil, "CREATE SCHEMA IF NOT EXISTS %s;\n", quotedTestSchema)
 
 	fullDumpRestoreFn := func(_ context.Context, i uint, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 		require.Equal(t, pglib.PGRestoreOptions{
@@ -86,13 +87,13 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	validQuerier := func() *mocks.Querier {
 		return &mocks.Querier{
 			ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
-				require.Equal(t, "CREATE SCHEMA IF NOT EXISTS "+quoteSchema(testSchema), query)
+				require.Equal(t, "CREATE SCHEMA IF NOT EXISTS "+quotedTestSchema, query)
 				return pglib.CommandTag{}, nil
 			},
 			QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 				switch query {
-				case fmt.Sprintf(selectSchemasQuery, "$1"):
-					require.Equal(t, []any{testSchema}, args)
+				case selectSchemasQuery:
+					require.Equal(t, []any{[]string{testSchema}}, args)
 					return &mocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
@@ -105,8 +106,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						},
 						ErrFn: func() error { return nil },
 					}, nil
-				case fmt.Sprintf(selectSchemaTablesQuery, testSchema, "$1"):
-					require.Equal(t, []any{testTable}, args)
+				case selectSchemaTablesQuery:
+					require.Equal(t, []any{testSchema, []string{testTable}}, args)
 					return &mocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
@@ -122,8 +123,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						},
 						ErrFn: func() error { return nil },
 					}, nil
-				case fmt.Sprintf(selectTablesQuery, "$1"):
-					require.Equal(t, []any{testTable}, args)
+				case selectTablesQuery:
+					require.Equal(t, []any{[]string{testTable}}, args)
 					return &mocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
@@ -787,8 +788,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			conn: &mocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					switch query {
-					case fmt.Sprintf(selectSchemasQuery, "$1"):
-						require.Equal(t, []any{testSchema}, args)
+					case selectSchemasQuery:
+						require.Equal(t, []any{[]string{testSchema}}, args)
 						return &mocks.Rows{
 							CloseFn: func() {},
 							NextFn:  func(i uint) bool { return i == 1 },
@@ -801,8 +802,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							},
 							ErrFn: func() error { return nil },
 						}, nil
-					case fmt.Sprintf(selectSchemaTablesQuery, testSchema, "$1"):
-						require.Equal(t, []any{testTable}, args)
+					case selectSchemaTablesQuery:
+						require.Equal(t, []any{"test_schema", []string{testTable}}, args)
 						return &mocks.Rows{
 							CloseFn: func() {},
 							NextFn:  func(i uint) bool { return i == 1 },
@@ -837,13 +838,13 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			},
 			conn: &mocks.Querier{
 				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
-					require.Equal(t, "CREATE SCHEMA IF NOT EXISTS "+quoteSchema(testSchema), query)
+					require.Equal(t, "CREATE SCHEMA IF NOT EXISTS "+quotedTestSchema, query)
 					return pglib.CommandTag{}, nil
 				},
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					switch query {
-					case fmt.Sprintf(selectSchemasQuery, "$1"):
-						require.Equal(t, []any{testSchema}, args)
+					case selectSchemasQuery:
+						require.Equal(t, []any{[]string{testSchema}}, args)
 						return &mocks.Rows{
 							CloseFn: func() {},
 							NextFn:  func(i uint) bool { return i == 1 },
@@ -856,8 +857,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							},
 							ErrFn: func() error { return nil },
 						}, nil
-					case fmt.Sprintf(selectSchemaTablesQuery, testSchema, "$1"):
-						require.Equal(t, []any{testTable}, args)
+					case selectSchemaTablesQuery:
+						require.Equal(t, []any{"test_schema", []string{testTable}}, args)
 						return &mocks.Rows{
 							CloseFn: func() {},
 							NextFn:  func(i uint) bool { return i == 1 },

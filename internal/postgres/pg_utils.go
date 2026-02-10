@@ -67,6 +67,10 @@ func QuoteIdentifier(s string) string {
 	return pq.QuoteIdentifier(s)
 }
 
+func UnquoteIdentifier(s string) string {
+	return strings.Trim(s, `"`)
+}
+
 func QuoteQualifiedIdentifier(schema, table string) string {
 	return QuoteIdentifier(schema) + "." + QuoteIdentifier(table)
 }
