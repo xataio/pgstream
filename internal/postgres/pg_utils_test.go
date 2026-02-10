@@ -431,3 +431,72 @@ func Test_IsValidReplicationSlotName(t *testing.T) {
 		})
 	}
 }
+
+func Test_UnquoteIdentifier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "quoted identifier",
+			input:    `"table"`,
+			expected: "table",
+		},
+		{
+			name:     "unquoted identifier",
+			input:    "table",
+			expected: "table",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "only opening quote",
+			input:    `"table`,
+			expected: "table",
+		},
+		{
+			name:     "only closing quote",
+			input:    `table"`,
+			expected: "table",
+		},
+		{
+			name:     "single quote",
+			input:    `"`,
+			expected: "",
+		},
+		{
+			name:     "two quotes",
+			input:    `""`,
+			expected: "",
+		},
+		{
+			name:     "quoted with special characters",
+			input:    `"My Table"`,
+			expected: "My Table",
+		},
+		{
+			name:     "quoted with numbers",
+			input:    `"table123"`,
+			expected: "table123",
+		},
+		{
+			name:     "multiple quotes on sides",
+			input:    `""table""`,
+			expected: "table",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := UnquoteIdentifier(tc.input)
+			require.Equal(t, tc.expected, got)
+		})
+	}
+}
