@@ -182,7 +182,7 @@ func (c *Client) IndexExists(ctx context.Context, index string) (bool, error) {
 	}
 	defer res.Body.Close()
 
-	if res.IsError() && res.StatusCode != http.StatusNotFound {
+	if err := c.isErrResponse(res); err != nil && !errors.Is(err, searchstore.ErrResourceNotFound) {
 		return false, fmt.Errorf("[IndexExists] error response from OpenSearch: %w", err)
 	}
 
