@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -426,7 +425,14 @@ WHERE
 func (sg *SnapshotGenerator) getTableInfo(ctx context.Context, schemaName, tableName, snapshotID string) (*tableInfo, error) {
 	tableInfo := &tableInfo{}
 	err := sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
-		if err := tx.QueryRow(ctx, []any{&tableInfo.avgPageBytes, &tableInfo.avgRowBytes}, tableInfoQuery, tableName, schemaName); err != nil {
+		// make sure the schema and table names are unquoted since the system
+		// catalogs store unquoted names
+		err := tx.QueryRow(ctx,
+			[]any{&tableInfo.avgPageBytes, &tableInfo.avgRowBytes},
+			tableInfoQuery,
+			pglib.UnquoteIdentifier(tableName),
+			pglib.UnquoteIdentifier(schemaName))
+		if err != nil {
 			return fmt.Errorf("getting page information for table %s.%s: %w", schemaName, tableName, err)
 		}
 
@@ -450,23 +456,23 @@ func (sg *SnapshotGenerator) getTableInfo(ctx context.Context, schemaName, table
 	return tableInfo, nil
 }
 
-const tablesBytesQuery = `SELECT SUM(pg_table_size(c.oid)) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = '%s' AND c.relname IN (%s) AND c.relkind = 'r';`
+const tablesBytesQuery = `SELECT SUM(pg_table_size(c.oid)) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = ANY($2) AND c.relkind = 'r';`
 
 func (sg *SnapshotGenerator) getSnapshotSchemaTotalBytes(ctx context.Context, snapshotID, schema string, tables []string) (int64, error) {
-	paramRefs := make([]string, 0, len(tables))
-	tableParams := make([]any, 0, len(tables))
+	totalBytes := int64(0)
+	sg.logger.Debug("querying total bytes for schema", loglib.Fields{
+		"schema": schema, "tables": tables, "snapshotID": snapshotID,
+	})
+
+	// make sure the schema and table names are unquoted since the system
+	// catalogs store unquoted names
+	unquotedTables := make([]string, len(tables))
 	for i, table := range tables {
-		tableParams = append(tableParams, table)
-		paramRefs = append(paramRefs, fmt.Sprintf("$%d", i+1))
+		unquotedTables[i] = pglib.UnquoteIdentifier(table)
 	}
 
-	totalBytes := int64(0)
-	query := fmt.Sprintf(tablesBytesQuery, schema, strings.Join(paramRefs, ","))
-	sg.logger.Debug("querying total bytes for schema", loglib.Fields{
-		"schema": schema, "tables": tables, "query": query, "snapshotID": snapshotID,
-	})
 	err := sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
-		err := tx.QueryRow(ctx, []any{&totalBytes}, query, tableParams...)
+		err := tx.QueryRow(ctx, []any{&totalBytes}, tablesBytesQuery, pglib.UnquoteIdentifier(schema), unquotedTables)
 		if err != nil {
 			return fmt.Errorf("retrieving total bytes for schema: %w", err)
 		}
