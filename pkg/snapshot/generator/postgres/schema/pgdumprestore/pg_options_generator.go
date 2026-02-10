@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 )
@@ -84,7 +83,7 @@ func (o *optionGenerator) pgrestoreOptions() pglib.PGRestoreOptions {
 func (o *optionGenerator) pgdumpOptions(ctx context.Context, schemaTables map[string][]string, excludedTables map[string][]string) (*pglib.PGDumpOptions, error) {
 	schemas := make([]string, 0, len(schemaTables))
 	for schema := range schemaTables {
-		schemas = append(schemas, schema)
+		schemas = append(schemas, quoteSchema(schema))
 	}
 	opts := &pglib.PGDumpOptions{
 		ConnectionString: o.sourceURL,
@@ -148,29 +147,33 @@ func (o *optionGenerator) pgdumpOptions(ctx context.Context, schemaTables map[st
 }
 
 const (
-	selectTablesQuery       = "SELECT schemaname,tablename FROM pg_tables WHERE tablename NOT IN (%s)"
-	selectSchemaTablesQuery = "SELECT schemaname,tablename FROM pg_tables WHERE schemaname = '%s' AND tablename NOT IN (%s)"
+	selectTablesQuery       = "SELECT schemaname,tablename FROM pg_tables WHERE tablename != ALL($1)"
+	selectSchemaTablesQuery = "SELECT schemaname,tablename FROM pg_tables WHERE schemaname = $1 AND tablename != ALL($2)"
 )
 
 func (o *optionGenerator) pgdumpExcludedTables(ctx context.Context, schemaName string, includeTables []string) ([]string, error) {
-	paramRefs := make([]string, 0, len(includeTables))
-	tableParams := make([]any, 0, len(includeTables))
+	var query string
+	var params []any
+
+	// Make sure the schema and table names are unquoted when passing them as
+	// parameters, since the system catalogs store unquoted names.
+	unquotedIncludeTables := make([]string, len(includeTables))
 	for i, table := range includeTables {
-		tableParams = append(tableParams, table)
-		paramRefs = append(paramRefs, fmt.Sprintf("$%d", i+1))
+		unquotedIncludeTables[i] = pglib.UnquoteIdentifier(table)
 	}
 
-	var query string
 	switch schemaName {
 	case wildcard:
-		query = fmt.Sprintf(selectTablesQuery, strings.Join(paramRefs, ","))
+		query = selectTablesQuery
+		params = []any{unquotedIncludeTables}
 	default:
-		// if the schema is not wildcard, we need to filter by schema name
-		query = fmt.Sprintf(selectSchemaTablesQuery, schemaName, strings.Join(paramRefs, ","))
+		// If the schema is not wildcard, we need to filter by schema name.
+		query = selectSchemaTablesQuery
+		params = []any{pglib.UnquoteIdentifier(schemaName), unquotedIncludeTables}
 	}
 
 	// get all tables in the schema that are not in the include list
-	rows, err := o.querier.Query(ctx, query, tableParams...)
+	rows, err := o.querier.Query(ctx, query, params...)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving tables from schema: %w", err)
 	}
@@ -192,19 +195,18 @@ func (o *optionGenerator) pgdumpExcludedTables(ctx context.Context, schemaName s
 	return excludeTables, nil
 }
 
-const selectSchemasQuery = "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN (%s)"
+const selectSchemasQuery = "SELECT schema_name FROM information_schema.schemata WHERE schema_name != ALL($1)"
 
 func (o *optionGenerator) pgdumpExcludedSchemas(ctx context.Context, includeSchemas []string) ([]string, error) {
-	paramRefs := make([]string, 0, len(includeSchemas))
-	schemaParams := make([]any, 0, len(includeSchemas))
-	for i, schema := range includeSchemas {
-		schemaParams = append(schemaParams, schema)
-		paramRefs = append(paramRefs, fmt.Sprintf("$%d", i+1))
+	schemas := make([]string, 0, len(includeSchemas))
+	for _, schema := range includeSchemas {
+		// System catalogs store unquoted names, so we need to pass the schema
+		// names without quotes as parameters.
+		schemas = append(schemas, pglib.UnquoteIdentifier(schema))
 	}
 
 	// get all schemas in the database that are not in the snapshot request
-	query := fmt.Sprintf(selectSchemasQuery, strings.Join(paramRefs, ","))
-	rows, err := o.querier.Query(ctx, query, schemaParams...)
+	rows, err := o.querier.Query(ctx, selectSchemasQuery, schemas)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving schemas: %w", err)
 	}
@@ -224,4 +226,11 @@ func (o *optionGenerator) pgdumpExcludedSchemas(ctx context.Context, includeSche
 	}
 
 	return excludeSchemas, nil
+}
+
+func quoteSchema(schema string) string {
+	if schema == wildcard {
+		return wildcard
+	}
+	return pglib.QuoteIdentifier(schema)
 }
