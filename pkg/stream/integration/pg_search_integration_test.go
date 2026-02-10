@@ -90,8 +90,8 @@ func Test_PostgresToSearch(t *testing.T) {
 				query: fmt.Sprintf("insert into %s.%s(name) values('a')", testSchema, testTable),
 
 				validation: func() bool {
-					resp := searchTable(t, ctx, client, testIndex, testTablePgstreamID)
-					if resp.Hits.Total.Value != 1 {
+					resp, err := searchTable(ctx, client, testIndex, testTablePgstreamID)
+					if err != nil || resp.Hits.Total.Value != 1 {
 						return false
 					}
 					hit := resp.Hits.Hits[0]
@@ -120,8 +120,7 @@ func Test_PostgresToSearch(t *testing.T) {
 						return
 					case <-ticker.C:
 						exists, err := client.IndexExists(ctx, testIndex)
-						require.NoError(t, err)
-						if exists && tc.validation() {
+						if err == nil && exists && tc.validation() {
 							return
 						}
 					}
@@ -159,8 +158,7 @@ func Test_PostgresToSearch(t *testing.T) {
 	})
 
 	t.Run("long IDs are hashed before indexing", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		cfg := testSearchProcessorCfg(store.Config{ElasticsearchURL: elasticsearchURL})
 		cfg.Search.Indexer = search.IndexerConfig{HashDocIDs: true}
@@ -187,16 +185,15 @@ func Test_PostgresToSearch(t *testing.T) {
 				t.Fatal("timeout waiting for indexed document")
 			case <-ticker.C:
 				exists, err := client.IndexExists(ctx, testIndex)
-				require.NoError(t, err)
-				if !exists {
+				if err != nil || !exists {
 					continue
 				}
 				testTablePgstreamID := getTablePgstreamID(t, ctx, testSchema, testTable)
 				if testTablePgstreamID == "" {
 					continue
 				}
-				resp := searchTable(t, ctx, client, testIndex, testTablePgstreamID)
-				if resp.Hits.Total.Value != 1 {
+				resp, err := searchTable(ctx, client, testIndex, testTablePgstreamID)
+				if err != nil || resp.Hits.Total.Value != 1 {
 					continue
 				}
 				hash := sha256.Sum256([]byte(longID))
@@ -208,7 +205,7 @@ func Test_PostgresToSearch(t *testing.T) {
 	})
 }
 
-func searchTable(t *testing.T, ctx context.Context, client searchstore.Client, index, tableID string) *searchstore.SearchResponse {
+func searchTable(ctx context.Context, client searchstore.Client, index, tableID string) (*searchstore.SearchResponse, error) {
 	query := searchstore.QueryBody{
 		Query: &searchstore.Query{
 			Bool: &searchstore.BoolFilter{
@@ -223,21 +220,25 @@ func searchTable(t *testing.T, ctx context.Context, client searchstore.Client, i
 		},
 	}
 
-	return searchQuery(t, ctx, client, index, query, nil)
+	return searchQuery(ctx, client, index, query, nil)
 }
 
-func searchQuery(t *testing.T, ctx context.Context, client searchstore.Client, index string, query searchstore.QueryBody, sort *string) *searchstore.SearchResponse {
+func searchQuery(ctx context.Context, client searchstore.Client, index string, query searchstore.QueryBody, sort *string) (*searchstore.SearchResponse, error) {
 	queryBytes, err := json.Marshal(&query)
-	require.NoError(t, err)
+	if err != nil {
+		return nil, err
+	}
 
 	resp, err := client.Search(ctx, &searchstore.SearchRequest{
 		Index: searchstore.Ptr(index),
 		Query: bytes.NewBuffer(queryBytes),
 		Sort:  sort,
 	})
-	require.NoError(t, err)
+	if err != nil {
+		return nil, err
+	}
 
-	return resp
+	return resp, nil
 }
 
 func getIndexMapping(t *testing.T, ctx context.Context, client searchstore.Client, index string) map[string]any {

@@ -94,14 +94,14 @@ type apiResponse interface {
 }
 
 func IsErrResponse(res apiResponse) error {
-	if res.IsError() {
-		if res.GetStatusCode() == http.StatusNotFound {
-			return fmt.Errorf("%w: %w", ErrResourceNotFound, ExtractResponseError(res.GetBody(), res.GetStatusCode()))
-		}
-		return ExtractResponseError(res.GetBody(), res.GetStatusCode())
+	if !res.IsError() {
+		return nil
 	}
 
-	return nil
+	if res.GetStatusCode() == http.StatusNotFound {
+		return fmt.Errorf("%w: %w", ErrResourceNotFound, ExtractResponseError(res.GetBody(), res.GetStatusCode()))
+	}
+	return ExtractResponseError(res.GetBody(), res.GetStatusCode())
 }
 
 func ExtractResponseError(body io.ReadCloser, statusCode int) error {
