@@ -182,6 +182,84 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			wantEvents: []*wal.Event{testEvent(testTable1, testColumns)},
 		},
 		{
+			name: "ok - quoted identifiers in schema and table names",
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					require.Equal(t, txOptions, to)
+					switch i {
+					case 1:
+						mockTx := pgmocks.Tx{
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
+								require.Equal(t, exportSnapshotQuery, query)
+								require.Len(t, dest, 1)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", dest[0]))
+								*snapshotID = testSnapshotID
+								return nil
+							},
+						}
+						return f(&mockTx)
+					case 2:
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+								require.Len(t, args, 0)
+								return pglib.CommandTag{}, nil
+							},
+							QueryRowFn: validTableInfoQueryRowFn,
+						}
+						return f(&mockTx)
+					case 3:
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+								require.Len(t, args, 0)
+								return pglib.CommandTag{}, nil
+							},
+							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+								require.Equal(t, fmt.Sprintf(pageRangeQuery, quotedSchemaTable1, 0, 1), query)
+								require.Len(t, args, 0)
+								return &pgmocks.Rows{
+									CloseFn: func() {},
+									NextFn:  func(i uint) bool { return i == 1 },
+									FieldDescriptionsFn: func() []pgconn.FieldDescription {
+										return []pgconn.FieldDescription{
+											{Name: "id", DataTypeOID: pgtype.UUIDOID},
+											{Name: "name", DataTypeOID: pgtype.TextOID},
+										}
+									},
+									ValuesFn: func() ([]any, error) {
+										return []any{testUUID, "alice"}, nil
+									},
+									ErrFn: func() error { return nil },
+								}, nil
+							},
+						}
+						return f(&mockTx)
+					default:
+						return fmt.Errorf("unexpected call to ExecInTxWithOptions: %d", i)
+					}
+				},
+			},
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					pglib.QuoteIdentifier(testSchema): {pglib.QuoteIdentifier(testTable1)},
+				},
+			},
+
+			wantErr: nil,
+			wantEvents: []*wal.Event{{
+				CommitPosition: wal.CommitPosition(wal.ZeroLSN),
+				Data: &wal.Data{
+					Action:  "I",
+					LSN:     wal.ZeroLSN,
+					Schema:  pglib.QuoteIdentifier(testSchema),
+					Table:   pglib.QuoteIdentifier(testTable1),
+					Columns: testColumns,
+				},
+			}},
+		},
+		{
 			name: "ok - with progress tracking",
 			querier: &pgmocks.Querier{
 				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
@@ -207,8 +285,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
-								require.Equal(t, fmt.Sprintf(tablesBytesQuery, testSchema, "$1"), query)
-								require.Equal(t, []any{testTable1}, args)
+								require.Equal(t, tablesBytesQuery, query)
+								require.Equal(t, []any{testSchema, []string{testTable1}}, args)
 								require.Len(t, dest, 1)
 								totalBytes, ok := dest[0].(*int64)
 								require.True(t, ok, fmt.Sprintf("totalBytes, expected *int64, got %T", dest[0]))
@@ -961,8 +1039,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
-								require.Equal(t, fmt.Sprintf(tablesBytesQuery, testSchema, "$1"), query)
-								require.Equal(t, []any{testTable1}, args)
+								require.Equal(t, tablesBytesQuery, query)
+								require.Equal(t, []any{testSchema, []string{testTable1}}, args)
 								return errTest
 							},
 						}
