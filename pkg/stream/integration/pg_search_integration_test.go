@@ -120,8 +120,7 @@ func Test_PostgresToSearch(t *testing.T) {
 						return
 					case <-ticker.C:
 						exists, err := client.IndexExists(ctx, testIndex)
-						require.NoError(t, err)
-						if exists && tc.validation() {
+						if err == nil && exists && tc.validation() {
 							return
 						}
 					}
@@ -159,8 +158,7 @@ func Test_PostgresToSearch(t *testing.T) {
 	})
 
 	t.Run("long IDs are hashed before indexing", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		cfg := testSearchProcessorCfg(store.Config{ElasticsearchURL: elasticsearchURL})
 		cfg.Search.Indexer = search.IndexerConfig{HashDocIDs: true}
@@ -187,8 +185,7 @@ func Test_PostgresToSearch(t *testing.T) {
 				t.Fatal("timeout waiting for indexed document")
 			case <-ticker.C:
 				exists, err := client.IndexExists(ctx, testIndex)
-				require.NoError(t, err)
-				if !exists {
+				if err != nil || !exists {
 					continue
 				}
 				testTablePgstreamID := getTablePgstreamID(t, ctx, testSchema, testTable)
