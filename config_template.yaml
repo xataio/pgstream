@@ -36,6 +36,8 @@ source:
           dump_file: pg_dump.sql # name of the file where the contents of the schema pg_dump command and output will be written for debugging purposes.
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
+      plugin:
+        include_xids: false # whether to include transaction IDs in the replication stream events. Defaults to false.
   kafka:
     servers: ["localhost:9092"]
     topic:

@@ -111,7 +111,12 @@ type PgDumpPgRestoreConfig struct {
 }
 
 type ReplicationConfig struct {
-	ReplicationSlot string `mapstructure:"replication_slot" yaml:"replication_slot"`
+	ReplicationSlot string        `mapstructure:"replication_slot" yaml:"replication_slot"`
+	Plugin          *PluginConfig `mapstructure:"plugin" yaml:"plugin"`
+}
+
+type PluginConfig struct {
+	IncludeXIDs bool `mapstructure:"include_xids" yaml:"include_xids"`
 }
 
 type KafkaConfig struct {
@@ -419,13 +424,19 @@ func (c *YAMLConfig) parsePostgresListenerConfig() (*stream.PostgresListenerConf
 
 	if c.Source.Postgres.Mode == replicationMode || c.Source.Postgres.Mode == snapshotAndReplicationMode {
 		replicationSlotName := ""
+		pluginArgs := pgreplication.PluginArguments{}
 		if c.Source.Postgres.Replication != nil {
 			replicationSlotName = c.Source.Postgres.Replication.ReplicationSlot
+			if c.Source.Postgres.Replication.Plugin != nil {
+				pluginArgs.IncludeXIDs = c.Source.Postgres.Replication.Plugin.IncludeXIDs
+			}
 		}
 		streamCfg.Replication = pgreplication.Config{
 			PostgresURL:         c.Source.Postgres.URL,
 			ReplicationSlotName: replicationSlotName,
+			PluginArguments:     pluginArgs,
 		}
+
 	}
 
 	if c.Source.Postgres.Mode == snapshotMode || c.Source.Postgres.Mode == snapshotAndReplicationMode {
