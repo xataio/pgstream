@@ -29,6 +29,8 @@ source:
       disable_progress_tracking: true # whether to disable progress tracking for the snapshot
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
+      plugin:
+        include_xids: true # whether to include transaction IDs in the replication stream events
     retry_policy:
       disable_retries: true # whether to disable retries for the source postgres listener
       exponential:

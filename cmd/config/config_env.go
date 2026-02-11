@@ -43,6 +43,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_BACKOFF_MAX_RETRIES")
 	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_DISABLE_RETRIES")
 	viper.BindEnv("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME")
+	viper.BindEnv("PGSTREAM_POSTGRES_REPLICATION_PLUGIN_INCLUDE_XIDS")
 
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS")
@@ -211,6 +212,9 @@ func parsePostgresListenerConfig() (*stream.PostgresListenerConfig, error) {
 		Replication: pgreplication.Config{
 			PostgresURL:         pgURL,
 			ReplicationSlotName: viper.GetString("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME"),
+			PluginArguments: pgreplication.PluginArguments{
+				IncludeXIDs: viper.GetBool("PGSTREAM_POSTGRES_REPLICATION_PLUGIN_INCLUDE_XIDS"),
+			},
 		},
 		RetryPolicy: parseBackoffConfig("PGSTREAM_POSTGRES_LISTENER"),
 	}
