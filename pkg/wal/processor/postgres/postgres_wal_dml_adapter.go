@@ -379,17 +379,31 @@ func isArray(colType string) bool {
 		(len(colType) > 1 && colType[0] == '_')
 }
 
-// serializeJSONBValue pre-serializes JSONB/JSON map/slice values with Sonic to
-// ensure consistent encoding between Sonic (wal2json parsing) and pgx (encoding/json).
-// String values pass through unchanged to avoid double-encoding.
+// serializeJSONBValue pre-serializes JSONB/JSON values to ensure consistent
+// encoding between Sonic (wal2json parsing) and pgx (encoding/json).
+//
+// Handles all JSONB value types from wal2json:
+//   - map[string]any / []any → JSON-marshal to []byte
+//   - string (jsonb_typeof='string') → JSON-marshal to get properly quoted []byte
+//   - nil (jsonb_typeof='null', i.e. 'null'::jsonb) → literal []byte("null")
+//   - float64, bool → JSON-marshal to []byte
 func serializeJSONBValue(colType string, val any) any {
-	if (colType == "jsonb" || colType == "json") && val != nil {
-		switch val.(type) {
-		case map[string]any, []any:
-			if jsonBytes, err := json.Marshal(val); err == nil {
-				return jsonBytes
-			}
+	if colType != "jsonb" && colType != "json" {
+		return val
+	}
+
+	// JSONB null literal ('null'::jsonb) arrives as Go nil from wal2json.
+	// This is a valid non-NULL JSONB value — must not become SQL NULL.
+	if val == nil {
+		return []byte("null")
+	}
+
+	switch val.(type) {
+	case map[string]any, []any, string, float64, bool:
+		if jsonBytes, err := json.Marshal(val); err == nil {
+			return jsonBytes
 		}
 	}
+
 	return val
 }
