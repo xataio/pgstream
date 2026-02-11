@@ -3,7 +3,6 @@
 package postgres
 
 import (
-	stdjson "encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -391,24 +390,29 @@ func isArray(colType string) bool {
 
 // serializeJSONBValue pre-serializes JSONB/JSON values to ensure consistent
 // encoding between Sonic (wal2json parsing) and pgx (encoding/json).
-// Map and slice values are always serialized. String values are serialized
-// only if they are not already valid JSON (e.g. JSON scalar strings like
-// "FIRST" from pgx rows.Values()), to avoid double-encoding pre-built JSON
-// documents passed as strings (e.g. from the schemalog snapshot generator).
+//
+// Handles all JSONB value types from wal2json:
+//   - map[string]any / []any → JSON-marshal to []byte
+//   - string (jsonb_typeof='string') → JSON-marshal to get properly quoted []byte
+//   - nil (jsonb_typeof='null', i.e. 'null'::jsonb) → literal []byte("null")
+//   - float64, bool → JSON-marshal to []byte
 func serializeJSONBValue(colType string, val any) any {
-	if (colType == "jsonb" || colType == "json") && val != nil {
-		switch v := val.(type) {
-		case map[string]any, []any:
-			if jsonBytes, err := json.Marshal(val); err == nil {
-				return jsonBytes
-			}
-		case string:
-			if !stdjson.Valid([]byte(v)) {
-				if jsonBytes, err := json.Marshal(v); err == nil {
-					return jsonBytes
-				}
-			}
+	if colType != "jsonb" && colType != "json" {
+		return val
+	}
+
+	// JSONB null literal ('null'::jsonb) arrives as Go nil from wal2json.
+	// This is a valid non-NULL JSONB value — must not become SQL NULL.
+	if val == nil {
+		return []byte("null")
+	}
+
+	switch val.(type) {
+	case map[string]any, []any, string, float64, bool:
+		if jsonBytes, err := json.Marshal(val); err == nil {
+			return jsonBytes
 		}
 	}
+
 	return val
 }
