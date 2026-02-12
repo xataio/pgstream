@@ -71,7 +71,16 @@ func (w *BulkIngestWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Ev
 		}
 	}()
 
-	if walEvent.Data != nil && !walEvent.Data.IsInsert() {
+	// Skip events with nil Data. The injector sets Data to nil for tables
+	// without identity columns (no PK, no unique NOT NULL). Passing these
+	// through creates a shared batch sender keyed "".""  whose context is
+	// tied to the first caller's errgroup. When that errgroup completes,
+	// the shared sender dies, cascading failures to all other tables.
+	if walEvent.Data == nil {
+		return nil
+	}
+
+	if !walEvent.Data.IsInsert() {
 		w.logger.Warn(nil, "skipping non-insert event", loglib.Fields{"severity": "DATALOSS"})
 		return nil
 	}

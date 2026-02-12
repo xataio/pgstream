@@ -172,7 +172,7 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 	return processor, nil
 }
 
-func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Logger, processor processor.Processor, instrumentation *otel.Instrumentation) (processor.Processor, closerFn, error) {
+func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Logger, processor processor.Processor, processorType processorType, instrumentation *otel.Instrumentation) (processor.Processor, closerFn, error) {
 	closerAgg := &closerAggregator{}
 	var err error
 	if config.Processor.Transformer != nil {
@@ -218,7 +218,7 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 		}
 	}
 
-	if config.Processor.Injector != nil {
+	if config.Processor.Injector != nil && processorType != processorTypeSnapshot {
 		logger.Info("adding injection to processor...")
 		opts := []injector.Option{
 			injector.WithLogger(logger),
