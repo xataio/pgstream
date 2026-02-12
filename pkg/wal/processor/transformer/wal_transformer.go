@@ -20,6 +20,12 @@ type Transformer struct {
 	processor      processor.Processor
 	transformerMap map[string]ColumnTransformers
 	parser         ParseFn
+
+	walDataToDDLEvent    func(data *wal.Data) (*wal.DDLEvent, error)
+	ddlEventToSchemaDiff func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error)
+
+	validationMode       string
+	tableValidationModes map[string]string
 }
 
 type ParseFn func(ctx context.Context, rules Rules) (map[string]ColumnTransformers, error)
@@ -39,17 +45,28 @@ type Config struct {
 
 type Option func(t *Transformer)
 
-const validationModeStrict = "strict"
+const (
+	validationModeStrict     = "strict"
+	validationModeRelaxed    = "relaxed"
+	validationModeTableLevel = "table_level"
+)
 
-var errValidatorRequiredForStrictMode = errors.New("strict validation mode requires a validator function")
+var (
+	errValidatorRequiredForStrictMode = errors.New("strict validation mode requires a validator function")
+	errDDLNotSupportedInStrictMode    = errors.New("DDL events are not supported in strict validation mode, update the transformation rules to include the new table/column before applying DDL changes")
+)
 
 // New will return a transformer processor wrapper that will transform incoming
 // wal event column values as configured by the transformation rules.
 func New(ctx context.Context, cfg *Config, processor processor.Processor, builder transformerBuilder, opts ...Option) (*Transformer, error) {
 	t := &Transformer{
-		logger:    loglib.NewNoopLogger(),
-		processor: processor,
-		parser:    newTransformerParser(builder).parse,
+		logger:               loglib.NewNoopLogger(),
+		processor:            processor,
+		parser:               newTransformerParser(builder).parse,
+		walDataToDDLEvent:    wal.WalDataToDDLEvent,
+		ddlEventToSchemaDiff: wal.DDLEventToSchemaDiff,
+		validationMode:       cfg.ValidationMode,
+		tableValidationModes: map[string]string{},
 	}
 
 	for _, opt := range opts {
@@ -63,6 +80,14 @@ func New(ctx context.Context, cfg *Config, processor processor.Processor, builde
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if cfg.ValidationMode == validationModeTableLevel {
+		t.tableValidationModes = make(map[string]string, len(cfg.TransformerRules))
+		for _, rule := range cfg.TransformerRules {
+			key := schemaTableKey(rule.Schema, rule.Table)
+			t.tableValidationModes[key] = rule.ValidationMode
+		}
 	}
 
 	return t, nil
@@ -107,7 +132,17 @@ func (t *Transformer) Close() error {
 }
 
 func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event) error {
-	if event.Data == nil || len(t.transformerMap) == 0 || event.Data.IsDDLEvent() {
+	if event.Data == nil {
+		return nil
+	}
+
+	// even if there are no transformations configured, we still want to
+	// validate DDL events in strict mode, so we check for DDL events first
+	if event.Data.IsDDLEvent() {
+		return t.processDDLEvent(event)
+	}
+
+	if len(t.transformerMap) == 0 {
 		return nil
 	}
 
@@ -153,6 +188,59 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 	return nil
 }
 
+func (t *Transformer) processDDLEvent(event *wal.Event) error {
+	if !event.Data.IsDDLEvent() || t.validationMode == validationModeRelaxed {
+		return nil
+	}
+
+	ddlEvent, err := t.walDataToDDLEvent(event.Data)
+	if err != nil {
+		return err
+	}
+
+	schemaDiff, err := t.ddlEventToSchemaDiff(ddlEvent)
+	if err != nil {
+		return err
+	}
+
+	if schemaDiff.IsEmpty() {
+		return nil
+	}
+
+	// we want to block DDL for new tables even if the validation mode is table
+	// level, as we can't determine the validation mode for the new table unless
+	// it's explicitly defined. It's safer to block and require it to be defined
+	// rather than allowing it by default and potentially missing
+	// transformations on it
+	if len(schemaDiff.TablesAdded) > 0 {
+		t.logger.Error(errDDLNotSupportedInStrictMode, "DDL event includes added tables, which is not supported in strict validation mode", loglib.Fields{
+			"schema": schemaDiff.SchemaName,
+			"query":  ddlEvent.DDL,
+		})
+		return errDDLNotSupportedInStrictMode
+	}
+
+	for _, tableDiff := range schemaDiff.TablesChanged {
+		if len(tableDiff.ColumnsAdded) == 0 {
+			continue
+		}
+
+		tableValidationMode := t.getTableValidationMode(schemaDiff.SchemaName, tableDiff.TableName)
+		if tableValidationMode == validationModeRelaxed {
+			continue
+		}
+
+		t.logger.Error(errDDLNotSupportedInStrictMode, "DDL event includes added columns, which is not supported in strict validation mode", loglib.Fields{
+			"schema": schemaDiff.SchemaName,
+			"table":  tableDiff.TableName,
+			"query":  ddlEvent.DDL,
+		})
+		return errDDLNotSupportedInStrictMode
+	}
+
+	return nil
+}
+
 func (t *Transformer) getDynamicColumnValues(excludeColName string, columns []wal.Column) map[string]any {
 	values := make(map[string]any, len(columns))
 	for _, col := range columns {
@@ -170,4 +258,22 @@ func schemaTableKey(schema, table string) string {
 
 func (c *Config) HasNoRules() bool {
 	return c == nil || len(c.TransformerRules) == 0
+}
+
+// getTableValidationMode returns the validation mode for the given table. If
+// the global validation mode is not table level, it returns the global
+// validation mode. If the global validation mode is table level, it returns the
+// validation mode for the specific table, or defaults to strict if not found.
+func (t *Transformer) getTableValidationMode(schema, table string) string {
+	if t.validationMode != validationModeTableLevel {
+		return t.validationMode
+	}
+
+	key := schemaTableKey(schema, table)
+	mode, found := t.tableValidationModes[key]
+	if !found {
+		// default to strict if not found, as it's safer to fail on unknown tables/columns
+		return validationModeStrict
+	}
+	return mode
 }
