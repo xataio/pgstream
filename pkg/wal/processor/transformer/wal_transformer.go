@@ -123,6 +123,9 @@ func (t *Transformer) Name() string {
 func (t *Transformer) Close() error {
 	for _, transformer := range t.transformerMap {
 		for _, colTransformer := range transformer {
+			if colTransformer == nil {
+				continue
+			}
 			if err := colTransformer.Close(); err != nil {
 				t.logger.Error(err, "closing transformer")
 			}
@@ -159,7 +162,7 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 		}
 
 		columnTransformer, found := columnTransformers[col.Name]
-		if !found {
+		if !found || columnTransformer == nil {
 			continue
 		}
 

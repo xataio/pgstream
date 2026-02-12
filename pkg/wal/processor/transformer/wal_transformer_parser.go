@@ -30,7 +30,9 @@ func (p *transformerParser) parse(_ context.Context, rules Rules) (map[string]Co
 		for colName, transformerRules := range table.ColumnRules {
 			cfg := transformerRulesToConfig(transformerRules)
 			if cfg.Name == "" || cfg.Name == "noop" {
-				// noop transformer, skip
+				// noop transformer, add it to the map with nil value to
+				// indicate it should be skipped in the transformation step
+				schemaTableTransformers[colName] = nil
 				continue
 			}
 			if schemaTableTransformers[colName], err = p.builder.New(cfg); err != nil {

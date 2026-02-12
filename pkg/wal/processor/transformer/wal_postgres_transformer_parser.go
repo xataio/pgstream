@@ -79,6 +79,9 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 
 			switch cfg.Name {
 			case "", "noop":
+				// noop transformer, add it to the map with nil value to
+				// indicate it should be skipped in the transformation step
+				schemaTableTransformers[colName] = nil
 				continue
 			case transformers.PGAnonymizer:
 				// pg_anonymizer transformer requires a connection pool, set
