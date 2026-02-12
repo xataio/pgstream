@@ -136,7 +136,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			},
 			validator: testPGValidator,
 
-			wantTransformersFor: []string{"name"},
+			wantTransformersFor: []string{"id", "name"},
 			wantErr:             nil,
 		},
 		{
@@ -185,7 +185,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				requiredTables: []string{"*"},
 			},
 
-			wantTransformersFor: []string{"id", "name"},
+			wantTransformersFor: []string{"id", "name", "email"},
 			wantErr:             nil,
 		},
 		{
@@ -215,7 +215,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				requiredTables: []string{"*.*"},
 			},
 
-			wantTransformersFor: []string{"id", "name"},
+			wantTransformersFor: []string{"id", "name", "email"},
 			wantErr:             nil,
 		},
 		{
