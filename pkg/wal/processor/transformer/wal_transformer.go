@@ -218,14 +218,35 @@ func (t *Transformer) processDDLEvent(event *wal.Event) error {
 		}
 	}
 
-	// make sure added columns to existing tables are part of the transformation rules
 	for _, tableDiff := range schemaDiff.TablesChanged {
-		if len(tableDiff.ColumnsAdded) == 0 {
+		if len(tableDiff.ColumnsAdded) == 0 && tableDiff.TableNameChange == nil && len(tableDiff.ColumnsChanged) == 0 {
 			continue
 		}
 
-		if err := t.validateTableDDL(schemaDiff.SchemaName, tableDiff.TableName, ddlEvent.DDL, tableDiff.ColumnsAdded); err != nil {
-			return err
+		// make sure table renames are captured in the transformation rules
+		if tableDiff.TableNameChange != nil {
+			if err := t.validateTableDDL(schemaDiff.SchemaName, tableDiff.TableNameChange.New, ddlEvent.DDL, []wal.DDLColumn{}); err != nil {
+				return err
+			}
+		}
+
+		// make sure added columns to existing tables are part of the transformation rules
+		if len(tableDiff.ColumnsAdded) > 0 {
+			if err := t.validateTableDDL(schemaDiff.SchemaName, tableDiff.TableName, ddlEvent.DDL, tableDiff.ColumnsAdded); err != nil {
+				return err
+			}
+		}
+
+		// make sure column renames are captured in the transformation rules
+		for _, colDiff := range tableDiff.ColumnsChanged {
+			if colDiff.NameChange == nil {
+				continue
+			}
+			if err := t.validateTableDDL(schemaDiff.SchemaName, tableDiff.TableName, ddlEvent.DDL, []wal.DDLColumn{
+				{Name: colDiff.NameChange.New},
+			}); err != nil {
+				return err
+			}
 		}
 	}
 

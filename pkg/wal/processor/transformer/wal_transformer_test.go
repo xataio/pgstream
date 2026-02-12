@@ -484,6 +484,7 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 		name                 string
 		validationMode       string
 		tableValidationModes map[string]string
+		transformerMap       map[string]ColumnTransformers
 		event                *wal.Event
 		walDataToDDLEvent    func(data *wal.Data) (*wal.DDLEvent, error)
 		ddlEventToSchemaDiff func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error)
@@ -571,6 +572,225 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			},
 
 			wantErr: nil,
+		},
+		{
+			name:                 "ok - DDL event with column type changed with table level validation mode set to strict",
+			validationMode:       validationModeTableLevel,
+			tableValidationModes: map[string]string{`"test_schema"."test_table"`: validationModeStrict},
+			transformerMap: map[string]ColumnTransformers{
+				`"test_schema"."test_table"`: {},
+			},
+			event:             testWALDDLEvent,
+			walDataToDDLEvent: validWalDataToDDLEvent,
+			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
+				return &wal.SchemaDiff{
+					SchemaName: "test_schema",
+					TablesChanged: []wal.TableDiff{
+						{
+							TableName: "test_table",
+							ColumnsChanged: []wal.ColumnDiff{
+								{
+									ColumnName: "test_column",
+									TypeChange: &wal.ValueChange[string]{Old: "text", New: "int"},
+								},
+							},
+						},
+					},
+				}, nil
+			},
+
+			wantErr: nil,
+		},
+		{
+			name:                 "ok - DDL event with table rename and table exists in transformation rules",
+			validationMode:       validationModeStrict,
+			tableValidationModes: map[string]string{},
+			transformerMap: map[string]ColumnTransformers{
+				`"test_schema"."old_table"`: {},
+				`"test_schema"."new_table"`: {},
+			},
+			event:             testWALDDLEvent,
+			walDataToDDLEvent: validWalDataToDDLEvent,
+			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
+				return &wal.SchemaDiff{
+					SchemaName: "test_schema",
+					TablesChanged: []wal.TableDiff{
+						{
+							TableName: "new_table",
+							TableNameChange: &wal.ValueChange[string]{
+								Old: "old_table",
+								New: "new_table",
+							},
+						},
+					},
+				}, nil
+			},
+
+			wantErr: nil,
+		},
+		{
+			name:                 "ok - DDL event with column rename and column exists in transformation rules",
+			validationMode:       validationModeStrict,
+			tableValidationModes: map[string]string{},
+			transformerMap: map[string]ColumnTransformers{
+				`"test_schema"."test_table"`: {
+					"old_column": nil,
+					"new_column": nil,
+				},
+			},
+			event:             testWALDDLEvent,
+			walDataToDDLEvent: validWalDataToDDLEvent,
+			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
+				return &wal.SchemaDiff{
+					SchemaName: "test_schema",
+					TablesChanged: []wal.TableDiff{
+						{
+							TableName: "test_table",
+							ColumnsChanged: []wal.ColumnDiff{
+								{
+									ColumnName: "new_column",
+									NameChange: &wal.ValueChange[string]{
+										Old: "old_column",
+										New: "new_column",
+									},
+								},
+							},
+						},
+					},
+				}, nil
+			},
+
+			wantErr: nil,
+		},
+		{
+			name:                 "error - DDL event with table rename and new table not in transformation rules",
+			validationMode:       validationModeStrict,
+			tableValidationModes: map[string]string{},
+			event:                testWALDDLEvent,
+			walDataToDDLEvent:    validWalDataToDDLEvent,
+			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
+				return &wal.SchemaDiff{
+					SchemaName: "test_schema",
+					TablesChanged: []wal.TableDiff{
+						{
+							TableName: "missing_table",
+							TableNameChange: &wal.ValueChange[string]{
+								Old: "old_table",
+								New: "missing_table",
+							},
+						},
+					},
+				}, nil
+			},
+
+			wantErr: errDDLNotSupportedInStrictMode,
+		},
+		{
+			name:                 "error - DDL event with column rename and new column not in transformation rules",
+			validationMode:       validationModeStrict,
+			tableValidationModes: map[string]string{},
+			event:                testWALDDLEvent,
+			walDataToDDLEvent:    validWalDataToDDLEvent,
+			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
+				return &wal.SchemaDiff{
+					SchemaName: "test_schema",
+					TablesChanged: []wal.TableDiff{
+						{
+							TableName: "test_table",
+							ColumnsChanged: []wal.ColumnDiff{
+								{
+									ColumnName: "missing_column",
+									NameChange: &wal.ValueChange[string]{
+										Old: "old_column",
+										New: "missing_column",
+									},
+								},
+							},
+						},
+					},
+				}, nil
+			},
+
+			wantErr: errDDLNotSupportedInStrictMode,
+		},
+		{
+			name:                 "ok - DDL event with multiple changes including table rename with relaxed validation",
+			validationMode:       validationModeTableLevel,
+			tableValidationModes: map[string]string{`"test_schema"."new_table"`: validationModeRelaxed},
+			transformerMap: map[string]ColumnTransformers{
+				`"test_schema"."old_table"`: {},
+				`"test_schema"."new_table"`: {},
+			},
+			event:             testWALDDLEvent,
+			walDataToDDLEvent: validWalDataToDDLEvent,
+			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
+				return &wal.SchemaDiff{
+					SchemaName: "test_schema",
+					TablesChanged: []wal.TableDiff{
+						{
+							TableName: "new_table",
+							TableNameChange: &wal.ValueChange[string]{
+								Old: "old_table",
+								New: "new_table",
+							},
+							ColumnsAdded: []wal.DDLColumn{
+								{Name: "new_column", Type: "text"},
+							},
+							ColumnsChanged: []wal.ColumnDiff{
+								{
+									ColumnName: "renamed_column",
+									NameChange: &wal.ValueChange[string]{
+										Old: "old_column",
+										New: "renamed_column",
+									},
+								},
+							},
+						},
+					},
+				}, nil
+			},
+
+			wantErr: nil,
+		},
+		{
+			name:                 "error - DDL event with multiple changes in strict mode missing transformation rules",
+			validationMode:       validationModeStrict,
+			tableValidationModes: map[string]string{},
+			transformerMap: map[string]ColumnTransformers{
+				`"test_schema"."test_table"`: {
+					"old_column": nil,
+				},
+			},
+			event:             testWALDDLEvent,
+			walDataToDDLEvent: validWalDataToDDLEvent,
+			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
+				return &wal.SchemaDiff{
+					SchemaName: "test_schema",
+					TablesChanged: []wal.TableDiff{
+						{
+							TableName: "renamed_table",
+							TableNameChange: &wal.ValueChange[string]{
+								Old: "test_table",
+								New: "renamed_table",
+							},
+							ColumnsAdded: []wal.DDLColumn{
+								{Name: "new_column", Type: "text"},
+							},
+							ColumnsChanged: []wal.ColumnDiff{
+								{
+									ColumnName: "renamed_column",
+									NameChange: &wal.ValueChange[string]{
+										Old: "old_column",
+										New: "renamed_column",
+									},
+								},
+							},
+						},
+					},
+				}, nil
+			},
+
+			wantErr: errDDLNotSupportedInStrictMode,
 		},
 		{
 			name:                 "error - DDL event with columns added with table level validation mode set to strict",
@@ -667,6 +887,7 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 				validationMode:       tc.validationMode,
 				walDataToDDLEvent:    tc.walDataToDDLEvent,
 				ddlEventToSchemaDiff: tc.ddlEventToSchemaDiff,
+				transformerMap:       tc.transformerMap,
 			}
 
 			err := transformer.processDDLEvent(tc.event)
