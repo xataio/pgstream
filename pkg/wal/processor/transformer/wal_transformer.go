@@ -36,13 +36,6 @@ type transformerBuilder interface {
 	New(*transformers.Config) (transformers.Transformer, error)
 }
 
-type Config struct {
-	InferFromSecurityLabels bool
-	DumpInferredRules       bool
-	TransformerRules        []TableRules
-	ValidationMode          string
-}
-
 type Option func(t *Transformer)
 
 const (
@@ -59,13 +52,14 @@ var (
 // New will return a transformer processor wrapper that will transform incoming
 // wal event column values as configured by the transformation rules.
 func New(ctx context.Context, cfg *Config, processor processor.Processor, builder transformerBuilder, opts ...Option) (*Transformer, error) {
+	validationMode := cfg.validationMode()
 	t := &Transformer{
 		logger:               loglib.NewNoopLogger(),
 		processor:            processor,
 		parser:               newTransformerParser(builder).parse,
 		walDataToDDLEvent:    wal.WalDataToDDLEvent,
 		ddlEventToSchemaDiff: wal.DDLEventToSchemaDiff,
-		validationMode:       cfg.ValidationMode,
+		validationMode:       validationMode,
 		tableValidationModes: map[string]string{},
 	}
 
@@ -76,13 +70,13 @@ func New(ctx context.Context, cfg *Config, processor processor.Processor, builde
 	var err error
 	t.transformerMap, err = t.parser(ctx, Rules{
 		Transformers:   cfg.TransformerRules,
-		ValidationMode: cfg.ValidationMode,
+		ValidationMode: validationMode,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	if cfg.ValidationMode == validationModeTableLevel {
+	if validationMode == validationModeTableLevel {
 		t.tableValidationModes = make(map[string]string, len(cfg.TransformerRules))
 		for _, rule := range cfg.TransformerRules {
 			key := schemaTableKey(rule.Schema, rule.Table)
@@ -257,10 +251,6 @@ func (t *Transformer) getDynamicColumnValues(excludeColName string, columns []wa
 
 func schemaTableKey(schema, table string) string {
 	return pglib.QuoteQualifiedIdentifier(schema, table)
-}
-
-func (c *Config) HasNoRules() bool {
-	return c == nil || len(c.TransformerRules) == 0
 }
 
 // getTableValidationMode returns the validation mode for the given table. If
