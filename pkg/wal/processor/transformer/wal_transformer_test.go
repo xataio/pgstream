@@ -31,13 +31,16 @@ func TestTransformer_New(t *testing.T) {
 		},
 	}
 
-	testTransformerMap := map[string]ColumnTransformers{
-		"\"public\".\"test1\"": {
-			"column_1": testTransformer,
+	testTransformerMap := &TransformerMap{
+		activeTransformerMap: map[string]ColumnTransformers{
+			"\"public\".\"test1\"": {
+				"column_1": testTransformer,
+			},
+			"\"test\".\"test2\"": {
+				"column_2": testTransformer,
+			},
 		},
-		"\"test\".\"test2\"": {
-			"column_2": testTransformer,
-		},
+		noopTransformerMap: map[string]ColumnTransformers{},
 	}
 
 	errTest := errors.New("oh noes")
@@ -110,7 +113,7 @@ func TestTransformer_New(t *testing.T) {
 					},
 				},
 			},
-			parseFn: func(ctx context.Context, rules Rules) (map[string]ColumnTransformers, error) {
+			parseFn: func(ctx context.Context, rules Rules) (*TransformerMap, error) {
 				return testTransformerMap, nil
 			},
 
@@ -151,7 +154,7 @@ func TestTransformer_New(t *testing.T) {
 					},
 				},
 			},
-			parseFn: func(ctx context.Context, rules Rules) (map[string]ColumnTransformers, error) {
+			parseFn: func(ctx context.Context, rules Rules) (*TransformerMap, error) {
 				return nil, errTest
 			},
 
@@ -175,7 +178,7 @@ func TestTransformer_New(t *testing.T) {
 			require.ErrorIs(t, err, tc.wantErr)
 
 			diff := cmp.Diff(tc.wantTransformer, transformer,
-				cmp.AllowUnexported(Transformer{}),
+				cmp.AllowUnexported(Transformer{}, TransformerMap{}),
 				cmpopts.IgnoreFields(Transformer{}, "parser", "processor", "logger", "walDataToDDLEvent", "ddlEventToSchemaDiff"))
 			require.Empty(t, diff)
 		})
@@ -206,7 +209,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 		name                 string
 		event                *wal.Event
 		processor            processor.Processor
-		transformerMap       map[string]ColumnTransformers
+		transformerMap       *TransformerMap
 		validationMode       string
 		ddlEventToSchemaDiff func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error)
 
@@ -221,7 +224,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			transformerMap: map[string]ColumnTransformers{},
+			transformerMap: NewTransformerMap(),
 
 			wantErr: nil,
 		},
@@ -238,7 +241,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			transformerMap: map[string]ColumnTransformers{},
+			transformerMap: NewTransformerMap(),
 
 			wantErr: nil,
 		},
@@ -261,7 +264,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			transformerMap: map[string]ColumnTransformers{},
+			transformerMap: NewTransformerMap(),
 
 			wantErr: nil,
 		},
@@ -274,8 +277,10 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			transformerMap: map[string]ColumnTransformers{
-				"anotherschema/table": {},
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					"anotherschema/table": {},
+				},
 			},
 
 			wantErr: nil,
@@ -296,15 +301,17 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			transformerMap: map[string]ColumnTransformers{
-				testKey: {
-					"column_1": &transformermocks.Transformer{
-						TransformFn: func(a transformers.Value) (any, error) {
-							require.Nil(t, a.DynamicValues)
-							aStr, ok := a.TransformValue.(string)
-							require.True(t, ok)
-							require.Equal(t, "one", aStr)
-							return "two", nil
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					testKey: {
+						"column_1": &transformermocks.Transformer{
+							TransformFn: func(a transformers.Value) (any, error) {
+								require.Nil(t, a.DynamicValues)
+								aStr, ok := a.TransformValue.(string)
+								require.True(t, ok)
+								require.Equal(t, "one", aStr)
+								return "two", nil
+							},
 						},
 					},
 				},
@@ -328,17 +335,19 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			transformerMap: map[string]ColumnTransformers{
-				testKey: {
-					"column_1": &transformermocks.Transformer{
-						TransformFn: func(a transformers.Value) (any, error) {
-							require.Equal(t, a.DynamicValues, map[string]any{"column_2": 1})
-							aStr, ok := a.TransformValue.(string)
-							require.True(t, ok)
-							require.Equal(t, "one", aStr)
-							return "two", nil
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					testKey: {
+						"column_1": &transformermocks.Transformer{
+							TransformFn: func(a transformers.Value) (any, error) {
+								require.Equal(t, a.DynamicValues, map[string]any{"column_2": 1})
+								aStr, ok := a.TransformValue.(string)
+								require.True(t, ok)
+								require.Equal(t, "one", aStr)
+								return "two", nil
+							},
+							IsDynamicFn: func() bool { return true },
 						},
-						IsDynamicFn: func() bool { return true },
 					},
 				},
 			},
@@ -361,11 +370,13 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			transformerMap: map[string]ColumnTransformers{
-				testKey: {
-					"column_1": &transformermocks.Transformer{
-						TransformFn: func(a transformers.Value) (any, error) {
-							return nil, errors.New("TransformFn: should not be called")
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					testKey: {
+						"column_1": &transformermocks.Transformer{
+							TransformFn: func(a transformers.Value) (any, error) {
+								return nil, errors.New("TransformFn: should not be called")
+							},
 						},
 					},
 				},
@@ -389,11 +400,13 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 					return nil
 				},
 			},
-			transformerMap: map[string]ColumnTransformers{
-				testKey: {
-					"column_1": &transformermocks.Transformer{
-						TransformFn: func(a transformers.Value) (any, error) {
-							return nil, errTest
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					testKey: {
+						"column_1": &transformermocks.Transformer{
+							TransformFn: func(a transformers.Value) (any, error) {
+								return nil, errTest
+							},
 						},
 					},
 				},
@@ -414,7 +427,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 					return errors.New("ProcessWALEvent should not be called")
 				},
 			},
-			transformerMap: map[string]ColumnTransformers{},
+			transformerMap: NewTransformerMap(),
 			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
 				return &wal.SchemaDiff{
 					TablesAdded: []wal.DDLObject{
@@ -484,7 +497,7 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 		name                 string
 		validationMode       string
 		tableValidationModes map[string]string
-		transformerMap       map[string]ColumnTransformers
+		transformerMap       *TransformerMap
 		event                *wal.Event
 		walDataToDDLEvent    func(data *wal.Data) (*wal.DDLEvent, error)
 		ddlEventToSchemaDiff func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error)
@@ -502,6 +515,7 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 					Table:  "users",
 				},
 			},
+			transformerMap:       NewTransformerMap(),
 			walDataToDDLEvent:    nil,
 			ddlEventToSchemaDiff: nil,
 
@@ -522,6 +536,7 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			validationMode:       validationModeStrict,
 			tableValidationModes: map[string]string{},
 			event:                testWALDDLEvent,
+			transformerMap:       NewTransformerMap(),
 			walDataToDDLEvent:    validWalDataToDDLEvent,
 			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
 				require.Equal(t, testDDLEvent, ddlEvent)
@@ -535,6 +550,7 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			validationMode:       validationModeStrict,
 			tableValidationModes: map[string]string{},
 			event:                testWALDDLEvent,
+			transformerMap:       NewTransformerMap(),
 			walDataToDDLEvent:    validWalDataToDDLEvent,
 			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
 				require.Equal(t, testDDLEvent, ddlEvent)
@@ -556,6 +572,7 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			validationMode:       validationModeTableLevel,
 			tableValidationModes: map[string]string{`"test_schema"."test_table"`: validationModeRelaxed},
 			event:                testWALDDLEvent,
+			transformerMap:       NewTransformerMap(),
 			walDataToDDLEvent:    validWalDataToDDLEvent,
 			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
 				return &wal.SchemaDiff{
@@ -577,8 +594,10 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			name:                 "ok - DDL event with column type changed with table level validation mode set to strict",
 			validationMode:       validationModeTableLevel,
 			tableValidationModes: map[string]string{`"test_schema"."test_table"`: validationModeStrict},
-			transformerMap: map[string]ColumnTransformers{
-				`"test_schema"."test_table"`: {},
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					`"test_schema"."test_table"`: {},
+				},
 			},
 			event:             testWALDDLEvent,
 			walDataToDDLEvent: validWalDataToDDLEvent,
@@ -605,9 +624,11 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			name:                 "ok - DDL event with table rename and table exists in transformation rules",
 			validationMode:       validationModeStrict,
 			tableValidationModes: map[string]string{},
-			transformerMap: map[string]ColumnTransformers{
-				`"test_schema"."old_table"`: {},
-				`"test_schema"."new_table"`: {},
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					`"test_schema"."old_table"`: {},
+					`"test_schema"."new_table"`: {},
+				},
 			},
 			event:             testWALDDLEvent,
 			walDataToDDLEvent: validWalDataToDDLEvent,
@@ -632,10 +653,12 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			name:                 "ok - DDL event with column rename and column exists in transformation rules",
 			validationMode:       validationModeStrict,
 			tableValidationModes: map[string]string{},
-			transformerMap: map[string]ColumnTransformers{
-				`"test_schema"."test_table"`: {
-					"old_column": nil,
-					"new_column": nil,
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					`"test_schema"."test_table"`: {
+						"old_column": nil,
+						"new_column": nil,
+					},
 				},
 			},
 			event:             testWALDDLEvent,
@@ -666,6 +689,7 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			name:                 "error - DDL event with table rename and new table not in transformation rules",
 			validationMode:       validationModeStrict,
 			tableValidationModes: map[string]string{},
+			transformerMap:       NewTransformerMap(),
 			event:                testWALDDLEvent,
 			walDataToDDLEvent:    validWalDataToDDLEvent,
 			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
@@ -690,6 +714,7 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			validationMode:       validationModeStrict,
 			tableValidationModes: map[string]string{},
 			event:                testWALDDLEvent,
+			transformerMap:       NewTransformerMap(),
 			walDataToDDLEvent:    validWalDataToDDLEvent,
 			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
 				return &wal.SchemaDiff{
@@ -717,9 +742,11 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			name:                 "ok - DDL event with multiple changes including table rename with relaxed validation",
 			validationMode:       validationModeTableLevel,
 			tableValidationModes: map[string]string{`"test_schema"."new_table"`: validationModeRelaxed},
-			transformerMap: map[string]ColumnTransformers{
-				`"test_schema"."old_table"`: {},
-				`"test_schema"."new_table"`: {},
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					`"test_schema"."old_table"`: {},
+					`"test_schema"."new_table"`: {},
+				},
 			},
 			event:             testWALDDLEvent,
 			walDataToDDLEvent: validWalDataToDDLEvent,
@@ -756,9 +783,11 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			name:                 "error - DDL event with multiple changes in strict mode missing transformation rules",
 			validationMode:       validationModeStrict,
 			tableValidationModes: map[string]string{},
-			transformerMap: map[string]ColumnTransformers{
-				`"test_schema"."test_table"`: {
-					"old_column": nil,
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					`"test_schema"."test_table"`: {
+						"old_column": nil,
+					},
 				},
 			},
 			event:             testWALDDLEvent,
@@ -797,6 +826,7 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			validationMode:       validationModeTableLevel,
 			tableValidationModes: map[string]string{`"test_schema"."test_table"`: validationModeStrict},
 			event:                testWALDDLEvent,
+			transformerMap:       NewTransformerMap(),
 			walDataToDDLEvent:    validWalDataToDDLEvent,
 			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
 				return &wal.SchemaDiff{
@@ -818,6 +848,7 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			name:                 "error - DDL event with tables added",
 			validationMode:       validationModeStrict,
 			tableValidationModes: map[string]string{},
+			transformerMap:       NewTransformerMap(),
 			event:                testWALDDLEvent,
 			walDataToDDLEvent:    validWalDataToDDLEvent,
 			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
@@ -835,6 +866,7 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			name:                 "error - DDL event with columns added",
 			validationMode:       validationModeStrict,
 			tableValidationModes: map[string]string{},
+			transformerMap:       NewTransformerMap(),
 			event:                testWALDDLEvent,
 			walDataToDDLEvent:    validWalDataToDDLEvent,
 			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
@@ -855,6 +887,7 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			name:                 "error - walDataToDDLEvent fails",
 			validationMode:       validationModeStrict,
 			tableValidationModes: map[string]string{},
+			transformerMap:       NewTransformerMap(),
 			event:                testWALDDLEvent,
 			walDataToDDLEvent: func(data *wal.Data) (*wal.DDLEvent, error) {
 				return nil, errTest
@@ -867,6 +900,7 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			name:                 "error - ddlEventToSchemaDiff fails",
 			validationMode:       validationModeStrict,
 			tableValidationModes: map[string]string{},
+			transformerMap:       NewTransformerMap(),
 			event:                testWALDDLEvent,
 			walDataToDDLEvent:    validWalDataToDDLEvent,
 			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
@@ -913,7 +947,7 @@ func TestTransformer_validateTableDDL(t *testing.T) {
 		name                 string
 		validationMode       string
 		tableValidationModes map[string]string
-		transformerMap       map[string]ColumnTransformers
+		transformerMap       *TransformerMap
 		schema               string
 		table                string
 		ddl                  string
@@ -924,8 +958,10 @@ func TestTransformer_validateTableDDL(t *testing.T) {
 		{
 			name:           "ok - empty columns slice",
 			validationMode: validationModeStrict,
-			transformerMap: map[string]ColumnTransformers{
-				`"test_schema"."test_table"`: {},
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					`"test_schema"."test_table"`: {},
+				},
 			},
 			schema:  testSchema,
 			table:   testTable,
@@ -938,7 +974,7 @@ func TestTransformer_validateTableDDL(t *testing.T) {
 			name:                 "ok - relaxed validation mode",
 			validationMode:       validationModeRelaxed,
 			tableValidationModes: map[string]string{},
-			transformerMap:       map[string]ColumnTransformers{},
+			transformerMap:       &TransformerMap{},
 			schema:               testSchema,
 			table:                testTable,
 			ddl:                  testDDL,
@@ -950,7 +986,7 @@ func TestTransformer_validateTableDDL(t *testing.T) {
 			name:                 "ok - table level validation mode set to relaxed",
 			validationMode:       validationModeTableLevel,
 			tableValidationModes: map[string]string{`"test_schema"."test_table"`: validationModeRelaxed},
-			transformerMap:       map[string]ColumnTransformers{},
+			transformerMap:       &TransformerMap{},
 			schema:               testSchema,
 			table:                testTable,
 			ddl:                  testDDL,
@@ -961,10 +997,12 @@ func TestTransformer_validateTableDDL(t *testing.T) {
 		{
 			name:           "ok - strict validation mode with all columns in transformation rules",
 			validationMode: validationModeStrict,
-			transformerMap: map[string]ColumnTransformers{
-				`"test_schema"."test_table"`: {
-					"new_column":     testTransformer,
-					"another_column": testTransformer,
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					`"test_schema"."test_table"`: {
+						"new_column":     testTransformer,
+						"another_column": testTransformer,
+					},
 				},
 			},
 			schema:  testSchema,
@@ -978,10 +1016,12 @@ func TestTransformer_validateTableDDL(t *testing.T) {
 			name:                 "ok - table level validation mode set to strict with all columns in transformation rules",
 			validationMode:       validationModeTableLevel,
 			tableValidationModes: map[string]string{`"test_schema"."test_table"`: validationModeStrict},
-			transformerMap: map[string]ColumnTransformers{
-				`"test_schema"."test_table"`: {
-					"new_column":     testTransformer,
-					"another_column": testTransformer,
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					`"test_schema"."test_table"`: {
+						"new_column":     testTransformer,
+						"another_column": testTransformer,
+					},
 				},
 			},
 			schema:  testSchema,
@@ -994,9 +1034,11 @@ func TestTransformer_validateTableDDL(t *testing.T) {
 		{
 			name:           "error - strict validation mode with table not in transformation rules",
 			validationMode: validationModeStrict,
-			transformerMap: map[string]ColumnTransformers{
-				`"other_schema"."other_table"`: {
-					"column": testTransformer,
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					`"other_schema"."other_table"`: {
+						"column": testTransformer,
+					},
 				},
 			},
 			schema:  testSchema,
@@ -1010,7 +1052,7 @@ func TestTransformer_validateTableDDL(t *testing.T) {
 			name:                 "error - table level validation mode set to strict with table not in transformation rules",
 			validationMode:       validationModeTableLevel,
 			tableValidationModes: map[string]string{`"test_schema"."test_table"`: validationModeStrict},
-			transformerMap:       map[string]ColumnTransformers{},
+			transformerMap:       &TransformerMap{},
 			schema:               testSchema,
 			table:                testTable,
 			ddl:                  testDDL,
@@ -1021,10 +1063,12 @@ func TestTransformer_validateTableDDL(t *testing.T) {
 		{
 			name:           "error - strict validation mode with column not in transformation rules",
 			validationMode: validationModeStrict,
-			transformerMap: map[string]ColumnTransformers{
-				`"test_schema"."test_table"`: {
-					"new_column": testTransformer,
-					// missing "another_column"
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					`"test_schema"."test_table"`: {
+						"new_column": testTransformer,
+						// missing "another_column"
+					},
 				},
 			},
 			schema:  testSchema,
@@ -1038,7 +1082,7 @@ func TestTransformer_validateTableDDL(t *testing.T) {
 			name:                 "error - table level validation mode defaults to strict when table not found",
 			validationMode:       validationModeTableLevel,
 			tableValidationModes: map[string]string{}, // table not found, defaults to strict
-			transformerMap:       map[string]ColumnTransformers{},
+			transformerMap:       &TransformerMap{},
 			schema:               testSchema,
 			table:                testTable,
 			ddl:                  testDDL,

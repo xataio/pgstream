@@ -46,15 +46,14 @@ func NewPostgresTransformerParser(ctx context.Context, pgURL string, builder tra
 	}, nil
 }
 
-func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules Rules) (map[string]ColumnTransformers, error) {
+func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules Rules) (*TransformerMap, error) {
 	// validate that all required tables are present in the rules
 	if err := v.validateAllRequiredTables(ctx, rules); err != nil {
 		return nil, err
 	}
-	transformerMap := map[string]ColumnTransformers{}
+	transformerMap := NewTransformerMap()
 	for _, table := range rules.Transformers {
-		tableKey := schemaTableKey(table.Schema, table.Table)
-		fieldDescriptions, err := v.getFieldDescriptions(context.Background(), tableKey)
+		fieldDescriptions, err := v.getFieldDescriptions(context.Background(), table.Schema, table.Table)
 		if err != nil {
 			return nil, err
 		}
@@ -65,23 +64,19 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 			if _, found := table.ColumnRules[string(desc.Name)]; !found {
 				// column is not configured in rules, error out if strict validation mode is enabled
 				if table.ValidationMode == validationModeStrict {
-					return nil, fmt.Errorf("column %s of table %s has no transformer configured", desc.Name, tableKey)
+					return nil, fmt.Errorf("column %s of table %q.%q has no transformer configured", desc.Name, table.Schema, table.Table)
 				}
 				continue
 			}
 			mappedColumnTypes[string(desc.Name)] = desc.DataTypeOID
 		}
 
-		schemaTableTransformers := make(map[string]transformers.Transformer)
-		transformerMap[tableKey] = schemaTableTransformers
 		for colName, transformerRules := range table.ColumnRules {
 			cfg := transformerRulesToConfig(transformerRules)
 
 			switch cfg.Name {
 			case "", "noop":
-				// noop transformer, add it to the map with nil value to
-				// indicate it should be skipped in the transformation step
-				schemaTableTransformers[colName] = nil
+				transformerMap.AddNoopTransformer(table.Schema, table.Table, colName)
 				continue
 			case transformers.PGAnonymizer:
 				// pg_anonymizer transformer requires a connection pool, set
@@ -101,18 +96,18 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 			dataTypeOID, found := mappedColumnTypes[colName]
 			if !found {
 				// validate that the column in the rules is present in the table
-				return nil, fmt.Errorf("column %s not found in table %s", colName, tableKey)
+				return nil, fmt.Errorf("column %s not found in table %q.%q", colName, table.Schema, table.Table)
 			}
 
 			dataTypeName, err := v.pgtypeMap.TypeForOID(ctx, dataTypeOID)
 
 			// validate that the transformer is compatible with the column type
 			if err != nil || !pgTypeCompatibleWithTransformerType(transformer.CompatibleTypes(), dataTypeOID, dataTypeName) {
-				return nil, fmt.Errorf("transformer '%s' specified for column '%s' in table %s does not support pg data type: %s with OID: %d", transformer.Type(), colName, tableKey, dataTypeName, dataTypeOID)
+				return nil, fmt.Errorf("transformer '%s' specified for column '%s' in table %q.%q does not support pg data type: %s with OID: %d", transformer.Type(), colName, table.Schema, table.Table, dataTypeName, dataTypeOID)
 			}
 
 			// add the transformer to the map
-			schemaTableTransformers[colName] = transformer
+			transformerMap.AddActiveTransformer(table.Schema, table.Table, colName, transformer)
 		}
 	}
 	return transformerMap, nil
@@ -184,8 +179,8 @@ func (v *PostgresTransformerParser) Close() error {
 	return v.conn.Close(context.Background())
 }
 
-func (v *PostgresTransformerParser) getFieldDescriptions(ctx context.Context, schemaTable string) ([]pgconn.FieldDescription, error) {
-	query := fmt.Sprintf(fieldDescriptionsQuery, schemaTable)
+func (v *PostgresTransformerParser) getFieldDescriptions(ctx context.Context, schema, table string) ([]pgconn.FieldDescription, error) {
+	query := fmt.Sprintf(fieldDescriptionsQuery, pglib.QuoteQualifiedIdentifier(schema, table))
 	rows, err := v.conn.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("querying table rows: %w", err)
