@@ -48,11 +48,7 @@ func TestTransformer_New(t *testing.T) {
 		parseFn ParseFn
 
 		wantTransformer *Transformer
-
-		wantTransformerMap       map[string]ColumnTransformers
-		wantValidationMode       string
-		wantTableValidationModes map[string]string
-		wantErr                  error
+		wantErr         error
 	}{
 		{
 			name: "ok",
@@ -674,6 +670,175 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			}
 
 			err := transformer.processDDLEvent(tc.event)
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestTransformer_validateTableDDL(t *testing.T) {
+	t.Parallel()
+
+	testSchema := "test_schema"
+	testTable := "test_table"
+	testDDL := "ALTER TABLE test_schema.test_table ADD COLUMN new_column text"
+	testColumns := []wal.DDLColumn{
+		{Name: "new_column", Type: "text"},
+		{Name: "another_column", Type: "int"},
+	}
+
+	testTransformer := &transformermocks.Transformer{}
+
+	tests := []struct {
+		name                 string
+		validationMode       string
+		tableValidationModes map[string]string
+		transformerMap       map[string]ColumnTransformers
+		schema               string
+		table                string
+		ddl                  string
+		columns              []wal.DDLColumn
+
+		wantErr error
+	}{
+		{
+			name:           "ok - empty columns slice",
+			validationMode: validationModeStrict,
+			transformerMap: map[string]ColumnTransformers{
+				`"test_schema"."test_table"`: {},
+			},
+			schema:  testSchema,
+			table:   testTable,
+			ddl:     testDDL,
+			columns: []wal.DDLColumn{},
+
+			wantErr: nil,
+		},
+		{
+			name:                 "ok - relaxed validation mode",
+			validationMode:       validationModeRelaxed,
+			tableValidationModes: map[string]string{},
+			transformerMap:       map[string]ColumnTransformers{},
+			schema:               testSchema,
+			table:                testTable,
+			ddl:                  testDDL,
+			columns:              testColumns,
+
+			wantErr: nil,
+		},
+		{
+			name:                 "ok - table level validation mode set to relaxed",
+			validationMode:       validationModeTableLevel,
+			tableValidationModes: map[string]string{`"test_schema"."test_table"`: validationModeRelaxed},
+			transformerMap:       map[string]ColumnTransformers{},
+			schema:               testSchema,
+			table:                testTable,
+			ddl:                  testDDL,
+			columns:              testColumns,
+
+			wantErr: nil,
+		},
+		{
+			name:           "ok - strict validation mode with all columns in transformation rules",
+			validationMode: validationModeStrict,
+			transformerMap: map[string]ColumnTransformers{
+				`"test_schema"."test_table"`: {
+					"new_column":     testTransformer,
+					"another_column": testTransformer,
+				},
+			},
+			schema:  testSchema,
+			table:   testTable,
+			ddl:     testDDL,
+			columns: testColumns,
+
+			wantErr: nil,
+		},
+		{
+			name:                 "ok - table level validation mode set to strict with all columns in transformation rules",
+			validationMode:       validationModeTableLevel,
+			tableValidationModes: map[string]string{`"test_schema"."test_table"`: validationModeStrict},
+			transformerMap: map[string]ColumnTransformers{
+				`"test_schema"."test_table"`: {
+					"new_column":     testTransformer,
+					"another_column": testTransformer,
+				},
+			},
+			schema:  testSchema,
+			table:   testTable,
+			ddl:     testDDL,
+			columns: testColumns,
+
+			wantErr: nil,
+		},
+		{
+			name:           "error - strict validation mode with table not in transformation rules",
+			validationMode: validationModeStrict,
+			transformerMap: map[string]ColumnTransformers{
+				`"other_schema"."other_table"`: {
+					"column": testTransformer,
+				},
+			},
+			schema:  testSchema,
+			table:   testTable,
+			ddl:     testDDL,
+			columns: testColumns,
+
+			wantErr: errDDLNotSupportedInStrictMode,
+		},
+		{
+			name:                 "error - table level validation mode set to strict with table not in transformation rules",
+			validationMode:       validationModeTableLevel,
+			tableValidationModes: map[string]string{`"test_schema"."test_table"`: validationModeStrict},
+			transformerMap:       map[string]ColumnTransformers{},
+			schema:               testSchema,
+			table:                testTable,
+			ddl:                  testDDL,
+			columns:              testColumns,
+
+			wantErr: errDDLNotSupportedInStrictMode,
+		},
+		{
+			name:           "error - strict validation mode with column not in transformation rules",
+			validationMode: validationModeStrict,
+			transformerMap: map[string]ColumnTransformers{
+				`"test_schema"."test_table"`: {
+					"new_column": testTransformer,
+					// missing "another_column"
+				},
+			},
+			schema:  testSchema,
+			table:   testTable,
+			ddl:     testDDL,
+			columns: testColumns,
+
+			wantErr: errDDLNotSupportedInStrictMode,
+		},
+		{
+			name:                 "error - table level validation mode defaults to strict when table not found",
+			validationMode:       validationModeTableLevel,
+			tableValidationModes: map[string]string{}, // table not found, defaults to strict
+			transformerMap:       map[string]ColumnTransformers{},
+			schema:               testSchema,
+			table:                testTable,
+			ddl:                  testDDL,
+			columns:              testColumns,
+
+			wantErr: errDDLNotSupportedInStrictMode,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			transformer := &Transformer{
+				logger:               log.NewNoopLogger(),
+				validationMode:       tc.validationMode,
+				tableValidationModes: tc.tableValidationModes,
+				transformerMap:       tc.transformerMap,
+			}
+
+			err := transformer.validateTableDDL(tc.schema, tc.table, tc.ddl, tc.columns)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
