@@ -194,7 +194,7 @@ func newProcessor(ctx context.Context, logger loglib.Logger, config *Config, che
 	}
 	var closerAgg closerAggregator
 	var closer closerFn
-	processor, closer, err = addProcessorModifiers(ctx, config, logger, processor, instrumentation)
+	processor, closer, err = addProcessorModifiers(ctx, config, logger, processor, processorType, instrumentation)
 	if err != nil {
 		return nil, noopCloser, err
 	}
