@@ -114,8 +114,9 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 		transformerRules []TableRules
 		validator        PostgresTransformerParser
 
-		wantErr             error
-		wantTransformersFor []string
+		wantErr                   error
+		wantActiveTransformersFor []string
+		wantNoopTransformersFor   []string
 	}{
 		{
 			name: "ok - no error, relaxed mode",
@@ -136,8 +137,9 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			},
 			validator: testPGValidator,
 
-			wantTransformersFor: []string{"id", "name"},
-			wantErr:             nil,
+			wantActiveTransformersFor: []string{"name"},
+			wantNoopTransformersFor:   []string{"id"},
+			wantErr:                   nil,
 		},
 		{
 			name: "ok - no error for missing column, relaxed mode",
@@ -155,8 +157,8 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			},
 			validator: testPGValidator,
 
-			wantTransformersFor: []string{"name"},
-			wantErr:             nil,
+			wantActiveTransformersFor: []string{"name"},
+			wantErr:                   nil,
 		},
 		{
 			name: "ok - with wildcard table",
@@ -185,8 +187,9 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				requiredTables: []string{"*"},
 			},
 
-			wantTransformersFor: []string{"id", "name", "email"},
-			wantErr:             nil,
+			wantActiveTransformersFor: []string{"id", "name"},
+			wantNoopTransformersFor:   []string{"email"},
+			wantErr:                   nil,
 		},
 		{
 			name: "ok - with wildcard schema and table",
@@ -215,8 +218,9 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				requiredTables: []string{"*.*"},
 			},
 
-			wantTransformersFor: []string{"id", "name", "email"},
-			wantErr:             nil,
+			wantActiveTransformersFor: []string{"id", "name"},
+			wantNoopTransformersFor:   []string{"email"},
+			wantErr:                   nil,
 		},
 		{
 			name: "ok - email transformer",
@@ -232,9 +236,9 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 					},
 				},
 			},
-			validator:           testPGValidator,
-			wantTransformersFor: []string{"email"},
-			wantErr:             nil,
+			validator:                 testPGValidator,
+			wantActiveTransformersFor: []string{"email"},
+			wantErr:                   nil,
 		},
 		{
 			name: "ok - custom type",
@@ -250,9 +254,9 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 					},
 				},
 			},
-			validator:           testPGValidator,
-			wantTransformersFor: []string{"email"},
-			wantErr:             nil,
+			validator:                 testPGValidator,
+			wantActiveTransformersFor: []string{"email"},
+			wantErr:                   nil,
 		},
 		{
 			name: "error - missing column for strict validation",
@@ -416,12 +420,17 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			}
 			require.NoError(t, err)
 
-			columnTransformers, ok := transformerMap[testSchemaTable]
+			activeColumnTransformers, ok := transformerMap.GetActiveColumnTransformers(`"public"`, `"test"`)
 			require.True(t, ok)
+			require.Equal(t, len(tc.wantActiveTransformersFor), len(activeColumnTransformers))
+			for _, col := range tc.wantActiveTransformersFor {
+				require.Contains(t, activeColumnTransformers, col)
+			}
 
-			require.Equal(t, len(tc.wantTransformersFor), len(columnTransformers))
-			for _, col := range tc.wantTransformersFor {
-				require.Contains(t, columnTransformers, col)
+			noopColumnTransformers, _ := transformerMap.GetNoopColumnTransformers(`"public"`, `"test"`)
+			require.Equal(t, len(tc.wantNoopTransformersFor), len(noopColumnTransformers))
+			for _, col := range tc.wantNoopTransformersFor {
+				require.Contains(t, noopColumnTransformers, col)
 			}
 		})
 	}

@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 
-	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/transformers"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -18,7 +17,7 @@ import (
 type Transformer struct {
 	logger         loglib.Logger
 	processor      processor.Processor
-	transformerMap map[string]ColumnTransformers
+	transformerMap *TransformerMap
 	parser         ParseFn
 
 	walDataToDDLEvent    func(data *wal.Data) (*wal.DDLEvent, error)
@@ -28,7 +27,7 @@ type Transformer struct {
 	tableValidationModes map[string]string
 }
 
-type ParseFn func(ctx context.Context, rules Rules) (map[string]ColumnTransformers, error)
+type ParseFn func(ctx context.Context, rules Rules) (*TransformerMap, error)
 
 type ColumnTransformers map[string]transformers.Transformer
 
@@ -115,15 +114,8 @@ func (t *Transformer) Name() string {
 }
 
 func (t *Transformer) Close() error {
-	for _, transformer := range t.transformerMap {
-		for _, colTransformer := range transformer {
-			if colTransformer == nil {
-				continue
-			}
-			if err := colTransformer.Close(); err != nil {
-				t.logger.Error(err, "closing transformer")
-			}
-		}
+	if err := t.transformerMap.Close(); err != nil {
+		t.logger.Error(err, "closing transformer map")
 	}
 	return t.processor.Close()
 }
@@ -139,11 +131,7 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 		return t.processDDLEvent(event)
 	}
 
-	if len(t.transformerMap) == 0 {
-		return nil
-	}
-
-	columnTransformers, found := t.getColumnTransformers(event.Data.Schema, event.Data.Table)
+	columnTransformers, found := t.transformerMap.GetActiveColumnTransformers(event.Data.Schema, event.Data.Table)
 	if !found || len(columnTransformers) == 0 {
 		return nil
 	}
@@ -265,7 +253,7 @@ func (t *Transformer) validateTableDDL(schema, table, ddl string, columns []wal.
 	}
 
 	// check the table exists in the transformation rules
-	columnTransformers, found := t.getColumnTransformers(schema, table)
+	columnTransformers, found := t.transformerMap.GetAllColumnTransformers(schema, table)
 	if !found {
 		t.logger.Error(errDDLNotSupportedInStrictMode, "DDL event includes changes to a table that is not present in the transformation rules, which is not supported in strict validation mode", loglib.Fields{
 			"schema": schema,
@@ -291,11 +279,6 @@ func (t *Transformer) validateTableDDL(schema, table, ddl string, columns []wal.
 	return nil
 }
 
-func (t *Transformer) getColumnTransformers(schema, table string) (ColumnTransformers, bool) {
-	transformers, found := t.transformerMap[schemaTableKey(schema, table)]
-	return transformers, found
-}
-
 func (t *Transformer) getDynamicColumnValues(excludeColName string, columns []wal.Column) map[string]any {
 	values := make(map[string]any, len(columns))
 	for _, col := range columns {
@@ -305,10 +288,6 @@ func (t *Transformer) getDynamicColumnValues(excludeColName string, columns []wa
 		values[col.Name] = col.Value
 	}
 	return values
-}
-
-func schemaTableKey(schema, table string) string {
-	return pglib.QuoteQualifiedIdentifier(schema, table)
 }
 
 // getTableValidationMode returns the validation mode for the given table. If

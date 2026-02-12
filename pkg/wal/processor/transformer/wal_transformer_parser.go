@@ -18,26 +18,25 @@ func newTransformerParser(b transformerBuilder) *transformerParser {
 	}
 }
 
-func (p *transformerParser) parse(_ context.Context, rules Rules) (map[string]ColumnTransformers, error) {
-	var err error
-	transformerMap := map[string]ColumnTransformers{}
+func (p *transformerParser) parse(_ context.Context, rules Rules) (*TransformerMap, error) {
+	transformerMap := NewTransformerMap()
 	for _, table := range rules.Transformers {
 		if table.ValidationMode == validationModeStrict {
 			return nil, errValidatorRequiredForStrictMode
 		}
-		schemaTableTransformers := make(map[string]transformers.Transformer)
-		transformerMap[schemaTableKey(table.Schema, table.Table)] = schemaTableTransformers
+
 		for colName, transformerRules := range table.ColumnRules {
 			cfg := transformerRulesToConfig(transformerRules)
 			if cfg.Name == "" || cfg.Name == "noop" {
-				// noop transformer, add it to the map with nil value to
-				// indicate it should be skipped in the transformation step
-				schemaTableTransformers[colName] = nil
+				transformerMap.AddNoopTransformer(table.Schema, table.Table, colName)
 				continue
 			}
-			if schemaTableTransformers[colName], err = p.builder.New(cfg); err != nil {
+
+			transformer, err := p.builder.New(cfg)
+			if err != nil {
 				return nil, err
 			}
+			transformerMap.AddActiveTransformer(table.Schema, table.Table, colName, transformer)
 		}
 	}
 	return transformerMap, nil

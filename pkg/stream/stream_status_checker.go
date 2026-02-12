@@ -29,7 +29,7 @@ type StatusChecker struct {
 	ruleValidatorBuilder func(context.Context, string, []string) (ruleValidator, error)
 }
 
-type ruleValidator func(ctx context.Context, rules transformer.Rules) (map[string]transformer.ColumnTransformers, error)
+type ruleValidator func(ctx context.Context, rules transformer.Rules) (*transformer.TransformerMap, error)
 
 type migrator interface {
 	Status() ([]migratorlib.MigrationStatus, error)
