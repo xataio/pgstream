@@ -143,7 +143,7 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 		return nil
 	}
 
-	columnTransformers, found := t.transformerMap[schemaTableKey(event.Data.Schema, event.Data.Table)]
+	columnTransformers, found := t.getColumnTransformers(event.Data.Schema, event.Data.Table)
 	if !found || len(columnTransformers) == 0 {
 		return nil
 	}
@@ -204,38 +204,75 @@ func (t *Transformer) processDDLEvent(event *wal.Event) error {
 		return nil
 	}
 
-	// we want to block DDL for new tables even if the validation mode is table
-	// level, as we can't determine the validation mode for the new table unless
-	// it's explicitly defined. It's safer to block and require it to be defined
+	// We want to block DDL changes that are not covered by the existing
+	// transformation rules in strict mode
+
+	// Block DDL for new tables even if the validation mode is table level, as
+	// we can't determine the validation mode for the new table unless it's
+	// explicitly defined. It's safer to block and require it to be defined
 	// rather than allowing it by default and potentially missing
-	// transformations on it
-	if len(schemaDiff.TablesAdded) > 0 {
-		t.logger.Error(errDDLNotSupportedInStrictMode, "DDL event includes added tables, which is not supported in strict validation mode", loglib.Fields{
-			"schema": schemaDiff.SchemaName,
-			"query":  ddlEvent.DDL,
-		})
-		return errDDLNotSupportedInStrictMode
+	// transformations on it.
+	for _, table := range schemaDiff.TablesAdded {
+		if err := t.validateTableDDL(schemaDiff.SchemaName, table.GetTable(), ddlEvent.DDL, table.Columns); err != nil {
+			return err
+		}
 	}
 
+	// make sure added columns to existing tables are part of the transformation rules
 	for _, tableDiff := range schemaDiff.TablesChanged {
 		if len(tableDiff.ColumnsAdded) == 0 {
 			continue
 		}
 
-		tableValidationMode := t.getTableValidationMode(schemaDiff.SchemaName, tableDiff.TableName)
-		if tableValidationMode == validationModeRelaxed {
-			continue
+		if err := t.validateTableDDL(schemaDiff.SchemaName, tableDiff.TableName, ddlEvent.DDL, tableDiff.ColumnsAdded); err != nil {
+			return err
 		}
+	}
 
-		t.logger.Error(errDDLNotSupportedInStrictMode, "DDL event includes added columns, which is not supported in strict validation mode", loglib.Fields{
-			"schema": schemaDiff.SchemaName,
-			"table":  tableDiff.TableName,
-			"query":  ddlEvent.DDL,
+	return nil
+}
+
+// validateTableDDL checks if the DDL change is allowed based on the validation
+// mode and transformation rules. In strict mode, it blocks any DDL changes to
+// tables that are not present in the transformation rules, or that include
+// columns that are not present in the transformation rules. In relaxed mode, it
+// allows all DDL changes.
+func (t *Transformer) validateTableDDL(schema, table, ddl string, columns []wal.DDLColumn) error {
+	tableValidationMode := t.getTableValidationMode(schema, table)
+	if tableValidationMode == validationModeRelaxed {
+		return nil
+	}
+
+	// check the table exists in the transformation rules
+	columnTransformers, found := t.getColumnTransformers(schema, table)
+	if !found {
+		t.logger.Error(errDDLNotSupportedInStrictMode, "DDL event includes changes to a table that is not present in the transformation rules, which is not supported in strict validation mode", loglib.Fields{
+			"schema": schema,
+			"table":  table,
+			"query":  ddl,
 		})
 		return errDDLNotSupportedInStrictMode
 	}
 
+	// check all the columns in the table exist in the transformation rules
+	for _, col := range columns {
+		if _, found := columnTransformers[col.Name]; !found {
+			t.logger.Error(errDDLNotSupportedInStrictMode, "DDL event includes columns that are not present in the transformation rules, which is not supported in strict validation mode", loglib.Fields{
+				"schema": schema,
+				"table":  table,
+				"column": col.Name,
+				"query":  ddl,
+			})
+			return errDDLNotSupportedInStrictMode
+		}
+	}
+
 	return nil
+}
+
+func (t *Transformer) getColumnTransformers(schema, table string) (ColumnTransformers, bool) {
+	transformers, found := t.transformerMap[schemaTableKey(schema, table)]
+	return transformers, found
 }
 
 func (t *Transformer) getDynamicColumnValues(excludeColName string, columns []wal.Column) map[string]any {
