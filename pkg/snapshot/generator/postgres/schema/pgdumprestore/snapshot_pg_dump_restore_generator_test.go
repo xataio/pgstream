@@ -1623,3 +1623,26 @@ func TestParseDump_BalancedDollarQuoteOnIndexLine(t *testing.T) {
 	require.Contains(t, indices, "CREATE INDEX idx_other", "CREATE INDEX after balanced line should be in indices")
 	require.NotContains(t, filtered, "CREATE INDEX idx_other", "CREATE INDEX after balanced line should not be in filtered")
 }
+
+func TestExtractDollarQuoteTag_IgnoresDoubleQuotedIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		line string
+		want string
+	}{
+		{name: "dollar tag inside double quotes", line: `CREATE INDEX "my$$idx" ON public.t (col);`, want: ""},
+		{name: "named tag inside double quotes", line: `ALTER TABLE "schema$_$name".t ADD COLUMN x INT;`, want: ""},
+		{name: "dollar after closing double quote", line: `CREATE INDEX "name" ON t (col) WHERE x = $$`, want: "$$"},
+		{name: "real tag not in quotes", line: "    AS $_$", want: "$_$"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := extractDollarQuoteTag(tc.line)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}

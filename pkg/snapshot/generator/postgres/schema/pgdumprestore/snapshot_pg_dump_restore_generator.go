@@ -538,11 +538,13 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 // extractDollarQuoteTag returns the first dollar-quote tag found in the line
 // (e.g. "$$", "$_$", "$BODY$") or "" if none. Per PostgreSQL spec, the tag
 // identifier must start with a letter or underscore, so $1$, $5$ are rejected.
-// Dollar signs inside single-quoted strings are ignored.
+// Dollar signs inside single-quoted strings or double-quoted identifiers
+// are ignored.
 func extractDollarQuoteTag(line string) string {
 	inSingleQuote := false
+	inDoubleQuote := false
 	for i := 0; i < len(line); i++ {
-		if line[i] == '\'' {
+		if line[i] == '\'' && !inDoubleQuote {
 			if inSingleQuote && i+1 < len(line) && line[i+1] == '\'' {
 				i++ // skip '' escape
 				continue
@@ -550,7 +552,11 @@ func extractDollarQuoteTag(line string) string {
 			inSingleQuote = !inSingleQuote
 			continue
 		}
-		if inSingleQuote || line[i] != '$' {
+		if line[i] == '"' && !inSingleQuote {
+			inDoubleQuote = !inDoubleQuote
+			continue
+		}
+		if inSingleQuote || inDoubleQuote || line[i] != '$' {
 			continue
 		}
 		if i+1 < len(line) && line[i+1] == '$' {
