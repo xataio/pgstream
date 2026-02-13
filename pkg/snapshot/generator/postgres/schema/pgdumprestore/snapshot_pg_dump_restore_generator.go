@@ -417,9 +417,12 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 
 		// Track dollar-quoted blocks so lines inside function bodies
 		// (e.g. "CREATE TRIGGER %s" in a format() template) are not
-		// matched by the prefix checks below.
+		// matched by the prefix checks below. Comment lines are excluded
+		// from tracking so tokens like $$ in comments don't corrupt state.
 		wasInDollarQuote := inDollarQuote
-		inDollarQuote, dollarQuoteTag = updateDollarQuoteState(line, inDollarQuote, dollarQuoteTag)
+		if !strings.HasPrefix(line, "--") {
+			inDollarQuote, dollarQuoteTag = updateDollarQuoteState(line, inDollarQuote, dollarQuoteTag)
+		}
 		if wasInDollarQuote || inDollarQuote {
 			filteredDump.WriteString(line)
 			filteredDump.WriteString("\n")

@@ -1646,3 +1646,31 @@ func TestExtractDollarQuoteTag_IgnoresDoubleQuotedIdentifiers(t *testing.T) {
 		})
 	}
 }
+
+func TestParseDump_CommentWithDollarTag(t *testing.T) {
+	t.Parallel()
+
+	// A -- comment line containing $$ must not flip dollar-quote state.
+	// Without the fix, parseDump enters dollar-quote mode on the comment
+	// and misroutes the subsequent CREATE INDEX to filteredDump.
+	dumpInput := strings.Join([]string{
+		"-- This function uses $$ dollar quoting",
+		"CREATE INDEX idx_after_comment ON public.t USING btree (col);",
+		"CREATE TRIGGER trg_after_comment BEFORE UPDATE ON public.t FOR EACH ROW EXECUTE FUNCTION public.noop();",
+		"",
+	}, "\n")
+
+	s := &SnapshotGenerator{
+		roleSQLParser: &roleSQLParser{},
+	}
+	result := s.parseDump([]byte(dumpInput))
+
+	filtered := string(result.filtered)
+	indices := string(result.indicesAndConstraints)
+
+	require.Contains(t, indices, "CREATE INDEX idx_after_comment", "CREATE INDEX after comment should be in indices")
+	require.NotContains(t, filtered, "CREATE INDEX idx_after_comment", "CREATE INDEX after comment should not be in filtered")
+
+	require.Contains(t, indices, "CREATE TRIGGER trg_after_comment", "CREATE TRIGGER after comment should be in indices")
+	require.NotContains(t, filtered, "CREATE TRIGGER trg_after_comment", "CREATE TRIGGER after comment should not be in filtered")
+}
