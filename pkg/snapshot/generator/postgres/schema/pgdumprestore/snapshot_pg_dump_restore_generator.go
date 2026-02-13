@@ -429,7 +429,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		if tag := extractDollarQuoteTag(line); tag != "" {
 			filteredDump.WriteString(line)
 			filteredDump.WriteString("\n")
-			if strings.Count(line, tag) < 2 {
+			if strings.Count(line, tag)%2 != 0 {
 				dollarQuoteTag = tag
 			}
 			continue

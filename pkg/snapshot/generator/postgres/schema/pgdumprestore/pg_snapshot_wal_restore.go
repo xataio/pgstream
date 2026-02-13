@@ -143,8 +143,8 @@ func updateDollarQuoteState(line string, inDollarQuote bool, currentTag string) 
 
 	// Not currently in a dollar quote — check if one opens on this line
 	if tag := extractDollarQuoteTag(line); tag != "" {
-		if strings.Count(line, tag) >= 2 {
-			// Opens and closes on the same line (e.g. AS $$ BEGIN ... END; $$;)
+		if strings.Count(line, tag)%2 == 0 {
+			// Even count: all pairs matched, not inside a dollar quote
 			return false, ""
 		}
 		return true, tag

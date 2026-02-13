@@ -1510,3 +1510,35 @@ func TestParseDump_DollarQuotedBlocks(t *testing.T) {
 	// The dollar-quoted function body line should NOT be in indices
 	require.NotContains(t, indices, "CREATE TRIGGER %s", "dollar-quoted line should not be in indices section")
 }
+
+func TestParseDump_OddDollarQuoteCount(t *testing.T) {
+	t.Parallel()
+
+	// A line with 3 occurrences of $$ means: open, close, re-open.
+	// The parser must recognize we're still inside a dollar-quoted block
+	// after that line, so "CREATE TRIGGER inside" on the next line stays
+	// in filteredDump.
+	dumpInput := strings.Join([]string{
+		"CREATE FUNCTION public.f() RETURNS void LANGUAGE plpgsql AS $$ BEGIN EXECUTE $$ || $$ ",
+		"CREATE TRIGGER inside_odd BEFORE INSERT ON t FOR EACH ROW EXECUTE FUNCTION noop();",
+		"$$;",
+		"",
+		"CREATE TRIGGER real_outside BEFORE UPDATE ON public.t FOR EACH ROW EXECUTE FUNCTION public.noop();",
+		"",
+	}, "\n")
+
+	s := &SnapshotGenerator{
+		roleSQLParser: &roleSQLParser{},
+	}
+	result := s.parseDump([]byte(dumpInput))
+
+	filtered := string(result.filtered)
+	indices := string(result.indicesAndConstraints)
+
+	// The trigger inside the odd-count dollar-quoted block must stay in filteredDump
+	require.Contains(t, filtered, "CREATE TRIGGER inside_odd", "trigger inside odd-count dollar block should stay in filtered dump")
+	require.NotContains(t, indices, "CREATE TRIGGER inside_odd", "trigger inside odd-count dollar block should not be in indices")
+
+	// The real top-level trigger should be in indicesAndConstraints
+	require.Contains(t, indices, "CREATE TRIGGER real_outside", "top-level trigger should be in indices section")
+}
