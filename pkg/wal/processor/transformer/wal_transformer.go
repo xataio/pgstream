@@ -213,7 +213,15 @@ func (t *Transformer) processDDLEvent(event *wal.Event) error {
 
 		// make sure table renames are captured in the transformation rules
 		if tableDiff.TableNameChange != nil {
-			if err := t.validateTableDDL(schemaDiff.SchemaName, tableDiff.TableNameChange.New, ddlEvent.DDL, []wal.DDLColumn{}); err != nil {
+			// if the renamed table is included in the DDL event objects, we can
+			// validate the columns in the rename.
+			columns := []wal.DDLColumn{}
+			tableObj := ddlEvent.GetTableObjectByName(schemaDiff.SchemaName, tableDiff.TableName)
+			if tableObj != nil {
+				columns = tableObj.Columns
+			}
+
+			if err := t.validateTableDDL(schemaDiff.SchemaName, tableDiff.TableNameChange.New, ddlEvent.DDL, columns); err != nil {
 				return err
 			}
 		}

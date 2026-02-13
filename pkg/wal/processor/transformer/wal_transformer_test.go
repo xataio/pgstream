@@ -627,6 +627,55 @@ func TestTransformer_processDDLEvent(t *testing.T) {
 			transformerMap: &TransformerMap{
 				activeTransformerMap: map[string]ColumnTransformers{
 					`"test_schema"."old_table"`: {},
+					`"test_schema"."new_table"`: {
+						"col_1": nil,
+						"col_2": nil,
+					},
+				},
+			},
+			event: testWALDDLEvent,
+			walDataToDDLEvent: func(data *wal.Data) (*wal.DDLEvent, error) {
+				return &wal.DDLEvent{
+					DDL:        "ALTER TABLE test_schema.old_table RENAME TO new_table",
+					SchemaName: "test_schema",
+					CommandTag: "ALTER TABLE",
+					Objects: []wal.DDLObject{
+						{
+							Type:     "table",
+							Identity: "test_schema.new_table",
+							Schema:   "test_schema",
+							Columns: []wal.DDLColumn{
+								{Name: "col_1"},
+								{Name: "col_2"},
+							},
+						},
+					},
+				}, nil
+			},
+			ddlEventToSchemaDiff: func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error) {
+				return &wal.SchemaDiff{
+					SchemaName: "test_schema",
+					TablesChanged: []wal.TableDiff{
+						{
+							TableName: "new_table",
+							TableNameChange: &wal.ValueChange[string]{
+								Old: "old_table",
+								New: "new_table",
+							},
+						},
+					},
+				}, nil
+			},
+
+			wantErr: nil,
+		},
+		{
+			name:                 "ok - DDL event with table rename and no table object but table exists in transformation rules",
+			validationMode:       validationModeStrict,
+			tableValidationModes: map[string]string{},
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					`"test_schema"."old_table"`: {},
 					`"test_schema"."new_table"`: {},
 				},
 			},
