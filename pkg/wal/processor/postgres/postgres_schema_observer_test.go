@@ -24,6 +24,7 @@ func TestPGSchemaObserver_getGeneratedColumnNames(t *testing.T) {
 
 	tests := []struct {
 		name         string
+		forCopy      bool
 		tableColumns map[string]map[string]struct{}
 		pgConn       pglib.Querier
 
@@ -133,6 +134,47 @@ func TestPGSchemaObserver_getGeneratedColumnNames(t *testing.T) {
 			wantTableColumns: map[string]map[string]struct{}{},
 			wantErr:          errTest,
 		},
+		{
+			name:         "ok - forCopy uses copy query",
+			forCopy:      true,
+			tableColumns: map[string]map[string]struct{}{},
+			pgConn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, generatedTableColumnsQueryCopy, query)
+					require.Equal(t, []any{testTable, testSchema}, args)
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return false },
+						ScanFn:  func(_ uint, dest ...any) error { return nil },
+						ErrFn:   func() error { return nil },
+					}, nil
+				},
+			},
+
+			wantColumns: map[string]struct{}{},
+			wantTableColumns: map[string]map[string]struct{}{
+				quotedQualifiedTableName: {},
+			},
+			wantErr: nil,
+		},
+		{
+			name:    "ok - forCopy existing table uses cache",
+			forCopy: true,
+			tableColumns: map[string]map[string]struct{}{
+				quotedQualifiedTableName: {idColumn: {}},
+			},
+			pgConn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					return nil, errors.New("unexpected call to QueryFn")
+				},
+			},
+
+			wantColumns: map[string]struct{}{idColumn: {}},
+			wantTableColumns: map[string]map[string]struct{}{
+				quotedQualifiedTableName: {idColumn: {}},
+			},
+			wantErr: nil,
+		},
 	}
 
 	for _, tc := range tests {
@@ -141,6 +183,7 @@ func TestPGSchemaObserver_getGeneratedColumnNames(t *testing.T) {
 
 			o := &pgSchemaObserver{
 				pgConn:                tc.pgConn,
+				forCopy:               tc.forCopy,
 				generatedTableColumns: synclib.NewMapFromMap(tc.tableColumns),
 				logger:                loglib.NewNoopLogger(),
 			}
