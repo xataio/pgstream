@@ -48,7 +48,7 @@ type (
 )
 
 func newAdapter(ctx context.Context, logger loglib.Logger, ignoreDDL bool, pgURL string, onConflictAction string, forCopy bool) (*adapter, error) {
-	schemaObserver, err := newPGSchemaObserver(ctx, pgURL, logger)
+	schemaObserver, err := newPGSchemaObserver(ctx, pgURL, logger, forCopy)
 	if err != nil {
 		return nil, err
 	}
