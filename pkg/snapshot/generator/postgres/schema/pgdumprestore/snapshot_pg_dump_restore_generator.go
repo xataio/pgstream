@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode"
+	"unicode/utf8"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
@@ -565,21 +567,23 @@ func extractDollarQuoteTag(line string) string {
 		if i+1 < len(line) && line[i+1] == '$' {
 			return "$$"
 		}
-		if i+1 >= len(line) {
+		// Scan tag identifier after opening $. Per PostgreSQL spec, the first
+		// character must be a letter or underscore; subsequent characters can
+		// also include digits. Unicode letters are accepted.
+		rest := line[i+1:]
+		first, size := utf8.DecodeRuneInString(rest)
+		if first == utf8.RuneError || !(unicode.IsLetter(first) || first == '_') {
 			continue
 		}
-		first := line[i+1]
-		if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || first == '_') {
-			continue
-		}
-		for j := i + 2; j < len(line); j++ {
-			if line[j] == '$' {
-				return line[i : j+1]
+		for j := size; j < len(rest); {
+			r, rsize := utf8.DecodeRuneInString(rest[j:])
+			if r == '$' {
+				return line[i : i+1+j+1]
 			}
-			c := line[j]
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+			if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_') {
 				break
 			}
+			j += rsize
 		}
 	}
 	return ""

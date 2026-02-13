@@ -1455,6 +1455,10 @@ func TestExtractDollarQuoteTag(t *testing.T) {
 		// Valid tags that start with letter/underscore followed by digits
 		{name: "letter then digit $x1$", line: "AS $x1$", want: "$x1$"},
 		{name: "underscore then digit $_1$", line: "AS $_1$", want: "$_1$"},
+		// Non-ASCII Unicode letters are valid in dollar-quote tag identifiers
+		{name: "non-ASCII tag $ñ$", line: "AS $ñ$", want: "$ñ$"},
+		{name: "non-ASCII tag $función$", line: "AS $función$", want: "$función$"},
+		{name: "CJK tag $表$", line: "AS $表$", want: "$表$"},
 	}
 
 	for _, tc := range tests {
