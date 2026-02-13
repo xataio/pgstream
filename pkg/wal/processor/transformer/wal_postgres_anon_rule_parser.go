@@ -62,7 +62,7 @@ func NewAnonRuleParser(ctx context.Context, pgURL string, dumpToFile bool, logge
 // ParseAndValidate will fetch the anon masking rules from the source database
 // and convert them into transformation rules before passing them to the wrapped
 // parser for validation.
-func (a *AnonRuleParser) ParseAndValidate(ctx context.Context, rules Rules) (map[string]ColumnTransformers, error) {
+func (a *AnonRuleParser) ParseAndValidate(ctx context.Context, rules Rules) (*TransformerMap, error) {
 	var err error
 	rules.Transformers, err = a.parseAnonMaskingRules(ctx)
 	if err != nil {

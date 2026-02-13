@@ -33,7 +33,7 @@ func TestTransformerParser_parse(t *testing.T) {
 		name  string
 		rules []TableRules
 
-		wantTransformerMap map[string]ColumnTransformers
+		wantTransformerMap *TransformerMap
 		wantErr            error
 	}{
 		{
@@ -53,11 +53,14 @@ func TestTransformerParser_parse(t *testing.T) {
 				},
 			},
 
-			wantTransformerMap: map[string]ColumnTransformers{
-				testKey: {
-					"column_1": testTransformer,
-					"column_2": testTransformer,
+			wantTransformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					testKey: {
+						"column_1": testTransformer,
+						"column_2": testTransformer,
+					},
 				},
+				noopTransformerMap: map[string]ColumnTransformers{},
 			},
 			wantErr: nil,
 		},
@@ -65,7 +68,7 @@ func TestTransformerParser_parse(t *testing.T) {
 			name:  "ok - no rules",
 			rules: []TableRules{},
 
-			wantTransformerMap: map[string]ColumnTransformers{},
+			wantTransformerMap: NewTransformerMap(),
 			wantErr:            nil,
 		},
 		{
