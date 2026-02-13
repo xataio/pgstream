@@ -301,7 +301,7 @@ func (t *Transformer) getTableValidationMode(schema, table string) string {
 
 	key := schemaTableKey(schema, table)
 	mode, found := t.tableValidationModes[key]
-	if !found {
+	if !found || mode == "" {
 		// default to strict if not found, as it's safer to fail on unknown tables/columns
 		return validationModeStrict
 	}

@@ -68,7 +68,7 @@ func (tm *TransformerMap) GetActiveColumnTransformers(schema, table string) (Col
 	return transformers, found
 }
 
-// GetNoopColumnTransformers retrieves the noop column transformers for the//
+// GetNoopColumnTransformers retrieves the noop column transformers for the
 // specified schema and table. Does not include active transformers.
 func (tm *TransformerMap) GetNoopColumnTransformers(schema, table string) (ColumnTransformers, bool) {
 	key := schemaTableKey(schema, table)
@@ -77,7 +77,7 @@ func (tm *TransformerMap) GetNoopColumnTransformers(schema, table string) (Colum
 }
 
 // GetAllColumnTransformers retrieves all column transformers (active and noop)
-// for thespecified schema and table. If no transformers are found, it returns
+// for the specified schema and table. If no transformers are found, it returns
 // false.
 func (tm *TransformerMap) GetAllColumnTransformers(schema, table string) (ColumnTransformers, bool) {
 	key := schemaTableKey(schema, table)
