@@ -132,23 +132,17 @@ func (r *PGSnapshotWALRestore) restoreToWAL(ctx context.Context, _ pglib.PGResto
 // and returns the updated state and the current dollar quote tag.
 func updateDollarQuoteState(line string, inDollarQuote bool, currentTag string) (bool, string) {
 	if inDollarQuote {
-		// Look for the closing tag
 		if strings.Contains(line, currentTag) {
-			inDollarQuote = false
-			currentTag = ""
+			return false, ""
 		}
-		return inDollarQuote, currentTag
+		return true, currentTag
 	}
-
-	// Not currently in a dollar quote — check if one opens on this line
 	if tag := extractDollarQuoteTag(line); tag != "" {
 		if strings.Count(line, tag)%2 == 0 {
-			// Even count: all pairs matched, not inside a dollar quote
 			return false, ""
 		}
 		return true, tag
 	}
-
 	return false, ""
 }
 

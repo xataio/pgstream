@@ -567,18 +567,19 @@ func extractDollarQuoteTag(line string) string {
 		if i+1 < len(line) && line[i+1] == '$' {
 			return "$$"
 		}
-		// Scan tag identifier after opening $. Per PostgreSQL spec, the first
-		// character must be a letter or underscore; subsequent characters can
-		// also include digits. Unicode letters are accepted.
-		rest := line[i+1:]
-		first, size := utf8.DecodeRuneInString(rest)
-		if first == utf8.RuneError || !(unicode.IsLetter(first) || first == '_') {
+		// Scan tag identifier after opening $. First character must be a
+		// letter or underscore; subsequent can also include digits.
+		tagStart := i
+		j := i + 1
+		r, rsize := utf8.DecodeRuneInString(line[j:])
+		if r == utf8.RuneError || !(unicode.IsLetter(r) || r == '_') {
 			continue
 		}
-		for j := size; j < len(rest); {
-			r, rsize := utf8.DecodeRuneInString(rest[j:])
+		j += rsize
+		for j < len(line) {
+			r, rsize = utf8.DecodeRuneInString(line[j:])
 			if r == '$' {
-				return line[i : i+1+j+1]
+				return line[tagStart : j+1]
 			}
 			if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_') {
 				break
