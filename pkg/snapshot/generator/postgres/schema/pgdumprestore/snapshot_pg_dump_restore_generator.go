@@ -548,18 +548,31 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 // if the line opens a dollar-quoted block, or "" if it doesn't. Dollar-quoted
 // blocks are used for PL/pgSQL function bodies, DO blocks, etc.
 func extractDollarQuoteTag(line string) string {
-	// Dollar-quote tags appear after AS in function definitions (e.g. "AS $_$")
-	// or at the start of a line in pg_dump output. Scan for $...$ patterns.
+	// Dollar-quote tags: $$ or $tag$ where tag starts with a letter or
+	// underscore, followed by letters, digits, or underscores (PostgreSQL spec).
+	// This rejects $1$, $5$ etc. which are NOT valid dollar-quote tags —
+	// they can appear in string literals like 'costs $5$ each'.
 	for i := 0; i < len(line); i++ {
 		if line[i] != '$' {
 			continue
 		}
-		// Found opening $, scan for closing $
-		for j := i + 1; j < len(line); j++ {
+		// $$ (empty tag) — immediately closing dollar
+		if i+1 < len(line) && line[i+1] == '$' {
+			return "$$"
+		}
+		// First char after $ must be letter or underscore (not digit)
+		if i+1 >= len(line) {
+			continue
+		}
+		first := line[i+1]
+		if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || first == '_') {
+			continue
+		}
+		// Scan remaining tag characters: letters, digits, underscores
+		for j := i + 2; j < len(line); j++ {
 			if line[j] == '$' {
 				return line[i : j+1]
 			}
-			// Dollar-quote tag characters: letters, digits, underscores
 			c := line[j]
 			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
 				break

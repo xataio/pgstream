@@ -1448,6 +1448,13 @@ func TestExtractDollarQuoteTag(t *testing.T) {
 		{name: "cast with regclass", line: "SELECT $1::regclass", want: ""},
 		{name: "dollar in string literal", line: "E'costs $5'", want: ""},
 		{name: "plain text", line: "ALTER TABLE public.users ADD COLUMN name TEXT;", want: ""},
+		// PostgreSQL spec: tag must start with letter or underscore, not digit
+		{name: "digit-first tag $5$", line: "'costs $5$ each'", want: ""},
+		{name: "digit-first tag $1$", line: "COMMENT ON INDEX idx IS 'val $1$ end'", want: ""},
+		{name: "digit tag $123$", line: "$123$", want: ""},
+		// Valid tags that start with letter/underscore followed by digits
+		{name: "letter then digit $x1$", line: "AS $x1$", want: "$x1$"},
+		{name: "underscore then digit $_1$", line: "AS $_1$", want: "$_1$"},
 	}
 
 	for _, tc := range tests {
