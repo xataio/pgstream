@@ -1542,3 +1542,57 @@ func TestParseDump_OddDollarQuoteCount(t *testing.T) {
 	// The real top-level trigger should be in indicesAndConstraints
 	require.Contains(t, indices, "CREATE TRIGGER real_outside", "top-level trigger should be in indices section")
 }
+
+func TestExtractDollarQuoteTag_IgnoresSingleQuotedStrings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		line string
+		want string
+	}{
+		{name: "dollar tag inside single quotes", line: "COMMENT ON INDEX my_idx IS 'use $$ for quoting';", want: ""},
+		{name: "named tag inside single quotes", line: "COMMENT ON INDEX my_idx IS 'use $_$ here';", want: ""},
+		{name: "body tag inside single quotes", line: "COMMENT ON TRIGGER t IS '$BODY$ is a tag';", want: ""},
+		{name: "escaped quote before dollar", line: "COMMENT ON INDEX i IS 'it''s $$ fine';", want: ""},
+		{name: "dollar after closing quote", line: "SELECT 'text' || $$", want: "$$"},
+		{name: "real tag not in quotes", line: "    AS $$", want: "$$"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := extractDollarQuoteTag(tc.line)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestParseDump_DollarInsideSingleQuotedComment(t *testing.T) {
+	t.Parallel()
+
+	// A COMMENT ON INDEX with $$ inside single quotes must NOT trigger
+	// dollar-quote state. The comment should go to indicesAndConstraints,
+	// and the CREATE INDEX on the next line should also go there.
+	dumpInput := strings.Join([]string{
+		"COMMENT ON INDEX public.my_idx IS 'use $$ for quoting';",
+		"CREATE INDEX idx_name ON public.test_table USING btree (col1);",
+		"",
+	}, "\n")
+
+	s := &SnapshotGenerator{
+		roleSQLParser: &roleSQLParser{},
+	}
+	result := s.parseDump([]byte(dumpInput))
+
+	filtered := string(result.filtered)
+	indices := string(result.indicesAndConstraints)
+
+	// COMMENT ON INDEX should be in indices, not filtered
+	require.Contains(t, indices, "COMMENT ON INDEX", "COMMENT ON INDEX should be in indices section")
+	require.NotContains(t, filtered, "COMMENT ON INDEX", "COMMENT ON INDEX should not be in filtered dump")
+
+	// CREATE INDEX should be in indices, not filtered
+	require.Contains(t, indices, "CREATE INDEX idx_name", "CREATE INDEX should be in indices section")
+	require.NotContains(t, filtered, "CREATE INDEX idx_name", "CREATE INDEX should not be in filtered dump")
+}
