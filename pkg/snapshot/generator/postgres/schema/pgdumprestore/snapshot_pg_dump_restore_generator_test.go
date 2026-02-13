@@ -1428,3 +1428,78 @@ func TestSnapshotGenerator_filterTriggers(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractDollarQuoteTag(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		line string
+		want string
+	}{
+		{name: "underscore tag", line: "    AS $_$", want: "$_$"},
+		{name: "empty tag", line: "    AS $$", want: "$$"},
+		{name: "body tag", line: "    AS $BODY$", want: "$BODY$"},
+		{name: "closing tag", line: "$_$;", want: "$_$"},
+		{name: "closing empty tag", line: "$$;", want: "$$"},
+		{name: "param placeholder $1", line: "WHERE attrelid = $1 AND attname = $2", want: ""},
+		{name: "numeric literal", line: "    amount NUMERIC(10, 2),", want: ""},
+		{name: "no dollar sign", line: "CREATE TRIGGER %s", want: ""},
+		{name: "cast with regclass", line: "SELECT $1::regclass", want: ""},
+		{name: "dollar in string literal", line: "E'costs $5'", want: ""},
+		{name: "plain text", line: "ALTER TABLE public.users ADD COLUMN name TEXT;", want: ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := extractDollarQuoteTag(tc.line)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestParseDump_DollarQuotedBlocks(t *testing.T) {
+	t.Parallel()
+
+	// A pg_dump output with a function containing "CREATE TRIGGER %s" inside
+	// a dollar-quoted body. Without the fix, parseDump rips this line into
+	// indicesAndConstraints. With the fix, it stays in filteredDump.
+	dumpInput := strings.Join([]string{
+		"CREATE FUNCTION public.clone_triggers() RETURNS text",
+		"    LANGUAGE plpgsql",
+		"    AS $_$",
+		"BEGIN",
+		"    script := format('",
+		"CREATE TRIGGER %s",
+		"BEFORE INSERT ON %I",
+		"FOR EACH ROW EXECUTE FUNCTION %s();",
+		"', trig_name, tbl_name, func_name);",
+		"    RETURN script;",
+		"END;",
+		"$_$;",
+		"",
+		"CREATE TRIGGER real_trigger BEFORE UPDATE ON public.test_table FOR EACH ROW EXECUTE FUNCTION public.update_ts();",
+		"",
+	}, "\n")
+
+	s := &SnapshotGenerator{
+		roleSQLParser: &roleSQLParser{},
+	}
+	result := s.parseDump([]byte(dumpInput))
+
+	filtered := string(result.filtered)
+	indices := string(result.indicesAndConstraints)
+
+	// The "CREATE TRIGGER %s" line must stay in the filtered dump (function body)
+	require.Contains(t, filtered, "CREATE TRIGGER %s", "dollar-quoted CREATE TRIGGER should stay in filtered dump")
+
+	// The real top-level trigger should be in indicesAndConstraints
+	require.Contains(t, indices, "CREATE TRIGGER real_trigger", "top-level trigger should be in indices section")
+
+	// The real trigger should NOT be in the filtered dump
+	require.NotContains(t, filtered, "CREATE TRIGGER real_trigger", "top-level trigger should not be in filtered dump")
+
+	// The dollar-quoted function body line should NOT be in indices
+	require.NotContains(t, indices, "CREATE TRIGGER %s", "dollar-quoted line should not be in indices section")
+}
