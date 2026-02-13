@@ -1596,3 +1596,30 @@ func TestParseDump_DollarInsideSingleQuotedComment(t *testing.T) {
 	require.Contains(t, indices, "CREATE INDEX idx_name", "CREATE INDEX should be in indices section")
 	require.NotContains(t, filtered, "CREATE INDEX idx_name", "CREATE INDEX should not be in filtered dump")
 }
+
+func TestParseDump_BalancedDollarQuoteOnIndexLine(t *testing.T) {
+	t.Parallel()
+
+	// A COMMENT ON INDEX with a balanced dollar-quoted literal (opens and
+	// closes on the same line) must still be routed to indicesAndConstraints,
+	// not short-circuited to filteredDump.
+	dumpInput := strings.Join([]string{
+		"COMMENT ON INDEX public.my_idx IS $$some comment$$;",
+		"CREATE INDEX idx_other ON public.test_table USING btree (col2);",
+		"",
+	}, "\n")
+
+	s := &SnapshotGenerator{
+		roleSQLParser: &roleSQLParser{},
+	}
+	result := s.parseDump([]byte(dumpInput))
+
+	filtered := string(result.filtered)
+	indices := string(result.indicesAndConstraints)
+
+	require.Contains(t, indices, "COMMENT ON INDEX", "balanced dollar-quoted COMMENT ON INDEX should be in indices")
+	require.NotContains(t, filtered, "COMMENT ON INDEX", "balanced dollar-quoted COMMENT ON INDEX should not be in filtered")
+
+	require.Contains(t, indices, "CREATE INDEX idx_other", "CREATE INDEX after balanced line should be in indices")
+	require.NotContains(t, filtered, "CREATE INDEX idx_other", "CREATE INDEX after balanced line should not be in filtered")
+}

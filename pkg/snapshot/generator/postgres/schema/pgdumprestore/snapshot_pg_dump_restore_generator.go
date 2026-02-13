@@ -420,7 +420,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		// matched by the prefix checks below.
 		wasInDollarQuote := inDollarQuote
 		inDollarQuote, dollarQuoteTag = updateDollarQuoteState(line, inDollarQuote, dollarQuoteTag)
-		if wasInDollarQuote || inDollarQuote || extractDollarQuoteTag(line) != "" {
+		if wasInDollarQuote || inDollarQuote {
 			filteredDump.WriteString(line)
 			filteredDump.WriteString("\n")
 			continue
