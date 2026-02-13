@@ -130,7 +130,6 @@ func (r *PGSnapshotWALRestore) restoreToWAL(ctx context.Context, _ pglib.PGResto
 
 // updateDollarQuoteState tracks whether we're inside a dollar-quoted string
 // and returns the updated state and the current dollar quote tag.
-// Uses extractDollarQuoteTag for spec-compliant tag detection (rejects $1$, $5$ etc.).
 func updateDollarQuoteState(line string, inDollarQuote bool, currentTag string) (bool, string) {
 	if inDollarQuote {
 		// Look for the closing tag

@@ -410,28 +410,19 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	dumpRoles := make(map[string]role)
 	alterTable := ""
 	createEventTrigger := ""
-	dollarQuoteTag := ""
+	var inDollarQuote bool
+	var dollarQuoteTag string
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		// When inside a dollar-quoted block (function body, DO block, etc.),
-		// pass all lines through to filteredDump without prefix matching.
-		// This prevents lines like "CREATE TRIGGER %s" inside PL/pgSQL
-		// format() templates from being ripped into indicesAndConstraints.
-		if dollarQuoteTag != "" {
+		// Track dollar-quoted blocks so lines inside function bodies
+		// (e.g. "CREATE TRIGGER %s" in a format() template) are not
+		// matched by the prefix checks below.
+		wasInDollarQuote := inDollarQuote
+		inDollarQuote, dollarQuoteTag = updateDollarQuoteState(line, inDollarQuote, dollarQuoteTag)
+		if wasInDollarQuote || inDollarQuote || extractDollarQuoteTag(line) != "" {
 			filteredDump.WriteString(line)
 			filteredDump.WriteString("\n")
-			if strings.Contains(line, dollarQuoteTag) {
-				dollarQuoteTag = ""
-			}
-			continue
-		}
-		if tag := extractDollarQuoteTag(line); tag != "" {
-			filteredDump.WriteString(line)
-			filteredDump.WriteString("\n")
-			if strings.Count(line, tag)%2 != 0 {
-				dollarQuoteTag = tag
-			}
 			continue
 		}
 
@@ -544,23 +535,17 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	}
 }
 
-// extractDollarQuoteTag returns the dollar-quote tag (e.g. "$_$", "$$", "$BODY$")
-// if the line opens a dollar-quoted block, or "" if it doesn't. Dollar-quoted
-// blocks are used for PL/pgSQL function bodies, DO blocks, etc.
+// extractDollarQuoteTag returns the first dollar-quote tag found in the line
+// (e.g. "$$", "$_$", "$BODY$") or "" if none. Per PostgreSQL spec, the tag
+// identifier must start with a letter or underscore, so $1$, $5$ are rejected.
 func extractDollarQuoteTag(line string) string {
-	// Dollar-quote tags: $$ or $tag$ where tag starts with a letter or
-	// underscore, followed by letters, digits, or underscores (PostgreSQL spec).
-	// This rejects $1$, $5$ etc. which are NOT valid dollar-quote tags —
-	// they can appear in string literals like 'costs $5$ each'.
 	for i := 0; i < len(line); i++ {
 		if line[i] != '$' {
 			continue
 		}
-		// $$ (empty tag) — immediately closing dollar
 		if i+1 < len(line) && line[i+1] == '$' {
 			return "$$"
 		}
-		// First char after $ must be letter or underscore (not digit)
 		if i+1 >= len(line) {
 			continue
 		}
@@ -568,7 +553,6 @@ func extractDollarQuoteTag(line string) string {
 		if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || first == '_') {
 			continue
 		}
-		// Scan remaining tag characters: letters, digits, underscores
 		for j := i + 2; j < len(line); j++ {
 			if line[j] == '$' {
 				return line[i : j+1]
