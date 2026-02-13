@@ -1428,3 +1428,253 @@ func TestSnapshotGenerator_filterTriggers(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractDollarQuoteTag(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		line string
+		want string
+	}{
+		{name: "underscore tag", line: "    AS $_$", want: "$_$"},
+		{name: "empty tag", line: "    AS $$", want: "$$"},
+		{name: "body tag", line: "    AS $BODY$", want: "$BODY$"},
+		{name: "closing tag", line: "$_$;", want: "$_$"},
+		{name: "closing empty tag", line: "$$;", want: "$$"},
+		{name: "param placeholder $1", line: "WHERE attrelid = $1 AND attname = $2", want: ""},
+		{name: "numeric literal", line: "    amount NUMERIC(10, 2),", want: ""},
+		{name: "no dollar sign", line: "CREATE TRIGGER %s", want: ""},
+		{name: "cast with regclass", line: "SELECT $1::regclass", want: ""},
+		{name: "dollar in string literal", line: "E'costs $5'", want: ""},
+		{name: "plain text", line: "ALTER TABLE public.users ADD COLUMN name TEXT;", want: ""},
+		// PostgreSQL spec: tag must start with letter or underscore, not digit
+		{name: "digit-first tag $5$", line: "'costs $5$ each'", want: ""},
+		{name: "digit-first tag $1$", line: "COMMENT ON INDEX idx IS 'val $1$ end'", want: ""},
+		{name: "digit tag $123$", line: "$123$", want: ""},
+		// Valid tags that start with letter/underscore followed by digits
+		{name: "letter then digit $x1$", line: "AS $x1$", want: "$x1$"},
+		{name: "underscore then digit $_1$", line: "AS $_1$", want: "$_1$"},
+		// Non-ASCII Unicode letters are valid in dollar-quote tag identifiers
+		{name: "non-ASCII tag $ñ$", line: "AS $ñ$", want: "$ñ$"},
+		{name: "non-ASCII tag $función$", line: "AS $función$", want: "$función$"},
+		{name: "CJK tag $表$", line: "AS $表$", want: "$表$"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := extractDollarQuoteTag(tc.line)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestParseDump_DollarQuotedBlocks(t *testing.T) {
+	t.Parallel()
+
+	// A pg_dump output with a function containing "CREATE TRIGGER %s" inside
+	// a dollar-quoted body. Without the fix, parseDump rips this line into
+	// indicesAndConstraints. With the fix, it stays in filteredDump.
+	dumpInput := strings.Join([]string{
+		"CREATE FUNCTION public.clone_triggers() RETURNS text",
+		"    LANGUAGE plpgsql",
+		"    AS $_$",
+		"BEGIN",
+		"    script := format('",
+		"CREATE TRIGGER %s",
+		"BEFORE INSERT ON %I",
+		"FOR EACH ROW EXECUTE FUNCTION %s();",
+		"', trig_name, tbl_name, func_name);",
+		"    RETURN script;",
+		"END;",
+		"$_$;",
+		"",
+		"CREATE TRIGGER real_trigger BEFORE UPDATE ON public.test_table FOR EACH ROW EXECUTE FUNCTION public.update_ts();",
+		"",
+	}, "\n")
+
+	s := &SnapshotGenerator{
+		roleSQLParser: &roleSQLParser{},
+	}
+	result := s.parseDump([]byte(dumpInput))
+
+	filtered := string(result.filtered)
+	indices := string(result.indicesAndConstraints)
+
+	// The "CREATE TRIGGER %s" line must stay in the filtered dump (function body)
+	require.Contains(t, filtered, "CREATE TRIGGER %s", "dollar-quoted CREATE TRIGGER should stay in filtered dump")
+
+	// The real top-level trigger should be in indicesAndConstraints
+	require.Contains(t, indices, "CREATE TRIGGER real_trigger", "top-level trigger should be in indices section")
+
+	// The real trigger should NOT be in the filtered dump
+	require.NotContains(t, filtered, "CREATE TRIGGER real_trigger", "top-level trigger should not be in filtered dump")
+
+	// The dollar-quoted function body line should NOT be in indices
+	require.NotContains(t, indices, "CREATE TRIGGER %s", "dollar-quoted line should not be in indices section")
+}
+
+func TestParseDump_OddDollarQuoteCount(t *testing.T) {
+	t.Parallel()
+
+	// A line with 3 occurrences of $$ means: open, close, re-open.
+	// The parser must recognize we're still inside a dollar-quoted block
+	// after that line, so "CREATE TRIGGER inside" on the next line stays
+	// in filteredDump.
+	dumpInput := strings.Join([]string{
+		"CREATE FUNCTION public.f() RETURNS void LANGUAGE plpgsql AS $$ BEGIN EXECUTE $$ || $$ ",
+		"CREATE TRIGGER inside_odd BEFORE INSERT ON t FOR EACH ROW EXECUTE FUNCTION noop();",
+		"$$;",
+		"",
+		"CREATE TRIGGER real_outside BEFORE UPDATE ON public.t FOR EACH ROW EXECUTE FUNCTION public.noop();",
+		"",
+	}, "\n")
+
+	s := &SnapshotGenerator{
+		roleSQLParser: &roleSQLParser{},
+	}
+	result := s.parseDump([]byte(dumpInput))
+
+	filtered := string(result.filtered)
+	indices := string(result.indicesAndConstraints)
+
+	// The trigger inside the odd-count dollar-quoted block must stay in filteredDump
+	require.Contains(t, filtered, "CREATE TRIGGER inside_odd", "trigger inside odd-count dollar block should stay in filtered dump")
+	require.NotContains(t, indices, "CREATE TRIGGER inside_odd", "trigger inside odd-count dollar block should not be in indices")
+
+	// The real top-level trigger should be in indicesAndConstraints
+	require.Contains(t, indices, "CREATE TRIGGER real_outside", "top-level trigger should be in indices section")
+}
+
+func TestExtractDollarQuoteTag_IgnoresSingleQuotedStrings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		line string
+		want string
+	}{
+		{name: "dollar tag inside single quotes", line: "COMMENT ON INDEX my_idx IS 'use $$ for quoting';", want: ""},
+		{name: "named tag inside single quotes", line: "COMMENT ON INDEX my_idx IS 'use $_$ here';", want: ""},
+		{name: "body tag inside single quotes", line: "COMMENT ON TRIGGER t IS '$BODY$ is a tag';", want: ""},
+		{name: "escaped quote before dollar", line: "COMMENT ON INDEX i IS 'it''s $$ fine';", want: ""},
+		{name: "dollar after closing quote", line: "SELECT 'text' || $$", want: "$$"},
+		{name: "real tag not in quotes", line: "    AS $$", want: "$$"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := extractDollarQuoteTag(tc.line)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestParseDump_DollarInsideSingleQuotedComment(t *testing.T) {
+	t.Parallel()
+
+	// A COMMENT ON INDEX with $$ inside single quotes must NOT trigger
+	// dollar-quote state. The comment should go to indicesAndConstraints,
+	// and the CREATE INDEX on the next line should also go there.
+	dumpInput := strings.Join([]string{
+		"COMMENT ON INDEX public.my_idx IS 'use $$ for quoting';",
+		"CREATE INDEX idx_name ON public.test_table USING btree (col1);",
+		"",
+	}, "\n")
+
+	s := &SnapshotGenerator{
+		roleSQLParser: &roleSQLParser{},
+	}
+	result := s.parseDump([]byte(dumpInput))
+
+	filtered := string(result.filtered)
+	indices := string(result.indicesAndConstraints)
+
+	// COMMENT ON INDEX should be in indices, not filtered
+	require.Contains(t, indices, "COMMENT ON INDEX", "COMMENT ON INDEX should be in indices section")
+	require.NotContains(t, filtered, "COMMENT ON INDEX", "COMMENT ON INDEX should not be in filtered dump")
+
+	// CREATE INDEX should be in indices, not filtered
+	require.Contains(t, indices, "CREATE INDEX idx_name", "CREATE INDEX should be in indices section")
+	require.NotContains(t, filtered, "CREATE INDEX idx_name", "CREATE INDEX should not be in filtered dump")
+}
+
+func TestParseDump_BalancedDollarQuoteOnIndexLine(t *testing.T) {
+	t.Parallel()
+
+	// A COMMENT ON INDEX with a balanced dollar-quoted literal (opens and
+	// closes on the same line) must still be routed to indicesAndConstraints,
+	// not short-circuited to filteredDump.
+	dumpInput := strings.Join([]string{
+		"COMMENT ON INDEX public.my_idx IS $$some comment$$;",
+		"CREATE INDEX idx_other ON public.test_table USING btree (col2);",
+		"",
+	}, "\n")
+
+	s := &SnapshotGenerator{
+		roleSQLParser: &roleSQLParser{},
+	}
+	result := s.parseDump([]byte(dumpInput))
+
+	filtered := string(result.filtered)
+	indices := string(result.indicesAndConstraints)
+
+	require.Contains(t, indices, "COMMENT ON INDEX", "balanced dollar-quoted COMMENT ON INDEX should be in indices")
+	require.NotContains(t, filtered, "COMMENT ON INDEX", "balanced dollar-quoted COMMENT ON INDEX should not be in filtered")
+
+	require.Contains(t, indices, "CREATE INDEX idx_other", "CREATE INDEX after balanced line should be in indices")
+	require.NotContains(t, filtered, "CREATE INDEX idx_other", "CREATE INDEX after balanced line should not be in filtered")
+}
+
+func TestExtractDollarQuoteTag_IgnoresDoubleQuotedIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		line string
+		want string
+	}{
+		{name: "dollar tag inside double quotes", line: `CREATE INDEX "my$$idx" ON public.t (col);`, want: ""},
+		{name: "named tag inside double quotes", line: `ALTER TABLE "schema$_$name".t ADD COLUMN x INT;`, want: ""},
+		{name: "dollar after closing double quote", line: `CREATE INDEX "name" ON t (col) WHERE x = $$`, want: "$$"},
+		{name: "real tag not in quotes", line: "    AS $_$", want: "$_$"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := extractDollarQuoteTag(tc.line)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestParseDump_CommentWithDollarTag(t *testing.T) {
+	t.Parallel()
+
+	// A -- comment line containing $$ must not flip dollar-quote state.
+	// Without the fix, parseDump enters dollar-quote mode on the comment
+	// and misroutes the subsequent CREATE INDEX to filteredDump.
+	dumpInput := strings.Join([]string{
+		"-- This function uses $$ dollar quoting",
+		"CREATE INDEX idx_after_comment ON public.t USING btree (col);",
+		"CREATE TRIGGER trg_after_comment BEFORE UPDATE ON public.t FOR EACH ROW EXECUTE FUNCTION public.noop();",
+		"",
+	}, "\n")
+
+	s := &SnapshotGenerator{
+		roleSQLParser: &roleSQLParser{},
+	}
+	result := s.parseDump([]byte(dumpInput))
+
+	filtered := string(result.filtered)
+	indices := string(result.indicesAndConstraints)
+
+	require.Contains(t, indices, "CREATE INDEX idx_after_comment", "CREATE INDEX after comment should be in indices")
+	require.NotContains(t, filtered, "CREATE INDEX idx_after_comment", "CREATE INDEX after comment should not be in filtered")
+
+	require.Contains(t, indices, "CREATE TRIGGER trg_after_comment", "CREATE TRIGGER after comment should be in indices")
+	require.NotContains(t, filtered, "CREATE TRIGGER trg_after_comment", "CREATE TRIGGER after comment should not be in filtered")
+}

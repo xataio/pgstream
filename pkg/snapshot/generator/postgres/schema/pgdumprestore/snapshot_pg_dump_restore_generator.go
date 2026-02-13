@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode"
+	"unicode/utf8"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
@@ -410,8 +412,25 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	dumpRoles := make(map[string]role)
 	alterTable := ""
 	createEventTrigger := ""
+	var inDollarQuote bool
+	var dollarQuoteTag string
 	for scanner.Scan() {
 		line := scanner.Text()
+
+		// Track dollar-quoted blocks so lines inside function bodies
+		// (e.g. "CREATE TRIGGER %s" in a format() template) are not
+		// matched by the prefix checks below. Comment lines are excluded
+		// from tracking so tokens like $$ in comments don't corrupt state.
+		wasInDollarQuote := inDollarQuote
+		if !strings.HasPrefix(line, "--") {
+			inDollarQuote, dollarQuoteTag = updateDollarQuoteState(line, inDollarQuote, dollarQuoteTag)
+		}
+		if wasInDollarQuote || inDollarQuote {
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
+			continue
+		}
+
 		switch {
 		case strings.HasPrefix(line, "SECURITY LABEL") &&
 			isSecurityLabelForExcludedProvider(line, s.excludedSecurityLabels):
@@ -519,6 +538,56 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		roles:                 dumpRoles,
 		eventTriggers:         []byte(eventTriggersDump.String()),
 	}
+}
+
+// extractDollarQuoteTag returns the first dollar-quote tag found in the line
+// (e.g. "$$", "$_$", "$BODY$") or "" if none. Per PostgreSQL spec, the tag
+// identifier must start with a letter or underscore, so $1$, $5$ are rejected.
+// Dollar signs inside single-quoted strings or double-quoted identifiers
+// are ignored.
+func extractDollarQuoteTag(line string) string {
+	inSingleQuote := false
+	inDoubleQuote := false
+	for i := 0; i < len(line); i++ {
+		if line[i] == '\'' && !inDoubleQuote {
+			if inSingleQuote && i+1 < len(line) && line[i+1] == '\'' {
+				i++ // skip '' escape
+				continue
+			}
+			inSingleQuote = !inSingleQuote
+			continue
+		}
+		if line[i] == '"' && !inSingleQuote {
+			inDoubleQuote = !inDoubleQuote
+			continue
+		}
+		if inSingleQuote || inDoubleQuote || line[i] != '$' {
+			continue
+		}
+		if i+1 < len(line) && line[i+1] == '$' {
+			return "$$"
+		}
+		// Scan tag identifier after opening $. First character must be a
+		// letter or underscore; subsequent can also include digits.
+		tagStart := i
+		j := i + 1
+		r, rsize := utf8.DecodeRuneInString(line[j:])
+		if r == utf8.RuneError || !(unicode.IsLetter(r) || r == '_') {
+			continue
+		}
+		j += rsize
+		for j < len(line) {
+			r, rsize = utf8.DecodeRuneInString(line[j:])
+			if r == '$' {
+				return line[tagStart : j+1]
+			}
+			if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_') {
+				break
+			}
+			j += rsize
+		}
+	}
+	return ""
 }
 
 func (s *SnapshotGenerator) filterTriggers(eventTriggersDump []byte, excludedSchemas []string) []byte {
