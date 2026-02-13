@@ -300,3 +300,68 @@ func TestDDLColumn_GetColumnPgstreamID(t *testing.T) {
 	pgstreamID := col.GetColumnPgstreamID("ck7s8u4000001")
 	require.Equal(t, "ck7s8u4000001-3", pgstreamID)
 }
+
+func TestDDLEvent_GetTableObjectByName(t *testing.T) {
+	t.Parallel()
+
+	ddlEvent := &DDLEvent{
+		Objects: []DDLObject{
+			{Type: "table", Identity: "public.users", Schema: "public"},
+			{Type: "table", Identity: "public.posts", Schema: "public"},
+			{Type: "table", Identity: "schema2.orders", Schema: "schema2"},
+			{Type: "index", Identity: "public.users_idx", Schema: "public"},
+		},
+	}
+
+	tests := []struct {
+		name   string
+		schema string
+		table  string
+		want   *DDLObject
+	}{
+		{
+			name:   "existing table in public schema",
+			schema: "public",
+			table:  "users",
+			want:   &DDLObject{Type: "table", Identity: "public.users", Schema: "public"},
+		},
+		{
+			name:   "existing table in custom schema",
+			schema: "schema2",
+			table:  "orders",
+			want:   &DDLObject{Type: "table", Identity: "schema2.orders", Schema: "schema2"},
+		},
+		{
+			name:   "non-existing table",
+			schema: "public",
+			table:  "nonexistent",
+			want:   nil,
+		},
+		{
+			name:   "wrong schema",
+			schema: "wrong_schema",
+			table:  "users",
+			want:   nil,
+		},
+		{
+			name:   "empty schema",
+			schema: "",
+			table:  "users",
+			want:   nil,
+		},
+		{
+			name:   "empty table",
+			schema: "public",
+			table:  "",
+			want:   nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := ddlEvent.GetTableObjectByName(tt.schema, tt.table)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
