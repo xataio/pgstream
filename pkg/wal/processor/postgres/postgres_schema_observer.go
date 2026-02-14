@@ -135,14 +135,28 @@ func (o *pgSchemaObserver) update(ddlEvent *wal.DDLEvent) {
 }
 
 // updateGeneratedColumnNames will update the internal cache with the table
-// columns for the schema log on input.
+// columns for the schema log on input. When forCopy is true, identity columns
+// are NOT marked as generated (COPY accepts explicit identity values and we
+// must preserve source PKs). This mirrors the query-level split between
+// generatedTableColumnsQuery and generatedTableColumnsQueryCopy.
 func (o *pgSchemaObserver) updateGeneratedColumnNames(tables []wal.DDLObject) {
 	for _, table := range tables {
 		key := pglib.QuoteQualifiedIdentifier(table.Schema, table.GetName())
 		generatedColumns := make(map[string]struct{}, len(table.Columns))
 		for _, c := range table.Columns {
-			if c.IsGenerated() {
-				generatedColumns[pglib.QuoteIdentifier(c.Name)] = struct{}{}
+			if o.forCopy {
+				// COPY mode: only exclude stored generated columns.
+				// Identity columns (ALWAYS and BY DEFAULT) are included
+				// because COPY accepts explicit values for all identity types.
+				if c.Generated {
+					generatedColumns[pglib.QuoteIdentifier(c.Name)] = struct{}{}
+				}
+			} else {
+				// INSERT/UPDATE mode: exclude stored generated columns AND
+				// GENERATED ALWAYS identity columns (UPDATE SET rejects them).
+				if c.IsGenerated() {
+					generatedColumns[pglib.QuoteIdentifier(c.Name)] = struct{}{}
+				}
 			}
 		}
 
