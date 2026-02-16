@@ -412,10 +412,25 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	dumpRoles := make(map[string]role)
 	alterTable := ""
 	createEventTrigger := ""
+	var pendingComment string // tracks multi-line COMMENT ON TRIGGER/INDEX/CONSTRAINT
 	var inDollarQuote bool
 	var dollarQuoteTag string
 	for scanner.Scan() {
 		line := scanner.Text()
+
+		// Handle multi-line COMMENT continuation before dollar-quote
+		// tracking — comment text is inside a single-quoted literal, so
+		// tokens like $$ must not be interpreted as dollar-quote boundaries.
+		if pendingComment != "" {
+			indicesAndConstraints.WriteString(line)
+			if strings.HasSuffix(line, "';") && !strings.HasSuffix(line, "'';") {
+				indicesAndConstraints.WriteString("\n\n")
+				pendingComment = ""
+			} else {
+				indicesAndConstraints.WriteString("\n")
+			}
+			continue
+		}
 
 		// Track dollar-quoted blocks so lines inside function bodies
 		// (e.g. "CREATE TRIGGER %s" in a format() template) are not
@@ -473,17 +488,34 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		case strings.HasPrefix(line, "CREATE INDEX"),
 			strings.HasPrefix(line, "CREATE UNIQUE INDEX"),
 			strings.HasPrefix(line, "CREATE CONSTRAINT"),
-			strings.HasPrefix(line, "CREATE TRIGGER"),
-			strings.HasPrefix(line, "COMMENT ON CONSTRAINT"),
-			strings.HasPrefix(line, "COMMENT ON INDEX"),
-			strings.HasPrefix(line, "COMMENT ON TRIGGER"):
+			strings.HasPrefix(line, "CREATE TRIGGER"):
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
+		case strings.HasPrefix(line, "COMMENT ON CONSTRAINT"),
+			strings.HasPrefix(line, "COMMENT ON INDEX"),
+			strings.HasPrefix(line, "COMMENT ON TRIGGER"):
+			// COMMENT text can span multiple lines in pg_dump output.
+			// If the line doesn't end with ";", the comment continues on
+			// the next line(s). Track state so continuations stay in
+			// indicesAndConstraints instead of falling to filteredDump.
+			indicesAndConstraints.WriteString(line)
+			if strings.HasSuffix(line, "';") && !strings.HasSuffix(line, "'';") {
+				indicesAndConstraints.WriteString("\n\n")
+			} else {
+				indicesAndConstraints.WriteString("\n")
+				pendingComment = line
+			}
 		case strings.HasPrefix(line, "ALTER TABLE") && strings.Contains(line, "ADD CONSTRAINT"):
 			indicesAndConstraints.WriteString(line)
 		case strings.HasPrefix(line, "ALTER TABLE") && strings.Contains(line, "REPLICA IDENTITY"):
 			// REPLICA IDENTITY lines should be in the indicesAndConstraints section
 			// since they reference constraints/indices that are also there
+			indicesAndConstraints.WriteString(line)
+			indicesAndConstraints.WriteString("\n\n")
+		case strings.HasPrefix(line, "ALTER TABLE") && (strings.Contains(line, "DISABLE TRIGGER") || strings.Contains(line, "ENABLE TRIGGER") || strings.Contains(line, "ENABLE REPLICA TRIGGER") || strings.Contains(line, "ENABLE ALWAYS TRIGGER")):
+			// DISABLE/ENABLE TRIGGER must run in the same phase as CREATE
+			// TRIGGER (indicesAndConstraints, phase 6). If routed to
+			// filteredDump (phase 4), the trigger doesn't exist yet.
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
 		case strings.HasPrefix(line, "ALTER TABLE") && !strings.HasSuffix(line, ";"):
