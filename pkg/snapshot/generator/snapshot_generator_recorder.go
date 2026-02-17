@@ -23,6 +23,14 @@ type SnapshotRecorder struct {
 
 const updateTimeout = time.Minute
 
+// maxStoreconcurrency limits how many schemas the snapshot recorder processes
+// concurrently when writing to the snapshot store. Each concurrent operation
+// holds a connection from the store's pool. Without a limit, N schemas would
+// open N connections simultaneously just for bookkeeping INSERT/UPDATEs,
+// exhausting the source database's connection slots before the data snapshot
+// even starts.
+const maxStoreConnections = 4
+
 // NewSnapshotRecorder will return the generator on input wrapped with an
 // activity recorder that will keep track of the status of the snapshot
 // requests.
@@ -76,6 +84,7 @@ func (s *SnapshotRecorder) createRequests(ss *snapshot.Snapshot) []*snapshot.Req
 
 func (s *SnapshotRecorder) markSnapshotInProgress(ctx context.Context, requests []*snapshot.Request) error {
 	eg, ctx := errgroup.WithContext(ctx)
+	eg.SetLimit(maxStoreConnections)
 	// create one request per schema
 	for _, req := range requests {
 		eg.Go(func() error {
@@ -112,6 +121,7 @@ func (s *SnapshotRecorder) markSnapshotCompleted(ctx context.Context, requests [
 	}
 
 	eg, ctx := errgroup.WithContext(ctx)
+	eg.SetLimit(maxStoreConnections)
 	for _, req := range requests {
 		eg.Go(func() error {
 			schemaErrs := getSchemaErrors(req.Schema, err)
