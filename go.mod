@@ -18,7 +18,7 @@ require (
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/jonboulle/clockwork v0.5.0
 	github.com/labstack/echo/v4 v4.15.0
-	github.com/lib/pq v1.11.1
+	github.com/lib/pq v1.11.2
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/nucleuscloud/neosync v0.5.40
 	github.com/opensearch-project/opensearch-go v1.1.0
