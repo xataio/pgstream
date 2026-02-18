@@ -203,6 +203,101 @@ func TestSerializeJSONBStringTypeInRow(t *testing.T) {
 	require.True(t, json.Valid(jsonbBytes), "serialized value must be valid JSON")
 }
 
+// TestFilterRowColumns_SQLNull_NullableJSONB_BecomesJSONBNull reproduces the
+// bug where SQL NULL in a nullable JSONB column gets silently converted to the
+// JSONB null literal ('null'::jsonb) during filterRowColumns serialization.
+//
+// These are semantically different values in PostgreSQL:
+//   - SQL NULL:  column IS NULL → true,  column = 'null'::jsonb → NULL (unknown)
+//   - JSONB null: column IS NULL → false, column = 'null'::jsonb → true
+//
+// The ARD-638 fix (nil → []byte("null")) correctly handles 'null'::jsonb in
+// NOT NULL columns, but breaks nullable JSONB columns where SQL NULL is the
+// intended value. Any CHECK constraint using "column IS NULL" will fail.
+//
+// Production: Robynn AI org_facts table — CHECK constraint "valid_state":
+//
+//	(user_approval = true  AND user_corrected_document_metadata IS NULL)
+//	OR (user_approval = false AND user_corrected_document_metadata IS NOT NULL)
+//
+// 37 rows have user_approval=true with user_corrected_document_metadata as SQL
+// NULL. pgstream COPY converts the NULL to 'null'::jsonb, making IS NULL false,
+// violating the constraint. All 43 rows rejected.
+func TestFilterRowColumns_SQLNull_NullableJSONB_BecomesJSONBNull(t *testing.T) {
+	t.Parallel()
+
+	// Simulates a snapshot row from org_facts where user_approval=true.
+	// The user_corrected_document_metadata column is nullable JSONB with SQL NULL.
+	// In the snapshot path, pgx rows.Values() returns Go nil for SQL NULL.
+	// The snapshot adapter detects SQL NULL via rawValues (nil raw bytes) and
+	// sets IsNull=true on the Column.
+	cols := []wal.Column{
+		{Name: "id", Type: "uuid", Value: "8207b5df-e961-4c62-a2ad-4dcd149f07d5"},
+		{Name: "organization_id", Type: "uuid", Value: "fab355bc-d7e3-462c-befc-880a5a8a5bd7"},
+		{Name: "user_approval", Type: "bool", Value: true},
+		{Name: "generated_document_metadata", Type: "jsonb", Value: map[string]any{"category": "Meeting"}},
+		{Name: "user_corrected_document_name", Type: "text", Value: nil, IsSQLNull: true},      // SQL NULL
+		{Name: "user_corrected_document_value", Type: "text", Value: nil, IsSQLNull: true},     // SQL NULL
+		{Name: "user_corrected_document_metadata", Type: "jsonb", Value: nil, IsSQLNull: true}, // SQL NULL — must stay nil
+	}
+
+	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{})
+
+	// Non-JSONB SQL NULL columns should pass through as nil (they do)
+	require.Nil(t, values[4], "SQL NULL text column should stay nil")
+	require.Nil(t, values[5], "SQL NULL text column should stay nil")
+
+	// generated_document_metadata (non-null JSONB object) should be serialized
+	require.IsType(t, []byte{}, values[3], "Non-null JSONB object should serialize to []byte")
+
+	// BUG: SQL NULL JSONB column gets converted to []byte("null") by serializeJSONBValue.
+	// This makes PostgreSQL see 'null'::jsonb (IS NOT NULL = true) instead of SQL NULL
+	// (IS NULL = true), breaking the CHECK constraint.
+	require.Nil(t, values[6],
+		"SQL NULL in nullable JSONB column must stay nil for COPY (so PostgreSQL sees IS NULL = true), "+
+			"but serializeJSONBValue converts it to []byte(\"null\") which is JSONB null literal (IS NULL = false)")
+}
+
+// TestFilterRowColumns_CheckConstraint_OrgFactsScenario models the exact
+// org_facts production failure end-to-end. Both row variants must serialize
+// correctly for the CHECK constraint to pass.
+func TestFilterRowColumns_CheckConstraint_OrgFactsScenario(t *testing.T) {
+	t.Parallel()
+
+	// Row variant 1: user_approval=true, all corrected fields SQL NULL
+	// CHECK requires: user_corrected_document_metadata IS NULL
+	// Snapshot adapter sets IsNull=true because pgx rawValues are nil for SQL NULL.
+	approvedRow := []wal.Column{
+		{Name: "id", Type: "uuid", Value: "8207b5df-e961-4c62-a2ad-4dcd149f07d5"},
+		{Name: "user_approval", Type: "bool", Value: true},
+		{Name: "user_corrected_document_metadata", Type: "jsonb", Value: nil, IsSQLNull: true}, // SQL NULL
+	}
+
+	_, approvedValues := (&dmlAdapter{}).filterRowColumns(approvedRow, schemaInfo{})
+
+	// For user_approval=true: metadata MUST be nil (SQL NULL) to satisfy IS NULL check
+	require.Nil(t, approvedValues[2],
+		"approved row: SQL NULL JSONB must stay nil — CHECK requires IS NULL")
+
+	// Row variant 2: user_approval=false, corrected fields populated
+	// CHECK requires: user_corrected_document_metadata IS NOT NULL
+	correctedRow := []wal.Column{
+		{Name: "id", Type: "uuid", Value: "b7f900b7-f6db-42ae-90ef-4080dd6fb744"},
+		{Name: "user_approval", Type: "bool", Value: false},
+		{Name: "user_corrected_document_metadata", Type: "jsonb", Value: map[string]any{}}, // empty JSONB object {}
+	}
+
+	_, correctedValues := (&dmlAdapter{}).filterRowColumns(correctedRow, schemaInfo{})
+
+	// For user_approval=false: metadata MUST be non-nil to satisfy IS NOT NULL check
+	require.NotNil(t, correctedValues[2],
+		"corrected row: empty JSONB object {} must serialize to non-nil []byte")
+	jsonbBytes, ok := correctedValues[2].([]byte)
+	require.True(t, ok, "empty JSONB object should serialize to []byte, got %T", correctedValues[2])
+	require.Equal(t, "{}", string(jsonbBytes),
+		"empty JSONB object must round-trip as {}")
+}
+
 func TestBuildWhereQueryJSONBHandling(t *testing.T) {
 	t.Parallel()
 

@@ -53,6 +53,9 @@ func (m *Rows) Values() ([]any, error) {
 }
 
 func (m *Rows) RawValues() [][]byte {
+	if m.RawValuesFn == nil {
+		return nil
+	}
 	return m.RawValuesFn()
 }
 
