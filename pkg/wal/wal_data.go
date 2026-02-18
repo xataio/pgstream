@@ -52,6 +52,12 @@ type Column struct {
 	Name  string `json:"name"`
 	Type  string `json:"type"`
 	Value any    `json:"value"`
+	// IsSQLNull distinguishes SQL NULL from a decoded-nil value (e.g. JSONB
+	// 'null'::jsonb, which pgx also decodes to Go nil). The snapshot adapter
+	// sets this using pgx raw protocol bytes — nil wire bytes means SQL NULL.
+	// WAL/CDC events leave this false (default), preserving the existing
+	// nil→JSONB-null conversion in serializeJSONBValue.
+	IsSQLNull bool `json:"-"`
 }
 
 const ZeroLSN = "0/0"
