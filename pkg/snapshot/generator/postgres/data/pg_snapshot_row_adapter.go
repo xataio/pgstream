@@ -23,7 +23,7 @@ func newAdapter(mapper mapper, logger loglib.Logger) *adapter {
 	}
 }
 
-func (a *adapter) rowToWalEvent(ctx context.Context, tableSchema, tableName string, fieldDescriptions []pgconn.FieldDescription, values []any) *wal.Event {
+func (a *adapter) rowToWalEvent(ctx context.Context, tableSchema, tableName string, fieldDescriptions []pgconn.FieldDescription, values []any, rawValues [][]byte) *wal.Event {
 	if len(fieldDescriptions) == 0 && len(values) == 0 {
 		return nil
 	}
@@ -37,12 +37,12 @@ func (a *adapter) rowToWalEvent(ctx context.Context, tableSchema, tableName stri
 			LSN:       wal.ZeroLSN,
 			Schema:    tableSchema,
 			Table:     tableName,
-			Columns:   a.toWalEventColumns(ctx, fieldDescriptions, values),
+			Columns:   a.toWalEventColumns(ctx, fieldDescriptions, values, rawValues),
 		},
 	}
 }
 
-func (a *adapter) toWalEventColumns(ctx context.Context, fieldDescriptions []pgconn.FieldDescription, values []any) []wal.Column {
+func (a *adapter) toWalEventColumns(ctx context.Context, fieldDescriptions []pgconn.FieldDescription, values []any, rawValues [][]byte) []wal.Column {
 	columns := make([]wal.Column, 0, len(fieldDescriptions))
 	for i := range values {
 		dataType, err := a.mapper.TypeForOID(ctx, fieldDescriptions[i].DataTypeOID)
@@ -51,10 +51,16 @@ func (a *adapter) toWalEventColumns(ctx context.Context, fieldDescriptions []pgc
 			continue
 		}
 
+		// Distinguish SQL NULL from decoded-nil (e.g. JSONB 'null'::jsonb).
+		// pgx Values() returns Go nil for both. RawValues() returns nil only
+		// for SQL NULL — a decoded-nil like JSONB null has non-nil raw bytes.
+		isSQLNull := values[i] == nil && (i >= len(rawValues) || rawValues[i] == nil)
+
 		columns = append(columns, wal.Column{
-			Name:  fieldDescriptions[i].Name,
-			Type:  dataType,
-			Value: values[i],
+			Name:   fieldDescriptions[i].Name,
+			Type:   dataType,
+			Value:  values[i],
+			IsSQLNull: isSQLNull,
 		})
 	}
 

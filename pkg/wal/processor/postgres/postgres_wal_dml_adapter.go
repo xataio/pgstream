@@ -271,7 +271,12 @@ func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo) 
 		rowColumns = append(rowColumns, pglib.QuoteIdentifier(c.Name))
 		val := c.Value
 
-		val = serializeJSONBValue(c.Type, val)
+		// IsSQLNull is set by the snapshot adapter when pgx raw protocol bytes
+		// are nil (true SQL NULL). Skip JSONB serialization so nil stays nil
+		// and COPY writes SQL NULL — not JSONB null literal ('null'::jsonb).
+		if !c.IsSQLNull {
+			val = serializeJSONBValue(c.Type, val)
+		}
 
 		if a.forCopy {
 			val = a.updateValueForCopy(val, c.Type)

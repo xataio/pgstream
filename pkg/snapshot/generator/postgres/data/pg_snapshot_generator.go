@@ -353,7 +353,14 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID 
 					return fmt.Errorf("retrieving rows values: %w", err)
 				}
 
-				event := sg.adapter.rowToWalEvent(ctx, table.schema, table.name, fieldDescriptions, values)
+				// RawValues returns the undecoded wire bytes for each column.
+				// SQL NULL columns have nil raw bytes; decoded-nil values (like
+				// JSONB 'null'::jsonb) have non-nil raw bytes. The adapter uses
+				// this to set Column.IsNull so filterRowColumns can preserve
+				// SQL NULL instead of converting it to JSONB null.
+				rawValues := rows.RawValues()
+
+				event := sg.adapter.rowToWalEvent(ctx, table.schema, table.name, fieldDescriptions, values, rawValues)
 				if event == nil {
 					continue
 				}
