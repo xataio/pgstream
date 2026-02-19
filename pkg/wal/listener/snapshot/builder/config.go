@@ -22,5 +22,6 @@ type SchemaSnapshotConfig struct {
 
 type SnapshotRecorderConfig struct {
 	RepeatableSnapshots bool
+	SchemaWorkers       uint
 	SnapshotStoreURL    string
 }
