@@ -384,7 +384,10 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			sr := NewSnapshotRecorder(tc.store, tc.generator, false)
+			sr := NewSnapshotRecorder(&Config{
+				RepeatableSnapshots: false,
+				SchemaWorkers:       1,
+			}, tc.store, tc.generator)
 			defer sr.Close()
 
 			err := sr.CreateSnapshot(context.Background(), newTestSnapshot())

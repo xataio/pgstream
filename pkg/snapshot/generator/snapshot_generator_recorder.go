@@ -19,18 +19,28 @@ type SnapshotRecorder struct {
 	wrapped             SnapshotGenerator
 	store               snapshotstore.Store
 	repeatableSnapshots bool
+	schemaWorkers       uint
 }
 
-const updateTimeout = time.Minute
+type Config struct {
+	RepeatableSnapshots bool
+	SchemaWorkers       uint
+}
+
+const (
+	defaultSchemaWorkers = 1
+	updateTimeout        = time.Minute
+)
 
 // NewSnapshotRecorder will return the generator on input wrapped with an
 // activity recorder that will keep track of the status of the snapshot
 // requests.
-func NewSnapshotRecorder(store snapshotstore.Store, generator SnapshotGenerator, repeatableSnapshots bool) *SnapshotRecorder {
+func NewSnapshotRecorder(cfg *Config, store snapshotstore.Store, generator SnapshotGenerator) *SnapshotRecorder {
 	return &SnapshotRecorder{
 		wrapped:             generator,
 		store:               store,
-		repeatableSnapshots: repeatableSnapshots,
+		repeatableSnapshots: cfg.RepeatableSnapshots,
+		schemaWorkers:       cfg.schemaWorkers(),
 	}
 }
 
@@ -76,6 +86,8 @@ func (s *SnapshotRecorder) createRequests(ss *snapshot.Snapshot) []*snapshot.Req
 
 func (s *SnapshotRecorder) markSnapshotInProgress(ctx context.Context, requests []*snapshot.Request) error {
 	eg, ctx := errgroup.WithContext(ctx)
+	eg.SetLimit(int(s.schemaWorkers))
+
 	// create one request per schema
 	for _, req := range requests {
 		eg.Go(func() error {
@@ -112,6 +124,8 @@ func (s *SnapshotRecorder) markSnapshotCompleted(ctx context.Context, requests [
 	}
 
 	eg, ctx := errgroup.WithContext(ctx)
+	eg.SetLimit(int(s.schemaWorkers))
+
 	for _, req := range requests {
 		eg.Go(func() error {
 			schemaErrs := getSchemaErrors(req.Schema, err)
@@ -190,4 +204,11 @@ func (s *SnapshotRecorder) filterOutExistingSchemaTables(ctx context.Context, sc
 		}
 	}
 	return filteredTables, nil
+}
+
+func (c *Config) schemaWorkers() uint {
+	if c.SchemaWorkers <= 0 {
+		return defaultSchemaWorkers
+	}
+	return c.SchemaWorkers
 }
