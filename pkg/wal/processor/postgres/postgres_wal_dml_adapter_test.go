@@ -128,6 +128,29 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 			},
 		},
 		{
+			name: "delete - full identity and null column",
+			walData: &wal.Data{
+				Action: "D",
+				Schema: testSchema,
+				Table:  testTable,
+				Identity: []wal.Column{
+					{ID: columnID(1), Name: "null_column", Value: nil},
+					{ID: columnID(2), Name: "id", Value: 1},
+					{ID: columnID(3), Name: "name", Value: "alice"},
+				},
+				Metadata: wal.Metadata{},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    fmt.Sprintf("DELETE FROM %s WHERE \"null_column\" IS NULL AND \"id\" = $1 AND \"name\" = $2", quotedTestTable),
+					args:   []any{1, "alice"},
+				},
+			},
+		},
+		{
 			name: "error - delete",
 			walData: &wal.Data{
 				Action:   "D",
