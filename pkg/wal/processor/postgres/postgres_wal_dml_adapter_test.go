@@ -606,6 +606,36 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 			},
 		},
 		{
+			name: "update - full identity and null column",
+			walData: &wal.Data{
+				Action: "U",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(3), Name: "null_column", Value: nil},
+					{ID: columnID(4), Name: "age", Value: "20"},
+				},
+				Identity: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "a"},
+					{ID: columnID(3), Name: "null_column", Value: nil},
+					{ID: columnID(4), Name: "age", Value: "20"},
+				},
+				Metadata: wal.Metadata{},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2, \"null_column\" = $3, \"age\" = $4 WHERE \"id\" = $5 AND \"name\" = $6 AND \"null_column\" IS NULL AND \"age\" = $7", quotedTestTable),
+					args:   []any{1, "alice", nil, "20", 1, "a", "20"},
+				},
+			},
+		},
+		{
 			name: "update - with generated column",
 			walData: &wal.Data{
 				Action: "U",
