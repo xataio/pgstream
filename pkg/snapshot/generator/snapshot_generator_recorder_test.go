@@ -386,7 +386,7 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 
 			sr := NewSnapshotRecorder(&Config{
 				RepeatableSnapshots: false,
-				SchemaWorkers:       1,
+				SnapshotWorkers:     1,
 			}, tc.store, tc.generator)
 			defer sr.Close()
 

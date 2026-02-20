@@ -478,7 +478,7 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 		streamCfg.Recorder = &snapshotbuilder.SnapshotRecorderConfig{
 			RepeatableSnapshots: snapshotConfig.Recorder.RepeatableSnapshots,
 			SnapshotStoreURL:    snapshotConfig.Recorder.PostgresURL,
-			SchemaWorkers:       uint(snapshotConfig.SnapshotWorkers),
+			SnapshotWorkers:     uint(snapshotConfig.SnapshotWorkers),
 		}
 	}
 
