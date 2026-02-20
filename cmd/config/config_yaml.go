@@ -474,9 +474,11 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 		if snapshotConfig.Recorder.PostgresURL == "" {
 			return nil, errInvalidSnapshotRecorderConfig
 		}
+
 		streamCfg.Recorder = &snapshotbuilder.SnapshotRecorderConfig{
 			RepeatableSnapshots: snapshotConfig.Recorder.RepeatableSnapshots,
 			SnapshotStoreURL:    snapshotConfig.Recorder.PostgresURL,
+			SnapshotWorkers:     uint(snapshotConfig.SnapshotWorkers),
 		}
 	}
 

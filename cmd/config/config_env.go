@@ -286,6 +286,7 @@ func parseSnapshotConfig(pgURL string) (*snapshotbuilder.SnapshotListenerConfig,
 		cfg.Recorder = &snapshotbuilder.SnapshotRecorderConfig{
 			RepeatableSnapshots: viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE"),
 			SnapshotStoreURL:    storeURL,
+			SnapshotWorkers:     viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS"),
 		}
 	}
 
