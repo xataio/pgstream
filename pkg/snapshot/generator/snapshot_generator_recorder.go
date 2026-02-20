@@ -24,12 +24,12 @@ type SnapshotRecorder struct {
 
 type Config struct {
 	RepeatableSnapshots bool
-	SchemaWorkers       uint
+	SnapshotWorkers     uint
 }
 
 const (
-	defaultSchemaWorkers = 1
-	updateTimeout        = time.Minute
+	defaultSnapshotWorkers = 1
+	updateTimeout          = time.Minute
 )
 
 // NewSnapshotRecorder will return the generator on input wrapped with an
@@ -40,7 +40,7 @@ func NewSnapshotRecorder(cfg *Config, store snapshotstore.Store, generator Snaps
 		wrapped:             generator,
 		store:               store,
 		repeatableSnapshots: cfg.RepeatableSnapshots,
-		schemaWorkers:       cfg.schemaWorkers(),
+		schemaWorkers:       cfg.snapshotWorkers(),
 	}
 }
 
@@ -206,9 +206,9 @@ func (s *SnapshotRecorder) filterOutExistingSchemaTables(ctx context.Context, sc
 	return filteredTables, nil
 }
 
-func (c *Config) schemaWorkers() uint {
-	if c.SchemaWorkers <= 0 {
-		return defaultSchemaWorkers
+func (c *Config) snapshotWorkers() uint {
+	if c.SnapshotWorkers <= 0 {
+		return defaultSnapshotWorkers
 	}
-	return c.SchemaWorkers
+	return c.SnapshotWorkers
 }

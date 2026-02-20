@@ -85,7 +85,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 					Recorder: &builder.SnapshotRecorderConfig{
 						SnapshotStoreURL:    "postgresql://user:password@localhost:5432/mytargetdatabase",
 						RepeatableSnapshots: true,
-						SchemaWorkers:       4,
+						SnapshotWorkers:     4,
 					},
 					DisableProgressTracking: true,
 				},

@@ -92,7 +92,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 		}
 		g = generator.NewSnapshotRecorder(&generator.Config{
 			RepeatableSnapshots: cfg.Recorder.RepeatableSnapshots,
-			SchemaWorkers:       cfg.Recorder.SchemaWorkers,
+			SnapshotWorkers:     cfg.Recorder.SnapshotWorkers,
 		}, snapshotStore, g)
 	}
 
