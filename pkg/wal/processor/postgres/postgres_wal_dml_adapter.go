@@ -189,12 +189,21 @@ func (a *dmlAdapter) buildWhereQuery(d *wal.Data, placeholderOffset int) (string
 
 	whereQuery := "WHERE"
 	whereValues := make([]any, 0, len(cols))
+	placeholderIdx := placeholderOffset
 	for i, c := range cols {
 		if i != 0 {
 			whereQuery = fmt.Sprintf("%s AND", whereQuery)
 		}
-		whereQuery = fmt.Sprintf("%s %s = $%d", whereQuery, pglib.QuoteIdentifier(c.Name), i+placeholderOffset+1)
+
+		if c.Value == nil {
+			whereQuery = fmt.Sprintf("%s %s IS NULL", whereQuery, pglib.QuoteIdentifier(c.Name))
+			continue
+		}
+
+		placeholderIdx++
+		whereQuery = fmt.Sprintf("%s %s = $%d", whereQuery, pglib.QuoteIdentifier(c.Name), placeholderIdx)
 		whereValues = append(whereValues, serializeJSONBValue(c.Type, c.Value))
+
 	}
 	return whereQuery, whereValues, nil
 }
