@@ -17,6 +17,14 @@ type Config struct {
 	BulkIngestEnabled bool
 	RetryPolicy       backoff.Config
 	IgnoreDDL         bool
+	// IncludeDDLObjectTypes is a list of object type categories for which
+	// DDL should be replicated. Only one of IncludeDDLObjectTypes or
+	// ExcludeDDLObjectTypes can be set. Ignored if IgnoreDDL is true.
+	IncludeDDLObjectTypes []string
+	// ExcludeDDLObjectTypes is a list of object type categories for which
+	// DDL should be skipped. Only one of IncludeDDLObjectTypes or
+	// ExcludeDDLObjectTypes can be set. Ignored if IgnoreDDL is true.
+	ExcludeDDLObjectTypes []string
 }
 
 const (

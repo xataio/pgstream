@@ -231,6 +231,20 @@ func withBulkIngestionEnabled() option {
 	}
 }
 
+func withDDLObjectTypeFilter(include []string) option {
+	return func(cfg *stream.ProcessorConfig) {
+		if cfg.Postgres != nil {
+			cfg.Postgres.BatchWriter.IncludeDDLObjectTypes = include
+		}
+	}
+}
+
+func testPostgresListenerCfgWithSnapshotAndFilter(sourceURL, targetURL string, tables []string, includeObjectTypes []string) stream.ListenerConfig {
+	cfg := testPostgresListenerCfgWithSnapshot(sourceURL, targetURL, tables)
+	cfg.Postgres.Snapshot.Schema.DumpRestore.IncludeObjectTypes = includeObjectTypes
+	return cfg
+}
+
 func testPostgresProcessorCfg(opts ...option) stream.ProcessorConfig {
 	cfg := stream.ProcessorConfig{
 		Postgres: &stream.PostgresProcessorConfig{

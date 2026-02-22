@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -36,38 +37,44 @@ type schemaInfo struct {
 }
 
 type adapter struct {
-	dmlAdapter      dmlQueryAdapter
-	ddlAdapter      ddlQueryAdapter
-	ddlEventAdapter ddlEventAdapter
-
-	schemaObserver schemaObserver
+	dmlAdapter          dmlQueryAdapter
+	ddlAdapter          ddlQueryAdapter
+	ddlEventAdapter     ddlEventAdapter
+	ddlObjectTypeFilter *ddlObjectTypeFilter
+	schemaObserver      schemaObserver
 }
 
 type (
 	ddlEventAdapter func(*wal.Data) (*wal.DDLEvent, error)
 )
 
-func newAdapter(ctx context.Context, logger loglib.Logger, ignoreDDL bool, pgURL string, onConflictAction string, forCopy bool) (*adapter, error) {
-	schemaObserver, err := newPGSchemaObserver(ctx, pgURL, logger)
+func newAdapter(ctx context.Context, logger loglib.Logger, config *Config, forCopy bool) (*adapter, error) {
+	schemaObserver, err := newPGSchemaObserver(ctx, config.URL, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	dmlAdapter, err := newDMLAdapter(onConflictAction, forCopy, logger)
+	dmlAdapter, err := newDMLAdapter(config.OnConflictAction, forCopy, logger)
 	if err != nil {
 		return nil, err
 	}
 
 	var ddl ddlQueryAdapter
-	if !ignoreDDL {
+	var ddlFilter *ddlObjectTypeFilter
+	if !config.IgnoreDDL {
 		ddl = newDDLAdapter()
+		ddlFilter, err = newDDLObjectTypeFilter(config.IncludeDDLObjectTypes, config.ExcludeDDLObjectTypes)
+		if err != nil {
+			return nil, fmt.Errorf("invalid DDL object type filter config: %w", err)
+		}
 	}
 
 	return &adapter{
-		dmlAdapter:      dmlAdapter,
-		ddlAdapter:      ddl,
-		schemaObserver:  schemaObserver,
-		ddlEventAdapter: wal.WalDataToDDLEvent,
+		dmlAdapter:          dmlAdapter,
+		ddlAdapter:          ddl,
+		ddlObjectTypeFilter: ddlFilter,
+		schemaObserver:      schemaObserver,
+		ddlEventAdapter:     wal.WalDataToDDLEvent,
 	}, nil
 }
 
@@ -83,10 +90,11 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 		if err != nil {
 			return nil, err
 		}
+		// always update the schema observer to keep internal cache correct
 		a.schemaObserver.update(ddlEvent)
 
-		// there's no ddl adapter, the ddl query will not be processed
-		if a.ddlAdapter == nil {
+		// skip DDL execution if no adapter or if the DDL object type is filtered out
+		if a.ddlAdapter == nil || a.ddlObjectTypeFilter.shouldSkipDDL(ddlEvent) {
 			return []*query{{}}, nil
 		}
 
