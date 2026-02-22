@@ -39,6 +39,7 @@ type SnapshotGenerator struct {
 	roleSQLParser          *roleSQLParser
 	optionGenerator        *optionGenerator
 	snapshotTracker        snapshotProgressTracker
+	objectTypeFilter       *objectTypeFilter
 }
 
 type snapshotProgressTracker interface {
@@ -67,6 +68,14 @@ type Config struct {
 	DumpDebugFile string
 	// if set, security label providers that will be excluded from the dump
 	ExcludedSecurityLabels []string
+	// IncludeObjectTypes is a list of object type categories to include in the
+	// schema snapshot. Only one of IncludeObjectTypes or ExcludeObjectTypes
+	// can be set.
+	IncludeObjectTypes []string
+	// ExcludeObjectTypes is a list of object type categories to exclude from
+	// the schema snapshot. Only one of IncludeObjectTypes or
+	// ExcludeObjectTypes can be set.
+	ExcludeObjectTypes []string
 }
 
 type Option func(s *SnapshotGenerator)
@@ -94,6 +103,11 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		return nil, err
 	}
 
+	objTypeFilter, err := newObjectTypeFilter(c.IncludeObjectTypes, c.ExcludeObjectTypes)
+	if err != nil {
+		return nil, fmt.Errorf("invalid object type filter config: %w", err)
+	}
+
 	sg := &SnapshotGenerator{
 		sourceURL:              c.SourcePGURL,
 		targetURL:              c.TargetPGURL,
@@ -106,6 +120,7 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		roleSQLParser:          &roleSQLParser{},
 		sourceQuerier:          sourceConnPool,
 		optionGenerator:        newOptionGenerator(sourceConnPool, c),
+		objectTypeFilter:       objTypeFilter,
 	}
 
 	for _, opt := range opts {
@@ -187,9 +202,12 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	// queries since that's considered data and it's a schema only dump. Produce
 	// the data only dump for the sequences only and restore it along with the
 	// schema.
-	sequenceDump, err := s.dumpSequenceValues(ctx, dump.sequences)
-	if err != nil {
-		return err
+	var sequenceDump []byte
+	if !s.objectTypeFilter.isCategoryExcluded("sequences") {
+		sequenceDump, err = s.dumpSequenceValues(ctx, dump.sequences)
+		if err != nil {
+			return err
+		}
 	}
 
 	// the schema dump will not include the roles, so we need to dump them
@@ -233,16 +251,21 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	}
 
 	// apply the sequences, indices and constraints when the wrapped generator has finished
-	s.logger.Info("restoring sequence data", loglib.Fields{"schemaTables": ss.SchemaTables})
-	if err := s.restoreDump(ctx, sequenceDump); err != nil {
-		return err
+	if !s.objectTypeFilter.isCategoryExcluded("sequences") {
+		s.logger.Info("restoring sequence data", loglib.Fields{"schemaTables": ss.SchemaTables})
+		if err := s.restoreDump(ctx, sequenceDump); err != nil {
+			return err
+		}
 	}
 
-	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
-	if s.snapshotTracker != nil {
-		return s.restoreIndicesWithTracking(ctx, dump.indicesAndConstraints)
+	if len(dump.indicesAndConstraints) > 0 {
+		s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
+		if s.snapshotTracker != nil {
+			return s.restoreIndicesWithTracking(ctx, dump.indicesAndConstraints)
+		}
+		return s.restoreDump(ctx, dump.indicesAndConstraints)
 	}
-	return s.restoreDump(ctx, dump.indicesAndConstraints)
+	return nil
 }
 
 func (s *SnapshotGenerator) Close() error {
@@ -302,7 +325,7 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 			s.logger.Error(err, "pg_dump for schema failed", loglib.Fields{"pgdumpOptions": pgdumpOpts.ToArgs()})
 			return nil, fmt.Errorf("dumping schema: %w", err)
 		}
-		parsedDump.cleanupPart = getDumpsDiff(dumpWithCleanUp, d)
+		parsedDump.cleanupPart = s.objectTypeFilter.filterCleanupDump(getDumpsDiff(dumpWithCleanUp, d))
 		s.dumpToFile(s.getDumpFileName("-cleanup"), pgdumpOpts, parsedDump.cleanupPart)
 	}
 
@@ -410,8 +433,29 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	dumpRoles := make(map[string]role)
 	alterTable := ""
 	createEventTrigger := ""
+
+	// Object type filtering state: lines before the first TOC header (the
+	// preamble) are always included. Once a TOC header is encountered, the
+	// section is included/excluded based on the filter.
+	inPreamble := true
+	skipCurrentSection := false
+
 	for scanner.Scan() {
 		line := scanner.Text()
+
+		// Check for TOC header to track object type sections
+		if tocType, ok := parseTOCHeader(line); ok {
+			inPreamble = false
+			skipCurrentSection = s.objectTypeFilter.isExcluded(tocType)
+		}
+
+		// If the current section is excluded, skip the line. We still
+		// need to extract role information from non-excluded sections
+		// for role dependency tracking.
+		if !inPreamble && skipCurrentSection {
+			continue
+		}
+
 		switch {
 		case strings.HasPrefix(line, "SECURITY LABEL") &&
 			isSecurityLabelForExcludedProvider(line, s.excludedSecurityLabels):

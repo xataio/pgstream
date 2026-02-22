@@ -34,6 +34,10 @@ source:
           roles_snapshot_mode: # enabled by default. Can be set to disabled to disable roles snapshotting, or can be set to no_passwords to exclude role passwords
           exclude_security_labels: ["anon"] # list of providers whose security labels will be excluded from the snapshot. Wildcard supported.
           dump_file: pg_dump.sql # name of the file where the contents of the schema pg_dump command and output will be written for debugging purposes.
+          # Granular object type filtering for schema snapshots. Only one of include_object_types or exclude_object_types can be set.
+          # Available categories: tables, sequences, types, indexes, constraints, functions, views, materialized_views, triggers, event_triggers, policies, rules, comments, extensions, collations, text_search
+          # include_object_types: ["tables", "sequences", "types"] # only include these object types in the schema snapshot
+          # exclude_object_types: ["functions", "views", "triggers"] # exclude these object types from the schema snapshot
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
       plugin:
@@ -75,6 +79,11 @@ target:
     schema_log_store_url: "postgresql://user:password@localhost:5432/mydatabase" # url to the postgres database where the schema log is stored to be used when performing schema change diffs
     disable_triggers: false # whether to disable triggers on the target database. Defaults to false
     on_conflict_action: "nothing" # options are update, nothing or error. Defaults to error
+    ignore_ddl: false # whether to skip all DDL replication. Defaults to false
+    # Selective DDL object type filtering for replication. Only one of include_ddl_object_types or exclude_ddl_object_types can be set. Ignored if ignore_ddl is true.
+    # Available categories: tables, sequences, types, indexes, constraints, functions, views, materialized_views, triggers, event_triggers, policies, rules, extensions, collations, text_search
+    # include_ddl_object_types: ["tables", "sequences", "types"] # only replicate DDL for these object types
+    # exclude_ddl_object_types: ["functions", "views", "triggers"] # skip DDL replication for these object types
     bulk_ingest:
       enabled: true # whether to enable bulk ingest on the target postgres, using COPY FROM (supported for insert only workloads)
   kafka:

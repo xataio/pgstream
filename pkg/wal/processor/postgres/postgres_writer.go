@@ -57,7 +57,7 @@ func newWriter(ctx context.Context, config *Config, writerType string, opts ...W
 
 	forCopy := writerType == bulkIngestWriter
 
-	w.adapter, err = newAdapter(ctx, w.logger, config.IgnoreDDL, config.URL, config.OnConflictAction, forCopy)
+	w.adapter, err = newAdapter(ctx, w.logger, config, forCopy)
 	if err != nil {
 		return nil, err
 	}
