@@ -19,14 +19,17 @@ func Test_PostgresToPostgres_ObjectTypeFilter(t *testing.T) {
 		t.Skip("skipping integration test...")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Spin up a separate source Postgres container
+	// Spin up a separate source Postgres container.
+	// Container setup must be deferred before context cancel so that
+	// cancel() runs first (LIFO), allowing the stream to shut down
+	// gracefully before the container is terminated.
 	var sourcePGURL string
-	pgcleanup, err := testcontainers.SetupPostgresContainer(ctx, &sourcePGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &sourcePGURL, testcontainers.Postgres14, "config/postgresql.conf")
 	require.NoError(t, err)
 	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Load fixture SQL into the source database
 	fixtureSQL, err := os.ReadFile("testdata/object_types_fixture.sql")
