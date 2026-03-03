@@ -3,6 +3,7 @@
 package postgres
 
 import (
+	stdjson "encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -388,15 +389,24 @@ func isArray(colType string) bool {
 		(len(colType) > 1 && colType[0] == '_')
 }
 
-// serializeJSONBValue pre-serializes JSONB/JSON map/slice values with Sonic to
-// ensure consistent encoding between Sonic (wal2json parsing) and pgx (encoding/json).
-// String values pass through unchanged to avoid double-encoding.
+// serializeJSONBValue pre-serializes JSONB/JSON values to ensure consistent
+// encoding between Sonic (wal2json parsing) and pgx (encoding/json).
+// Map and slice values are always serialized. String values are serialized
+// only if they are not already valid JSON (e.g. JSON scalar strings like
+// "FIRST" from pgx rows.Values()), to avoid double-encoding pre-built JSON
+// documents passed as strings (e.g. from the schemalog snapshot generator).
 func serializeJSONBValue(colType string, val any) any {
 	if (colType == "jsonb" || colType == "json") && val != nil {
-		switch val.(type) {
+		switch v := val.(type) {
 		case map[string]any, []any:
 			if jsonBytes, err := json.Marshal(val); err == nil {
 				return jsonBytes
+			}
+		case string:
+			if !stdjson.Valid([]byte(v)) {
+				if jsonBytes, err := json.Marshal(v); err == nil {
+					return jsonBytes
+				}
 			}
 		}
 	}

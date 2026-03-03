@@ -83,6 +83,41 @@ func TestFilterRowColumnsJSONBArrayHandling(t *testing.T) {
 	require.Equal(t, "🎉", emoji)
 }
 
+func TestFilterRowColumnsJSONBScalarStringSerialization(t *testing.T) {
+	t.Parallel()
+
+	// Simulates pgx rows.Values() returning a JSON scalar string for a jsonb
+	// column (e.g. rollup_operator storing "FIRST"). The Go string "FIRST" is
+	// not valid JSON and must be serialized (quoted) before being sent to
+	// PostgreSQL via COPY or parameterized queries.
+	cols := []wal.Column{
+		{Name: "id", Type: "integer", Value: 1},
+		{Name: "rollup_operator", Type: "jsonb", Value: "FIRST"},
+	}
+
+	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{})
+
+	jsonbResult, ok := values[1].([]byte)
+	require.True(t, ok, "JSONB scalar string should be serialized to []byte, got %T", values[1])
+	require.Equal(t, `"FIRST"`, string(jsonbResult))
+}
+
+func TestFilterRowColumnsJSONScalarStringSerialization(t *testing.T) {
+	t.Parallel()
+
+	// Same as above but for json type (not jsonb)
+	cols := []wal.Column{
+		{Name: "id", Type: "integer", Value: 1},
+		{Name: "operator", Type: "json", Value: "COUNT DISTINCT"},
+	}
+
+	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{})
+
+	jsonbResult, ok := values[1].([]byte)
+	require.True(t, ok, "JSON scalar string should be serialized to []byte, got %T", values[1])
+	require.Equal(t, `"COUNT DISTINCT"`, string(jsonbResult))
+}
+
 func TestBuildWhereQueryJSONBHandling(t *testing.T) {
 	t.Parallel()
 
