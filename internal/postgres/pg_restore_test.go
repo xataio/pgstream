@@ -112,8 +112,18 @@ pg_restore: error: could not execute query: ERROR:  permission denied to grant p
 			output: "psql: error: FATAL:  database \"test\" does not exist\n",
 
 			wantErrs: &PGRestoreErrors{
-				criticalErrs: []error{
-					errors.New("psql: error: FATAL:  database \"test\" does not exist"),
+				ignoredErrs: []error{
+					&ErrRelationDoesNotExist{Details: "psql: error: FATAL:  database \"test\" does not exist"},
+				},
+			},
+		},
+		{
+			name:   "relation does not exist error from trigger drop",
+			output: "ERROR:  relation \"public.vendor_products\" does not exist\n",
+
+			wantErrs: &PGRestoreErrors{
+				ignoredErrs: []error{
+					&ErrRelationDoesNotExist{Details: "ERROR:  relation \"public.vendor_products\" does not exist"},
 				},
 			},
 		},
@@ -206,6 +216,11 @@ func TestParseErrorLine(t *testing.T) {
 			name:    "permission denied",
 			line:    "pg_restore: error: could not execute query: ERROR:  permission denied to grant privileges as role \"admin\"",
 			wantErr: &ErrPermissionDenied{Details: "pg_restore: error: could not execute query: ERROR:  permission denied to grant privileges as role \"admin\""},
+		},
+		{
+			name:    "relation does not exist",
+			line:    `ERROR:  relation "public.vendor_products" does not exist`,
+			wantErr: &ErrRelationDoesNotExist{Details: `ERROR:  relation "public.vendor_products" does not exist`},
 		},
 		{
 			name:    "generic error",

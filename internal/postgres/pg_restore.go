@@ -173,6 +173,8 @@ func parseErrorLine(line string) error {
 		return &ErrConstraintViolation{Details: line}
 	case strings.Contains(line, `permission denied to grant privileges as role`):
 		return &ErrPermissionDenied{Details: line}
+	case strings.Contains(line, "does not exist"):
+		return &ErrRelationDoesNotExist{Details: line}
 	default:
 		return errors.New(line)
 	}
@@ -219,10 +221,12 @@ func (e *PGRestoreErrors) addError(err error) {
 	var errAlreadyExists *ErrRelationAlreadyExists
 	var errConstraintViolation *ErrConstraintViolation
 	var errPermissionDenied *ErrPermissionDenied
+	var errDoesNotExist *ErrRelationDoesNotExist
 	switch {
 	case errors.As(err, &errAlreadyExists),
 		errors.As(err, &errConstraintViolation),
-		errors.As(err, &errPermissionDenied):
+		errors.As(err, &errPermissionDenied),
+		errors.As(err, &errDoesNotExist):
 		e.ignoredErrs = append(e.ignoredErrs, err)
 	default:
 		e.criticalErrs = append(e.criticalErrs, err)
