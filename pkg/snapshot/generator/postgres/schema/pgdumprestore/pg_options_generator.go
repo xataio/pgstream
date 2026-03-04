@@ -26,6 +26,7 @@ type optionGenerator struct {
 const (
 	roleSnapshotDisabled    = "disabled"
 	roleSnapshotNoPasswords = "no_passwords"
+	pgstreamSchema          = "pgstream"
 )
 
 func newOptionGenerator(querier pglib.Querier, cfg *Config) *optionGenerator {
@@ -101,6 +102,7 @@ func (o *optionGenerator) pgdumpOptions(ctx context.Context, schemaTables map[st
 	case hasWildcardSchema(schemaTables):
 		// no need to filter schemas, since we are including all of them
 		opts.Schemas = nil
+		opts.ExcludeSchemas = []string{pglib.QuoteIdentifier(pgstreamSchema)}
 	case o.includeGlobalDBObjects:
 		// instead of using the schema filter, we use the exclude schemas filter
 		// to make sure extensions and other database global objects are
