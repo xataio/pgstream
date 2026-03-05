@@ -144,9 +144,7 @@ PGSTREAM_SEARCH_STORE_BACKOFF_INTERVAL=0
 PGSTREAM_SEARCH_STORE_BACKOFF_MAX_RETRIES=0
 ```
 
-The search indexer requires some metadata to be added to the WAL events in order to identify the id and version of the event, which will be used to index the documents. In order to add this data to the events, we need to configure the injector processor wrapper, which takes care of that, as well as injecting pgstream ids into the event columns. This pgstream ids will be used by the indexer instead of the column names, in order to keep a constant identifier when renames happen, helping with performance by preventing reindexes. Check out more details about the injector in the [architecture](../README.md#architecture) section.
-
-The injector only needs the URL of the database where the `pgstream.schema_log` table is hosted. In our case, that's the source PostgreSQL database.
+The search indexer requires some metadata to be added to the WAL events in order to identify the id of the event, which will be used to index the documents. In order to add this data to the events, we need to enable the injector processor, which takes care of adding pgstream metadata into the events. This includes pgstream IDs for columns, which will be used by the indexer instead of the column names to maintain constant identifiers when renames happen, helping with performance by preventing reindexes. Check out more details about the injector in the [architecture](../README.md#architecture) section.
 
 ```sh
 PGSTREAM_INJECTOR_STORE_POSTGRES_URL="postgres://postgres:postgres@localhost:5432?sslmode=disable"
@@ -215,8 +213,7 @@ source:
       recorder:
         repeatable_snapshots: true # whether to repeat snapshots that have already been taken
         postgres_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the database where the snapshot status is recorded
-      schema: # when mode is full or schema
-        mode: schemalog # options are pgdump_pgrestore or schemalog
+
     replication:
       replication_slot: "pgstream_tutorial_slot"
 target:
@@ -246,7 +243,6 @@ We can validate that the initialisation and the configuration are valid by runni
 SUCCESS  pgstream status check encountered no issues
 Initialisation status:
  - Pgstream schema exists: true
- - Pgstream schema_log table exists: true
  - Migration current version: 7
  - Migration status: success
  - Replication slot name: pgstream_tutorial_slot
@@ -290,7 +286,7 @@ Now we can connect to the source database and create a table:
 CREATE TABLE test(id SERIAL PRIMARY KEY, name TEXT);
 ```
 
-We should be able to see a `pgstream` index created in the OpenSearch cluster, along with a `public-1` index. The `pgstream` index keeps track of the schema changes, and it's the equivalent of the `pgstream.schema_log` table in PostgreSQL. The `puglic-1` index is where the data for our tables in the public schema will be indexed.
+We should be able to see a `public-1` index created in the OpenSearch cluster. The `public-1` index is where the data for our tables in the public schema will be indexed.
 
 ```sh
 ➜  ~ curl -X GET -u admin:admin http://localhost:9200/_cat/indices

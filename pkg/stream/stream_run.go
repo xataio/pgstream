@@ -34,7 +34,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 	}
 
 	if init {
-		if err := Init(ctx, config.SourcePostgresURL(), config.PostgresReplicationSlot()); err != nil {
+		if err := Init(ctx, config.GetInitConfig()); err != nil {
 			return err
 		}
 	}
@@ -42,7 +42,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 	eg, ctx := errgroup.WithContext(ctx)
 
 	var replicationHandler replication.Handler
-	if config.Listener.Postgres != nil {
+	if config.Listener.Postgres != nil && config.Listener.Postgres.Replication.PostgresURL != "" {
 		var err error
 		replicationHandler, err = pgreplication.NewHandler(ctx,
 			config.Listener.Postgres.Replication,

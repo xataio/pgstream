@@ -13,12 +13,12 @@ source:
         table_workers: 4 # number of workers to snapshot a table in parallel
         batch_bytes: 83886080 # bytes to read per batch (defaults to 80MiB)
       schema: # when mode is full or schema
-        mode: schemalog # options are pgdump_pgrestore or schemalog
+        mode: pgdump_pgrestore
 
 target:
   search:
     engine: "opensearch" # options are elasticsearch or opensearch
-    url: "http://admin:admin@localhost:9200" # URL of the search engine
+    url: "http://admin:StrongAdmin123!@localhost:9200" # URL of the search engine
     batch:
       timeout: 5000 # batch timeout in milliseconds
       size: 100 # number of messages in a batch
@@ -32,3 +32,7 @@ target:
 modifiers:
   injector:
     enabled: true # whether to inject pgstream metadata into the WAL events
+    source_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # optional for postgres sources, defaults to source URL
+  filter:
+    exclude_tables:
+    - pgstream.*

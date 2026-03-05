@@ -20,12 +20,13 @@ func TestInitStatus_GetErrors(t *testing.T) {
 			name: "all components valid",
 			initStatus: &InitStatus{
 				PgstreamSchema: &SchemaStatus{
-					SchemaExists:         true,
-					SchemaLogTableExists: true,
+					SchemaExists: true,
 				},
-				Migration: &MigrationStatus{
-					Version: 5,
-					Dirty:   false,
+				Migrations: []MigrationStatus{
+					{
+						Version: 5,
+						Dirty:   false,
+					},
 				},
 				ReplicationSlot: &ReplicationSlotStatus{
 					Name:     "pgstream_db_slot",
@@ -39,9 +40,8 @@ func TestInitStatus_GetErrors(t *testing.T) {
 			name: "schema errors",
 			initStatus: &InitStatus{
 				PgstreamSchema: &SchemaStatus{
-					SchemaExists:         false,
-					SchemaLogTableExists: false,
-					Errors:               []string{noPgstreamSchemaErrMsg},
+					SchemaExists: false,
+					Errors:       []string{noPgstreamSchemaErrMsg},
 				},
 			},
 			wantErrors: []string{noPgstreamSchemaErrMsg},
@@ -49,13 +49,25 @@ func TestInitStatus_GetErrors(t *testing.T) {
 		{
 			name: "migration errors",
 			initStatus: &InitStatus{
-				Migration: &MigrationStatus{
-					Version: 3,
-					Dirty:   true,
-					Errors:  []string{"migration version 3 is dirty"},
+				Migrations: []MigrationStatus{
+					{
+						TableName: "schema_migrations_test_1",
+						Version:   3,
+						Dirty:     true,
+						Errors:    []string{"migration version 3 is dirty for table schema_migrations_test_1"},
+					},
+					{
+						TableName: "schema_migrations_test_2",
+						Version:   3,
+						Dirty:     true,
+						Errors:    []string{"migration version 3 is dirty for table schema_migrations_test_2"},
+					},
 				},
 			},
-			wantErrors: []string{"migration version 3 is dirty"},
+			wantErrors: []string{
+				"migration version 3 is dirty for table schema_migrations_test_1",
+				"migration version 3 is dirty for table schema_migrations_test_2",
+			},
 		},
 		{
 			name: "replication slot errors",
@@ -73,14 +85,15 @@ func TestInitStatus_GetErrors(t *testing.T) {
 			name: "multiple errors",
 			initStatus: &InitStatus{
 				PgstreamSchema: &SchemaStatus{
-					SchemaExists:         false,
-					SchemaLogTableExists: false,
-					Errors:               []string{noPgstreamSchemaErrMsg},
+					SchemaExists: false,
+					Errors:       []string{noPgstreamSchemaErrMsg},
 				},
-				Migration: &MigrationStatus{
-					Version: 3,
-					Dirty:   true,
-					Errors:  []string{"migration version 3 is dirty"},
+				Migrations: []MigrationStatus{
+					{
+						Version: 3,
+						Dirty:   true,
+						Errors:  []string{"migration version 3 is dirty"},
+					},
 				},
 				ReplicationSlot: &ReplicationSlotStatus{
 					Name:     "pgstream_db_slot",
@@ -125,12 +138,14 @@ func TestStatus_PrettyPrint(t *testing.T) {
 			status: &Status{
 				Init: &InitStatus{
 					PgstreamSchema: &SchemaStatus{
-						SchemaExists:         true,
-						SchemaLogTableExists: true,
+						SchemaExists: true,
 					},
-					Migration: &MigrationStatus{
-						Version: 5,
-						Dirty:   false,
+					Migrations: []MigrationStatus{
+						{
+							TableName: "schema_migrations_test",
+							Version:   5,
+							Dirty:     false,
+						},
 					},
 					ReplicationSlot: &ReplicationSlotStatus{
 						Name:     "pgstream_db_slot",
@@ -150,9 +165,9 @@ func TestStatus_PrettyPrint(t *testing.T) {
 			},
 			wantOutput: `Initialisation status:
  - Pgstream schema exists: true
- - Pgstream schema_log table exists: true
- - Migration current version: 5
- - Migration status: success
+ - Migration for table schema_migrations_test:
+	- Migration current version: 5
+	- Migration status: success
  - Replication slot name: pgstream_db_slot
  - Replication slot plugin: wal2json
  - Replication slot database: db
@@ -168,14 +183,16 @@ Source status:
 			status: &Status{
 				Init: &InitStatus{
 					PgstreamSchema: &SchemaStatus{
-						SchemaExists:         false,
-						SchemaLogTableExists: false,
-						Errors:               []string{"pgstream schema does not exist"},
+						SchemaExists: false,
+						Errors:       []string{"pgstream schema does not exist"},
 					},
-					Migration: &MigrationStatus{
-						Version: 3,
-						Dirty:   true,
-						Errors:  []string{"migration version 3 is dirty"},
+					Migrations: []MigrationStatus{
+						{
+							TableName: "schema_migrations_test",
+							Version:   3,
+							Dirty:     true,
+							Errors:    []string{"migration version 3 is dirty for table schema_migrations_test"},
+						},
 					},
 					ReplicationSlot: &ReplicationSlotStatus{
 						Name:     "pgstream_db_slot",
@@ -199,11 +216,11 @@ Source status:
 			},
 			wantOutput: `Initialisation status:
  - Pgstream schema exists: false
- - Pgstream schema_log table exists: false
  - Pgstream schema errors: [pgstream schema does not exist]
- - Migration current version: 3
- - Migration status: failed
- - Migration errors: [migration version 3 is dirty]
+ - Migration for table schema_migrations_test:
+	- Migration current version: 3
+	- Migration status: failed
+	- Migration errors: [migration version 3 is dirty for table schema_migrations_test]
  - Replication slot name: pgstream_db_slot
  - Replication slot plugin: wrong_plugin
  - Replication slot database: db
@@ -247,12 +264,14 @@ func TestInitStatus_PrettyPrint(t *testing.T) {
 			name: "all components valid",
 			initStatus: &InitStatus{
 				PgstreamSchema: &SchemaStatus{
-					SchemaExists:         true,
-					SchemaLogTableExists: true,
+					SchemaExists: true,
 				},
-				Migration: &MigrationStatus{
-					Version: 5,
-					Dirty:   false,
+				Migrations: []MigrationStatus{
+					{
+						TableName: "schema_migrations_test",
+						Version:   5,
+						Dirty:     false,
+					},
 				},
 				ReplicationSlot: &ReplicationSlotStatus{
 					Name:     "pgstream_db_slot",
@@ -262,9 +281,9 @@ func TestInitStatus_PrettyPrint(t *testing.T) {
 			},
 			wantOutput: `Initialisation status:
  - Pgstream schema exists: true
- - Pgstream schema_log table exists: true
- - Migration current version: 5
- - Migration status: success
+ - Migration for table schema_migrations_test:
+	- Migration current version: 5
+	- Migration status: success
  - Replication slot name: pgstream_db_slot
  - Replication slot plugin: wal2json
  - Replication slot database: db`,
@@ -273,29 +292,41 @@ func TestInitStatus_PrettyPrint(t *testing.T) {
 			name: "schema errors",
 			initStatus: &InitStatus{
 				PgstreamSchema: &SchemaStatus{
-					SchemaExists:         false,
-					SchemaLogTableExists: false,
-					Errors:               []string{noPgstreamSchemaErrMsg},
+					SchemaExists: false,
+					Errors:       []string{noPgstreamSchemaErrMsg},
 				},
 			},
 			wantOutput: `Initialisation status:
  - Pgstream schema exists: false
- - Pgstream schema_log table exists: false
  - Pgstream schema errors: [pgstream schema does not exist in the configured postgres database]`,
 		},
 		{
 			name: "migration errors",
 			initStatus: &InitStatus{
-				Migration: &MigrationStatus{
-					Version: 3,
-					Dirty:   true,
-					Errors:  []string{"migration version 3 is dirty"},
+				Migrations: []MigrationStatus{
+					{
+						TableName: "schema_migrations_test_1",
+						Version:   3,
+						Dirty:     true,
+						Errors:    []string{"migration version 3 is dirty for table schema_migrations_test_1"},
+					},
+					{
+						TableName: "schema_migrations_test_2",
+						Version:   3,
+						Dirty:     true,
+						Errors:    []string{"migration version 3 is dirty for table schema_migrations_test_2"},
+					},
 				},
 			},
 			wantOutput: `Initialisation status:
- - Migration current version: 3
- - Migration status: failed
- - Migration errors: [migration version 3 is dirty]`,
+ - Migration for table schema_migrations_test_1:
+	- Migration current version: 3
+	- Migration status: failed
+	- Migration errors: [migration version 3 is dirty for table schema_migrations_test_1]
+ - Migration for table schema_migrations_test_2:
+	- Migration current version: 3
+	- Migration status: failed
+	- Migration errors: [migration version 3 is dirty for table schema_migrations_test_2]`,
 		},
 		{
 			name: "replication slot errors",

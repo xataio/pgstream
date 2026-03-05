@@ -10,7 +10,6 @@ import (
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
 	"github.com/xataio/pgstream/pkg/otel"
-	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/stream"
@@ -43,6 +42,9 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 					ReplicationSlotName: "pgstream_mydatabase_slot",
 					IncludeTables:       []string{"test", "test_schema.test", "another_schema.*"},
 					ExcludeTables:       []string{"excluded_test", "excluded_schema.test", "another_excluded_schema.*"},
+					PluginArguments: pgreplication.PluginArguments{
+						IncludeXIDs: true,
+					},
 				},
 				RetryPolicy: backoff.Config{
 					DisableRetries: true,
@@ -83,6 +85,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 					Recorder: &builder.SnapshotRecorderConfig{
 						SnapshotStoreURL:    "postgresql://user:password@localhost:5432/mytargetdatabase",
 						RepeatableSnapshots: true,
+						SnapshotWorkers:     4,
 					},
 					DisableProgressTracking: true,
 				},
@@ -136,9 +139,6 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 					DisableTriggers:   false,
 					OnConflictAction:  "nothing",
 					BulkIngestEnabled: true,
-					SchemaLogStore: schemalogpg.Config{
-						URL: "postgresql://user:password@localhost:5432/mydatabase",
-					},
 					RetryPolicy: backoff.Config{
 						DisableRetries: true,
 						Exponential: &backoff.ExponentialConfig{
@@ -217,9 +217,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 				},
 			},
 			Injector: &injector.Config{
-				Store: schemalogpg.Config{
-					URL: "postgresql://user:password@localhost:5432/mydatabase",
-				},
+				URL: "postgresql://user:password@localhost:5432/mydatabase",
 			},
 			Transformer: &transformer.Config{
 				InferFromSecurityLabels: false,

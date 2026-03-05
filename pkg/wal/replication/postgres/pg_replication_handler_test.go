@@ -38,7 +38,7 @@ func TestHandler_StartReplication(t *testing.T) {
 				StartReplicationFn: func(ctx context.Context, cfg pglib.ReplicationConfig) error {
 					require.Equal(t, testLSN, cfg.StartPos)
 					require.Equal(t, testSlot, cfg.SlotName)
-					require.Equal(t, pluginArguments, cfg.PluginArguments)
+					require.Equal(t, defaultPluginArguments, cfg.PluginArguments)
 					return nil
 				},
 				SendStandbyStatusUpdateFn: func(ctx context.Context, lsn uint64) error {
@@ -83,7 +83,7 @@ func TestHandler_StartReplication(t *testing.T) {
 				StartReplicationFn: func(ctx context.Context, cfg pglib.ReplicationConfig) error {
 					require.Equal(t, testLSN, cfg.StartPos)
 					require.Equal(t, testSlot, cfg.SlotName)
-					require.Equal(t, pluginArguments, cfg.PluginArguments)
+					require.Equal(t, defaultPluginArguments, cfg.PluginArguments)
 					return nil
 				},
 				SendStandbyStatusUpdateFn: func(ctx context.Context, lsn uint64) error {
@@ -249,7 +249,7 @@ func TestHandler_StartReplication(t *testing.T) {
 				StartReplicationFn: func(ctx context.Context, cfg pglib.ReplicationConfig) error {
 					require.Equal(t, testLSN, cfg.StartPos)
 					require.Equal(t, testSlot, cfg.SlotName)
-					require.Equal(t, pluginArguments, cfg.PluginArguments)
+					require.Equal(t, defaultPluginArguments, cfg.PluginArguments)
 					return nil
 				},
 				SendStandbyStatusUpdateFn: func(ctx context.Context, lsn uint64) error {
@@ -292,6 +292,7 @@ func TestHandler_StartReplication(t *testing.T) {
 				pgReplicationSlotName: tc.slotName,
 				lsnParser:             NewLSNParser(),
 				logFields:             log.Fields{},
+				pluginArguments:       defaultPluginArguments,
 			}
 
 			err := h.StartReplication(context.Background())

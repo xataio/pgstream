@@ -10,7 +10,6 @@ import (
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
 	"github.com/xataio/pgstream/pkg/otel"
-	pgschemalog "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/stream"
@@ -96,7 +95,6 @@ type SnapshotDataConfig struct {
 }
 
 type SnapshotSchemaConfig struct {
-	Mode            string                 `mapstructure:"mode" yaml:"mode"`
 	PgDumpPgRestore *PgDumpPgRestoreConfig `mapstructure:"pgdump_pgrestore" yaml:"pgdump_pgrestore"`
 }
 
@@ -113,7 +111,12 @@ type PgDumpPgRestoreConfig struct {
 }
 
 type ReplicationConfig struct {
-	ReplicationSlot string `mapstructure:"replication_slot" yaml:"replication_slot"`
+	ReplicationSlot string        `mapstructure:"replication_slot" yaml:"replication_slot"`
+	Plugin          *PluginConfig `mapstructure:"plugin" yaml:"plugin"`
+}
+
+type PluginConfig struct {
+	IncludeXIDs bool `mapstructure:"include_xids" yaml:"include_xids"`
 }
 
 type KafkaConfig struct {
@@ -160,14 +163,13 @@ type ConstantBackoffConfig struct {
 }
 
 type PostgresTargetConfig struct {
-	URL               string            `mapstructure:"url" yaml:"url"`
-	Batch             *BatchConfig      `mapstructure:"batch" yaml:"batch"`
-	BulkIngest        *BulkIngestConfig `mapstructure:"bulk_ingest" yaml:"bulk_ingest"`
-	SchemaLogStoreURL string            `mapstructure:"schema_log_store_url" yaml:"schema_log_store_url"`
-	DisableTriggers   bool              `mapstructure:"disable_triggers" yaml:"disable_triggers"`
-	OnConflictAction  string            `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
-	RetryPolicy       BackoffConfig     `mapstructure:"retry_policy" yaml:"retry_policy"`
-	IgnoreDDL         bool              `mapstructure:"ignore_ddl" yaml:"ignore_ddl"`
+	URL              string            `mapstructure:"url" yaml:"url"`
+	Batch            *BatchConfig      `mapstructure:"batch" yaml:"batch"`
+	BulkIngest       *BulkIngestConfig `mapstructure:"bulk_ingest" yaml:"bulk_ingest"`
+	DisableTriggers  bool              `mapstructure:"disable_triggers" yaml:"disable_triggers"`
+	OnConflictAction string            `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
+	RetryPolicy      BackoffConfig     `mapstructure:"retry_policy" yaml:"retry_policy"`
+	IgnoreDDL        bool              `mapstructure:"ignore_ddl" yaml:"ignore_ddl"`
 }
 
 type KafkaTargetConfig struct {
@@ -250,8 +252,8 @@ type ModifiersConfig struct {
 }
 
 type InjectorConfig struct {
-	Enabled      bool   `mapstructure:"enabled" yaml:"enabled"`
-	SchemalogURL string `mapstructure:"schemalog_url" yaml:"schemalog_url"`
+	Enabled   bool   `mapstructure:"enabled" yaml:"enabled"`
+	SourceURL string `mapstructure:"source_url" yaml:"source_url"`
 }
 
 type FilterConfig struct {
@@ -299,12 +301,6 @@ const (
 	noPasswordsRolesSnapshotMode = "no_passwords"
 )
 
-// schema snapshot modes
-const (
-	pgdumprestoreSchemaMode = "pgdump_pgrestore"
-	schemalogSchemaMode     = "schemalog"
-)
-
 // search engines
 const (
 	elasticsearchEngine = "elasticsearch"
@@ -319,7 +315,6 @@ const (
 )
 
 var (
-	errUnsupportedSchemaSnapshotMode           = errors.New("unsupported schema snapshot mode, must be one of 'pgdump_pgrestore' or 'schemalog'")
 	errUnsupportedSnapshotMode                 = errors.New("unsupported snapshot mode, must be one of 'full', 'schema' or 'data'")
 	errUnsupportedPostgresSourceMode           = errors.New("unsupported postgres source mode, must be one of 'replication', 'snapshot' or 'snapshot_and_replication'")
 	errUnsupportedTransformationValidationMode = errors.New("unsupported transformation validation mode, must be one of 'strict', 'table_level' or 'relaxed'")
@@ -328,8 +323,7 @@ var (
 	errInvalidTableValidationConfig            = errors.New("table level validation mode should be used when transformation validation mode is set to 'table_level'")
 	errUnsupportedSearchEngine                 = errors.New("unsupported search engine, must be one of 'opensearch' or 'elasticsearch'")
 	errUnsupportedRolesSnapshotMode            = errors.New("unsupported roles snapshot mode, must be one of 'enabled', 'disabled', or 'no_passwords'")
-	errInvalidPgdumpPgrestoreConfig            = errors.New("pgdump_pgrestore snapshot mode requires target postgres config")
-	errInvalidInjectorConfig                   = errors.New("injector config can't infer schemalog url from source postgres url, schemalog_url must be provided")
+	errInvalidInjectorConfig                   = errors.New("injector config can't infer source url, must be provided")
 	errInvalidSnapshotRecorderConfig           = errors.New("snapshot recorder config requires a postgres url")
 	errInvalidSampleRatio                      = errors.New("trace sample ratio must be a value between 0.0 and 1.0")
 	errSchemaSnapshotNotConfigured             = errors.New("schema snapshot config must be provided when snapshot mode is 'full' or 'schema'")
@@ -430,13 +424,19 @@ func (c *YAMLConfig) parsePostgresListenerConfig() (*stream.PostgresListenerConf
 
 	if c.Source.Postgres.Mode == replicationMode || c.Source.Postgres.Mode == snapshotAndReplicationMode {
 		replicationSlotName := ""
+		pluginArgs := pgreplication.PluginArguments{}
 		if c.Source.Postgres.Replication != nil {
 			replicationSlotName = c.Source.Postgres.Replication.ReplicationSlot
+			if c.Source.Postgres.Replication.Plugin != nil {
+				pluginArgs.IncludeXIDs = c.Source.Postgres.Replication.Plugin.IncludeXIDs
+			}
 		}
 		streamCfg.Replication = pgreplication.Config{
 			PostgresURL:         c.Source.Postgres.URL,
 			ReplicationSlotName: replicationSlotName,
+			PluginArguments:     pluginArgs,
 		}
+
 	}
 
 	if c.Source.Postgres.Mode == snapshotMode || c.Source.Postgres.Mode == snapshotAndReplicationMode {
@@ -474,9 +474,11 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 		if snapshotConfig.Recorder.PostgresURL == "" {
 			return nil, errInvalidSnapshotRecorderConfig
 		}
+
 		streamCfg.Recorder = &snapshotbuilder.SnapshotRecorderConfig{
 			RepeatableSnapshots: snapshotConfig.Recorder.RepeatableSnapshots,
 			SnapshotStoreURL:    snapshotConfig.Recorder.PostgresURL,
+			SnapshotWorkers:     uint(snapshotConfig.SnapshotWorkers),
 		}
 	}
 
@@ -529,45 +531,35 @@ func (c *YAMLConfig) parseSchemaSnapshotConfig() (*snapshotbuilder.SchemaSnapsho
 		return nil, nil
 	}
 
-	switch schemaSnapshotCfg.Mode {
-	case schemalogSchemaMode:
-		return &snapshotbuilder.SchemaSnapshotConfig{
-			SchemaLogStore: &pgschemalog.Config{
-				URL: c.Source.Postgres.URL,
-			},
-		}, nil
-	case pgdumprestoreSchemaMode:
-		if c.Target.Postgres == nil {
-			return nil, errInvalidPgdumpPgrestoreConfig
-		}
-		streamSchemaCfg := &snapshotbuilder.SchemaSnapshotConfig{
-			DumpRestore: &pgdumprestore.Config{
-				SourcePGURL: c.Source.Postgres.URL,
-				TargetPGURL: c.Target.Postgres.URL,
-			},
-		}
-
-		if schemaSnapshotCfg.PgDumpPgRestore != nil {
-			streamSchemaCfg.DumpRestore.CleanTargetDB = schemaSnapshotCfg.PgDumpPgRestore.CleanTargetDB
-			streamSchemaCfg.DumpRestore.IncludeGlobalDBObjects = schemaSnapshotCfg.PgDumpPgRestore.IncludeGlobalDBObjects
-			streamSchemaCfg.DumpRestore.CreateTargetDB = schemaSnapshotCfg.PgDumpPgRestore.CreateTargetDB
-			streamSchemaCfg.DumpRestore.Role = schemaSnapshotCfg.PgDumpPgRestore.Role
-			streamSchemaCfg.DumpRestore.NoOwner = schemaSnapshotCfg.PgDumpPgRestore.NoOwner
-			streamSchemaCfg.DumpRestore.NoPrivileges = schemaSnapshotCfg.PgDumpPgRestore.NoPrivileges
-			streamSchemaCfg.DumpRestore.DumpDebugFile = schemaSnapshotCfg.PgDumpPgRestore.DumpFile
-			streamSchemaCfg.DumpRestore.ExcludedSecurityLabels = schemaSnapshotCfg.PgDumpPgRestore.ExcludedSecurityLabels
-
-			var err error
-			streamSchemaCfg.DumpRestore.RolesSnapshotMode, err = getRolesSnapshotMode(schemaSnapshotCfg.PgDumpPgRestore.RolesSnapshotMode)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		return streamSchemaCfg, nil
-	default:
-		return nil, errUnsupportedSchemaSnapshotMode
+	targetURL := ""
+	if c.Target.Postgres != nil {
+		targetURL = c.Target.Postgres.URL
 	}
+	streamSchemaCfg := &snapshotbuilder.SchemaSnapshotConfig{
+		DumpRestore: &pgdumprestore.Config{
+			SourcePGURL: c.Source.Postgres.URL,
+			TargetPGURL: targetURL,
+		},
+	}
+
+	if schemaSnapshotCfg.PgDumpPgRestore != nil {
+		streamSchemaCfg.DumpRestore.CleanTargetDB = schemaSnapshotCfg.PgDumpPgRestore.CleanTargetDB
+		streamSchemaCfg.DumpRestore.IncludeGlobalDBObjects = schemaSnapshotCfg.PgDumpPgRestore.IncludeGlobalDBObjects
+		streamSchemaCfg.DumpRestore.CreateTargetDB = schemaSnapshotCfg.PgDumpPgRestore.CreateTargetDB
+		streamSchemaCfg.DumpRestore.Role = schemaSnapshotCfg.PgDumpPgRestore.Role
+		streamSchemaCfg.DumpRestore.NoOwner = schemaSnapshotCfg.PgDumpPgRestore.NoOwner
+		streamSchemaCfg.DumpRestore.NoPrivileges = schemaSnapshotCfg.PgDumpPgRestore.NoPrivileges
+		streamSchemaCfg.DumpRestore.DumpDebugFile = schemaSnapshotCfg.PgDumpPgRestore.DumpFile
+		streamSchemaCfg.DumpRestore.ExcludedSecurityLabels = schemaSnapshotCfg.PgDumpPgRestore.ExcludedSecurityLabels
+
+		var err error
+		streamSchemaCfg.DumpRestore.RolesSnapshotMode, err = getRolesSnapshotMode(schemaSnapshotCfg.PgDumpPgRestore.RolesSnapshotMode)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return streamSchemaCfg, nil
 }
 
 func (c *YAMLConfig) parseInjectorConfig() (*injector.Config, error) {
@@ -575,7 +567,7 @@ func (c *YAMLConfig) parseInjectorConfig() (*injector.Config, error) {
 		return nil, nil
 	}
 
-	url := c.Modifiers.Injector.SchemalogURL
+	url := c.Modifiers.Injector.SourceURL
 	if url == "" {
 		if c.Source.Postgres == nil || c.Source.Postgres.URL == "" {
 			return nil, errInvalidInjectorConfig
@@ -584,9 +576,7 @@ func (c *YAMLConfig) parseInjectorConfig() (*injector.Config, error) {
 	}
 
 	return &injector.Config{
-		Store: pgschemalog.Config{
-			URL: url,
-		},
+		URL: url,
 	}, nil
 }
 
@@ -619,11 +609,8 @@ func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorCon
 
 	cfg := &stream.PostgresProcessorConfig{
 		BatchWriter: postgres.Config{
-			URL:         c.Target.Postgres.URL,
-			BatchConfig: c.Target.Postgres.Batch.parseBatchConfig(),
-			SchemaLogStore: pgschemalog.Config{
-				URL: c.Target.Postgres.SchemaLogStoreURL,
-			},
+			URL:              c.Target.Postgres.URL,
+			BatchConfig:      c.Target.Postgres.Batch.parseBatchConfig(),
 			DisableTriggers:  c.Target.Postgres.DisableTriggers,
 			OnConflictAction: c.Target.Postgres.OnConflictAction,
 			RetryPolicy:      c.Target.Postgres.RetryPolicy.parseBackoffConfig(),

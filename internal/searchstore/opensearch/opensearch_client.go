@@ -182,7 +182,7 @@ func (c *Client) IndexExists(ctx context.Context, index string) (bool, error) {
 	}
 	defer res.Body.Close()
 
-	if res.IsError() && res.StatusCode != http.StatusNotFound {
+	if err := c.isErrResponse(res); err != nil && !errors.Is(err, searchstore.ErrResourceNotFound) {
 		return false, fmt.Errorf("[IndexExists] error response from OpenSearch: %w", err)
 	}
 
@@ -233,9 +233,14 @@ func (c *Client) GetIndexMappings(ctx context.Context, index string) (*searchsto
 		return nil, err
 	}
 
-	mappings := indexMappings[index]
+	// When querying by alias, OpenSearch returns the actual index name (e.g., "public-1")
+	// not the alias (e.g., "public"), so we need to iterate and get the first entry
+	for _, mappingData := range indexMappings {
+		return &mappingData.Mappings, nil
+	}
 
-	return &mappings.Mappings, nil
+	// If no mappings found, return empty
+	return &searchstore.Mappings{Properties: make(map[string]any)}, nil
 }
 
 // GetIndicesStats uses the index stats API to fetch statistics about indices. indexPattern is a

@@ -5,13 +5,13 @@ package search
 import (
 	"context"
 
-	"github.com/xataio/pgstream/pkg/schemalog"
+	"github.com/xataio/pgstream/pkg/wal"
 )
 
 type Store interface {
 	GetMapper() Mapper
 	// schema operations
-	ApplySchemaChange(ctx context.Context, logEntry *schemalog.LogEntry) error
+	ApplySchemaDiff(ctx context.Context, diff *wal.SchemaDiff) error
 	DeleteSchema(ctx context.Context, schemaName string) error
 	// data operations
 	DeleteTableDocuments(ctx context.Context, schemaName string, tableIDs []string) error
@@ -19,8 +19,8 @@ type Store interface {
 }
 
 type Mapper interface {
-	ColumnToSearchMapping(column schemalog.Column) (map[string]any, error)
-	MapColumnValue(column schemalog.Column, value any) (any, error)
+	ColumnToSearchMapping(column *wal.DDLColumn) (map[string]any, error)
+	MapColumnValue(column *wal.Column) (any, error)
 }
 
 type Document struct {

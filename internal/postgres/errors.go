@@ -96,6 +96,15 @@ func (e *ErrProgramLimitExceeded) Error() string {
 	return fmt.Sprintf("program limit exceeded: %s", e.Details)
 }
 
+type ErrFeatureNotSupported struct {
+	Details string
+}
+
+func (e *ErrFeatureNotSupported) Error() string {
+	return fmt.Sprintf("feature not supported: %s", e.Details)
+}
+
+// MapError maps a Postgres error to a more specific error type
 func MapError(err error) error {
 	if pgconn.Timeout(err) {
 		return fmt.Errorf("%w: %w", ErrConnTimeout, err)
@@ -147,6 +156,11 @@ func MapError(err error) error {
 				return &ErrCacheLookupFailed{
 					Details: pgErr.Message,
 				}
+			}
+		case "0A000":
+			// 0A000 	feature_not_supported
+			return &ErrFeatureNotSupported{
+				Details: pgErr.Message,
 			}
 		case "42701", "42P03", "42P04", "42723", "42P05", "42P06", "42P07", "42712", "42710":
 			// 42701 	duplicate_column

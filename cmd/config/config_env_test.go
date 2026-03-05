@@ -33,6 +33,7 @@ func Test_EnvConfigToOtelConfig(t *testing.T) {
 func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_POSTGRES_LISTENER_URL", "postgresql://user:password@localhost:5432/mydatabase")
 	os.Setenv("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME", "pgstream_mydatabase_slot")
+	os.Setenv("PGSTREAM_POSTGRES_REPLICATION_PLUGIN_INCLUDE_XIDS", "true")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL", "postgresql://user:password@localhost:5432/mytargetdatabase")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE", "true")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_TABLES", "test test_schema.Test another_schema.*")
@@ -69,7 +70,6 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT", "1s")
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES", "204800")
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_BATCH_BYTES", "1572864")
-	os.Setenv("PGSTREAM_POSTGRES_WRITER_SCHEMALOG_STORE_URL", "postgresql://user:password@localhost:5432/mydatabase")
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS", "false")
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION", "nothing")
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED", "true")

@@ -19,7 +19,6 @@ import (
 	"github.com/xataio/pgstream/pkg/backoff"
 	kafkalib "github.com/xataio/pgstream/pkg/kafka"
 	loglib "github.com/xataio/pgstream/pkg/log"
-	schemalogpg "github.com/xataio/pgstream/pkg/schemalog/postgres"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/stream"
@@ -48,17 +47,18 @@ var (
 )
 
 const (
-	withBulkIngestion    = true
-	withoutBulkIngestion = false
-
 	withGeneratedColumn = true
 )
 
 type mockProcessor struct {
-	eventChan chan *wal.Event
+	eventChan   chan *wal.Event
+	skipEventFn func(event *wal.Event) bool
 }
 
 func (mp *mockProcessor) process(ctx context.Context, event *wal.Event) error {
+	if mp.skipEventFn != nil && mp.skipEventFn(event) {
+		return nil
+	}
 	mp.eventChan <- event
 	return nil
 }
@@ -109,7 +109,10 @@ func runSnapshot(t *testing.T, ctx context.Context, cfg *stream.Config) {
 }
 
 func initStream(t *testing.T, ctx context.Context, url string) {
-	err := stream.Init(ctx, url, "")
+	err := stream.Init(ctx, &stream.InitConfig{
+		PostgresURL:         url,
+		ReplicationSlotName: "",
+	})
 	require.NoError(t, err)
 }
 
@@ -188,9 +191,7 @@ func testKafkaProcessorCfg() stream.ProcessorConfig {
 			},
 		},
 		Injector: &injector.Config{
-			Store: schemalogpg.Config{
-				URL: pgurl,
-			},
+			URL: pgurl,
 		},
 	}
 }
@@ -201,9 +202,7 @@ func testSearchProcessorCfg(storeCfg store.Config) stream.ProcessorConfig {
 			Store: storeCfg,
 		},
 		Injector: &injector.Config{
-			Store: schemalogpg.Config{
-				URL: pgurl,
-			},
+			URL: pgurl,
 		},
 	}
 }
@@ -217,15 +216,23 @@ func testWebhookProcessorCfg() stream.ProcessorConfig {
 			},
 		},
 		Injector: &injector.Config{
-			Store: schemalogpg.Config{
-				URL: pgurl,
-			},
+			URL: pgurl,
 		},
 	}
 }
 
-func testPostgresProcessorCfg(sourcePGURL string, bulkIngestion bool) stream.ProcessorConfig {
-	return stream.ProcessorConfig{
+type option func(*stream.ProcessorConfig)
+
+func withBulkIngestionEnabled() option {
+	return func(cfg *stream.ProcessorConfig) {
+		if cfg.Postgres != nil {
+			cfg.Postgres.BatchWriter.BulkIngestEnabled = true
+		}
+	}
+}
+
+func testPostgresProcessorCfg(opts ...option) stream.ProcessorConfig {
+	cfg := stream.ProcessorConfig{
 		Postgres: &stream.PostgresProcessorConfig{
 			BatchWriter: postgres.Config{
 				URL: targetPGURL,
@@ -233,21 +240,18 @@ func testPostgresProcessorCfg(sourcePGURL string, bulkIngestion bool) stream.Pro
 					MaxBatchSize: 1,
 					// BatchTimeout: 50 * time.Millisecond,
 				},
-				SchemaLogStore: schemalogpg.Config{
-					URL: sourcePGURL,
-				},
-				BulkIngestEnabled: bulkIngestion,
 				RetryPolicy: backoff.Config{
 					DisableRetries: true,
 				},
 			},
 		},
-		Injector: &injector.Config{
-			Store: schemalogpg.Config{
-				URL: sourcePGURL,
-			},
-		},
 	}
+
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	return cfg
 }
 
 func testPostgresProcessorCfgWithTransformer(sourcePGURL string) stream.ProcessorConfig {
@@ -258,15 +262,10 @@ func testPostgresProcessorCfgWithTransformer(sourcePGURL string) stream.Processo
 				BatchConfig: batch.Config{
 					BatchTimeout: 50 * time.Millisecond,
 				},
-				SchemaLogStore: schemalogpg.Config{
-					URL: sourcePGURL,
-				},
 			},
 		},
 		Injector: &injector.Config{
-			Store: schemalogpg.Config{
-				URL: sourcePGURL,
-			},
+			URL: sourcePGURL,
 		},
 		Transformer: &transformer.Config{
 			TransformerRules: testTransformationRules(),

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -39,7 +40,6 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		},
 	}
 	quotedSchemaTable1 := pglib.QuoteQualifiedIdentifier(testSchema, testTable1)
-	quotedSchemaTable2 := pglib.QuoteQualifiedIdentifier(testSchema, testTable2)
 
 	txOptions := pglib.TxOptions{
 		IsolationLevel: pglib.RepeatableRead,
@@ -47,16 +47,16 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	}
 
 	testSnapshotID := "test-snapshot-id"
-	testPageCount := 0 // 0 means 1 page
 	testPageAvgBytes := int64(1024)
 	testTotalBytes := int64(2048)
 	testRowBytes := int64(512)
 	testUUID := uuid.New().String()
-	testUUID2 := uuid.New().String()
 	testColumns := []wal.Column{
 		{Name: "id", Type: "uuid", Value: testUUID},
 		{Name: "name", Type: "text", Value: "alice"},
 	}
+
+	testMaxCTID := pgtype.TID{BlockNumber: 0} // 0 means 1 page
 
 	testEvent := func(tableName string, columns []wal.Column) *wal.Event {
 		return &wal.Event{
@@ -72,37 +72,37 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	}
 
 	validTableInfoScanFn := func(args ...any) error {
-		require.Len(t, args, 3)
-		pageCount, ok := args[0].(*int)
-		require.True(t, ok, fmt.Sprintf("pageCount, expected *int, got %T", args[0]))
-		*pageCount = testPageCount
-		pageAvgBytes, ok := args[1].(*int64)
-		require.True(t, ok, fmt.Sprintf("pageAvgBytes, expected *int64, got %T", args[1]))
+		require.Len(t, args, 2)
+		pageAvgBytes, ok := args[0].(*int64)
+		require.True(t, ok, fmt.Sprintf("pageAvgBytes, expected *int64, got %T", args[0]))
 		*pageAvgBytes = testPageAvgBytes
-		rowAvgBytes, ok := args[2].(*int64)
-		require.True(t, ok, fmt.Sprintf("rowAvgBytes, expected *int64, got %T", args[2]))
+		rowAvgBytes, ok := args[1].(*int64)
+		require.True(t, ok, fmt.Sprintf("rowAvgBytes, expected *int64, got %T", args[1]))
 		*rowAvgBytes = testRowBytes
 		return nil
 	}
 
-	validMissedRowsScanFn := func(args ...any) error {
+	validMaxPageQueryFn := func(args ...any) error {
 		require.Len(t, args, 1)
-		rowCount, ok := args[0].(*int)
-		require.True(t, ok, fmt.Sprintf("rowCount, expected *int, got %T", args[0]))
-		*rowCount = 0
+		ctid, ok := args[0].(*pgtype.TID)
+		require.True(t, ok, fmt.Sprintf("ctid, expected *pgtype.TID, got %T", args[0]))
+		*ctid = testMaxCTID
 		return nil
 	}
 
+	isMaxPageQuery := func(query string) bool {
+		return strings.HasPrefix(query, "SELECT MAX(ctid) FROM")
+	}
+
 	validTableInfoQueryRowFn := func(_ context.Context, dest []any, query string, args ...any) error {
-		switch query {
-		case tableInfoQuery:
+		if query == tableInfoQuery {
 			require.Equal(t, []any{testTable1, testSchema}, args)
 			return validTableInfoScanFn(dest...)
-		case fmt.Sprintf(pageRangeQueryCount, quotedSchemaTable1, 1, 2):
-			return validMissedRowsScanFn(dest...)
-		default:
-			return fmt.Errorf("unexpected call to QueryRowFn: %s", query)
 		}
+		if isMaxPageQuery(query) {
+			return validMaxPageQueryFn(dest...)
+		}
+		return fmt.Errorf("unexpected call to QueryRowFn: %s", query)
 	}
 
 	errTest := errors.New("oh noes")
@@ -182,7 +182,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			wantEvents: []*wal.Event{testEvent(testTable1, testColumns)},
 		},
 		{
-			name: "ok - with missed pages",
+			name: "ok - quoted identifiers in schema and table names",
 			querier: &pgmocks.Querier{
 				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
 					require.Equal(t, txOptions, to)
@@ -206,27 +206,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								require.Len(t, args, 0)
 								return pglib.CommandTag{}, nil
 							},
-							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
-								switch query {
-								case tableInfoQuery:
-									require.Equal(t, []any{testTable1, testSchema}, args)
-									return validTableInfoScanFn(dest...)
-								case fmt.Sprintf(pageRangeQueryCount, quotedSchemaTable1, 1, 2):
-									require.Len(t, dest, 1)
-									rowCount, ok := dest[0].(*int)
-									require.True(t, ok, fmt.Sprintf("rowCount, expected *int, got %T", dest[0]))
-									*rowCount = 1
-									return nil
-								case fmt.Sprintf(pageRangeQueryCount, quotedSchemaTable1, 2, 3):
-									require.Len(t, dest, 1)
-									rowCount, ok := dest[0].(*int)
-									require.True(t, ok, fmt.Sprintf("rowCount, expected *int, got %T", dest[0]))
-									*rowCount = 0
-									return nil
-								default:
-									return fmt.Errorf("unexpected call to QueryRowFn: %s", query)
-								}
-							},
+							QueryRowFn: validTableInfoQueryRowFn,
 						}
 						return f(&mockTx)
 					case 3:
@@ -256,47 +236,28 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							},
 						}
 						return f(&mockTx)
-					case 4:
-						mockTx := pgmocks.Tx{
-							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
-								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
-								require.Len(t, args, 0)
-								return pglib.CommandTag{}, nil
-							},
-							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf(pageRangeQuery, quotedSchemaTable1, 1, 2), query)
-								require.Len(t, args, 0)
-								return &pgmocks.Rows{
-									CloseFn: func() {},
-									NextFn:  func(i uint) bool { return i == 1 },
-									FieldDescriptionsFn: func() []pgconn.FieldDescription {
-										return []pgconn.FieldDescription{
-											{Name: "id", DataTypeOID: pgtype.UUIDOID},
-											{Name: "name", DataTypeOID: pgtype.TextOID},
-										}
-									},
-									ValuesFn: func() ([]any, error) {
-										return []any{testUUID2, "bob"}, nil
-									},
-									ErrFn: func() error { return nil },
-								}, nil
-							},
-						}
-						return f(&mockTx)
 					default:
 						return fmt.Errorf("unexpected call to ExecInTxWithOptions: %d", i)
 					}
 				},
 			},
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					pglib.QuoteIdentifier(testSchema): {pglib.QuoteIdentifier(testTable1)},
+				},
+			},
 
 			wantErr: nil,
-			wantEvents: []*wal.Event{
-				testEvent(testTable1, testColumns),
-				testEvent(testTable1, []wal.Column{
-					{Name: "id", Type: "uuid", Value: testUUID2},
-					{Name: "name", Type: "text", Value: "bob"},
-				}),
-			},
+			wantEvents: []*wal.Event{{
+				CommitPosition: wal.CommitPosition(wal.ZeroLSN),
+				Data: &wal.Data{
+					Action:  "I",
+					LSN:     wal.ZeroLSN,
+					Schema:  pglib.QuoteIdentifier(testSchema),
+					Table:   pglib.QuoteIdentifier(testTable1),
+					Columns: testColumns,
+				},
+			}},
 		},
 		{
 			name: "ok - with progress tracking",
@@ -324,8 +285,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
-								require.Equal(t, fmt.Sprintf(tablesBytesQuery, testSchema, "$1"), query)
-								require.Equal(t, []any{testTable1}, args)
+								require.Equal(t, tablesBytesQuery, query)
+								require.Equal(t, []any{testSchema, []string{testTable1}}, args)
 								require.Len(t, dest, 1)
 								totalBytes, ok := dest[0].(*int64)
 								require.True(t, ok, fmt.Sprintf("totalBytes, expected *int64, got %T", dest[0]))
@@ -403,9 +364,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							if query == tableInfoQuery {
 								return validTableInfoScanFn(dest...)
 							}
-							if query == fmt.Sprintf(pageRangeQueryCount, quotedSchemaTable1, 1, 2) ||
-								query == fmt.Sprintf(pageRangeQueryCount, quotedSchemaTable2, 1, 2) {
-								return validMissedRowsScanFn(dest...)
+							if isMaxPageQuery(query) {
+								return validMaxPageQueryFn(dest...)
 							}
 							return fmt.Errorf("unexpected call to QueryRowFn: %s", query)
 						},
@@ -511,6 +471,95 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 
 			wantErr:    nil,
 			wantEvents: []*wal.Event{testEvent(testTable1, testColumns)},
+		},
+		{
+			name: "ok - multiple pages",
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					require.Equal(t, txOptions, to)
+					switch i {
+					case 1:
+						mockTx := pgmocks.Tx{
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
+								require.Equal(t, exportSnapshotQuery, query)
+								require.Len(t, dest, 1)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok, fmt.Sprintf("snapshotID, expected *string, got %T", dest[0]))
+								*snapshotID = testSnapshotID
+								return nil
+							},
+						}
+						return f(&mockTx)
+					case 2:
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+								require.Len(t, args, 0)
+								return pglib.CommandTag{}, nil
+							},
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
+								if query == tableInfoQuery {
+									return validTableInfoScanFn(dest...)
+								}
+								if isMaxPageQuery(query) {
+									require.Len(t, dest, 1)
+									ctid, ok := dest[0].(*pgtype.TID)
+									require.True(t, ok, fmt.Sprintf("ctid, expected *pgtype.TID, got %T", dest[0]))
+									ctid.BlockNumber = 1
+									return nil
+								}
+								return fmt.Errorf("unexpected query %s", query)
+							},
+						}
+						return f(&mockTx)
+					case 3:
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+								require.Len(t, args, 0)
+								return pglib.CommandTag{}, nil
+							},
+							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+								require.Equal(t, fmt.Sprintf(pageRangeQuery, quotedSchemaTable1, 0, 1), query)
+								require.Len(t, args, 0)
+								return &pgmocks.Rows{
+									CloseFn:             func() {},
+									NextFn:              func(i uint) bool { return i == 0 },
+									FieldDescriptionsFn: func() []pgconn.FieldDescription { return []pgconn.FieldDescription{} },
+									ValuesFn:            func() ([]any, error) { return []any{}, nil },
+									ErrFn:               func() error { return nil },
+								}, nil
+							},
+						}
+						return f(&mockTx)
+					case 4:
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+								require.Len(t, args, 0)
+								return pglib.CommandTag{}, nil
+							},
+							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+								require.Equal(t, fmt.Sprintf(pageRangeQuery, quotedSchemaTable1, 1, 2), query)
+								require.Len(t, args, 0)
+								return &pgmocks.Rows{
+									CloseFn:             func() {},
+									NextFn:              func(i uint) bool { return i == 0 },
+									FieldDescriptionsFn: func() []pgconn.FieldDescription { return []pgconn.FieldDescription{} },
+									ValuesFn:            func() ([]any, error) { return []any{}, nil },
+									ErrFn:               func() error { return nil },
+								}, nil
+							},
+						}
+						return f(&mockTx)
+					default:
+						return fmt.Errorf("unexpected call to ExecInTxWithOptions: %d", i)
+					}
+				},
+			},
+
+			wantErr:    nil,
+			wantEvents: []*wal.Event{},
 		},
 		{
 			name: "ok - no data",
@@ -990,8 +1039,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
-								require.Equal(t, fmt.Sprintf(tablesBytesQuery, testSchema, "$1"), query)
-								require.Equal(t, []any{testTable1}, args)
+								require.Equal(t, tablesBytesQuery, query)
+								require.Equal(t, []any{testSchema, []string{testTable1}}, args)
 								return errTest
 							},
 						}

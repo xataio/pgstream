@@ -3,14 +3,14 @@
 package search
 
 import (
-	"github.com/xataio/pgstream/pkg/schemalog"
+	"github.com/xataio/pgstream/pkg/wal"
 )
 
 type msg struct {
-	write        *Document
-	truncate     *truncateItem
-	schemaChange *schemalog.LogEntry
-	bytesSize    int
+	write      *Document
+	truncate   *truncateItem
+	schemaDiff *wal.SchemaDiff
+	bytesSize  int
 }
 
 type truncateItem struct {
@@ -23,5 +23,5 @@ func (m *msg) Size() int {
 }
 
 func (m *msg) IsEmpty() bool {
-	return m != nil && m.write == nil && m.schemaChange == nil && m.truncate == nil
+	return m != nil && m.write == nil && m.truncate == nil && m.schemaDiff == nil
 }

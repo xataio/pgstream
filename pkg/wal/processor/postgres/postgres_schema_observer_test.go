@@ -13,7 +13,7 @@ import (
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	loglib "github.com/xataio/pgstream/pkg/log"
-	"github.com/xataio/pgstream/pkg/schemalog"
+	"github.com/xataio/pgstream/pkg/wal"
 )
 
 func TestPGSchemaObserver_getGeneratedColumnNames(t *testing.T) {
@@ -303,17 +303,34 @@ func TestPGSchemaObserver_updateMaterializedViews(t *testing.T) {
 
 	tests := []struct {
 		name              string
-		logEntry          *schemalog.LogEntry
+		ddlEvent          *wal.DDLEvent
 		materializedViews map[string]map[string]struct{}
 
 		wantMaterializedViews map[string]map[string]struct{}
 	}{
 		{
 			name: "no materialized views",
-			logEntry: &schemalog.LogEntry{
-				SchemaName: "test_schema",
-				Schema:     schemalog.Schema{},
+			ddlEvent: &wal.DDLEvent{
+				DDL:        "CREATE TABLE users (id INT PRIMARY KEY, name TEXT);",
+				SchemaName: testSchema,
+				Objects: []wal.DDLObject{
+					{
+						Type:     "table",
+						Identity: "test_schema.users",
+						Schema:   testSchema,
+						Columns: []wal.DDLColumn{
+							{
+								Attnum: 1, Name: "id", Type: "integer", Nullable: false, Generated: false, Unique: true,
+							},
+							{
+								Attnum: 2, Name: "name", Type: "text", Nullable: true, Generated: false, Unique: false,
+							},
+						},
+						PrimaryKeyColumns: []string{"id"},
+					},
+				},
 			},
+
 			materializedViews: map[string]map[string]struct{}{},
 
 			wantMaterializedViews: map[string]map[string]struct{}{
@@ -322,29 +339,33 @@ func TestPGSchemaObserver_updateMaterializedViews(t *testing.T) {
 		},
 		{
 			name: "with materialized views",
-			logEntry: &schemalog.LogEntry{
-				SchemaName: "test_schema",
-				Schema: schemalog.Schema{
-					MaterializedViews: []schemalog.MaterializedView{
-						{Name: "mv_1"},
-						{Name: "mv_2"},
+			ddlEvent: &wal.DDLEvent{
+				DDL:        "CREATE MATERIALIZED VIEW users_mv AS SELECT name FROM users;",
+				SchemaName: testSchema,
+				Objects: []wal.DDLObject{
+					{
+						Type:     "materialized_view",
+						Identity: "test_schema.users_mv",
+						Schema:   "test_schema",
 					},
 				},
 			},
 			materializedViews: map[string]map[string]struct{}{},
 
 			wantMaterializedViews: map[string]map[string]struct{}{
-				`"test_schema"`: {`"mv_1"`: {}, `"mv_2"`: {}},
+				`"test_schema"`: {`"users_mv"`: {}},
 			},
 		},
 		{
 			name: "with materialized views and existing schema",
-			logEntry: &schemalog.LogEntry{
-				SchemaName: "test_schema",
-				Schema: schemalog.Schema{
-					MaterializedViews: []schemalog.MaterializedView{
-						{Name: "mv_1"},
-						{Name: "mv_2"},
+			ddlEvent: &wal.DDLEvent{
+				DDL:        "CREATE MATERIALIZED VIEW users_mv AS SELECT name FROM users;",
+				SchemaName: testSchema,
+				Objects: []wal.DDLObject{
+					{
+						Type:     "materialized_view",
+						Identity: "test_schema.users_mv",
+						Schema:   "test_schema",
 					},
 				},
 			},
@@ -353,7 +374,51 @@ func TestPGSchemaObserver_updateMaterializedViews(t *testing.T) {
 			},
 
 			wantMaterializedViews: map[string]map[string]struct{}{
-				`"test_schema"`: {`"mv_1"`: {}, `"mv_2"`: {}},
+				`"test_schema"`: {`"mv_existing"`: {}, `"users_mv"`: {}},
+			},
+		},
+		{
+			name: "delete materialized view",
+			ddlEvent: &wal.DDLEvent{
+				DDL:        "DROP MATERIALIZED VIEW users_mv;",
+				SchemaName: testSchema,
+				CommandTag: "DROP MATERIALIZED VIEW",
+				Objects: []wal.DDLObject{
+					{
+						Type:     "materialized_view",
+						Identity: "test_schema.users_mv",
+						Schema:   "test_schema",
+					},
+				},
+			},
+			materializedViews: map[string]map[string]struct{}{
+				`"test_schema"`: {`"users_mv"`: {}},
+			},
+
+			wantMaterializedViews: map[string]map[string]struct{}{
+				`"test_schema"`: {},
+			},
+		},
+		{
+			name: "delete materialized view that's not in the cache",
+			ddlEvent: &wal.DDLEvent{
+				DDL:        "DROP MATERIALIZED VIEW users_mv;",
+				SchemaName: testSchema,
+				CommandTag: "DROP MATERIALIZED VIEW",
+				Objects: []wal.DDLObject{
+					{
+						Type:     "materialized_view",
+						Identity: "test_schema.users_mv",
+						Schema:   "test_schema",
+					},
+				},
+			},
+			materializedViews: map[string]map[string]struct{}{
+				`"test_another_schema"`: {},
+			},
+
+			wantMaterializedViews: map[string]map[string]struct{}{
+				`"test_another_schema"`: {},
 			},
 		},
 	}
@@ -367,7 +432,7 @@ func TestPGSchemaObserver_updateMaterializedViews(t *testing.T) {
 				logger:            loglib.NewNoopLogger(),
 			}
 
-			obs.updateMaterializedViews(tc.logEntry)
+			obs.updateMaterializedViews(tc.ddlEvent, tc.ddlEvent.GetMaterializedViewObjects())
 			require.Equal(t, tc.wantMaterializedViews, obs.materializedViews.GetMap())
 		})
 	}
@@ -599,32 +664,39 @@ func TestPGSchemaObserver_updateColumnSequences(t *testing.T) {
 
 	tests := []struct {
 		name                     string
-		logEntry                 *schemalog.LogEntry
+		ddlEvent                 *wal.DDLEvent
 		columnTableSequences     map[string]map[string]string
 		wantColumnTableSequences map[string]map[string]string
 	}{
 		{
 			name: "no tables in schema",
-			logEntry: &schemalog.LogEntry{
+			ddlEvent: &wal.DDLEvent{
+				DDL:        "CREATE SCHEMA test_schema;",
 				SchemaName: "test_schema",
-				Schema:     schemalog.Schema{},
 			},
 			columnTableSequences:     map[string]map[string]string{},
 			wantColumnTableSequences: map[string]map[string]string{},
 		},
 		{
 			name: "table with no sequence columns",
-			logEntry: &schemalog.LogEntry{
+			ddlEvent: &wal.DDLEvent{
+				DDL:        "CREATE TABLE test_table (name TEXT PRIMARY KEY, description TEXT);",
 				SchemaName: "test_schema",
-				Schema: schemalog.Schema{
-					Tables: []schemalog.Table{
-						{
-							Name: "test_table",
-							Columns: []schemalog.Column{
-								{Name: "name", DataType: "text"},
-								{Name: "description", DataType: "text"},
+				CommandTag: "CREATE TABLE",
+				Objects: []wal.DDLObject{
+					{
+						Type:     "table",
+						Identity: `"test_schema"."test_table"`,
+						Schema:   "test_schema",
+						Columns: []wal.DDLColumn{
+							{
+								Attnum: 1, Name: "name", Type: "text", Nullable: false, Generated: false, Unique: true,
+							},
+							{
+								Attnum: 2, Name: "description", Type: "text", Nullable: true, Generated: false, Unique: false,
 							},
 						},
+						PrimaryKeyColumns: []string{"name"},
 					},
 				},
 			},
@@ -635,77 +707,59 @@ func TestPGSchemaObserver_updateColumnSequences(t *testing.T) {
 		},
 		{
 			name: "table with sequence columns",
-			logEntry: &schemalog.LogEntry{
+			ddlEvent: &wal.DDLEvent{
+				DDL:        "CREATE TABLE test_table (name TEXT PRIMARY KEY, description TEXT, sequence_col BIGSERIAL);",
 				SchemaName: "test_schema",
-				Schema: schemalog.Schema{
-					Tables: []schemalog.Table{
-						{
-							Name: "test_table",
-							Columns: []schemalog.Column{
-								{Name: "id", DataType: "bigint", Identity: "a"},
-								{Name: "name", DataType: "text"},
-								{Name: "sequence_col", DataType: "bigint", DefaultValue: defaultVal("seq")},
+				CommandTag: "CREATE TABLE",
+				Objects: []wal.DDLObject{
+					{
+						Type:     "table",
+						Identity: `"test_schema"."test_table"`,
+						Schema:   "test_schema",
+						Columns: []wal.DDLColumn{
+							{
+								Attnum: 1, Name: "name", Type: "text", Nullable: false, Generated: false, Unique: true,
+							},
+							{
+								Attnum: 2, Name: "description", Type: "text", Nullable: true, Generated: false, Unique: false,
+							},
+							{
+								Attnum: 3, Name: "sequence_col", Type: "bigint", Nullable: false, Generated: false, Unique: false, Default: defaultVal("seq"),
 							},
 						},
+						PrimaryKeyColumns: []string{"name"},
 					},
 				},
 			},
+
 			columnTableSequences: map[string]map[string]string{},
 			wantColumnTableSequences: map[string]map[string]string{
 				`"test_schema"."test_table"`: {`"sequence_col"`: "seq"},
 			},
 		},
 		{
-			name: "multiple tables with sequence columns",
-			logEntry: &schemalog.LogEntry{
-				SchemaName: "test_schema",
-				Schema: schemalog.Schema{
-					Tables: []schemalog.Table{
-						{
-							Name: "users",
-							Columns: []schemalog.Column{
-								{Name: "id", DataType: "bigint", DefaultValue: defaultVal("id_seq")},
-								{Name: "name", DataType: "text"},
-							},
-						},
-						{
-							Name: "orders",
-							Columns: []schemalog.Column{
-								{Name: "order_id", DataType: "bigint", DefaultValue: defaultVal("order_id_seq")},
-								{Name: "user_id", DataType: "bigint"},
-								{Name: "total", DataType: "decimal"},
-							},
-						},
-						{
-							Name: "products",
-							Columns: []schemalog.Column{
-								{Name: "name", DataType: "text"},
-								{Name: "price", DataType: "decimal"},
-							},
-						},
-					},
-				},
-			},
-			columnTableSequences: map[string]map[string]string{},
-			wantColumnTableSequences: map[string]map[string]string{
-				`"test_schema"."users"`:    {`"id"`: "id_seq"},
-				`"test_schema"."orders"`:   {`"order_id"`: "order_id_seq"},
-				`"test_schema"."products"`: {},
-			},
-		},
-		{
 			name: "update existing table sequences",
-			logEntry: &schemalog.LogEntry{
+			ddlEvent: &wal.DDLEvent{
+				DDL:        "ALTER TABLE test_table ADD COLUMN new_sequence_col BIGSERIAL;",
 				SchemaName: "test_schema",
-				Schema: schemalog.Schema{
-					Tables: []schemalog.Table{
-						{
-							Name: "test_table",
-							Columns: []schemalog.Column{
-								{Name: "new_id", DataType: "bigint", DefaultValue: defaultVal("new_id_seq")},
-								{Name: "name", DataType: "text"},
+				CommandTag: "ALTER TABLE",
+				Objects: []wal.DDLObject{
+					{
+						Type:     "table",
+						Identity: `"test_schema"."test_table"`,
+						Schema:   "test_schema",
+						Columns: []wal.DDLColumn{
+							{
+								Attnum: 1, Name: "name", Type: "text", Nullable: false, Generated: false, Unique: true,
+							},
+							{
+								Attnum: 2, Name: "description", Type: "text", Nullable: true, Generated: false, Unique: false,
+							},
+							{
+								Attnum: 3, Name: "new_sequence_col", Type: "bigint", Nullable: false, Generated: false, Unique: false, Default: defaultVal("new_seq"),
 							},
 						},
+						PrimaryKeyColumns: []string{"name"},
 					},
 				},
 			},
@@ -713,7 +767,7 @@ func TestPGSchemaObserver_updateColumnSequences(t *testing.T) {
 				`"test_schema"."test_table"`: {`"old_id"`: "old_id_seq", `"old_sequence"`: "old_sequence_seq"},
 			},
 			wantColumnTableSequences: map[string]map[string]string{
-				`"test_schema"."test_table"`: {`"new_id"`: "new_id_seq"},
+				`"test_schema"."test_table"`: {`"new_sequence_col"`: "new_seq"},
 			},
 		},
 	}
@@ -727,7 +781,8 @@ func TestPGSchemaObserver_updateColumnSequences(t *testing.T) {
 				logger:               loglib.NewNoopLogger(),
 			}
 
-			obs.updateColumnSequences(tc.logEntry)
+			tableObjs := append(tc.ddlEvent.GetTableObjects(), tc.ddlEvent.GetTableColumnObjects()...)
+			obs.updateColumnSequences(tableObjs)
 			require.Equal(t, tc.wantColumnTableSequences, obs.columnTableSequences.GetMap())
 		})
 	}

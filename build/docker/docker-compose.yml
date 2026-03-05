@@ -178,13 +178,14 @@ services:
       - pgstream-net
 
   opensearch:
-    image: "opensearchproject/opensearch:3.4.0"
+    image: "opensearchproject/opensearch:3.5.0"
     environment:
       - cluster.name=opensearch-cluster-pgstream
       - node.name=opensearch-node-pgstream
       - discovery.type=single-node
       - bootstrap.memory_lock=true # along with the memlock settings below, disables swapping
       - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - "OPENSEARCH_INITIAL_ADMIN_PASSWORD=StrongAdmin123!"
       - "plugins.security.ssl.http.enabled=false"
     ports:
       - 9200:9200 # REST API
@@ -198,7 +199,7 @@ services:
       - pgstream-net
 
   opensearch-dashboards:
-    image: "opensearchproject/opensearch-dashboards:3.4.0"
+    image: "opensearchproject/opensearch-dashboards:3.5.0"
     ports: ["5601:5601"]
     environment: ["OPENSEARCH_HOSTS=http://opensearch:9200"] # 9201 to access externally, 9200 internally
     profiles: ["pg2os"]

@@ -6,12 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 
-	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/xataio/pgstream/pkg/schemalog"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 	searchmocks "github.com/xataio/pgstream/pkg/wal/processor/search/mocks"
@@ -22,13 +19,10 @@ import (
 func TestAdapter_walEventToMsg(t *testing.T) {
 	t.Parallel()
 
-	id := xid.New()
-	now := time.Now().UTC().Round(time.Second)
-	testLogEntrySize := 104
 	testDocBytes := []byte("test-doc")
 
 	noopMapper := &searchmocks.Mapper{
-		MapColumnValueFn: func(column schemalog.Column, value any) (any, error) { return value, nil },
+		MapColumnValueFn: func(column *wal.Column) (any, error) { return column.Value, nil },
 	}
 
 	testLSNParser := &replicationmocks.LSNParser{
@@ -36,10 +30,12 @@ func TestAdapter_walEventToMsg(t *testing.T) {
 	}
 
 	tests := []struct {
-		name      string
-		event     *wal.Event
-		marshaler func(any) ([]byte, error)
-		mapper    Mapper
+		name                 string
+		event                *wal.Event
+		marshaler            func(any) ([]byte, error)
+		mapper               Mapper
+		walDataToDDLEvent    func(*wal.Data) (*wal.DDLEvent, error)
+		ddlEventToSchemaDiff func(*wal.DDLEvent) (*wal.SchemaDiff, error)
 
 		wantMsg *msg
 		wantErr error
@@ -54,20 +50,12 @@ func TestAdapter_walEventToMsg(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:  "ok - schema log event with insert",
-			event: newTestSchemaChangeEvent("I", id, now),
+			name:  "ok - ddl event",
+			event: newTestWALDDLEvent(),
 
 			wantMsg: &msg{
-				schemaChange: newTestLogEntry(id, now),
-				bytesSize:    testLogEntrySize,
+				schemaDiff: newTestSchemaDiff(),
 			},
-			wantErr: nil,
-		},
-		{
-			name:  "ok - schema log event with update",
-			event: newTestSchemaChangeEvent("U", id, now),
-
-			wantMsg: nil,
 			wantErr: nil,
 		},
 		{
@@ -114,22 +102,30 @@ func TestAdapter_walEventToMsg(t *testing.T) {
 			event:     newTestDataEvent("I"),
 			marshaler: func(a any) ([]byte, error) { return testDocBytes, nil },
 			mapper: &searchmocks.Mapper{
-				MapColumnValueFn: func(column schemalog.Column, value any) (any, error) { return nil, errTest },
+				MapColumnValueFn: func(column *wal.Column) (any, error) { return nil, errTest },
 			},
 
 			wantMsg: nil,
 			wantErr: errTest,
 		},
 		{
-			name:      "ok - data event to log entry",
-			event:     newTestSchemaChangeEvent("I", id, now),
-			marshaler: func(a any) ([]byte, error) { return nil, errTest },
+			name:              "error - wal to ddl event",
+			event:             newTestWALDDLEvent(),
+			walDataToDDLEvent: func(d *wal.Data) (*wal.DDLEvent, error) { return nil, errTest },
 
 			wantMsg: nil,
 			wantErr: errTest,
 		},
 		{
-			name: "error - data event empty metadata",
+			name:                 "error - ddl event to schema diff",
+			event:                newTestWALDDLEvent(),
+			ddlEventToSchemaDiff: func(d *wal.DDLEvent) (*wal.SchemaDiff, error) { return nil, errTest },
+
+			wantMsg: nil,
+			wantErr: errTest,
+		},
+		{
+			name: "error - ddl event to schema diff",
 			event: func() *wal.Event {
 				d := newTestDataEvent("I")
 				d.Data.Metadata = wal.Metadata{}
@@ -154,85 +150,17 @@ func TestAdapter_walEventToMsg(t *testing.T) {
 				a.mapper = tc.mapper
 			}
 
+			if tc.walDataToDDLEvent != nil {
+				a.walDataToDDLEvent = tc.walDataToDDLEvent
+			}
+
+			if tc.ddlEventToSchemaDiff != nil {
+				a.ddlEventToSchemaDiff = tc.ddlEventToSchemaDiff
+			}
+
 			item, err := a.walEventToMsg(tc.event)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantMsg, item)
-		})
-	}
-}
-
-func TestAdapter_walDataToLogEntry(t *testing.T) {
-	t.Parallel()
-
-	now := time.Now().UTC().Round(time.Second)
-	id := xid.New()
-	testWalData := newTestSchemaChangeEvent("I", id, now).Data
-	errTest := errors.New("oh noes")
-
-	tests := []struct {
-		name        string
-		marshaler   func(any) ([]byte, error)
-		unmarshaler func([]byte, any) error
-		data        *wal.Data
-
-		wantLogEntry *schemalog.LogEntry
-		wantErr      error
-	}{
-		{
-			name: "ok",
-			data: testWalData,
-
-			wantLogEntry: &schemalog.LogEntry{
-				ID:         id,
-				Version:    0,
-				SchemaName: testSchemaName,
-				CreatedAt:  schemalog.NewSchemaCreatedAtTimestamp(now),
-			},
-			wantErr: nil,
-		},
-		{
-			name: "error - invalid data",
-			data: &wal.Data{
-				Schema: "test_schema",
-				Table:  "test_table",
-			},
-
-			wantLogEntry: nil,
-			wantErr:      processor.ErrIncompatibleWalData,
-		},
-		{
-			name:      "error - marshaling",
-			marshaler: func(a any) ([]byte, error) { return nil, errTest },
-			data:      testWalData,
-
-			wantLogEntry: nil,
-			wantErr:      errTest,
-		},
-		{
-			name:        "error - unmarshaling",
-			unmarshaler: func(b []byte, a any) error { return errTest },
-			data:        testWalData,
-
-			wantLogEntry: nil,
-			wantErr:      errTest,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			a := newAdapter(&searchmocks.Mapper{}, &replicationmocks.LSNParser{}, nil)
-			if tc.marshaler != nil {
-				a.marshaler = tc.marshaler
-			}
-			if tc.unmarshaler != nil {
-				a.unmarshaler = tc.unmarshaler
-			}
-
-			logEntry, _, err := a.walDataToLogEntry(tc.data)
-			require.ErrorIs(t, err, tc.wantErr)
-			require.Equal(t, tc.wantLogEntry, logEntry)
 		})
 	}
 }
@@ -245,7 +173,7 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 	errTest := errors.New("oh noes")
 
 	noopMapper := &searchmocks.Mapper{
-		MapColumnValueFn: func(column schemalog.Column, value any) (any, error) { return value, nil },
+		MapColumnValueFn: func(column *wal.Column) (any, error) { return column.Value, nil },
 	}
 
 	testLSNParser := &replicationmocks.LSNParser{
@@ -282,9 +210,10 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 			}(),
 			wantDoc: &Document{
 				ID:      fmt.Sprintf("%s_id-1", testTableID),
-				Version: 0,
+				Version: testLSN,
 				Schema:  testSchema,
 				Data: map[string]any{
+					"col-2":  int64(0),
 					"col-3":  "a",
 					"col-4":  "very-long-value",
 					"_table": testTableID,
@@ -302,19 +231,20 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 				return d
 			}(),
 			mapper: &searchmocks.Mapper{
-				MapColumnValueFn: func(column schemalog.Column, value any) (any, error) {
+				MapColumnValueFn: func(column *wal.Column) (any, error) {
 					if column.Name == "toast" {
 						return nil, ErrTypeInvalid{Input: "toast"}
 					}
-					return value, nil
+					return column.Value, nil
 				},
 			},
 
 			wantDoc: &Document{
 				ID:      fmt.Sprintf("%s_id-1", testTableID),
-				Version: 0,
+				Version: testLSN,
 				Schema:  testSchema,
 				Data: map[string]any{
+					"col-2":  int64(0),
 					"col-3":  "a",
 					"_table": testTableID,
 				},
@@ -328,9 +258,10 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 
 			wantDoc: &Document{
 				ID:      fmt.Sprintf("%s_id-1", testTableID),
-				Version: 1,
+				Version: testLSN + 1,
 				Schema:  testSchema,
 				Data: map[string]any{
+					"col-2":  int64(0),
 					"col-3":  "a",
 					"_table": testTableID,
 				},
@@ -350,9 +281,8 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 					{ID: "col-3", Name: "name", Type: "text", Value: "a"},
 				},
 				Metadata: wal.Metadata{
-					TablePgstreamID:    testTableID,
-					InternalColIDs:     []string{"col-1"},
-					InternalColVersion: "col-2",
+					TablePgstreamID: testTableID,
+					InternalColIDs:  []string{"col-1"},
 				},
 			},
 
@@ -371,9 +301,8 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 					{ID: "col-3", Name: "name", Type: "text", Value: "a"},
 				},
 				Metadata: wal.Metadata{
-					TablePgstreamID:    testTableID,
-					InternalColIDs:     []string{"col-1"},
-					InternalColVersion: "col-2",
+					TablePgstreamID: testTableID,
+					InternalColIDs:  []string{"col-1"},
 				},
 			},
 
@@ -390,11 +319,11 @@ func TestAdapter_walDataToDocument(t *testing.T) {
 				return d
 			}(),
 			mapper: &searchmocks.Mapper{
-				MapColumnValueFn: func(column schemalog.Column, value any) (any, error) {
+				MapColumnValueFn: func(column *wal.Column) (any, error) {
 					if column.Name == "toast" {
 						return nil, errTest
 					}
-					return value, nil
+					return column.Value, nil
 				},
 			},
 
@@ -424,9 +353,8 @@ func TestAdapter_parseColumns(t *testing.T) {
 		{ID: "col-3", Name: "name", Type: "text", Value: "a"},
 	}
 	testMetadata := wal.Metadata{
-		TablePgstreamID:    testTableID,
-		InternalColIDs:     []string{"col-1"},
-		InternalColVersion: "col-2",
+		TablePgstreamID: testTableID,
+		InternalColIDs:  []string{"col-1"},
 	}
 
 	testLSNStr := "1/CF54A048"
@@ -436,7 +364,7 @@ func TestAdapter_parseColumns(t *testing.T) {
 	}
 
 	noopMapper := &searchmocks.Mapper{
-		MapColumnValueFn: func(column schemalog.Column, value any) (any, error) { return value, nil },
+		MapColumnValueFn: func(column *wal.Column) (any, error) { return column.Value, nil },
 	}
 
 	errTest := errors.New("oh noes")
@@ -459,8 +387,9 @@ func TestAdapter_parseColumns(t *testing.T) {
 
 			wantDoc: &Document{
 				ID:      fmt.Sprintf("%s_id-1", testTableID),
-				Version: 0,
+				Version: testLSN,
 				Data: map[string]any{
+					"col-2":  int64(0),
 					"col-3":  "a",
 					"_table": testTableID,
 				},
@@ -472,74 +401,23 @@ func TestAdapter_parseColumns(t *testing.T) {
 			columns:  testColumns,
 			metadata: testMetadata,
 			mapper: &searchmocks.Mapper{
-				MapColumnValueFn: func(column schemalog.Column, value any) (any, error) {
+				MapColumnValueFn: func(column *wal.Column) (any, error) {
 					if column.Name == "name" {
 						return nil, ErrTypeInvalid{}
 					}
-					return value, nil
+					return column.Value, nil
 				},
 			},
-
-			wantDoc: &Document{
-				ID:      fmt.Sprintf("%s_id-1", testTableID),
-				Version: 0,
-				Data: map[string]any{
-					"_table": testTableID,
-				},
-			},
-			wantErr: nil,
-		},
-		{
-			name: "ok - version not found, default to use lsn",
-			columns: []wal.Column{
-				{ID: "col-1", Name: "id", Type: "text", Value: "id-1"},
-				{ID: "col-3", Name: "name", Type: "text", Value: "a"},
-			},
-			metadata: wal.Metadata{
-				TablePgstreamID: testTableID,
-				InternalColIDs:  []string{"col-1"},
-			},
-			mapper: noopMapper,
 
 			wantDoc: &Document{
 				ID:      fmt.Sprintf("%s_id-1", testTableID),
 				Version: testLSN,
 				Data: map[string]any{
-					"col-3":  "a",
+					"col-2":  int64(0),
 					"_table": testTableID,
 				},
 			},
 			wantErr: nil,
-		},
-		{
-			name: "error - version not found, incompatible LSN value",
-			columns: []wal.Column{
-				{ID: "col-1", Name: "id", Type: "text", Value: "id-1"},
-				{ID: "col-3", Name: "name", Type: "text", Value: "a"},
-			},
-			metadata: wal.Metadata{
-				TablePgstreamID: testTableID,
-				InternalColIDs:  []string{"col-1"},
-			},
-			mapper: noopMapper,
-			parser: &replicationmocks.LSNParser{
-				FromStringFn: func(s string) (replication.LSN, error) { return 0, errTest },
-			},
-
-			wantDoc: nil,
-			wantErr: errIncompatibleLSN,
-		},
-		{
-			name: "error - version not found",
-			columns: []wal.Column{
-				{ID: "col-1", Name: "id", Type: "text", Value: "id-1"},
-				{ID: "col-3", Name: "name", Type: "text", Value: "a"},
-			},
-			metadata: testMetadata,
-			mapper:   noopMapper,
-
-			wantDoc: nil,
-			wantErr: processor.ErrVersionNotFound,
 		},
 		{
 			name: "error - id not found",
@@ -566,27 +444,15 @@ func TestAdapter_parseColumns(t *testing.T) {
 			wantErr: errNilIDValue,
 		},
 		{
-			name: "error - invalid version value",
-			columns: []wal.Column{
-				{ID: "col-1", Name: "id", Type: "text", Value: "id-1"},
-				{ID: "col-2", Name: "version", Type: "integer", Value: nil},
-			},
-			metadata: testMetadata,
-			mapper:   noopMapper,
-
-			wantDoc: nil,
-			wantErr: errNilVersionValue,
-		},
-		{
 			name:     "error - mapping column value",
 			columns:  testColumns,
 			metadata: testMetadata,
 			mapper: &searchmocks.Mapper{
-				MapColumnValueFn: func(column schemalog.Column, value any) (any, error) {
+				MapColumnValueFn: func(column *wal.Column) (any, error) {
 					if column.Name == "name" {
 						return nil, errTest
 					}
-					return value, nil
+					return column.Value, nil
 				},
 			},
 
@@ -615,7 +481,7 @@ func TestAdapter_parseIDColumns(t *testing.T) {
 	t.Parallel()
 
 	noopMapper := &searchmocks.Mapper{
-		MapColumnValueFn: func(column schemalog.Column, value any) (any, error) { return value, nil },
+		MapColumnValueFn: func(column *wal.Column) (any, error) { return column.Value, nil },
 	}
 
 	newDoc := func(id string) *Document {
@@ -756,58 +622,4 @@ func TestAdapter_IDHashing(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "tbl_hashed_myid", doc.ID)
-}
-
-func TestAdapter_parseVersionColumn(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		version any
-
-		wantVersion int
-		wantErr     error
-	}{
-		{
-			name:        "ok - int64",
-			version:     int64(1),
-			wantVersion: 1,
-			wantErr:     nil,
-		},
-		{
-			name:        "ok - float64",
-			version:     float64(0.5),
-			wantVersion: 1,
-			wantErr:     nil,
-		},
-		{
-			name:        "ok - negative float64",
-			version:     float64(-0.5),
-			wantVersion: -1,
-			wantErr:     nil,
-		},
-		{
-			name:        "error - nil",
-			version:     nil,
-			wantVersion: 0,
-			wantErr:     errNilVersionValue,
-		},
-		{
-			name:        "error - unexpected type",
-			version:     true,
-			wantVersion: 0,
-			wantErr:     errUnsupportedType,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			a := &adapter{}
-			version, err := a.parseVersionColumn(tc.version)
-			require.ErrorIs(t, err, tc.wantErr)
-			require.Equal(t, tc.wantVersion, version)
-		})
-	}
 }
