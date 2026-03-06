@@ -27,6 +27,11 @@ type testTableColumn struct {
 	username string
 }
 
+type idNameRow struct {
+	id   int
+	name string
+}
+
 func Test_PostgresToPostgres(t *testing.T) {
 	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
 		t.Skip("skipping integration test...")
@@ -572,6 +577,38 @@ func getTestTableColumns(t *testing.T, ctx context.Context, conn pglib.Querier, 
 	require.NoError(t, rows.Err())
 
 	return columns
+}
+
+func getIDRows(t *testing.T, ctx context.Context, conn pglib.Querier, query string) []int {
+	rows, err := conn.Query(ctx, query)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var ids []int
+	for rows.Next() {
+		var id int
+		err := rows.Scan(&id)
+		require.NoError(t, err)
+		ids = append(ids, id)
+	}
+	require.NoError(t, rows.Err())
+	return ids
+}
+
+func getIDNameRows(t *testing.T, ctx context.Context, conn pglib.Querier, query string) []idNameRow {
+	rows, err := conn.Query(ctx, query)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var result []idNameRow
+	for rows.Next() {
+		var r idNameRow
+		err := rows.Scan(&r.id, &r.name)
+		require.NoError(t, err)
+		result = append(result, r)
+	}
+	require.NoError(t, rows.Err())
+	return result
 }
 
 func getRoles(t *testing.T, ctx context.Context, conn pglib.Querier) []string {
