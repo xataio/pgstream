@@ -411,6 +411,57 @@ func TestInjector_inject(t *testing.T) {
 	}
 }
 
+func TestInjector_Close(t *testing.T) {
+	t.Parallel()
+
+	t.Run("propagates close to processor and schema log store", func(t *testing.T) {
+		t.Parallel()
+
+		processorClosed := false
+		storeClosed := false
+
+		i := &Injector{
+			logger: loglib.NewNoopLogger(),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(_ context.Context, _ *wal.Event) error { return nil },
+				CloseFn: func() error {
+					processorClosed = true
+					return nil
+				},
+			},
+			schemaLogStore: &schemalogmocks.Store{
+				CloseFn: func() error {
+					storeClosed = true
+					return nil
+				},
+			},
+		}
+
+		err := i.Close()
+		require.NoError(t, err)
+		require.True(t, processorClosed, "Close must propagate to the wrapped processor")
+		require.True(t, storeClosed, "Close must propagate to the schema log store")
+	})
+
+	t.Run("returns joined errors", func(t *testing.T) {
+		t.Parallel()
+
+		i := &Injector{
+			logger: loglib.NewNoopLogger(),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(_ context.Context, _ *wal.Event) error { return nil },
+				CloseFn:           func() error { return errTest },
+			},
+			schemaLogStore: &schemalogmocks.Store{
+				CloseFn: func() error { return errTest },
+			},
+		}
+
+		err := i.Close()
+		require.Error(t, err)
+	})
+}
+
 func Test_primaryKeyFinder(t *testing.T) {
 	t.Parallel()
 
