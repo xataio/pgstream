@@ -156,7 +156,7 @@ func (o *pgSchemaObserver) updateColumnSequences(logEntry *schemalog.LogEntry) {
 const generatedTableColumnsQuery = `SELECT attname FROM pg_attribute
 		WHERE attnum > 0
 		AND attrelid = (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2)
-		AND (attgenerated != '' OR attidentity != '')`
+		AND attgenerated != ''`
 
 func (o *pgSchemaObserver) queryGeneratedColumnNames(ctx context.Context, schemaName, tableName string) (map[string]struct{}, error) {
 	columnNames := map[string]struct{}{}
