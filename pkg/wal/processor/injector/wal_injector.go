@@ -159,7 +159,7 @@ func (in *Injector) Name() string {
 }
 
 func (in *Injector) Close() error {
-	return in.schemaLogStore.Close()
+	return errors.Join(in.processor.Close(), in.schemaLogStore.Close())
 }
 
 func (in *Injector) inject(ctx context.Context, data *wal.Data) error {
