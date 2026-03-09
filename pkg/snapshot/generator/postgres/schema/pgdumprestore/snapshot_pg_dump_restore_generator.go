@@ -79,6 +79,7 @@ type dump struct {
 	filtered              []byte
 	cleanupPart           []byte
 	indicesAndConstraints []byte
+	views                 []byte
 	sequences             []string
 	roles                 map[string]role
 	eventTriggers         []byte
@@ -247,9 +248,15 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 
 	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
 	if s.snapshotTracker != nil {
-		return s.restoreIndicesWithTracking(ctx, dump.indicesAndConstraints)
+		if err := s.restoreIndicesWithTracking(ctx, dump.indicesAndConstraints); err != nil {
+			return err
+		}
+	} else if err := s.restoreDump(ctx, dump.indicesAndConstraints); err != nil {
+		return err
 	}
-	return s.restoreDump(ctx, dump.indicesAndConstraints)
+
+	s.logger.Info("restoring views")
+	return s.restoreDump(ctx, dump.views)
 }
 
 func (s *SnapshotGenerator) Close() error {
@@ -297,6 +304,7 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 
 	s.dumpToFile(s.getDumpFileName("-filtered"), pgdumpOpts, parsedDump.filtered)
 	s.dumpToFile(s.getDumpFileName("-indices-constraints"), pgdumpOpts, parsedDump.indicesAndConstraints)
+	s.dumpToFile(s.getDumpFileName("-views"), pgdumpOpts, parsedDump.views)
 
 	// only if clean is enabled, produce the clean up part of the dump
 	if s.optionGenerator.cleanTargetDB {
@@ -495,10 +503,12 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	indicesAndConstraints := strings.Builder{}
 	filteredDump := strings.Builder{}
 	eventTriggersDump := strings.Builder{}
+	viewsDump := strings.Builder{}
 	sequenceNames := []string{}
 	dumpRoles := make(map[string]role)
 	alterTable := ""
 	createEventTrigger := ""
+	createView := ""
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
@@ -535,11 +545,27 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			eventTriggersDump.WriteString(line)
 			eventTriggersDump.WriteString("\n")
 
+		case strings.HasPrefix(line, "CREATE VIEW"),
+			strings.HasPrefix(line, "CREATE MATERIALIZED VIEW"):
+			createView = line
+			fallthrough
+		case createView != "":
+			if strings.HasSuffix(line, ";") {
+				viewsDump.WriteString(line)
+				viewsDump.WriteString("\n\n")
+				createView = ""
+				continue
+			}
+			viewsDump.WriteString(line)
+			viewsDump.WriteString("\n")
+
 		case strings.Contains(line, `\connect`):
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
 			filteredDump.WriteString(line)
 			filteredDump.WriteString("\n")
+			viewsDump.WriteString(line)
+			viewsDump.WriteString("\n\n")
 		case strings.HasPrefix(line, "CREATE INDEX"),
 			strings.HasPrefix(line, "CREATE UNIQUE INDEX"),
 			strings.HasPrefix(line, "CREATE CONSTRAINT"),
@@ -604,6 +630,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		full:                  d,
 		filtered:              []byte(filteredDump.String()),
 		indicesAndConstraints: []byte(indicesAndConstraints.String()),
+		views:                 []byte(viewsDump.String()),
 		sequences:             sequenceNames,
 		roles:                 dumpRoles,
 		eventTriggers:         []byte(eventTriggersDump.String()),
