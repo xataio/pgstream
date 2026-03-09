@@ -108,6 +108,8 @@ type PgDumpPgRestoreConfig struct {
 	NoPrivileges           bool     `mapstructure:"no_privileges" yaml:"no_privileges"`
 	DumpFile               string   `mapstructure:"dump_file" yaml:"dump_file"`
 	ExcludedSecurityLabels []string `mapstructure:"excluded_security_labels" yaml:"excluded_security_labels"`
+	IncludeObjectTypes     []string `mapstructure:"include_object_types" yaml:"include_object_types"`
+	ExcludeObjectTypes     []string `mapstructure:"exclude_object_types" yaml:"exclude_object_types"`
 }
 
 type ReplicationConfig struct {
@@ -163,13 +165,15 @@ type ConstantBackoffConfig struct {
 }
 
 type PostgresTargetConfig struct {
-	URL              string            `mapstructure:"url" yaml:"url"`
-	Batch            *BatchConfig      `mapstructure:"batch" yaml:"batch"`
-	BulkIngest       *BulkIngestConfig `mapstructure:"bulk_ingest" yaml:"bulk_ingest"`
-	DisableTriggers  bool              `mapstructure:"disable_triggers" yaml:"disable_triggers"`
-	OnConflictAction string            `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
-	RetryPolicy      BackoffConfig     `mapstructure:"retry_policy" yaml:"retry_policy"`
-	IgnoreDDL        bool              `mapstructure:"ignore_ddl" yaml:"ignore_ddl"`
+	URL                   string            `mapstructure:"url" yaml:"url"`
+	Batch                 *BatchConfig      `mapstructure:"batch" yaml:"batch"`
+	BulkIngest            *BulkIngestConfig `mapstructure:"bulk_ingest" yaml:"bulk_ingest"`
+	DisableTriggers       bool              `mapstructure:"disable_triggers" yaml:"disable_triggers"`
+	OnConflictAction      string            `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
+	RetryPolicy           BackoffConfig     `mapstructure:"retry_policy" yaml:"retry_policy"`
+	IgnoreDDL             bool              `mapstructure:"ignore_ddl" yaml:"ignore_ddl"`
+	IncludeDDLObjectTypes []string          `mapstructure:"include_ddl_object_types" yaml:"include_ddl_object_types"`
+	ExcludeDDLObjectTypes []string          `mapstructure:"exclude_ddl_object_types" yaml:"exclude_ddl_object_types"`
 }
 
 type KafkaTargetConfig struct {
@@ -551,6 +555,8 @@ func (c *YAMLConfig) parseSchemaSnapshotConfig() (*snapshotbuilder.SchemaSnapsho
 		streamSchemaCfg.DumpRestore.NoPrivileges = schemaSnapshotCfg.PgDumpPgRestore.NoPrivileges
 		streamSchemaCfg.DumpRestore.DumpDebugFile = schemaSnapshotCfg.PgDumpPgRestore.DumpFile
 		streamSchemaCfg.DumpRestore.ExcludedSecurityLabels = schemaSnapshotCfg.PgDumpPgRestore.ExcludedSecurityLabels
+		streamSchemaCfg.DumpRestore.IncludeObjectTypes = schemaSnapshotCfg.PgDumpPgRestore.IncludeObjectTypes
+		streamSchemaCfg.DumpRestore.ExcludeObjectTypes = schemaSnapshotCfg.PgDumpPgRestore.ExcludeObjectTypes
 
 		var err error
 		streamSchemaCfg.DumpRestore.RolesSnapshotMode, err = getRolesSnapshotMode(schemaSnapshotCfg.PgDumpPgRestore.RolesSnapshotMode)
@@ -609,12 +615,14 @@ func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorCon
 
 	cfg := &stream.PostgresProcessorConfig{
 		BatchWriter: postgres.Config{
-			URL:              c.Target.Postgres.URL,
-			BatchConfig:      c.Target.Postgres.Batch.parseBatchConfig(),
-			DisableTriggers:  c.Target.Postgres.DisableTriggers,
-			OnConflictAction: c.Target.Postgres.OnConflictAction,
-			RetryPolicy:      c.Target.Postgres.RetryPolicy.parseBackoffConfig(),
-			IgnoreDDL:        c.Target.Postgres.IgnoreDDL,
+			URL:                   c.Target.Postgres.URL,
+			BatchConfig:           c.Target.Postgres.Batch.parseBatchConfig(),
+			DisableTriggers:       c.Target.Postgres.DisableTriggers,
+			OnConflictAction:      c.Target.Postgres.OnConflictAction,
+			RetryPolicy:           c.Target.Postgres.RetryPolicy.parseBackoffConfig(),
+			IgnoreDDL:             c.Target.Postgres.IgnoreDDL,
+			IncludeDDLObjectTypes: c.Target.Postgres.IncludeDDLObjectTypes,
+			ExcludeDDLObjectTypes: c.Target.Postgres.ExcludeDDLObjectTypes,
 		},
 	}
 
