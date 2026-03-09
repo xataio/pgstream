@@ -98,16 +98,24 @@ func (o *optionGenerator) pgdumpOptions(ctx context.Context, schemaTables map[st
 		Role:             o.role,
 	}
 
-	switch {
-	case hasWildcardSchema(schemaTables):
-		// no need to filter schemas, since we are including all of them
+	if hasWildcardSchema(schemaTables) && !o.includeGlobalDBObjects {
+		// wildcard schema without global objects: discover all user schemas
+		// and use schema inclusion filter to exclude global objects
+		allSchemas, err := o.discoverAllSchemas(ctx)
+		if err != nil {
+			return nil, err
+		}
+		opts.Schemas = allSchemas
+	} else if hasWildcardSchema(schemaTables) {
+		// wildcard schema with global objects: no filter needed, just
+		// exclude the pgstream internal schema
 		opts.Schemas = nil
 		opts.ExcludeSchemas = []string{pglib.QuoteIdentifier(pgstreamSchema)}
-	case o.includeGlobalDBObjects:
-		// instead of using the schema filter, we use the exclude schemas filter
-		// to make sure extensions and other database global objects are
-		// created. pg_dump will not include them when using the schema filter,
-		// since they do not belong to the schema.
+	} else if o.includeGlobalDBObjects {
+		// specific schemas with global objects: use exclude filter to make
+		// sure extensions and other database global objects are created.
+		// pg_dump will not include them when using the schema filter, since
+		// they do not belong to the schema.
 		var err error
 		opts.ExcludeSchemas, err = o.pgdumpExcludedSchemas(ctx, schemas)
 		if err != nil {
@@ -228,6 +236,10 @@ func (o *optionGenerator) pgdumpExcludedSchemas(ctx context.Context, includeSche
 	}
 
 	return excludeSchemas, nil
+}
+
+func (o *optionGenerator) discoverAllSchemas(ctx context.Context) ([]string, error) {
+	return pglib.DiscoverAllSchemas(ctx, o.querier)
 }
 
 func quoteSchema(schema string) string {
