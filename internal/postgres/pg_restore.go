@@ -92,16 +92,24 @@ func RunPGRestore(ctx context.Context, opts PGRestoreOptions, dump []byte) (stri
 
 	// TODO: add streaming support when large data output is required
 	out, err := cmd.CombinedOutput()
-	if err != nil || strings.Contains(string(out), "ERROR") {
-		if parseErr := parsePgRestoreOutputErrs(out); parseErr != nil {
-			return "", fmt.Errorf("error restoring dump: %w", parseErr)
-		}
-		if err != nil {
-			return "", fmt.Errorf("error restoring dump: %w", err)
-		}
+	if restoreErr := buildRestoreError(out, err); restoreErr != nil {
+		return "", restoreErr
 	}
 
 	return string(out), nil
+}
+
+func buildRestoreError(out []byte, execErr error) error {
+	if execErr == nil && !strings.Contains(string(out), "ERROR") {
+		return nil
+	}
+	if parseErr := parsePgRestoreOutputErrs(out); parseErr != nil {
+		return fmt.Errorf("error restoring dump: %w", parseErr)
+	}
+	if execErr != nil {
+		return fmt.Errorf("error restoring dump: %w", execErr)
+	}
+	return nil
 }
 
 func removeDatabaseFromConnectionString(url string) (string, error) {

@@ -149,6 +149,67 @@ pg_restore: finished`,
 	}
 }
 
+func TestBuildRestoreError(t *testing.T) {
+	t.Parallel()
+
+	execErr := errors.New("exit status 1")
+
+	tests := []struct {
+		name    string
+		output  []byte
+		execErr error
+
+		wantNil     bool
+		wantContain string
+	}{
+		{
+			name:    "no error - success",
+			output:  []byte("pg_restore: finished\n"),
+			execErr: nil,
+			wantNil: true,
+		},
+		{
+			name:        "exec error with no parseable output",
+			output:      []byte("some unexpected output\n"),
+			execErr:     execErr,
+			wantContain: "exit status 1",
+		},
+		{
+			name:        "exec error with empty output",
+			output:      []byte{},
+			execErr:     execErr,
+			wantContain: "exit status 1",
+		},
+		{
+			name:        "exec error with parseable ERROR lines",
+			output:      []byte("pg_restore: error: could not execute query: ERROR:  relation \"users\" already exists\n"),
+			execErr:     execErr,
+			wantContain: "already exists",
+		},
+		{
+			name:        "no exec error but output contains ERROR",
+			output:      []byte("ERROR:  relation \"users\" already exists\n"),
+			execErr:     nil,
+			wantContain: "already exists",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := buildRestoreError(tc.output, tc.execErr)
+			if tc.wantNil {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantContain)
+			assert.NotContains(t, err.Error(), "%!w(<nil>)")
+		})
+	}
+}
+
 func TestIsErrorLine(t *testing.T) {
 	tests := []struct {
 		line     string
