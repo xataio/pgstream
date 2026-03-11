@@ -93,7 +93,12 @@ func RunPGRestore(ctx context.Context, opts PGRestoreOptions, dump []byte) (stri
 	// TODO: add streaming support when large data output is required
 	out, err := cmd.CombinedOutput()
 	if err != nil || strings.Contains(string(out), "ERROR") {
-		return "", fmt.Errorf("error restoring dump: %w", parsePgRestoreOutputErrs(out))
+		if parseErr := parsePgRestoreOutputErrs(out); parseErr != nil {
+			return "", fmt.Errorf("error restoring dump: %w", parseErr)
+		}
+		if err != nil {
+			return "", fmt.Errorf("error restoring dump: %w", err)
+		}
 	}
 
 	return string(out), nil
