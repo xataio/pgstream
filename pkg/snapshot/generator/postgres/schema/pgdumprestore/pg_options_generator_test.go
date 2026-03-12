@@ -279,14 +279,32 @@ func TestOptionsGenerator_pgdumpOptions(t *testing.T) {
 			includeGlobal: false,
 			conn: &pglibmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
-					return nil, fmt.Errorf("QueryFn should not be called")
+					require.Equal(t, pglib.DiscoverAllSchemasQuery, query)
+					return &pglibmocks.Rows{
+						NextFn: func(i uint) bool { return i <= 2 },
+						ScanFn: func(i uint, dest ...any) error {
+							require.Len(t, dest, 1)
+							schema, ok := dest[0].(*string)
+							require.True(t, ok)
+							switch i {
+							case 1:
+								*schema = "public"
+							case 2:
+								*schema = "other"
+							}
+							return nil
+						},
+						ErrFn:   func() error { return nil },
+						CloseFn: func() {},
+					}, nil
 				},
 			},
 
 			wantOpts: &pglib.PGDumpOptions{
 				ConnectionString: "source-url",
 				Format:           "p",
-				ExcludeSchemas:   []string{`"pgstream"`, `"excluded_schema"`},
+				Schemas:          []string{"public", "other"},
+				ExcludeSchemas:   []string{`"excluded_schema"`},
 				SchemaOnly:       true,
 			},
 			wantErr: nil,
@@ -300,30 +318,47 @@ func TestOptionsGenerator_pgdumpOptions(t *testing.T) {
 			includeGlobal:  false,
 			conn: &pglibmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
-					require.Equal(t, selectTablesQuery, query)
-					require.Equal(t, []any{[]string{"table1", "table2"}}, args)
-					return &pglibmocks.Rows{
-						NextFn: func(i uint) bool { return i == 1 },
-						ScanFn: func(i uint, dest ...any) error {
-							require.Len(t, dest, 2)
-							schema, ok := dest[0].(*string)
-							require.True(t, ok)
-							*schema = "public"
-							table, ok := dest[1].(*string)
-							require.True(t, ok)
-							*table = "table3"
-							return nil
-						},
-						ErrFn:   func() error { return nil },
-						CloseFn: func() {},
-					}, nil
+					switch query {
+					case pglib.DiscoverAllSchemasQuery:
+						return &pglibmocks.Rows{
+							NextFn: func(i uint) bool { return i == 1 },
+							ScanFn: func(i uint, dest ...any) error {
+								require.Len(t, dest, 1)
+								schema, ok := dest[0].(*string)
+								require.True(t, ok)
+								*schema = "public"
+								return nil
+							},
+							ErrFn:   func() error { return nil },
+							CloseFn: func() {},
+						}, nil
+					case selectTablesQuery:
+						require.Equal(t, []any{[]string{"table1", "table2"}}, args)
+						return &pglibmocks.Rows{
+							NextFn: func(i uint) bool { return i == 1 },
+							ScanFn: func(i uint, dest ...any) error {
+								require.Len(t, dest, 2)
+								schema, ok := dest[0].(*string)
+								require.True(t, ok)
+								*schema = "public"
+								table, ok := dest[1].(*string)
+								require.True(t, ok)
+								*table = "table3"
+								return nil
+							},
+							ErrFn:   func() error { return nil },
+							CloseFn: func() {},
+						}, nil
+					default:
+						return nil, fmt.Errorf("unexpected query: %s", query)
+					}
 				},
 			},
 
 			wantOpts: &pglib.PGDumpOptions{
 				ConnectionString: "source-url",
 				Format:           "p",
-				ExcludeSchemas:   []string{`"pgstream"`},
+				Schemas:          []string{"public"},
 				SchemaOnly:       true,
 				ExcludeTables:    []string{`"public"."table3"`},
 			},
@@ -336,6 +371,39 @@ func TestOptionsGenerator_pgdumpOptions(t *testing.T) {
 			},
 			excludedTables: map[string][]string{},
 			includeGlobal:  false,
+			conn: &pglibmocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, pglib.DiscoverAllSchemasQuery, query)
+					return &pglibmocks.Rows{
+						NextFn: func(i uint) bool { return i == 1 },
+						ScanFn: func(i uint, dest ...any) error {
+							require.Len(t, dest, 1)
+							schema, ok := dest[0].(*string)
+							require.True(t, ok)
+							*schema = "public"
+							return nil
+						},
+						ErrFn:   func() error { return nil },
+						CloseFn: func() {},
+					}, nil
+				},
+			},
+
+			wantOpts: &pglib.PGDumpOptions{
+				ConnectionString: "source-url",
+				Format:           "p",
+				Schemas:          []string{"public"},
+				SchemaOnly:       true,
+			},
+			wantErr: nil,
+		},
+		{
+			name: "wildcard schema and wildcard tables with include global objects enabled",
+			schemaTables: map[string][]string{
+				"*": {"*"},
+			},
+			excludedTables: map[string][]string{},
+			includeGlobal:  true,
 			conn: &pglibmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return nil, errors.New("QueryFn should not be called")
