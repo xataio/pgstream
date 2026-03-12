@@ -312,14 +312,16 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			pgrestoreFn: newMockPgrestore(func(_ context.Context, i uint, po pglib.PGRestoreOptions, dump []byte) (string, error) {
 				switch i {
 				case 1:
-					require.Equal(t, string(rolesDumpFiltered), string(dump))
+					require.Equal(t, string(schemaCreateDump), string(dump))
 				case 2:
-					require.Equal(t, string(filteredDump), string(dump))
+					require.Equal(t, string(rolesDumpFiltered), string(dump))
 				case 3:
-					require.Equal(t, string(sequenceDump), string(dump))
+					require.Equal(t, string(filteredDump), string(dump))
 				case 4:
-					require.Equal(t, string(indexDump), string(dump))
+					require.Equal(t, string(sequenceDump), string(dump))
 				case 5:
+					require.Equal(t, string(indexDump), string(dump))
+				case 6:
 					require.Equal(t, string(testViewsDump), string(dump))
 				default:
 					return "", fmt.Errorf("unexpected call to pgrestoreFn: %d", i)
