@@ -241,6 +241,20 @@ ALTER TABLE ONLY musicbrainz.alternative_release ALTER COLUMN id SET DEFAULT nex
 
 
 --
+-- Name: edit_summary; Type: VIEW; Schema: musicbrainz; Owner: postgres
+--
+
+
+
+
+--
+-- Name: medium_summary; Type: MATERIALIZED VIEW; Schema: musicbrainz; Owner: postgres
+--
+
+
+
+
+--
 -- Name: alternative_medium alternative_medium_pkey; Type: CONSTRAINT; Schema: musicbrainz; Owner: postgres
 --
 
