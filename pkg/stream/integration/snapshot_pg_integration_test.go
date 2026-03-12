@@ -123,7 +123,7 @@ func Test_SnapshotToPostgres_IdentityOnlyTable(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	run := func(suffix string, bulkIngestion bool) {
+	run := func(suffix string, opts ...option) {
 		parentTable := fmt.Sprintf("parent_identity_%s", suffix)
 		childTable := fmt.Sprintf("child_identity_%s", suffix)
 
@@ -147,7 +147,7 @@ func Test_SnapshotToPostgres_IdentityOnlyTable(t *testing.T) {
 
 		cfg := &stream.Config{
 			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
-			Processor: testPostgresProcessorCfg(snapshotPGURL, bulkIngestion),
+			Processor: testPostgresProcessorCfg(opts...),
 		}
 		initStream(t, ctx, snapshotPGURL)
 		runSnapshot(t, ctx, cfg)
@@ -198,10 +198,10 @@ func Test_SnapshotToPostgres_IdentityOnlyTable(t *testing.T) {
 	}
 
 	t.Run("bulk ingest", func(t *testing.T) {
-		run("bulk", withBulkIngestion)
+		run("bulk", withBulkIngestionEnabled())
 	})
 	t.Run("batch writer", func(t *testing.T) {
-		run("batch", withoutBulkIngestion)
+		run("batch")
 	})
 }
 
@@ -221,7 +221,7 @@ func Test_SnapshotToPostgres_IdentityAndGeneratedColumns(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	run := func(suffix string, bulkIngestion bool) {
+	run := func(suffix string, opts ...option) {
 		testTable := fmt.Sprintf("identity_generated_%s", suffix)
 
 		// Table with both an identity column (id) and a generated stored column (display_name).
@@ -238,7 +238,7 @@ func Test_SnapshotToPostgres_IdentityAndGeneratedColumns(t *testing.T) {
 
 		cfg := &stream.Config{
 			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
-			Processor: testPostgresProcessorCfg(snapshotPGURL, bulkIngestion),
+			Processor: testPostgresProcessorCfg(opts...),
 		}
 		initStream(t, ctx, snapshotPGURL)
 		runSnapshot(t, ctx, cfg)
@@ -282,9 +282,9 @@ func Test_SnapshotToPostgres_IdentityAndGeneratedColumns(t *testing.T) {
 	}
 
 	t.Run("bulk ingest", func(t *testing.T) {
-		run("bulk", withBulkIngestion)
+		run("bulk", withBulkIngestionEnabled())
 	})
 	t.Run("batch writer", func(t *testing.T) {
-		run("batch", withoutBulkIngestion)
+		run("batch")
 	})
 }
