@@ -27,7 +27,8 @@ Additionally, the current architecture builds SQL strings *before* batching — 
 
 Batch raw WAL events instead of pre-built SQL strings, then build bulk SQL at execution time.
 
-- N DELETEs on the same table become: `DELETE FROM t WHERE "id" IN ($1, $2, ..., $N)`
+- N DELETEs on the same table (single-column PK) become: `DELETE FROM t WHERE "id" = ANY($1::bigint[])` — one array parameter
+- N DELETEs on the same table (composite PK) fall back to: `DELETE FROM t WHERE ("id","name") IN (($1,$2),($3,$4),...)` — individual parameters
 - N INSERTs on the same table become: `INSERT INTO t(cols) VALUES($1,$2),($3,$4),...`
 
 ### Architecture change
@@ -92,7 +93,9 @@ Change batch type from `batch.Batch[*query]` to `batch.Batch[*walMessage]`. New 
 1. Separate DDL and DML messages
 2. For DDL: build and execute queries via existing `ddlAdapter`
 3. For DML: walk messages in order, building "runs" of consecutive same-(schema, table, action) events:
-   - **DELETE run** → `DELETE FROM t WHERE "id" IN ($1,$2,...)` (single key) or `WHERE ("id","name") IN (($1,$2),($3,$4),...)` (composite key). IS NULL identity columns become a shared WHERE prefix.
+   - **DELETE run (single-column PK)** → `DELETE FROM t WHERE "id" = ANY($1::type[])` — all identity values collected into a single Go slice passed as one array parameter. The PG array type is derived from the identity column's `Type` field (see type mapping below).
+   - **DELETE run (composite PK)** → falls back to `DELETE FROM t WHERE ("id","name") IN (($1,$2),($3,$4),...)` with individual parameters, since `ANY` doesn't support tuple comparison. For composite PKs, respect the 65,535 parameter limit by splitting runs at ~60,000 params.
+   - IS NULL identity columns become a shared WHERE prefix for both variants.
    - **INSERT run** → `INSERT INTO t(cols) OVERRIDING SYSTEM VALUE VALUES($1,$2),($3,$4),...` with ON CONFLICT clause. Sequence setval queries generated separately.
    - **UPDATE** → individual UPDATE queries (no coalescing — each row has different SET values)
    - **TRUNCATE** → pass through as individual query
@@ -103,7 +106,7 @@ Change batch type from `batch.Batch[*query]` to `batch.Batch[*walMessage]`. New 
 ```
 -- These three consecutive DELETEs coalesce into one:
 DELETE FROM t WHERE id = 1
-DELETE FROM t WHERE id = 2    →  DELETE FROM t WHERE id IN (1, 2, 3)
+DELETE FROM t WHERE id = 2    →  DELETE FROM t WHERE id = ANY('{1,2,3}'::int[])
 DELETE FROM t WHERE id = 3
 
 -- But interleaved operations cannot be coalesced:
@@ -116,7 +119,8 @@ The ordering constraint is necessary for correctness — the INSERT between the 
 
 In practice this works well for the target workload: WAL events from bulk operations on the source database (batch purges, accounting reconciliation, ETL loads) naturally produce long runs of the same operation on the same table, which coalesce effectively.
 5. Execute via existing `flushQueries` / `execQueries`
-6. Respect PostgreSQL's 65,535 parameter limit — split runs at ~60,000 params
+
+**Error handling:** If a coalesced query fails, log the error with `"severity": "DATALOSS"` (consistent with existing patterns in `execQueries`, `BulkIngestWriter`, `wal_kafka_reader`, etc.), drop the failing batch, and continue. There is no fallback to individual statements — a bulk query failure typically indicates a problem that would also affect individual execution, and falling back would mask issues.
 
 ### 5. Bulk query builders
 
@@ -124,9 +128,35 @@ In practice this works well for the target workload: WAL events from bulk operat
 
 Add methods to `dmlAdapter`:
 
-- `buildBulkDeleteQuery(events []*wal.Data) (*query, error)` — builds `DELETE ... WHERE id IN (...)`
+- `buildBulkDeleteQuery(events []*wal.Data) (*query, error)` — for single-column PKs, builds `DELETE ... WHERE id = ANY($1::type[])`. For composite PKs, falls back to `DELETE ... WHERE (col1, col2) IN ((...), (...))`.
 - `buildBulkInsertQueries(events []*wal.Data, schemaInfo) []*query` — builds multi-value INSERT + sequence setval
 - Reuse existing helpers: `filterRowColumns`, `buildOnConflictQuery`, `extractPrimaryKeyColumns`
+
+**PG type → array type mapping for `ANY` casts:**
+
+The identity column's `Type` field (from `wal.Column.Type`) is mapped to a PG array type for the SQL cast. Common PK types:
+
+| Column Type | Array Cast |
+|---|---|
+| `integer`, `int4` | `int4[]` |
+| `bigint`, `int8` | `int8[]` |
+| `smallint`, `int2` | `int2[]` |
+| `text`, `varchar`, `character varying` | `text[]` |
+| `uuid` | `uuid[]` |
+
+For any type not in the explicit map, fall back to appending `[]` to the type name (e.g., `numeric` → `numeric[]`), which works for most PG types.
+
+On the Go side, identity values (from JSON-deserialized WAL data) are collected into a `[]any` slice. pgx handles encoding `[]any` when the explicit `::type[]` cast is provided in the SQL. Example:
+
+```go
+ids := make([]any, len(events))
+for i, e := range events {
+    ids[i] = e.Identity[0].Value
+}
+sql := fmt.Sprintf("DELETE FROM %s WHERE %s = ANY($1::%s)",
+    table, pglib.QuoteIdentifier(colName), pgArrayType(colType))
+args := []any{ids}
+```
 
 ### 6. Update BatchWriter struct
 
@@ -159,6 +189,9 @@ Constructor creates `batch.NewSender[*walMessage](...)` instead of `batch.NewSen
 
 For the customer's workload (9,737 DELETEs in a single batch):
 - **Before:** 9,737 individual `tx.Exec("DELETE FROM t WHERE id = $1", id)` calls
-- **After:** ~1 call: `tx.Exec("DELETE FROM t WHERE id IN ($1,$2,...,$9737)", ids...)`
+- **After:** 1 call: `tx.Exec("DELETE FROM t WHERE id = ANY($1::bigint[])", ids)`
 
-This reduces network round-trips by orders of magnitude. The PostgreSQL query planner can also optimize a single `IN (...)` query much better than thousands of individual `WHERE id = $1` queries.
+This reduces network round-trips by orders of magnitude. Using `ANY` with an array parameter instead of `IN ($1, $2, ..., $N)` has additional benefits:
+- **No 65,535 parameter limit** — the entire array is a single parameter, so arbitrarily large batches work without splitting.
+- **Faster query planning** — the planner processes a single `ScalarArrayOpExpr` instead of optimizing a long OR chain from thousands of IN values.
+- **Lower parameter binding overhead** — one array binding vs N individual bindings.
