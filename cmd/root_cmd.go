@@ -86,6 +86,7 @@ func Prepare() *cobra.Command {
 	runCmd.Flags().Bool("profile", false, "Whether to expose a /debug/pprof endpoint on localhost:6060")
 	runCmd.Flags().BoolVar(&initFlag, "init", false, "Whether to initialize pgstream before starting replication")
 	runCmd.Flags().String("dump-file", "", "File where the pg_dump output will be written if initial snapshot is enabled")
+	runCmd.Flags().Bool("data-only", false, "When used with --snapshot-tables, skip schema restore and only snapshot data (use when schema is already present on target)")
 	runCmd.Flags().Bool("with-injector", false, "Whether to enable the injection of pgstream metadata to the WAL events. Required for search targets.")
 
 	// status cmd
