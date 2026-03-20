@@ -34,10 +34,11 @@ var errUnexpectedCopiedRows = errors.New("number of rows copied doesn't match th
 // to the configured postgres instance in bulk using the COPY command. It uses a
 // batch sender per schema table to parallelise the bulk ingest for different
 // tables.
+//
+// DDL events (schema changes, constraints, indexes) are executed directly via
+// Exec instead of COPY. In the Kafka path, snapshot DDL arrives through the
+// same event stream as data rows and must be applied by the consumer.
 func NewBulkIngestWriter(ctx context.Context, config *Config, opts ...WriterOption) (*BulkIngestWriter, error) {
-	// the bulk ingest writer only processes insert events, so we don't need a
-	// DDL adapter
-	config.IgnoreDDL = true
 	w, err := newWriter(ctx, config, bulkIngestWriter, opts...)
 	if err != nil {
 		return nil, err
@@ -78,6 +79,14 @@ func (w *BulkIngestWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Ev
 	// the shared sender dies, cascading failures to all other tables.
 	if walEvent.Data == nil {
 		return nil
+	}
+
+	// DDL events (CREATE TABLE, ALTER TABLE ADD CONSTRAINT, CREATE INDEX)
+	// arrive through the same Kafka topic as data rows in the Kafka path.
+	// Flush all pending COPY batches first to ensure data is written before
+	// constraints are validated, then execute DDL directly.
+	if walEvent.Data.IsDDLEvent() {
+		return w.processDDLEvent(ctx, walEvent)
 	}
 
 	if !walEvent.Data.IsInsert() {
@@ -152,6 +161,99 @@ func (w *BulkIngestWriter) getBatchSender(ctx context.Context, schema, table str
 
 	w.batchSenderMap.Set(key, sender)
 	return sender, nil
+}
+
+// processDDLEvent handles DDL events (schema changes, constraints, indexes)
+// by flushing all pending COPY batches and then executing the DDL directly.
+// Post-data DDL (ALTER TABLE ADD CONSTRAINT, CREATE INDEX) must run after all
+// data is written — otherwise FK validation or unique index creation fails on
+// missing rows still buffered in batch senders.
+func (w *BulkIngestWriter) processDDLEvent(ctx context.Context, walEvent *wal.Event) error {
+	// Flush all pending COPY batches so data is on disk before DDL runs.
+	w.flushAllBatchSenders()
+
+	queries, err := w.adapter.walEventToQueries(ctx, walEvent)
+	if err != nil {
+		return err
+	}
+
+	for _, q := range queries {
+		if q.sql == "" {
+			continue
+		}
+		w.logger.Info("executing DDL", loglib.Fields{
+			"sql":    q.sql,
+			"schema": q.schema,
+			"table":  q.table,
+		})
+		if _, err := w.pgConn.Exec(ctx, q.sql, q.args...); err != nil {
+			w.logger.Error(err, "DDL execution failed", loglib.Fields{
+				"sql":    q.sql,
+				"schema": q.schema,
+				"table":  q.table,
+			})
+			// Non-fatal DDL errors (e.g. "relation already exists") should not
+			// kill the pipeline. Only propagate internal/connection errors.
+			if isInternalDDLError(err) {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// flushAllBatchSenders closes every active batch sender and removes it from
+// the map. Closing drains pending messages and waits for in-flight COPY
+// operations to finish. New senders are created on demand by getBatchSender
+// when subsequent INSERT events arrive.
+func (w *BulkIngestWriter) flushAllBatchSenders() {
+	senders := w.batchSenderMap.GetMap()
+	if len(senders) == 0 {
+		return
+	}
+
+	w.logger.Debug("flushing all batch senders before DDL", loglib.Fields{"count": len(senders)})
+
+	eg := errgroup.Group{}
+	for _, sender := range senders {
+		eg.Go(func() error {
+			sender.Close()
+			return nil
+		})
+	}
+	_ = eg.Wait()
+
+	// Clear the map so new senders get created for subsequent inserts.
+	for key := range senders {
+		w.batchSenderMap.Delete(key)
+	}
+}
+
+// isInternalDDLError returns true for errors that indicate a connection or
+// system-level problem (should abort the pipeline). Returns false for
+// DDL-specific errors like "already exists" or "does not exist" which are
+// expected in idempotent replay scenarios.
+func isInternalDDLError(err error) bool {
+	var errRelationDoesNotExist *pglib.ErrRelationDoesNotExist
+	var errRelationAlreadyExists *pglib.ErrRelationAlreadyExists
+	var errSyntaxError *pglib.ErrSyntaxError
+	var errPreconditionFailed *pglib.ErrPreconditionFailed
+	var errFeatureNotSupported *pglib.ErrFeatureNotSupported
+	var errConstraintViolation *pglib.ErrConstraintViolation
+	var errDataException *pglib.ErrDataException
+	switch {
+	case errors.As(err, &errRelationDoesNotExist),
+		errors.As(err, &errRelationAlreadyExists),
+		errors.As(err, &errSyntaxError),
+		errors.As(err, &errPreconditionFailed),
+		errors.As(err, &errFeatureNotSupported),
+		errors.As(err, &errConstraintViolation),
+		errors.As(err, &errDataException):
+		return false
+	default:
+		return true
+	}
 }
 
 func (w *BulkIngestWriter) sendBatch(ctx context.Context, batch *batch.Batch[*query]) error {
