@@ -105,6 +105,7 @@ func (w *BatchWriter) sendBatch(ctx context.Context, batch *batch.Batch[*query])
 				w.logger.Error(err, "flushing DML queries")
 				return err
 			}
+			dmlQueries = dmlQueries[:0]
 
 			if _, err := w.pgConn.Exec(ctx, q.sql, q.args...); err != nil {
 				w.logger.Error(err, "running DDL query", loglib.Fields{"query_sql": q.sql, "query_args": q.args})
