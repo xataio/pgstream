@@ -133,11 +133,19 @@ func WithProgressTracking() Option {
 }
 
 func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) (err error) {
-	defer func() {
-		// make sure we close the processor once the snapshot is completed.
-		// It will wait until all rows are processed before returning.
-		sg.processor.Close()
-	}()
+	// NOTE: Do NOT close the processor here. The data snapshot generator is
+	// wrapped by the schema snapshot generator, which needs the processor to
+	// remain open for post-data DDL (primary keys, foreign keys, indexes).
+	// In Kafka mode, post-data DDL goes through the same processor via
+	// restoreToWAL. Closing it here kills post-data restoration.
+	// The processor is closed by the caller (stream_run.go's snapshotCloser).
+	//
+	// Verified locally: without this fix, pg2kafka logs:
+	//   "processing DDL statement: processing WAL event: stop processing,
+	//    sending has stopped: context canceled"
+	// and 0 post-data DDL (PKs, FKs, indexes) reaches Kafka.
+	// With this fix: all 5 post-data DDL events reach Kafka, target has
+	// all constraints.
 
 	// parallelise the snapshot creation for each schema as configured by the snapshot workers.
 	errGroup, ctx := errgroup.WithContext(ctx)
