@@ -37,6 +37,11 @@ type SnapshotGenerator struct {
 	processor              processor.Processor
 	tableSnapshotGenerator snapshotTableFn
 
+	// metadataConn is used to query PK columns for snapshot events.
+	// Separate from conn to avoid interfering with snapshot transactions.
+	// When set, snapshot events include Metadata.InternalColIDs for ON CONFLICT dedup.
+	metadataConn pglib.Querier
+
 	progressTracking   bool
 	progressBars       *synclib.Map[string, progress.Bar]
 	progressBarBuilder func(totalBytes int64, description string) progress.Bar
@@ -67,6 +72,7 @@ type table struct {
 	schema  string
 	name    string
 	rowSize int64
+	meta    *tableMetadata
 }
 
 type snapshotTableFn func(ctx context.Context, snapshotID string, table *table) error
@@ -82,6 +88,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, processor processor.
 	sg := &SnapshotGenerator{
 		logger:          loglib.NewNoopLogger(),
 		conn:            conn,
+		metadataConn:    conn, // reuse pool for PK column queries
 		processor:       processor,
 		batchBytes:      cfg.batchBytes(),
 		tableWorkers:    cfg.tableWorkers(),
@@ -133,11 +140,12 @@ func WithProgressTracking() Option {
 }
 
 func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) (err error) {
-	defer func() {
-		// make sure we close the processor once the snapshot is completed.
-		// It will wait until all rows are processed before returning.
-		sg.processor.Close()
-	}()
+	// NOTE: Do NOT close the processor here. The data snapshot generator is
+	// wrapped by the schema snapshot generator, which needs the processor to
+	// remain open for post-data DDL (primary keys, foreign keys, indexes).
+	// In Kafka mode, post-data DDL goes through the same processor via
+	// restoreToWAL. Closing it here kills post-data restoration.
+	// The processor is closed by the caller (stream_run.go's snapshotCloser).
 
 	// parallelise the snapshot creation for each schema as configured by the snapshot workers.
 	errGroup, ctx := errgroup.WithContext(ctx)
@@ -290,6 +298,19 @@ func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID strin
 	}
 	table.rowSize = tableInfo.avgRowBytes
 
+	// Query PK columns once per table so snapshot events include metadata
+	// for ON CONFLICT deduplication in the Kafka path.
+	// Uses a separate connection to avoid interfering with the snapshot transaction.
+	if sg.metadataConn != nil {
+		meta, err := sg.queryPKColumns(ctx, table.schema, table.name)
+		if err != nil {
+			sg.logger.Warn(err, "failed to get table PK columns, events will lack dedup metadata",
+				loglib.Fields{"schema": table.schema, "table": table.name})
+		} else {
+			table.meta = meta
+		}
+	}
+
 	// If one page range fails, we abort the entire table snapshot. The
 	// snapshot relies on the transaction snapshot id to ensure all workers
 	// have the same table view, which allows us to use the ctid to
@@ -360,7 +381,7 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID 
 				// SQL NULL instead of converting it to JSONB null.
 				rawValues := rows.RawValues()
 
-				event := sg.adapter.rowToWalEvent(ctx, table.schema, table.name, fieldDescriptions, values, rawValues)
+				event := sg.adapter.rowToWalEvent(ctx, table.schema, table.name, fieldDescriptions, values, rawValues, table.meta)
 				if event == nil {
 					continue
 				}
@@ -487,6 +508,40 @@ func (sg *SnapshotGenerator) getSnapshotSchemaTotalBytes(ctx context.Context, sn
 	})
 
 	return totalBytes, err
+}
+
+const pkColumnsQuery = `SELECT a.attname
+FROM pg_index i
+JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+JOIN pg_class c ON c.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE i.indisprimary AND n.nspname = $1 AND c.relname = $2
+ORDER BY a.attnum`
+
+func (sg *SnapshotGenerator) queryPKColumns(ctx context.Context, schema, tableName string) (*tableMetadata, error) {
+	meta := &tableMetadata{
+		tablePgstreamID: fmt.Sprintf("%s.%s", schema, tableName),
+	}
+
+	rows, err := sg.metadataConn.Query(ctx, pkColumnsQuery,
+		pglib.UnquoteIdentifier(schema), pglib.UnquoteIdentifier(tableName))
+	if err != nil {
+		return nil, fmt.Errorf("querying PK columns for %s.%s: %w", schema, tableName, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var colName string
+		if err := rows.Scan(&colName); err != nil {
+			return nil, fmt.Errorf("scanning PK column: %w", err)
+		}
+		meta.pkColumnNames = append(meta.pkColumnNames, colName)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return meta, nil
 }
 
 const exportSnapshotQuery = `SELECT pg_export_snapshot()`

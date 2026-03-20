@@ -23,13 +23,35 @@ func newAdapter(mapper mapper, logger loglib.Logger) *adapter {
 	}
 }
 
-func (a *adapter) rowToWalEvent(ctx context.Context, tableSchema, tableName string, fieldDescriptions []pgconn.FieldDescription, values []any, rawValues [][]byte) *wal.Event {
+// tableMetadata holds pre-queried PK column names for a table, used to
+// populate Metadata.InternalColIDs on snapshot events so the downstream
+// consumer can generate ON CONFLICT for idempotent writes.
+type tableMetadata struct {
+	tablePgstreamID string
+	pkColumnNames   []string
+}
+
+func (a *adapter) rowToWalEvent(ctx context.Context, tableSchema, tableName string, fieldDescriptions []pgconn.FieldDescription, values []any, rawValues [][]byte, meta *tableMetadata) *wal.Event {
 	if len(fieldDescriptions) == 0 && len(values) == 0 {
 		return nil
 	}
+
+	columns := a.toWalEventColumns(ctx, fieldDescriptions, values, rawValues)
+
+	// Populate metadata so downstream ON CONFLICT can identify PK columns.
+	// Column.ID and Metadata.InternalColIDs use the column name as the ID
+	// (matching what the injector would produce for simple PK cases).
+	metadata := wal.Metadata{}
+	if meta != nil {
+		metadata.TablePgstreamID = meta.tablePgstreamID
+		metadata.InternalColIDs = meta.pkColumnNames
+		// Set Column.ID to column name so extractPrimaryKeyColumns can match
+		for i := range columns {
+			columns[i].ID = columns[i].Name
+		}
+	}
+
 	return &wal.Event{
-		// use 0 since there's no LSN associated, but it can be used as the
-		// initial version downstream
 		CommitPosition: wal.CommitPosition(wal.ZeroLSN),
 		Data: &wal.Data{
 			Action:    "I",
@@ -37,7 +59,8 @@ func (a *adapter) rowToWalEvent(ctx context.Context, tableSchema, tableName stri
 			LSN:       wal.ZeroLSN,
 			Schema:    tableSchema,
 			Table:     tableName,
-			Columns:   a.toWalEventColumns(ctx, fieldDescriptions, values, rawValues),
+			Columns:   columns,
+			Metadata:  metadata,
 		},
 	}
 }
