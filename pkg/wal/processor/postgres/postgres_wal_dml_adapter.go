@@ -3,6 +3,7 @@
 package postgres
 
 import (
+	stdjson "encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -412,9 +413,22 @@ func serializeJSONBValue(colType string, val any) any {
 		return []byte("null")
 	}
 
-	switch val.(type) {
-	case map[string]any, []any, string, float64, bool:
-		if jsonBytes, err := json.Marshal(val); err == nil {
+	switch v := val.(type) {
+	case string:
+		// WAL path (wal2json): JSONB values arrive as Go strings containing
+		// valid JSON text, e.g. `{"key":"value"}` or `[1,2,3]`.
+		// Snapshot COPY path: JSONB string values arrive as raw Go strings
+		// WITHOUT JSON quoting, e.g. `hello` (not `"hello"`).
+		// json.Valid distinguishes: valid JSON passes through as bytes,
+		// raw strings get marshaled to add proper JSON quoting.
+		if stdjson.Valid([]byte(v)) {
+			return []byte(v)
+		}
+		if jsonBytes, err := json.Marshal(v); err == nil {
+			return jsonBytes
+		}
+	case map[string]any, []any, float64, bool:
+		if jsonBytes, err := json.Marshal(v); err == nil {
 			return jsonBytes
 		}
 	}

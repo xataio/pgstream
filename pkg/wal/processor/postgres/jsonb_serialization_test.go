@@ -40,28 +40,45 @@ func TestFilterRowColumnsJSONBHandling(t *testing.T) {
 func TestFilterRowColumnsJSONBStringSerializedToBytes(t *testing.T) {
 	t.Parallel()
 
-	// A Go string in a JSONB column means jsonb_typeof='string' from wal2json.
-	// It must be JSON-marshaled to []byte for correct COPY encoding.
-	// (The old schemalog snapshot generator that passed object-strings was
-	// removed in v1.0.0 — Go strings in JSONB columns are always JSON strings.)
-	originalJSON := `{"tables":[{"name":"users"}]}`
+	// WAL path: wal2json sends JSONB objects as Go strings containing valid JSON.
+	// These must pass through as []byte WITHOUT double-encoding.
+	walJSON := `{"tables":[{"name":"users"}]}`
 
 	cols := []wal.Column{
 		{Name: "id", Type: "integer", Value: 1},
-		{Name: "schema", Type: "jsonb", Value: originalJSON},
+		{Name: "schema", Type: "jsonb", Value: walJSON},
 	}
 
 	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{})
 
-	// String values must be serialized to []byte for COPY binary format
 	result, ok := values[1].([]byte)
-	require.True(t, ok, "JSONB string should be serialized to []byte, got %T", values[1])
-	require.True(t, json.Valid(result), "serialized JSONB string must be valid JSON")
+	require.True(t, ok, "JSONB value should be []byte, got %T", values[1])
+	require.True(t, json.Valid(result), "must be valid JSON")
 
-	// Unmarshal should recover the original string
-	var decoded string
-	require.NoError(t, json.Unmarshal(result, &decoded))
-	require.Equal(t, originalJSON, decoded)
+	// WAL path: valid JSON string passes through as-is — NOT double-encoded.
+	// The result should be the original JSON object bytes, not a quoted string.
+	require.JSONEq(t, walJSON, string(result))
+}
+
+func TestFilterRowColumnsJSONBRawStringMarshaled(t *testing.T) {
+	t.Parallel()
+
+	// COPY/snapshot path: JSONB string values (jsonb_typeof='string') arrive as
+	// raw Go strings WITHOUT JSON quoting, e.g. "hello" not "\"hello\"".
+	// These must be JSON-marshaled to add proper quoting.
+	rawString := `hello world`
+
+	cols := []wal.Column{
+		{Name: "id", Type: "integer", Value: 1},
+		{Name: "name", Type: "jsonb", Value: rawString},
+	}
+
+	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{})
+
+	result, ok := values[1].([]byte)
+	require.True(t, ok, "JSONB value should be []byte, got %T", values[1])
+	// Raw string gets marshaled: hello world → "hello world"
+	require.Equal(t, `"hello world"`, string(result))
 }
 
 func TestFilterRowColumnsJSONBArrayHandling(t *testing.T) {
