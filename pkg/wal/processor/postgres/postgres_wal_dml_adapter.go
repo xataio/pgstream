@@ -288,6 +288,12 @@ func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo) 
 			val = serializeJSONBValue(c.Type, val)
 		}
 
+		// Kafka JSON round-trip converts hstore's map[string]*string to
+		// map[string]interface{}. pgx requires the named type pgtype.Hstore.
+		if c.Type == "hstore" {
+			val = convertToHstore(val)
+		}
+
 		if a.forCopy {
 			val = a.updateValueForCopy(val, c.Type)
 		}
@@ -433,5 +439,29 @@ func serializeJSONBValue(colType string, val any) any {
 		}
 	}
 
+	return val
+}
+
+// convertToHstore converts hstore values to pgtype.Hstore.
+// Kafka JSON round-trip turns map[string]*string into map[string]interface{}.
+// WAL path (wal2json) sends hstore as a Go string like "key1=>val1, key2=>val2".
+// pgx requires the named type pgtype.Hstore for encoding.
+func convertToHstore(val any) any {
+	switch v := val.(type) {
+	case map[string]interface{}:
+		hstore := make(pgtype.Hstore, len(v))
+		for key, value := range v {
+			if value == nil {
+				hstore[key] = nil
+			} else if strVal, ok := value.(string); ok {
+				hstore[key] = &strVal
+			}
+		}
+		return hstore
+	case pgtype.Hstore:
+		return v
+	case map[string]*string:
+		return pgtype.Hstore(v)
+	}
 	return val
 }
