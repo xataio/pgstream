@@ -294,6 +294,12 @@ func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo) 
 			val = convertToHstore(val)
 		}
 
+		// Kafka JSON round-trip converts UUID [16]byte to []interface{} (array of 16 float64).
+		// pgx needs [16]byte or string. WAL path sends UUID as string (already works).
+		if c.Type == "uuid" {
+			val = convertToUUID(val)
+		}
+
 		if a.forCopy {
 			val = a.updateValueForCopy(val, c.Type)
 		}
@@ -464,4 +470,25 @@ func convertToHstore(val any) any {
 		return pgtype.Hstore(v)
 	}
 	return val
+}
+
+// convertToUUID converts UUID values from Kafka round-trip format.
+// Snapshot path: pgx returns [16]byte, JSON marshal makes it a JSON array of 16 numbers,
+// JSON unmarshal on kafka2pg produces []interface{} of 16 float64.
+// WAL path: wal2json sends UUID as string (pgx handles this natively).
+func convertToUUID(val any) any {
+	arr, ok := val.([]interface{})
+	if !ok || len(arr) != 16 {
+		return val
+	}
+
+	var uuid [16]byte
+	for i, v := range arr {
+		f, ok := v.(float64)
+		if !ok {
+			return val
+		}
+		uuid[i] = byte(f)
+	}
+	return uuid
 }
