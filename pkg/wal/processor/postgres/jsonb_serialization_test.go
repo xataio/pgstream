@@ -27,7 +27,7 @@ func TestFilterRowColumnsJSONBHandling(t *testing.T) {
 		{Name: "data", Type: "jsonb", Value: jsonbValue},
 	}
 
-	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{})
+	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{}, false)
 
 	jsonbResult, ok := values[1].([]byte)
 	require.True(t, ok, "JSONB map should be pre-serialized to []byte, got %T", values[1])
@@ -49,7 +49,7 @@ func TestFilterRowColumnsJSONBStringSerializedToBytes(t *testing.T) {
 		{Name: "schema", Type: "jsonb", Value: walJSON},
 	}
 
-	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{})
+	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{}, false)
 
 	result, ok := values[1].([]byte)
 	require.True(t, ok, "JSONB value should be []byte, got %T", values[1])
@@ -73,7 +73,7 @@ func TestFilterRowColumnsJSONBRawStringMarshaled(t *testing.T) {
 		{Name: "name", Type: "jsonb", Value: rawString},
 	}
 
-	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{})
+	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{}, false)
 
 	result, ok := values[1].([]byte)
 	require.True(t, ok, "JSONB value should be []byte, got %T", values[1])
@@ -95,7 +95,7 @@ func TestFilterRowColumnsJSONBArrayHandling(t *testing.T) {
 		{Name: "items", Type: "jsonb", Value: jsonbValue},
 	}
 
-	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{})
+	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{}, false)
 
 	jsonbResult, ok := values[1].([]byte)
 	require.True(t, ok, "JSONB array should be pre-serialized to []byte, got %T", values[1])
@@ -139,7 +139,7 @@ func TestSerializeJSONBNullLiteralInRow(t *testing.T) {
 		{Name: "metadata", Type: "jsonb", Value: nil}, // 'null'::jsonb from wal2json
 	}
 
-	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{})
+	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{}, false)
 
 	// metadata must NOT be Go nil — it must be []byte("null")
 	require.NotNil(t, values[2], "JSONB null literal must not become Go nil (would be SQL NULL in COPY)")
@@ -212,7 +212,7 @@ func TestSerializeJSONBStringTypeInRow(t *testing.T) {
 		{Name: "log_data", Type: "jsonb", Value: deeplyEscaped}, // string from wal2json
 	}
 
-	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{})
+	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{}, false)
 
 	// log_data must be []byte (valid JSON), not raw Go string
 	jsonbBytes, ok := values[2].([]byte)
@@ -258,7 +258,7 @@ func TestFilterRowColumns_SQLNull_NullableJSONB_BecomesJSONBNull(t *testing.T) {
 		{Name: "user_corrected_document_metadata", Type: "jsonb", Value: nil, IsSQLNull: true}, // SQL NULL — must stay nil
 	}
 
-	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{})
+	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{}, false)
 
 	// Non-JSONB SQL NULL columns should pass through as nil (they do)
 	require.Nil(t, values[4], "SQL NULL text column should stay nil")
@@ -290,7 +290,7 @@ func TestFilterRowColumns_CheckConstraint_OrgFactsScenario(t *testing.T) {
 		{Name: "user_corrected_document_metadata", Type: "jsonb", Value: nil, IsSQLNull: true}, // SQL NULL
 	}
 
-	_, approvedValues := (&dmlAdapter{}).filterRowColumns(approvedRow, schemaInfo{})
+	_, approvedValues := (&dmlAdapter{}).filterRowColumns(approvedRow, schemaInfo{}, false)
 
 	// For user_approval=true: metadata MUST be nil (SQL NULL) to satisfy IS NULL check
 	require.Nil(t, approvedValues[2],
@@ -304,7 +304,7 @@ func TestFilterRowColumns_CheckConstraint_OrgFactsScenario(t *testing.T) {
 		{Name: "user_corrected_document_metadata", Type: "jsonb", Value: map[string]any{}}, // empty JSONB object {}
 	}
 
-	_, correctedValues := (&dmlAdapter{}).filterRowColumns(correctedRow, schemaInfo{})
+	_, correctedValues := (&dmlAdapter{}).filterRowColumns(correctedRow, schemaInfo{}, false)
 
 	// For user_approval=false: metadata MUST be non-nil to satisfy IS NOT NULL check
 	require.NotNil(t, correctedValues[2],

@@ -3,6 +3,8 @@
 package postgres
 
 import (
+	"encoding/base64"
+	"encoding/hex"
 	stdjson "encoding/json"
 	"errors"
 	"fmt"
@@ -95,7 +97,7 @@ func (a *dmlAdapter) buildDeleteQuery(d *wal.Data) (*query, error) {
 }
 
 func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*query {
-	names, values := a.filterRowColumns(d.Columns, schemaInfo)
+	names, values := a.filterRowColumns(d.Columns, schemaInfo, d.LSN == wal.ZeroLSN)
 	// if there are no columns after filtering generated ones, no query to run
 	if len(names) == 0 {
 		return []*query{}
@@ -148,7 +150,7 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 }
 
 func (a *dmlAdapter) buildUpdateQuery(d *wal.Data, schemaInfo schemaInfo) (*query, error) {
-	rowColumns, rowValues := a.filterRowColumns(d.Columns, schemaInfo)
+	rowColumns, rowValues := a.filterRowColumns(d.Columns, schemaInfo, d.LSN == wal.ZeroLSN)
 	// if there are no columns after filtering generated ones, no query to run
 	if len(rowColumns) == 0 {
 		return &query{}, nil
@@ -269,7 +271,7 @@ func (a *dmlAdapter) extractPrimaryKeyColumnNames(colIDs []string, cols []wal.Co
 	return colNames
 }
 
-func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo) ([]string, []any) {
+func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo, isSnapshot bool) ([]string, []any) {
 	// we need to make sure we only add the arguments for the
 	// relevant column names (this removes any generated columns/sequence row values)
 	rowValues := make([]any, 0, len(cols))
@@ -298,6 +300,14 @@ func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo) 
 		// pgx needs [16]byte or string. WAL path sends UUID as string (already works).
 		if c.Type == "uuid" {
 			val = convertToUUID(val)
+		}
+
+		// Kafka JSON round-trip converts bytea []byte to a string.
+		// Snapshot path: base64 (Go json.Marshal encodes []byte as base64).
+		// WAL path: hex (wal2json uses Postgres hex format).
+		// pgx needs []byte, not the encoded string.
+		if c.Type == "bytea" {
+			val = decodeBytea(val, isSnapshot)
 		}
 
 		if a.forCopy {
@@ -491,4 +501,33 @@ func convertToUUID(val any) any {
 		uuid[i] = byte(f)
 	}
 	return uuid
+}
+
+// decodeBytea converts bytea string values back to []byte.
+// Kafka JSON round-trip turns []byte into a string:
+//   - Snapshot path (isSnapshot=true): base64 (Go json.Marshal encodes []byte as base64)
+//   - WAL path (isSnapshot=false): hex (wal2json uses Postgres hex format)
+//
+// Uses the isSnapshot flag from the event's LSN to determine the encoding
+// definitively — no heuristic guessing needed.
+func decodeBytea(val any, isSnapshot bool) any {
+	strVal, ok := val.(string)
+	if !ok {
+		return val
+	}
+	if strVal == "" {
+		return []byte{}
+	}
+
+	if isSnapshot {
+		if decoded, err := base64.StdEncoding.DecodeString(strVal); err == nil {
+			return decoded
+		}
+	} else {
+		if decoded, err := hex.DecodeString(strVal); err == nil {
+			return decoded
+		}
+	}
+
+	return val
 }

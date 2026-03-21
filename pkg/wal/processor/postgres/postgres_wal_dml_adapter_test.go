@@ -835,7 +835,7 @@ func TestDMLAdapter_filterRowColumns(t *testing.T) {
 			a := dmlAdapter{}
 			rowColumns, rowValues := a.filterRowColumns(tc.columns, schemaInfo{
 				generatedColumns: tc.generatedColumns,
-			})
+			}, false)
 			require.Equal(t, tc.wantColumns, rowColumns)
 			require.Equal(t, tc.wantValues, rowValues)
 		})
