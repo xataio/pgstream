@@ -231,11 +231,15 @@ func (w *BulkIngestWriter) insertFallback(ctx context.Context, inserts []*query)
 
 // isCopyEncodingError returns true if the error is from pgx failing to encode
 // a value for COPY binary format. This happens with extension types (cube,
-// vector, etc.) that lack registered binary codecs.
+// vector, etc.) that lack registered binary codecs. Uses typed errors from
+// the internal postgres package where available, falls back to string
+// matching for pgx-level encoding errors that don't map to PG error codes.
 func isCopyEncodingError(err error) bool {
+	var errProgramLimit *pglib.ErrProgramLimitExceeded
+	if errors.As(err, &errProgramLimit) {
+		return true
+	}
 	msg := err.Error()
 	return strings.Contains(msg, "cannot find encode plan") ||
-		strings.Contains(msg, "unable to encode") ||
-		strings.Contains(msg, "dimension is too large") ||
-		strings.Contains(msg, "cannot have more than")
+		strings.Contains(msg, "unable to encode")
 }
