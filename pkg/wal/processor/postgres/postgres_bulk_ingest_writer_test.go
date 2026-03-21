@@ -316,7 +316,7 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:  "error - copying from",
+			name:  "error - copying from (non-encoding error propagates)",
 			batch: batch.NewBatch([]*query{testQuery}, nil),
 			pgConn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
@@ -330,6 +330,36 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 			},
 
 			wantErr: errTest,
+		},
+		{
+			name:  "ok - copy encoding error falls back to insert",
+			batch: batch.NewBatch([]*query{testQuery}, nil),
+			pgConn: &pgmocks.Querier{
+				ExecInTxFn: func() func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					call := 0
+					return func(ctx context.Context, f func(tx pglib.Tx) error) error {
+						call++
+						if call == 1 {
+							// First call: COPY fails with encoding error
+							tx := &pgmocks.Tx{
+								CopyFromFn: func(ctx context.Context, tableName string, columnNames []string, rows [][]any) (int64, error) {
+									return 0, errors.New("unable to encode: cannot find encode plan")
+								},
+							}
+							return f(tx)
+						}
+						// Second call: INSERT fallback succeeds
+						tx := &pgmocks.Tx{
+							ExecFn: func(ctx context.Context, i uint, s string, a ...any) (pglib.CommandTag, error) {
+								return pglib.CommandTag{}, nil
+							},
+						}
+						return f(tx)
+					}
+				}(),
+			},
+
+			wantErr: nil,
 		},
 		{
 			name:  "error - rows copied mismatch",

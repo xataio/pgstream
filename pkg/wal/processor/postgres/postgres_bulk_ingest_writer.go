@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"strings"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	synclib "github.com/xataio/pgstream/internal/sync"
@@ -186,7 +187,55 @@ func (w *BulkIngestWriter) copyFromInsertQueries(ctx context.Context, inserts []
 		return w.resetReplicationRole(ctx, tx)
 	})
 	if err != nil {
+		// COPY binary fails for extension types (cube, vector, etc.) that
+		// lack binary encoders in pgx. Detect encoding errors and fall back
+		// to INSERT statements which use text format.
+		// Other errors (connection, replication role, row count mismatch)
+		// should propagate normally.
+		if isCopyEncodingError(err) {
+			w.logger.Warn(err, "COPY failed due to type encoding, falling back to INSERT", loglib.Fields{
+				"schema": query.schema,
+				"table":  query.table,
+				"rows":   len(inserts),
+			})
+			return w.insertFallback(ctx, inserts)
+		}
 		return fmt.Errorf("copy from: %w", err)
 	}
 	return nil
+}
+
+// insertFallback executes INSERT statements one at a time when COPY binary
+// fails. This handles extension types (cube, vector, etc.) that pgx can't
+// encode in binary format but can encode in text format via parameterized
+// INSERT.
+func (w *BulkIngestWriter) insertFallback(ctx context.Context, inserts []*query) error {
+	return w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
+		if err := w.setReplicationRoleToReplica(ctx, tx); err != nil {
+			return err
+		}
+
+		for _, q := range inserts {
+			if _, err := tx.Exec(ctx, q.sql, q.args...); err != nil {
+				w.logger.Error(err, "INSERT fallback failed", loglib.Fields{
+					"sql":  q.sql,
+					"args": q.args,
+				})
+				return err
+			}
+		}
+
+		return w.resetReplicationRole(ctx, tx)
+	})
+}
+
+// isCopyEncodingError returns true if the error is from pgx failing to encode
+// a value for COPY binary format. This happens with extension types (cube,
+// vector, etc.) that lack registered binary codecs.
+func isCopyEncodingError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "cannot find encode plan") ||
+		strings.Contains(msg, "unable to encode") ||
+		strings.Contains(msg, "dimension is too large") ||
+		strings.Contains(msg, "cannot have more than")
 }
