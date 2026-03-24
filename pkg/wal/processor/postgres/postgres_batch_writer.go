@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"runtime/debug"
 
+	"github.com/jackc/pgx/v5"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -105,6 +106,8 @@ func (w *BatchWriter) sendBatch(ctx context.Context, batch *batch.Batch[*query])
 				w.logger.Error(err, "flushing DML queries")
 				return err
 			}
+			// reset the slice so flushed DML queries are not re-executed
+			// by a subsequent DDL flush or end-of-batch flush
 			dmlQueries = dmlQueries[:0]
 
 			if _, err := w.pgConn.Exec(ctx, q.sql, q.args...); err != nil {
@@ -154,8 +157,16 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 			return err
 		}
 
+		pgxBatch := &pgx.Batch{}
+		for _, q := range queries {
+			pgxBatch.Queue(q.sql, q.args...)
+		}
+
+		results := tx.SendBatch(ctx, pgxBatch)
+		defer results.Close()
+
 		for i, q := range queries {
-			if _, err := tx.Exec(ctx, q.sql, q.args...); err != nil {
+			if _, err := results.Exec(); err != nil {
 				w.logger.Error(err, "executing sql query", loglib.Fields{
 					"sql":      q.sql,
 					"args":     q.args,
