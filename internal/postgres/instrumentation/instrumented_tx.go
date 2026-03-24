@@ -49,7 +49,7 @@ func (i *Tx) Exec(ctx context.Context, query string, args ...any) (tag pglib.Com
 }
 
 func (i *Tx) SendBatch(ctx context.Context, batch *pgx.Batch) pgx.BatchResults {
-	_, span := otel.StartSpan(ctx, i.tracer, "tx.SendBatch")
+	ctx, span := otel.StartSpan(ctx, i.tracer, "tx.SendBatch")
 	defer otel.CloseSpan(span, nil)
 	return i.inner.SendBatch(ctx, batch)
 }
