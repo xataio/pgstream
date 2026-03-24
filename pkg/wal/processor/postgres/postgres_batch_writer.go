@@ -163,7 +163,6 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 		}
 
 		results := tx.SendBatch(ctx, pgxBatch)
-		defer results.Close()
 
 		for i, q := range queries {
 			if _, err := results.Exec(); err != nil {
@@ -176,8 +175,13 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 				// dataloss and remove it from the list of queries to be
 				// retried.
 				retryQueries = removeIndex(queries, i)
+				results.Close()
 				return err
 			}
+		}
+
+		if err := results.Close(); err != nil {
+			return err
 		}
 
 		return w.resetReplicationRole(ctx, tx)
