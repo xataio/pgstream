@@ -41,6 +41,10 @@ type SnapshotGenerator struct {
 	roleSQLParser          *roleSQLParser
 	optionGenerator        *optionGenerator
 	snapshotTracker        snapshotProgressTracker
+	// snapshotProcessor is set in pg2kafka mode (WithRestoreToWAL) so the
+	// schema generator can close/flush the processor after all DDL
+	// (sequences, indices, constraints) has been sent through it.
+	snapshotProcessor processor.Processor
 }
 
 type snapshotProgressTracker interface {
@@ -158,13 +162,26 @@ func WithProgressTracking(ctx context.Context) Option {
 	}
 }
 
-func WithRestoreToWAL(processor processor.Processor) Option {
+func WithRestoreToWAL(p processor.Processor) Option {
 	return func(sg *SnapshotGenerator) {
-		sg.pgRestoreFn = newPGSnapshotWALRestore(processor, sg.sourceQuerier).restoreToWAL
+		sg.pgRestoreFn = newPGSnapshotWALRestore(p, sg.sourceQuerier).restoreToWAL
+		sg.snapshotProcessor = p
 	}
 }
 
 func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) (err error) {
+	// In pg2kafka mode (WithRestoreToWAL), close/flush the processor after
+	// all work is done — data rows, sequences, indices, and constraints must
+	// all be sent to Kafka before we return, so WAL replication can start
+	// with a fully-flushed snapshot.
+	if s.snapshotProcessor != nil {
+		defer func() {
+			if closeErr := s.snapshotProcessor.Close(); closeErr != nil {
+				s.logger.Error(closeErr, "closing snapshot processor")
+			}
+		}()
+	}
+
 	s.logger.Info("creating schema snapshot", loglib.Fields{"schemaTables": ss.SchemaTables})
 
 	// make sure any empty schemas are filtered out
