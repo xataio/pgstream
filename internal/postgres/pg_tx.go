@@ -13,6 +13,7 @@ type Tx interface {
 	QueryRow(ctx context.Context, dest []any, query string, args ...any) error
 	Exec(ctx context.Context, query string, args ...any) (CommandTag, error)
 	CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
+	SendBatch(ctx context.Context, batch *pgx.Batch) pgx.BatchResults
 }
 
 type TxIsolationLevel string
@@ -53,6 +54,10 @@ func (t *Txn) Query(ctx context.Context, query string, args ...any) (Rows, error
 func (t *Txn) Exec(ctx context.Context, query string, args ...any) (CommandTag, error) {
 	tag, err := t.Tx.Exec(ctx, query, args...)
 	return CommandTag{tag}, MapError(err)
+}
+
+func (t *Txn) SendBatch(ctx context.Context, batch *pgx.Batch) pgx.BatchResults {
+	return t.Tx.SendBatch(ctx, batch)
 }
 
 func (t *Txn) CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error) {

@@ -5,6 +5,7 @@ package instrumentation
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/otel"
 	"go.opentelemetry.io/otel/trace"
@@ -45,6 +46,12 @@ func (i *Tx) Exec(ctx context.Context, query string, args ...any) (tag pglib.Com
 	ctx, span := otel.StartSpan(ctx, i.tracer, "tx.Exec", trace.WithAttributes(queryAttrs...))
 	defer otel.CloseSpan(span, err)
 	return i.inner.Exec(ctx, query, args...)
+}
+
+func (i *Tx) SendBatch(ctx context.Context, batch *pgx.Batch) pgx.BatchResults {
+	_, span := otel.StartSpan(ctx, i.tracer, "tx.SendBatch")
+	defer otel.CloseSpan(span, nil)
+	return i.inner.SendBatch(ctx, batch)
 }
 
 func (i *Tx) CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (rowCount int64, err error) {

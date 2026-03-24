@@ -5,6 +5,7 @@ package mocks
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/xataio/pgstream/internal/postgres"
 )
 
@@ -13,6 +14,7 @@ type Tx struct {
 	QueryFn       func(ctx context.Context, query string, args ...any) (postgres.Rows, error)
 	ExecFn        func(ctx context.Context, i uint, query string, args ...any) (postgres.CommandTag, error)
 	CopyFromFn    func(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
+	SendBatchFn   func(ctx context.Context, batch *pgx.Batch) pgx.BatchResults
 	execCallCount uint
 }
 
@@ -27,6 +29,10 @@ func (m *Tx) Query(ctx context.Context, query string, args ...any) (postgres.Row
 func (m *Tx) Exec(ctx context.Context, query string, args ...any) (postgres.CommandTag, error) {
 	m.execCallCount++
 	return m.ExecFn(ctx, m.execCallCount, query, args...)
+}
+
+func (m *Tx) SendBatch(ctx context.Context, batch *pgx.Batch) pgx.BatchResults {
+	return m.SendBatchFn(ctx, batch)
 }
 
 func (m *Tx) CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (rowCount int64, err error) {
