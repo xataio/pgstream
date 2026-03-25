@@ -235,9 +235,22 @@ func (a *dmlAdapter) buildOnConflictQuery(d *wal.Data, filteredColumnNames []str
 			return ""
 		}
 
+		// Build SET clause excluding primary key columns — they're in the
+		// ON CONFLICT target and PostgreSQL rejects UPDATE SET on GENERATED
+		// ALWAYS identity columns (even with EXCLUDED).
+		pkSet := make(map[string]struct{}, len(primaryKeyCols))
+		for _, pk := range primaryKeyCols {
+			pkSet[pk] = struct{}{}
+		}
 		cols := make([]string, 0, len(d.Columns))
 		for _, col := range filteredColumnNames {
+			if _, isPK := pkSet[col]; isPK {
+				continue
+			}
 			cols = append(cols, fmt.Sprintf("%[1]s = EXCLUDED.%[1]s", col))
+		}
+		if len(cols) == 0 {
+			return ""
 		}
 		return fmt.Sprintf(" ON CONFLICT (%s) DO UPDATE SET %s", strings.Join(primaryKeyCols, ","), strings.Join(cols, ", "))
 	case onConflictDoNothing:
