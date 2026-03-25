@@ -108,6 +108,14 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
 	}
 
+	// Skip ON CONFLICT for snapshot events (LSN=0/0) — the PK constraint
+	// doesn't exist yet on the target (it arrives in post-data DDL), and
+	// there are no duplicates during a snapshot.
+	onConflict := ""
+	if d.LSN != wal.ZeroLSN {
+		onConflict = a.buildOnConflictQuery(d, names)
+	}
+
 	qs := []*query{
 		{
 			table:       d.Table,
@@ -116,7 +124,7 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 			sql: fmt.Sprintf("INSERT INTO %s(%s) OVERRIDING SYSTEM VALUE VALUES(%s)%s",
 				quotedTableName(d.Schema, d.Table), strings.Join(names, ", "),
 				strings.Join(placeholders, ", "),
-				a.buildOnConflictQuery(d, names)),
+				onConflict),
 			args: values,
 		},
 	}
