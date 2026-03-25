@@ -129,26 +129,21 @@ func (r *PGSnapshotWALRestore) restoreToWAL(ctx context.Context, _ pglib.PGResto
 }
 
 // updateDollarQuoteState tracks whether we're inside a dollar-quoted string
-// and returns the updated state and the current dollar quote tag
+// and returns the updated state and the current dollar quote tag.
 func updateDollarQuoteState(line string, inDollarQuote bool, currentTag string) (bool, string) {
-	// Find all dollar quote markers in the line (e.g., $$, $tag$, $body$, etc.)
-	dollarQuoteRegex := regexp.MustCompile(`\$[^$]*\$`)
-	matches := dollarQuoteRegex.FindAllString(line, -1)
-
-	for _, match := range matches {
-		if !inDollarQuote {
-			// We're entering a dollar-quoted string
-			inDollarQuote = true
-			currentTag = match
-		} else if match == currentTag {
-			// We're exiting the dollar-quoted string (found matching closing tag)
-			inDollarQuote = false
-			currentTag = ""
+	if inDollarQuote {
+		if strings.Contains(line, currentTag) {
+			return false, ""
 		}
-		// If we're in a dollar quote but this match doesn't match our tag, ignore it
+		return true, currentTag
 	}
-
-	return inDollarQuote, currentTag
+	if tag := extractDollarQuoteTag(line); tag != "" {
+		if strings.Count(line, tag)%2 == 0 {
+			return false, ""
+		}
+		return true, tag
+	}
+	return false, ""
 }
 
 // processDDLStatement creates a WAL event for a DDL statement and processes it

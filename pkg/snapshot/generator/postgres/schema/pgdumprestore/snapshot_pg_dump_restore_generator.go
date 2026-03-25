@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode"
+	"unicode/utf8"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
@@ -420,8 +422,40 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	alterTable := ""
 	createEventTrigger := ""
 	createView := ""
+	var pendingComment string // tracks multi-line COMMENT ON TRIGGER/INDEX/CONSTRAINT
+	var inDollarQuote bool
+	var dollarQuoteTag string
 	for scanner.Scan() {
 		line := scanner.Text()
+
+		// Handle multi-line COMMENT continuation before dollar-quote
+		// tracking — comment text is inside a single-quoted literal, so
+		// tokens like $$ must not be interpreted as dollar-quote boundaries.
+		if pendingComment != "" {
+			indicesAndConstraints.WriteString(line)
+			if strings.HasSuffix(line, "';") && !strings.HasSuffix(line, "'';") {
+				indicesAndConstraints.WriteString("\n\n")
+				pendingComment = ""
+			} else {
+				indicesAndConstraints.WriteString("\n")
+			}
+			continue
+		}
+
+		// Track dollar-quoted blocks so lines inside function bodies
+		// (e.g. "CREATE TRIGGER %s" in a format() template) are not
+		// matched by the prefix checks below. Comment lines are excluded
+		// from tracking so tokens like $$ in comments don't corrupt state.
+		wasInDollarQuote := inDollarQuote
+		if !strings.HasPrefix(line, "--") {
+			inDollarQuote, dollarQuoteTag = updateDollarQuoteState(line, inDollarQuote, dollarQuoteTag)
+		}
+		if wasInDollarQuote || inDollarQuote {
+			filteredDump.WriteString(line)
+			filteredDump.WriteString("\n")
+			continue
+		}
+
 		switch {
 		case strings.HasPrefix(line, "SECURITY LABEL") &&
 			isSecurityLabelForExcludedProvider(line, s.excludedSecurityLabels):
@@ -480,17 +514,34 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		case strings.HasPrefix(line, "CREATE INDEX"),
 			strings.HasPrefix(line, "CREATE UNIQUE INDEX"),
 			strings.HasPrefix(line, "CREATE CONSTRAINT"),
-			strings.HasPrefix(line, "CREATE TRIGGER"),
-			strings.HasPrefix(line, "COMMENT ON CONSTRAINT"),
-			strings.HasPrefix(line, "COMMENT ON INDEX"),
-			strings.HasPrefix(line, "COMMENT ON TRIGGER"):
+			strings.HasPrefix(line, "CREATE TRIGGER"):
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
+		case strings.HasPrefix(line, "COMMENT ON CONSTRAINT"),
+			strings.HasPrefix(line, "COMMENT ON INDEX"),
+			strings.HasPrefix(line, "COMMENT ON TRIGGER"):
+			// COMMENT text can span multiple lines in pg_dump output.
+			// If the line doesn't end with ";", the comment continues on
+			// the next line(s). Track state so continuations stay in
+			// indicesAndConstraints instead of falling to filteredDump.
+			indicesAndConstraints.WriteString(line)
+			if strings.HasSuffix(line, "';") && !strings.HasSuffix(line, "'';") {
+				indicesAndConstraints.WriteString("\n\n")
+			} else {
+				indicesAndConstraints.WriteString("\n")
+				pendingComment = line
+			}
 		case strings.HasPrefix(line, "ALTER TABLE") && strings.Contains(line, "ADD CONSTRAINT"):
 			indicesAndConstraints.WriteString(line)
 		case strings.HasPrefix(line, "ALTER TABLE") && strings.Contains(line, "REPLICA IDENTITY"):
 			// REPLICA IDENTITY lines should be in the indicesAndConstraints section
 			// since they reference constraints/indices that are also there
+			indicesAndConstraints.WriteString(line)
+			indicesAndConstraints.WriteString("\n\n")
+		case strings.HasPrefix(line, "ALTER TABLE") && (strings.Contains(line, "DISABLE TRIGGER") || strings.Contains(line, "ENABLE TRIGGER") || strings.Contains(line, "ENABLE REPLICA TRIGGER") || strings.Contains(line, "ENABLE ALWAYS TRIGGER")):
+			// DISABLE/ENABLE TRIGGER must run in the same phase as CREATE
+			// TRIGGER (indicesAndConstraints). If routed to filteredDump,
+			// the trigger doesn't exist yet.
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
 		case strings.HasPrefix(line, "ALTER TABLE") && !strings.HasSuffix(line, ";"):
@@ -546,6 +597,54 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		roles:                 dumpRoles,
 		eventTriggers:         []byte(eventTriggersDump.String()),
 	}
+}
+
+// extractDollarQuoteTag finds the first dollar-quote tag ($$ or $tag$) in the
+// line, skipping dollar signs inside single-quoted strings and double-quoted
+// identifiers. Returns "" if no tag found.
+func extractDollarQuoteTag(line string) string {
+	inSingleQuote := false
+	inDoubleQuote := false
+	for i := 0; i < len(line); i++ {
+		if line[i] == '\'' && !inDoubleQuote {
+			if inSingleQuote && i+1 < len(line) && line[i+1] == '\'' {
+				i++ // skip '' escape
+				continue
+			}
+			inSingleQuote = !inSingleQuote
+			continue
+		}
+		if line[i] == '"' && !inSingleQuote {
+			inDoubleQuote = !inDoubleQuote
+			continue
+		}
+		if inSingleQuote || inDoubleQuote || line[i] != '$' {
+			continue
+		}
+		if i+1 < len(line) && line[i+1] == '$' {
+			return "$$"
+		}
+		// Scan tag identifier after opening $. First character must be a
+		// letter or underscore; subsequent can also include digits.
+		tagStart := i
+		j := i + 1
+		r, rsize := utf8.DecodeRuneInString(line[j:])
+		if r == utf8.RuneError || !(unicode.IsLetter(r) || r == '_') {
+			continue
+		}
+		j += rsize
+		for j < len(line) {
+			r, rsize = utf8.DecodeRuneInString(line[j:])
+			if r == '$' {
+				return line[tagStart : j+1]
+			}
+			if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_') {
+				break
+			}
+			j += rsize
+		}
+	}
+	return ""
 }
 
 func (s *SnapshotGenerator) filterTriggers(eventTriggersDump []byte, excludedSchemas []string) []byte {
