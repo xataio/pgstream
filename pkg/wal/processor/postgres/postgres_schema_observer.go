@@ -128,7 +128,10 @@ func (o *pgSchemaObserver) updateGeneratedColumnNames(tables []wal.DDLObject) {
 		key := pglib.QuoteQualifiedIdentifier(table.Schema, table.GetName())
 		generatedColumns := make(map[string]struct{}, len(table.Columns))
 		for _, c := range table.Columns {
-			if c.IsGenerated() {
+			// Only exclude stored generated columns (attgenerated), not
+			// identity columns. INSERTs use OVERRIDING SYSTEM VALUE and
+			// UPDATEs use EXCLUDED references. Aligned with upstream #754.
+			if c.Generated {
 				generatedColumns[pglib.QuoteIdentifier(c.Name)] = struct{}{}
 			}
 		}
