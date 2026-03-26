@@ -1,3 +1,3 @@
 FROM scratch
-COPY pgstream /usr/bin/pgstream
-ENTRYPOINT [ "/usr/bin/pgstream" ]
+COPY pgstream /usr/local/bin/pgstream
+ENTRYPOINT [ "/usr/local/bin/pgstream" ]

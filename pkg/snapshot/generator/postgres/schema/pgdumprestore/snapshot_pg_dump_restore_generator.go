@@ -391,12 +391,14 @@ func (s *SnapshotGenerator) dumpRoles(ctx context.Context, rolesInSchemaDump map
 }
 
 // if we use table filtering in the pg_dump command, the schema creation will
-// not be dumped, so it needs to be created explicitly (except for public
-// schema)
+// not be dumped, so it needs to be created explicitly. When using
+// --exclude-schema (IncludeGlobalDBObjects), pg_dump does not output
+// CREATE SCHEMA for the included schemas, so we must create all of them
+// here. IF NOT EXISTS makes this safe when pg_dump also creates the schema.
 func (s *SnapshotGenerator) restoreSchemas(ctx context.Context, schemaTables map[string][]string) error {
 	schemaDump := strings.Builder{}
 	for schema, tables := range schemaTables {
-		if len(tables) > 0 && schema != publicSchema && schema != wildcard {
+		if len(tables) > 0 && schema != wildcard {
 			schemaDump.WriteString(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s;\n", pglib.QuoteIdentifier(schema)))
 		}
 	}
