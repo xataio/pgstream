@@ -5,6 +5,8 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,7 +18,21 @@ type Pool struct {
 
 type PoolOption func(*pgxpool.Config)
 
-const maxConns = 50
+const defaultMaxConns = 50
+
+// getMaxConns returns the pool size from PGSTREAM_POOL_MAX_CONNECTIONS env var,
+// falling back to defaultMaxConns. This allows the deployer to cap all
+// connection pools globally to avoid exhausting the source database's
+// max_connections — pgstream creates multiple pools to the same source, and
+// the default of 50 per pool can overwhelm small databases (25-100 connections).
+func getMaxConns() int32 {
+	if v := os.Getenv("PGSTREAM_POOL_MAX_CONNECTIONS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return int32(n)
+		}
+	}
+	return defaultMaxConns
+}
 
 func NewConnPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error) {
 	escapedURL, err := escapeConnectionURL(url)
@@ -27,7 +43,7 @@ func NewConnPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, er
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing postgres connection string: %w", MapError(err))
 	}
-	pgCfg.MaxConns = maxConns
+	pgCfg.MaxConns = getMaxConns()
 	pgCfg.AfterConnect = registerTypesToConnMap
 
 	configureTCPKeepalive(pgCfg.ConnConfig)
