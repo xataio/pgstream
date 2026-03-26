@@ -191,14 +191,19 @@ func (in *Injector) inject(ctx context.Context, data *wal.Data) error {
 }
 
 // fillEventMetadata will update the event on input with the
-// pgstream ids for the table and the internal id column. It will return an
-// error if the id column is not found.
+// pgstream ids for the table and the internal id column. If no identity
+// column is found (no PK, no unique NOT NULL), it checks if the table
+// has REPLICA IDENTITY FULL — if so, PostgreSQL provides old values in
+// the WAL directly and no injector-side identity is needed. Otherwise
+// it returns ErrIDNotFound.
 func (in *Injector) fillEventMetadata(event *wal.Data, tbl *wal.DDLObject) error {
 	event.Metadata.TablePgstreamID = tbl.PgstreamID
 
 	identityColumn := getIdentityColumn(tbl)
 	if identityColumn == nil {
-		// the id is required
+		if tbl.ReplicaIdentity == "f" {
+			return nil
+		}
 		return fmt.Errorf("table [%s]: %w", tbl.Identity, processor.ErrIDNotFound)
 	}
 
@@ -248,7 +253,8 @@ const tableObjectQuery = `
 			'identity', n.nspname || '.' || c.relname,
 			'schema', n.nspname,
 			'oid', c.oid::text,
-			'pgstream_id', COALESCE(t.id::text, pgstream.create_table_mapping(c.oid)::text)
+			'pgstream_id', COALESCE(t.id::text, pgstream.create_table_mapping(c.oid)::text),
+			'replica_identity', c.relreplident
 		) || pgstream.get_table_metadata(c.oid)
 		FROM pg_class c
 		JOIN pg_namespace n ON c.relnamespace = n.oid

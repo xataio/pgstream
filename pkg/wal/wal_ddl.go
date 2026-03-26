@@ -27,6 +27,10 @@ type DDLObject struct {
 	PgstreamID        string      `json:"pgstream_id,omitempty"`
 	Columns           []DDLColumn `json:"columns,omitempty"`
 	PrimaryKeyColumns []string    `json:"primary_key_columns,omitempty"`
+	// ReplicaIdentity is the pg_class.relreplident value for the table:
+	// "d" = default (PK), "f" = full, "i" = index, "n" = nothing.
+	// Empty string means unknown (e.g. from DDL events that don't include it).
+	ReplicaIdentity string `json:"replica_identity,omitempty"`
 }
 
 // DDLColumn represents a column in a DDL event

@@ -228,7 +228,8 @@ const tableObjectQuery = `
 		'identity', n.nspname || '.' || c.relname,
 		'schema', n.nspname,
 		'oid', c.oid::text,
-		'pgstream_id', COALESCE(t.id::text, pgstream.create_table_mapping(c.oid)::text)
+		'pgstream_id', COALESCE(t.id::text, pgstream.create_table_mapping(c.oid)::text),
+		'replica_identity', c.relreplident
 	) || pgstream.get_table_metadata(c.oid)
 	FROM pg_class c
 	JOIN pg_namespace n ON c.relnamespace = n.oid
