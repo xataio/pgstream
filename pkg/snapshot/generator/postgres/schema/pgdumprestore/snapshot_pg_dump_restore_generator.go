@@ -28,16 +28,10 @@ import (
 
 // SnapshotGenerator generates postgres schema snapshots using pg_dump and
 // pg_restore
-// ExtensionMapping defines how a source extension should be remapped during
-// schema restore. Used to handle extensions that aren't available on the
-// target (e.g. vectorscale on Neon).
 type ExtensionMapping struct {
-	ReplaceWith string            `json:"replace_with"`
-	IndexMap    map[string]string `json:"index_map"`
-	// IndexOpClass is the default operator class to add when the source index
-	// has no explicit operator class and the target method requires one.
-	// e.g. "vector_cosine_ops" for hnsw indexes on pgvector columns.
-	IndexOpClass string `json:"index_opclass"`
+	ReplaceWith  string            `json:"replace_with"`
+	IndexMap     map[string]string `json:"index_map"`
+	IndexOpClass string            `json:"index_opclass"`
 }
 
 type SnapshotGenerator struct {
@@ -87,17 +81,7 @@ type Config struct {
 	DumpDebugFile string
 	// if set, security label providers that will be excluded from the dump
 	ExcludedSecurityLabels []string
-	// ExtensionMap is a JSON-encoded mapping of source extensions to target
-	// replacements. Each key is an extension to intercept during pg_dump
-	// parsing. The value specifies what to replace it with and how to
-	// rewrite associated index access methods.
-	//
-	// Example: {"vectorscale":{"replace_with":"vector","index_map":{"diskann":"hnsw"}}}
-	//
-	// - replace_with: extension name to use instead (empty string = drop entirely)
-	// - index_map: access method rewrites (source method → target method).
-	//   When an index method is rewritten, the WITH clause is stripped since
-	//   the options are method-specific.
+	// JSON-encoded map of source extension names to ExtensionMapping.
 	ExtensionMap string
 }
 
@@ -463,33 +447,76 @@ func (s *SnapshotGenerator) restoreDump(ctx context.Context, dump []byte) error 
 	return nil
 }
 
-// rewriteExtensionLine checks if a CREATE/DROP/COMMENT EXTENSION line refers
-// to a mapped extension and returns the rewritten line. Returns ("", true) if
-// the line should be skipped entirely.
+func extractExtensionName(line string) (string, int) {
+	extIdx := strings.Index(line, "EXTENSION ")
+	if extIdx == -1 {
+		return "", -1
+	}
+	rest := line[extIdx+len("EXTENSION "):]
+	if strings.HasPrefix(rest, "IF NOT EXISTS ") {
+		rest = rest[len("IF NOT EXISTS "):]
+	} else if strings.HasPrefix(rest, "IF EXISTS ") {
+		rest = rest[len("IF EXISTS "):]
+	}
+	nameEnd := strings.IndexAny(rest, " ;")
+	if nameEnd == -1 {
+		nameEnd = len(rest)
+	}
+	if nameEnd == 0 {
+		return "", -1
+	}
+	return rest[:nameEnd], len(line) - len(rest)
+}
+
 func (s *SnapshotGenerator) rewriteExtensionLine(line string) (string, bool) {
 	if len(s.extensionMap) == 0 {
 		return line, false
 	}
-	for extName, mapping := range s.extensionMap {
-		if !strings.Contains(line, extName) {
-			continue
-		}
-		if mapping.ReplaceWith == "" {
-			s.logger.Info("extension mapper: dropping line", loglib.Fields{"line": line})
-			return "", true
-		}
-		rewritten := strings.ReplaceAll(line, extName, mapping.ReplaceWith)
-		s.logger.Info("extension mapper: rewriting extension", loglib.Fields{
-			"from": extName, "to": mapping.ReplaceWith,
-		})
-		return rewritten, false
+	name, nameStart := extractExtensionName(line)
+	if nameStart == -1 {
+		return line, false
 	}
-	return line, false
+	mapping, found := s.extensionMap[name]
+	if !found {
+		return line, false
+	}
+	if mapping.ReplaceWith == "" {
+		s.logger.Info("extension mapper: dropping line", loglib.Fields{"line": line})
+		return "", true
+	}
+	rewritten := line[:nameStart] + mapping.ReplaceWith + line[nameStart+len(name):]
+	s.logger.Info("extension mapper: rewriting extension", loglib.Fields{
+		"from": name, "to": mapping.ReplaceWith,
+	})
+	return rewritten, false
 }
 
-// rewriteIndexLine checks if a CREATE INDEX line uses a mapped access method
-// and rewrites it. When the access method changes, the WITH clause is stripped
-// since index options are method-specific.
+func findColumnListClosingParen(line string, usingClause string) int {
+	usingIdx := strings.Index(line, usingClause)
+	if usingIdx == -1 {
+		return -1
+	}
+	startSearch := usingIdx + len(usingClause)
+	openParen := strings.Index(line[startSearch:], "(")
+	if openParen == -1 {
+		return -1
+	}
+	openParen += startSearch
+	depth := 1
+	for i := openParen + 1; i < len(line); i++ {
+		switch line[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
 func (s *SnapshotGenerator) rewriteIndexLine(line string) string {
 	if len(s.extensionMap) == 0 {
 		return line
@@ -503,21 +530,18 @@ func (s *SnapshotGenerator) rewriteIndexLine(line string) string {
 			s.logger.Info("extension mapper: rewriting index method", loglib.Fields{
 				"from": fromMethod, "to": toMethod,
 			})
-			rewritten := strings.Replace(line, usingFrom, "USING "+toMethod, 1)
-			// Strip the WITH clause — options are method-specific
+			usingTo := "USING " + toMethod
+			rewritten := strings.Replace(line, usingFrom, usingTo, 1)
+			// Strip WITH clause (options are method-specific)
 			if withIdx := strings.Index(rewritten, " WITH ("); withIdx != -1 {
 				closeIdx := strings.Index(rewritten[withIdx:], ")")
 				if closeIdx != -1 {
 					rewritten = rewritten[:withIdx] + rewritten[withIdx+closeIdx+1:]
 				}
 			}
-			// If a default operator class is configured and the column list
-			// doesn't already have one, inject it. hnsw requires an explicit
-			// opclass (e.g. vector_cosine_ops) while diskann infers it.
-			// Column list looks like: (embedding) — inject opclass before the
-			// closing paren: (embedding vector_cosine_ops)
+			// Inject default opclass if not already present
 			if mapping.IndexOpClass != "" && !strings.Contains(rewritten, "_ops)") {
-				closingParen := strings.LastIndex(rewritten, ")")
+				closingParen := findColumnListClosingParen(rewritten, usingTo)
 				if closingParen != -1 {
 					rewritten = rewritten[:closingParen] + " " + mapping.IndexOpClass + rewritten[closingParen:]
 				}
