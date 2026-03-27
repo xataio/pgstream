@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -27,6 +28,14 @@ import (
 
 // SnapshotGenerator generates postgres schema snapshots using pg_dump and
 // pg_restore
+// ExtensionMapping defines how a source extension should be remapped during
+// schema restore. Used to handle extensions that aren't available on the
+// target (e.g. vectorscale on Neon).
+type ExtensionMapping struct {
+	ReplaceWith string            `json:"replace_with"`
+	IndexMap    map[string]string `json:"index_map"`
+}
+
 type SnapshotGenerator struct {
 	sourceURL              string
 	targetURL              string
@@ -38,6 +47,7 @@ type SnapshotGenerator struct {
 	generator              generator.SnapshotGenerator
 	dumpDebugFile          string
 	excludedSecurityLabels []string
+	extensionMap           map[string]ExtensionMapping
 	roleSQLParser          *roleSQLParser
 	optionGenerator        *optionGenerator
 	snapshotTracker        snapshotProgressTracker
@@ -73,6 +83,18 @@ type Config struct {
 	DumpDebugFile string
 	// if set, security label providers that will be excluded from the dump
 	ExcludedSecurityLabels []string
+	// ExtensionMap is a JSON-encoded mapping of source extensions to target
+	// replacements. Each key is an extension to intercept during pg_dump
+	// parsing. The value specifies what to replace it with and how to
+	// rewrite associated index access methods.
+	//
+	// Example: {"vectorscale":{"replace_with":"vector","index_map":{"diskann":"hnsw"}}}
+	//
+	// - replace_with: extension name to use instead (empty string = drop entirely)
+	// - index_map: access method rewrites (source method → target method).
+	//   When an index method is rewritten, the WITH clause is stripped since
+	//   the options are method-specific.
+	ExtensionMap string
 }
 
 type Option func(s *SnapshotGenerator)
@@ -113,6 +135,14 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		roleSQLParser:          &roleSQLParser{},
 		sourceQuerier:          sourceConnPool,
 		optionGenerator:        newOptionGenerator(sourceConnPool, c),
+	}
+
+	if c.ExtensionMap != "" {
+		extMap := make(map[string]ExtensionMapping)
+		if err := json.Unmarshal([]byte(c.ExtensionMap), &extMap); err != nil {
+			return nil, fmt.Errorf("parsing extension map JSON: %w", err)
+		}
+		sg.extensionMap = extMap
 	}
 
 	for _, opt := range opts {
@@ -429,6 +459,63 @@ func (s *SnapshotGenerator) restoreDump(ctx context.Context, dump []byte) error 
 	return nil
 }
 
+// rewriteExtensionLine checks if a CREATE/DROP/COMMENT EXTENSION line refers
+// to a mapped extension and returns the rewritten line. Returns ("", true) if
+// the line should be skipped entirely.
+func (s *SnapshotGenerator) rewriteExtensionLine(line string) (string, bool) {
+	if len(s.extensionMap) == 0 {
+		return line, false
+	}
+	for extName, mapping := range s.extensionMap {
+		if !strings.Contains(line, extName) {
+			continue
+		}
+		if mapping.ReplaceWith == "" {
+			s.logger.Info("extension mapper: dropping line", loglib.Fields{"line": line})
+			return "", true
+		}
+		rewritten := strings.ReplaceAll(line, extName, mapping.ReplaceWith)
+		s.logger.Info("extension mapper: rewriting extension", loglib.Fields{
+			"from": extName, "to": mapping.ReplaceWith,
+		})
+		return rewritten, false
+	}
+	return line, false
+}
+
+// rewriteIndexLine checks if a CREATE INDEX line uses a mapped access method
+// and rewrites it. When the access method changes, the WITH clause is stripped
+// since index options are method-specific.
+func (s *SnapshotGenerator) rewriteIndexLine(line string) string {
+	if len(s.extensionMap) == 0 {
+		return line
+	}
+	for _, mapping := range s.extensionMap {
+		for fromMethod, toMethod := range mapping.IndexMap {
+			usingFrom := "USING " + fromMethod
+			if !strings.Contains(line, usingFrom) {
+				continue
+			}
+			s.logger.Info("extension mapper: rewriting index method", loglib.Fields{
+				"from": fromMethod, "to": toMethod,
+			})
+			rewritten := strings.Replace(line, usingFrom, "USING "+toMethod, 1)
+			// Strip the WITH clause — options are method-specific
+			if withIdx := strings.Index(rewritten, " WITH ("); withIdx != -1 {
+				// Find the closing paren
+				closeIdx := strings.Index(rewritten[withIdx:], ")")
+				if closeIdx != -1 {
+					rewritten = rewritten[:withIdx] + rewritten[withIdx+closeIdx+1:]
+				}
+			}
+			// Trim trailing whitespace before the semicolon
+			rewritten = strings.TrimRight(rewritten, " ")
+			return rewritten
+		}
+	}
+	return line
+}
+
 func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	scanner := bufio.NewScanner(bytes.NewReader(d))
 	scanner.Split(bufio.ScanLines)
@@ -480,6 +567,16 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			isSecurityLabelForExcludedProvider(line, s.excludedSecurityLabels):
 			// skip security labels if configured to do so for the specified providers
 			continue
+
+		case len(s.extensionMap) > 0 && (strings.HasPrefix(line, "CREATE EXTENSION") ||
+			strings.HasPrefix(line, "DROP EXTENSION") ||
+			strings.HasPrefix(line, "COMMENT ON EXTENSION")):
+			rewritten, skip := s.rewriteExtensionLine(line)
+			if skip {
+				continue
+			}
+			filteredDump.WriteString(rewritten)
+			filteredDump.WriteString("\n")
 		case alterTable != "":
 			// check if the previous alter table line is split in two lines and matches a constraint
 			if strings.Contains(line, "ADD CONSTRAINT") {
@@ -534,6 +631,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			strings.HasPrefix(line, "CREATE UNIQUE INDEX"),
 			strings.HasPrefix(line, "CREATE CONSTRAINT"),
 			strings.HasPrefix(line, "CREATE TRIGGER"):
+			line = s.rewriteIndexLine(line)
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
 		case strings.HasPrefix(line, "COMMENT ON CONSTRAINT"),

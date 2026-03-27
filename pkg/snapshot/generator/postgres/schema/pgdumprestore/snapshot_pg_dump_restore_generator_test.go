@@ -1986,3 +1986,82 @@ func TestParseDump_CommentWithDollarTag(t *testing.T) {
 	require.Contains(t, indices, "CREATE TRIGGER trg_after_comment", "CREATE TRIGGER after comment should be in indices")
 	require.NotContains(t, filtered, "CREATE TRIGGER trg_after_comment", "CREATE TRIGGER after comment should not be in filtered")
 }
+
+func TestParseDump_ExtensionMapper(t *testing.T) {
+	t.Parallel()
+
+	dumpInput := strings.Join([]string{
+		"CREATE EXTENSION IF NOT EXISTS plpgsql WITH SCHEMA pg_catalog;",
+		"CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;",
+		"CREATE EXTENSION IF NOT EXISTS vectorscale WITH SCHEMA public;",
+		"COMMENT ON EXTENSION vectorscale IS 'pgvectorscale';",
+		"DROP EXTENSION IF EXISTS vectorscale;",
+		"CREATE TABLE public.chunk (id integer, embedding vector(1536));",
+		"CREATE INDEX idx_chunk_embedding ON public.chunk USING diskann (embedding) WITH (storage_layout=memory_optimized, num_neighbors='50');",
+		"CREATE INDEX idx_chunk_name ON public.chunk USING btree (id);",
+		"",
+	}, "\n")
+
+	s := &SnapshotGenerator{
+		roleSQLParser: &roleSQLParser{},
+		logger:        log.NewNoopLogger(),
+		extensionMap: map[string]ExtensionMapping{
+			"vectorscale": {
+				ReplaceWith: "vector",
+				IndexMap:    map[string]string{"diskann": "hnsw"},
+			},
+		},
+	}
+	result := s.parseDump([]byte(dumpInput))
+
+	filtered := string(result.filtered)
+	indices := string(result.indicesAndConstraints)
+
+	// vectorscale CREATE EXTENSION should be rewritten to vector
+	require.NotContains(t, filtered, "vectorscale", "vectorscale should be replaced everywhere in filtered dump")
+	require.Contains(t, filtered, "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;", "vectorscale should be rewritten to vector")
+
+	// Original vector extension should still be there
+	require.Contains(t, filtered, "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;")
+
+	// plpgsql should be untouched
+	require.Contains(t, filtered, "CREATE EXTENSION IF NOT EXISTS plpgsql")
+
+	// Table definition should be untouched
+	require.Contains(t, filtered, "CREATE TABLE public.chunk")
+
+	// diskann index should be rewritten to hnsw with WITH clause stripped
+	require.Contains(t, indices, "USING hnsw", "diskann should be rewritten to hnsw")
+	require.NotContains(t, indices, "diskann", "diskann should not appear in indices")
+	require.NotContains(t, indices, "storage_layout", "WITH clause should be stripped")
+	require.NotContains(t, indices, "num_neighbors", "WITH clause should be stripped")
+
+	// btree index should be untouched
+	require.Contains(t, indices, "USING btree (id)", "btree index should be untouched")
+}
+
+func TestParseDump_ExtensionMapperDropExtension(t *testing.T) {
+	t.Parallel()
+
+	dumpInput := strings.Join([]string{
+		"CREATE EXTENSION IF NOT EXISTS timescaledb WITH SCHEMA public;",
+		"CREATE TABLE public.data (id integer);",
+		"",
+	}, "\n")
+
+	s := &SnapshotGenerator{
+		roleSQLParser: &roleSQLParser{},
+		logger:        log.NewNoopLogger(),
+		extensionMap: map[string]ExtensionMapping{
+			"timescaledb": {
+				ReplaceWith: "", // drop entirely
+			},
+		},
+	}
+	result := s.parseDump([]byte(dumpInput))
+
+	filtered := string(result.filtered)
+
+	require.NotContains(t, filtered, "timescaledb", "dropped extension should not appear")
+	require.Contains(t, filtered, "CREATE TABLE public.data", "table should be untouched")
+}
