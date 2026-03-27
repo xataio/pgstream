@@ -2007,8 +2007,9 @@ func TestParseDump_ExtensionMapper(t *testing.T) {
 		logger:        log.NewNoopLogger(),
 		extensionMap: map[string]ExtensionMapping{
 			"vectorscale": {
-				ReplaceWith: "vector",
-				IndexMap:    map[string]string{"diskann": "hnsw"},
+				ReplaceWith:  "vector",
+				IndexMap:     map[string]string{"diskann": "hnsw"},
+				IndexOpClass: "vector_cosine_ops",
 			},
 		},
 	}
@@ -2030,11 +2031,12 @@ func TestParseDump_ExtensionMapper(t *testing.T) {
 	// Table definition should be untouched
 	require.Contains(t, filtered, "CREATE TABLE public.chunk")
 
-	// diskann index should be rewritten to hnsw with WITH clause stripped
+	// diskann index should be rewritten to hnsw with WITH clause stripped and opclass added
 	require.Contains(t, indices, "USING hnsw", "diskann should be rewritten to hnsw")
 	require.NotContains(t, indices, "diskann", "diskann should not appear in indices")
 	require.NotContains(t, indices, "storage_layout", "WITH clause should be stripped")
 	require.NotContains(t, indices, "num_neighbors", "WITH clause should be stripped")
+	require.Contains(t, indices, "vector_cosine_ops", "default operator class should be injected")
 
 	// btree index should be untouched
 	require.Contains(t, indices, "USING btree (id)", "btree index should be untouched")

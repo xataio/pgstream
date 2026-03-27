@@ -34,6 +34,10 @@ import (
 type ExtensionMapping struct {
 	ReplaceWith string            `json:"replace_with"`
 	IndexMap    map[string]string `json:"index_map"`
+	// IndexOpClass is the default operator class to add when the source index
+	// has no explicit operator class and the target method requires one.
+	// e.g. "vector_cosine_ops" for hnsw indexes on pgvector columns.
+	IndexOpClass string `json:"index_opclass"`
 }
 
 type SnapshotGenerator struct {
@@ -502,13 +506,22 @@ func (s *SnapshotGenerator) rewriteIndexLine(line string) string {
 			rewritten := strings.Replace(line, usingFrom, "USING "+toMethod, 1)
 			// Strip the WITH clause — options are method-specific
 			if withIdx := strings.Index(rewritten, " WITH ("); withIdx != -1 {
-				// Find the closing paren
 				closeIdx := strings.Index(rewritten[withIdx:], ")")
 				if closeIdx != -1 {
 					rewritten = rewritten[:withIdx] + rewritten[withIdx+closeIdx+1:]
 				}
 			}
-			// Trim trailing whitespace before the semicolon
+			// If a default operator class is configured and the column list
+			// doesn't already have one, inject it. hnsw requires an explicit
+			// opclass (e.g. vector_cosine_ops) while diskann infers it.
+			// Column list looks like: (embedding) — inject opclass before the
+			// closing paren: (embedding vector_cosine_ops)
+			if mapping.IndexOpClass != "" && !strings.Contains(rewritten, "_ops)") {
+				closingParen := strings.LastIndex(rewritten, ")")
+				if closingParen != -1 {
+					rewritten = rewritten[:closingParen] + " " + mapping.IndexOpClass + rewritten[closingParen:]
+				}
+			}
 			rewritten = strings.TrimRight(rewritten, " ")
 			return rewritten
 		}
