@@ -64,6 +64,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_NO_OWNER")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_NO_PRIVILEGES")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_SECURITY_LABELS")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_EXTENSION_MAP")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_DISABLE_PROGRESS_TRACKING")
 
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_TARGET_URL")
@@ -313,6 +314,7 @@ func parseSchemaSnapshotConfig(pgurl string) (*snapshotbuilder.SchemaSnapshotCon
 			NoOwner:                viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_NO_OWNER"),
 			NoPrivileges:           viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_NO_PRIVILEGES"),
 			ExcludedSecurityLabels: viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_SECURITY_LABELS"),
+			ExtensionMap:           viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_EXTENSION_MAP"),
 		},
 	}, nil
 }

@@ -1986,3 +1986,206 @@ func TestParseDump_CommentWithDollarTag(t *testing.T) {
 	require.Contains(t, indices, "CREATE TRIGGER trg_after_comment", "CREATE TRIGGER after comment should be in indices")
 	require.NotContains(t, filtered, "CREATE TRIGGER trg_after_comment", "CREATE TRIGGER after comment should not be in filtered")
 }
+
+func TestParseDump_ExtensionMapper(t *testing.T) {
+	t.Parallel()
+
+	dumpInput := strings.Join([]string{
+		"CREATE EXTENSION IF NOT EXISTS plpgsql WITH SCHEMA pg_catalog;",
+		"CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;",
+		"CREATE EXTENSION IF NOT EXISTS vectorscale WITH SCHEMA public;",
+		"COMMENT ON EXTENSION vectorscale IS 'pgvectorscale';",
+		"DROP EXTENSION IF EXISTS vectorscale;",
+		"CREATE TABLE public.chunk (id integer, embedding vector(1536));",
+		"CREATE INDEX idx_chunk_embedding ON public.chunk USING diskann (embedding) WITH (storage_layout=memory_optimized, num_neighbors='50');",
+		"CREATE INDEX idx_chunk_name ON public.chunk USING btree (id);",
+		"",
+	}, "\n")
+
+	s := &SnapshotGenerator{
+		roleSQLParser: &roleSQLParser{},
+		logger:        log.NewNoopLogger(),
+		extensionMap: map[string]ExtensionMapping{
+			"vectorscale": {
+				ReplaceWith:  "vector",
+				IndexMap:     map[string]string{"diskann": "hnsw"},
+				IndexOpClass: "vector_cosine_ops",
+			},
+		},
+	}
+	result := s.parseDump([]byte(dumpInput))
+
+	filtered := string(result.filtered)
+	indices := string(result.indicesAndConstraints)
+
+	// vectorscale CREATE EXTENSION should be rewritten to vector
+	require.Contains(t, filtered, "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;", "vectorscale should be rewritten to vector")
+	// The extension name token is replaced but string literals are NOT touched
+	require.Contains(t, filtered, "COMMENT ON EXTENSION vector IS 'pgvectorscale';", "extension name token rewritten, string literal preserved")
+	require.Contains(t, filtered, "DROP EXTENSION IF EXISTS vector;", "DROP EXTENSION should be rewritten")
+
+	// Original vector extension should still be there
+	require.Contains(t, filtered, "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;")
+
+	// plpgsql should be untouched
+	require.Contains(t, filtered, "CREATE EXTENSION IF NOT EXISTS plpgsql")
+
+	// Table definition should be untouched
+	require.Contains(t, filtered, "CREATE TABLE public.chunk")
+
+	// diskann index should be rewritten to hnsw with WITH clause stripped and opclass added
+	require.Contains(t, indices, "USING hnsw", "diskann should be rewritten to hnsw")
+	require.NotContains(t, indices, "diskann", "diskann should not appear in indices")
+	require.NotContains(t, indices, "storage_layout", "WITH clause should be stripped")
+	require.NotContains(t, indices, "num_neighbors", "WITH clause should be stripped")
+	require.Contains(t, indices, "vector_cosine_ops", "default operator class should be injected")
+
+	// btree index should be untouched
+	require.Contains(t, indices, "USING btree (id)", "btree index should be untouched")
+}
+
+func TestParseDump_ExtensionMapperDropExtension(t *testing.T) {
+	t.Parallel()
+
+	dumpInput := strings.Join([]string{
+		"CREATE EXTENSION IF NOT EXISTS timescaledb WITH SCHEMA public;",
+		"CREATE TABLE public.data (id integer);",
+		"",
+	}, "\n")
+
+	s := &SnapshotGenerator{
+		roleSQLParser: &roleSQLParser{},
+		logger:        log.NewNoopLogger(),
+		extensionMap: map[string]ExtensionMapping{
+			"timescaledb": {
+				ReplaceWith: "", // drop entirely
+			},
+		},
+	}
+	result := s.parseDump([]byte(dumpInput))
+
+	filtered := string(result.filtered)
+
+	require.NotContains(t, filtered, "timescaledb", "dropped extension should not appear")
+	require.Contains(t, filtered, "CREATE TABLE public.data", "table should be untouched")
+}
+
+func TestParseDump_ExtensionMapperExactTokenMatch(t *testing.T) {
+	t.Parallel()
+
+	// Verifies that extension name matching is exact-token, not substring.
+	// When "vector" is mapped, "vectorscale" must NOT be affected.
+	dumpInput := strings.Join([]string{
+		"CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;",
+		"CREATE EXTENSION IF NOT EXISTS vectorscale WITH SCHEMA public;",
+		"COMMENT ON EXTENSION vectorscale IS 'vectorscale extension';",
+		"",
+	}, "\n")
+
+	s := &SnapshotGenerator{
+		roleSQLParser: &roleSQLParser{},
+		logger:        log.NewNoopLogger(),
+		extensionMap: map[string]ExtensionMapping{
+			"vector": {
+				ReplaceWith: "pgvector",
+			},
+		},
+	}
+	result := s.parseDump([]byte(dumpInput))
+
+	filtered := string(result.filtered)
+
+	// "vector" extension should be rewritten to "pgvector"
+	require.Contains(t, filtered, "CREATE EXTENSION IF NOT EXISTS pgvector WITH SCHEMA public;",
+		"vector should be rewritten to pgvector")
+
+	// "vectorscale" must NOT be corrupted by the "vector" mapping
+	require.Contains(t, filtered, "CREATE EXTENSION IF NOT EXISTS vectorscale WITH SCHEMA public;",
+		"vectorscale must not be affected by vector mapping")
+	require.Contains(t, filtered, "COMMENT ON EXTENSION vectorscale IS",
+		"COMMENT ON EXTENSION vectorscale must not be affected")
+}
+
+func TestParseDump_ExtensionMapperPartialIndex(t *testing.T) {
+	t.Parallel()
+
+	// Verifies that opclass injection targets the column list paren,
+	// not the WHERE clause paren in partial indexes.
+	dumpInput := strings.Join([]string{
+		"CREATE INDEX idx_partial ON public.items USING diskann (embedding) WHERE (is_active = true);",
+		"CREATE INDEX idx_simple ON public.items USING diskann (embedding);",
+		"",
+	}, "\n")
+
+	s := &SnapshotGenerator{
+		roleSQLParser: &roleSQLParser{},
+		logger:        log.NewNoopLogger(),
+		extensionMap: map[string]ExtensionMapping{
+			"vectorscale": {
+				ReplaceWith:  "vector",
+				IndexMap:     map[string]string{"diskann": "hnsw"},
+				IndexOpClass: "vector_cosine_ops",
+			},
+		},
+	}
+	result := s.parseDump([]byte(dumpInput))
+
+	indices := string(result.indicesAndConstraints)
+
+	// Partial index: opclass in column list, WHERE clause untouched
+	require.Contains(t, indices, "USING hnsw (embedding vector_cosine_ops) WHERE (is_active = true);",
+		"partial index should have opclass in column list, not WHERE clause")
+
+	// Simple index: opclass injected correctly
+	require.Contains(t, indices, "USING hnsw (embedding vector_cosine_ops);",
+		"simple index should have opclass injected")
+
+	// WHERE clause must NOT be corrupted
+	require.NotContains(t, indices, "WHERE (is_active = true vector_cosine_ops)",
+		"WHERE clause must not have opclass injected")
+}
+
+func TestExtractExtensionName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		line      string
+		wantName  string
+		wantStart int
+	}{
+		{
+			name:      "CREATE EXTENSION IF NOT EXISTS",
+			line:      "CREATE EXTENSION IF NOT EXISTS vectorscale WITH SCHEMA public;",
+			wantName:  "vectorscale",
+			wantStart: 31,
+		},
+		{
+			name:      "DROP EXTENSION IF EXISTS",
+			line:      "DROP EXTENSION IF EXISTS vectorscale;",
+			wantName:  "vectorscale",
+			wantStart: 25,
+		},
+		{
+			name:      "COMMENT ON EXTENSION",
+			line:      "COMMENT ON EXTENSION vectorscale IS 'pgvectorscale';",
+			wantName:  "vectorscale",
+			wantStart: 21,
+		},
+		{
+			name:      "no EXTENSION keyword",
+			line:      "CREATE TABLE public.data (id integer);",
+			wantName:  "",
+			wantStart: -1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			name, start := extractExtensionName(tc.line)
+			require.Equal(t, tc.wantName, name)
+			require.Equal(t, tc.wantStart, start)
+		})
+	}
+}

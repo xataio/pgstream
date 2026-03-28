@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -27,6 +28,12 @@ import (
 
 // SnapshotGenerator generates postgres schema snapshots using pg_dump and
 // pg_restore
+type ExtensionMapping struct {
+	ReplaceWith  string            `json:"replace_with"`
+	IndexMap     map[string]string `json:"index_map"`
+	IndexOpClass string            `json:"index_opclass"`
+}
+
 type SnapshotGenerator struct {
 	sourceURL              string
 	targetURL              string
@@ -38,6 +45,7 @@ type SnapshotGenerator struct {
 	generator              generator.SnapshotGenerator
 	dumpDebugFile          string
 	excludedSecurityLabels []string
+	extensionMap           map[string]ExtensionMapping
 	roleSQLParser          *roleSQLParser
 	optionGenerator        *optionGenerator
 	snapshotTracker        snapshotProgressTracker
@@ -73,6 +81,8 @@ type Config struct {
 	DumpDebugFile string
 	// if set, security label providers that will be excluded from the dump
 	ExcludedSecurityLabels []string
+	// JSON-encoded map of source extension names to ExtensionMapping.
+	ExtensionMap string
 }
 
 type Option func(s *SnapshotGenerator)
@@ -113,6 +123,14 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		roleSQLParser:          &roleSQLParser{},
 		sourceQuerier:          sourceConnPool,
 		optionGenerator:        newOptionGenerator(sourceConnPool, c),
+	}
+
+	if c.ExtensionMap != "" {
+		extMap := make(map[string]ExtensionMapping)
+		if err := json.Unmarshal([]byte(c.ExtensionMap), &extMap); err != nil {
+			return nil, fmt.Errorf("parsing extension map JSON: %w", err)
+		}
+		sg.extensionMap = extMap
 	}
 
 	for _, opt := range opts {
@@ -429,6 +447,112 @@ func (s *SnapshotGenerator) restoreDump(ctx context.Context, dump []byte) error 
 	return nil
 }
 
+func extractExtensionName(line string) (string, int) {
+	extIdx := strings.Index(line, "EXTENSION ")
+	if extIdx == -1 {
+		return "", -1
+	}
+	rest := line[extIdx+len("EXTENSION "):]
+	if strings.HasPrefix(rest, "IF NOT EXISTS ") {
+		rest = rest[len("IF NOT EXISTS "):]
+	} else if strings.HasPrefix(rest, "IF EXISTS ") {
+		rest = rest[len("IF EXISTS "):]
+	}
+	nameEnd := strings.IndexAny(rest, " ;")
+	if nameEnd == -1 {
+		nameEnd = len(rest)
+	}
+	if nameEnd == 0 {
+		return "", -1
+	}
+	return rest[:nameEnd], len(line) - len(rest)
+}
+
+func (s *SnapshotGenerator) rewriteExtensionLine(line string) (string, bool) {
+	if len(s.extensionMap) == 0 {
+		return line, false
+	}
+	name, nameStart := extractExtensionName(line)
+	if nameStart == -1 {
+		return line, false
+	}
+	mapping, found := s.extensionMap[name]
+	if !found {
+		return line, false
+	}
+	if mapping.ReplaceWith == "" {
+		s.logger.Info("extension mapper: dropping line", loglib.Fields{"line": line})
+		return "", true
+	}
+	rewritten := line[:nameStart] + mapping.ReplaceWith + line[nameStart+len(name):]
+	s.logger.Info("extension mapper: rewriting extension", loglib.Fields{
+		"from": name, "to": mapping.ReplaceWith,
+	})
+	return rewritten, false
+}
+
+func findColumnListClosingParen(line string, usingClause string) int {
+	usingIdx := strings.Index(line, usingClause)
+	if usingIdx == -1 {
+		return -1
+	}
+	startSearch := usingIdx + len(usingClause)
+	openParen := strings.Index(line[startSearch:], "(")
+	if openParen == -1 {
+		return -1
+	}
+	openParen += startSearch
+	depth := 1
+	for i := openParen + 1; i < len(line); i++ {
+		switch line[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func (s *SnapshotGenerator) rewriteIndexLine(line string) string {
+	if len(s.extensionMap) == 0 {
+		return line
+	}
+	for _, mapping := range s.extensionMap {
+		for fromMethod, toMethod := range mapping.IndexMap {
+			usingFrom := "USING " + fromMethod
+			if !strings.Contains(line, usingFrom) {
+				continue
+			}
+			s.logger.Info("extension mapper: rewriting index method", loglib.Fields{
+				"from": fromMethod, "to": toMethod,
+			})
+			usingTo := "USING " + toMethod
+			rewritten := strings.Replace(line, usingFrom, usingTo, 1)
+			// Strip WITH clause (options are method-specific)
+			if withIdx := strings.Index(rewritten, " WITH ("); withIdx != -1 {
+				closeIdx := strings.Index(rewritten[withIdx:], ")")
+				if closeIdx != -1 {
+					rewritten = rewritten[:withIdx] + rewritten[withIdx+closeIdx+1:]
+				}
+			}
+			// Inject default opclass if not already present
+			if mapping.IndexOpClass != "" && !strings.Contains(rewritten, "_ops)") {
+				closingParen := findColumnListClosingParen(rewritten, usingTo)
+				if closingParen != -1 {
+					rewritten = rewritten[:closingParen] + " " + mapping.IndexOpClass + rewritten[closingParen:]
+				}
+			}
+			rewritten = strings.TrimRight(rewritten, " ")
+			return rewritten
+		}
+	}
+	return line
+}
+
 func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	scanner := bufio.NewScanner(bytes.NewReader(d))
 	scanner.Split(bufio.ScanLines)
@@ -480,6 +604,16 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			isSecurityLabelForExcludedProvider(line, s.excludedSecurityLabels):
 			// skip security labels if configured to do so for the specified providers
 			continue
+
+		case len(s.extensionMap) > 0 && (strings.HasPrefix(line, "CREATE EXTENSION") ||
+			strings.HasPrefix(line, "DROP EXTENSION") ||
+			strings.HasPrefix(line, "COMMENT ON EXTENSION")):
+			rewritten, skip := s.rewriteExtensionLine(line)
+			if skip {
+				continue
+			}
+			filteredDump.WriteString(rewritten)
+			filteredDump.WriteString("\n")
 		case alterTable != "":
 			// check if the previous alter table line is split in two lines and matches a constraint
 			if strings.Contains(line, "ADD CONSTRAINT") {
@@ -534,6 +668,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			strings.HasPrefix(line, "CREATE UNIQUE INDEX"),
 			strings.HasPrefix(line, "CREATE CONSTRAINT"),
 			strings.HasPrefix(line, "CREATE TRIGGER"):
+			line = s.rewriteIndexLine(line)
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
 		case strings.HasPrefix(line, "COMMENT ON CONSTRAINT"),
