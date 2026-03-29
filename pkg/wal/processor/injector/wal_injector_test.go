@@ -762,13 +762,13 @@ func TestInjector_getTableObject(t *testing.T) {
 	}
 }
 
-func TestGetIdentityColumn(t *testing.T) {
+func TestGetIdentityColumns(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		table   *wal.DDLObject
-		wantCol *wal.DDLColumn
+		name     string
+		table    *wal.DDLObject
+		wantCols []wal.DDLColumn
 	}{
 		{
 			name: "ok - single primary key column",
@@ -779,12 +779,12 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{"id"},
 			},
-			wantCol: &wal.DDLColumn{
-				Attnum: 1, Name: "id", Type: "integer", Nullable: false,
+			wantCols: []wal.DDLColumn{
+				{Attnum: 1, Name: "id", Type: "integer", Nullable: false},
 			},
 		},
 		{
-			name: "ok - multiple primary key columns returns first one",
+			name: "ok - composite primary key returns all PK columns",
 			table: &wal.DDLObject{
 				Columns: []wal.DDLColumn{
 					{Attnum: 1, Name: "id", Type: "integer", Nullable: false},
@@ -793,8 +793,9 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{"id", "tenant_id"},
 			},
-			wantCol: &wal.DDLColumn{
-				Attnum: 1, Name: "id", Type: "integer", Nullable: false,
+			wantCols: []wal.DDLColumn{
+				{Attnum: 1, Name: "id", Type: "integer", Nullable: false},
+				{Attnum: 2, Name: "tenant_id", Type: "text", Nullable: false},
 			},
 		},
 		{
@@ -807,8 +808,8 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{},
 			},
-			wantCol: &wal.DDLColumn{
-				Attnum: 2, Name: "email", Type: "text", Nullable: false, Unique: true,
+			wantCols: []wal.DDLColumn{
+				{Attnum: 2, Name: "email", Type: "text", Nullable: false, Unique: true},
 			},
 		},
 		{
@@ -821,8 +822,8 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{},
 			},
-			wantCol: &wal.DDLColumn{
-				Attnum: 2, Name: "email", Type: "text", Nullable: false, Unique: true,
+			wantCols: []wal.DDLColumn{
+				{Attnum: 2, Name: "email", Type: "text", Nullable: false, Unique: true},
 			},
 		},
 		{
@@ -834,7 +835,7 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{},
 			},
-			wantCol: nil,
+			wantCols: nil,
 		},
 		{
 			name: "nil - unique but nullable columns",
@@ -845,7 +846,7 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{},
 			},
-			wantCol: nil,
+			wantCols: nil,
 		},
 		{
 			name: "nil - not null but not unique columns",
@@ -856,7 +857,7 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{},
 			},
-			wantCol: nil,
+			wantCols: nil,
 		},
 		{
 			name: "nil - primary key column not found in columns",
@@ -867,7 +868,7 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{"id"},
 			},
-			wantCol: nil,
+			wantCols: nil,
 		},
 		{
 			name: "ok - primary key takes precedence over unique not null",
@@ -878,8 +879,8 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{"id"},
 			},
-			wantCol: &wal.DDLColumn{
-				Attnum: 1, Name: "id", Type: "integer", Nullable: false,
+			wantCols: []wal.DDLColumn{
+				{Attnum: 1, Name: "id", Type: "integer", Nullable: false},
 			},
 		},
 		{
@@ -888,20 +889,23 @@ func TestGetIdentityColumn(t *testing.T) {
 				Columns:           []wal.DDLColumn{},
 				PrimaryKeyColumns: []string{},
 			},
-			wantCol: nil,
+			wantCols: nil,
 		},
 		{
-			name: "ok - composite primary key returns first matching column",
+			name: "ok - composite primary key with three columns",
 			table: &wal.DDLObject{
 				Columns: []wal.DDLColumn{
 					{Attnum: 1, Name: "tenant_id", Type: "text", Nullable: false},
 					{Attnum: 2, Name: "user_id", Type: "integer", Nullable: false},
-					{Attnum: 3, Name: "name", Type: "text", Nullable: true},
+					{Attnum: 3, Name: "date", Type: "date", Nullable: false},
+					{Attnum: 4, Name: "name", Type: "text", Nullable: true},
 				},
-				PrimaryKeyColumns: []string{"tenant_id", "user_id"},
+				PrimaryKeyColumns: []string{"tenant_id", "user_id", "date"},
 			},
-			wantCol: &wal.DDLColumn{
-				Attnum: 1, Name: "tenant_id", Type: "text", Nullable: false,
+			wantCols: []wal.DDLColumn{
+				{Attnum: 1, Name: "tenant_id", Type: "text", Nullable: false},
+				{Attnum: 2, Name: "user_id", Type: "integer", Nullable: false},
+				{Attnum: 3, Name: "date", Type: "date", Nullable: false},
 			},
 		},
 	}
@@ -910,8 +914,8 @@ func TestGetIdentityColumn(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			result := getIdentityColumn(tc.table)
-			require.Equal(t, tc.wantCol, result)
+			result := getIdentityColumns(tc.table)
+			require.Equal(t, tc.wantCols, result)
 		})
 	}
 }
