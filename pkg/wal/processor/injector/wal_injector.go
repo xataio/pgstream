@@ -199,15 +199,17 @@ func (in *Injector) inject(ctx context.Context, data *wal.Data) error {
 func (in *Injector) fillEventMetadata(event *wal.Data, tbl *wal.DDLObject) error {
 	event.Metadata.TablePgstreamID = tbl.PgstreamID
 
-	identityColumn := getIdentityColumn(tbl)
-	if identityColumn == nil {
+	identityColumns := getIdentityColumns(tbl)
+	if len(identityColumns) == 0 {
 		if tbl.ReplicaIdentity == "f" {
 			return nil
 		}
 		return fmt.Errorf("table [%s]: %w", tbl.Identity, processor.ErrIDNotFound)
 	}
 
-	event.Metadata.InternalColIDs = append(event.Metadata.InternalColIDs, identityColumn.GetColumnPgstreamID(tbl.PgstreamID))
+	for _, col := range identityColumns {
+		event.Metadata.InternalColIDs = append(event.Metadata.InternalColIDs, col.GetColumnPgstreamID(tbl.PgstreamID))
+	}
 
 	return nil
 }
@@ -291,7 +293,7 @@ func (in *Injector) getTableObject(ctx context.Context, schema, table string) (*
 	return &tableObj, nil
 }
 
-func getIdentityColumn(tbl *wal.DDLObject) *wal.DDLColumn {
+func getIdentityColumns(tbl *wal.DDLObject) []wal.DDLColumn {
 	hasPrimaryKeys := len(tbl.PrimaryKeyColumns) > 0
 
 	// sort columns by attnum to have a deterministic order if no primary key is
@@ -302,21 +304,21 @@ func getIdentityColumn(tbl *wal.DDLObject) *wal.DDLColumn {
 		})
 	}
 
-	// Flag as identity column the primary key of the table on input. If there's
-	// no primary key defined for the table, it will use the first
-	// (alphabetically ordered) not null unique column in the table. If there's
-	// no unique not null columns or primary keys, then no column will be
-	// flagged as identity. Composite primary keys are not currently supported,
-	// and will not be flagged as identity either.
-	for _, col := range tbl.Columns {
-		switch {
-		case hasPrimaryKeys:
+	// Return all primary key columns as identity columns (supports composite PKs).
+	// If there's no primary key, fall back to the first unique NOT NULL column.
+	if hasPrimaryKeys {
+		var pkCols []wal.DDLColumn
+		for _, col := range tbl.Columns {
 			if slices.Contains(tbl.PrimaryKeyColumns, col.Name) {
-				return &col
+				pkCols = append(pkCols, col)
 			}
-		case col.Unique && !col.Nullable:
-			// only use the first unique not null column as identity
-			return &col
+		}
+		return pkCols
+	}
+
+	for _, col := range tbl.Columns {
+		if col.Unique && !col.Nullable {
+			return []wal.DDLColumn{col}
 		}
 	}
 
