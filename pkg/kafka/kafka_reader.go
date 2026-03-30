@@ -142,7 +142,7 @@ func (r *Reader) fetchWithRetry(ctx context.Context) (*Message, error) {
 		// Only retry on deadline exceeded (the timeout we set). Any other
 		// error (network, broker, auth) should propagate immediately.
 		if fetchCtx.Err() != context.DeadlineExceeded {
-			return nil, fmt.Errorf("reading from kafka: %w", err)
+			return nil, err
 		}
 
 		lastErr = err
