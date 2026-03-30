@@ -44,6 +44,7 @@ func run(ctx context.Context) error {
 		LogLevel: viper.GetString("PGSTREAM_LOG_LEVEL"),
 	})
 	zerolog.SetGlobalLogger(logger)
+	logger.Info().Msgf("pgstream version: %s", version())
 
 	streamConfig, err := config.ParseStreamConfig()
 	if err != nil {
