@@ -826,6 +826,45 @@ func TestDMLAdapter_filterRowColumns(t *testing.T) {
 			wantColumns: []string{`"id"`, `"name"`},
 			wantValues:  []any{1, "alice"},
 		},
+		{
+			name:             "uuid array from kafka round-trip",
+			generatedColumns: map[string]struct{}{},
+			columns: []wal.Column{
+				{Name: "id", Value: 1},
+				{Name: "related_ids", Value: []interface{}{
+					// Two UUIDs as []interface{} of 16 float64 bytes (Kafka JSON round-trip)
+					[]interface{}{float64(146), float64(153), float64(57), float64(8), float64(41), float64(90), float64(71), float64(21), float64(148), float64(162), float64(80), float64(102), float64(51), float64(84), float64(40), float64(135)},
+					[]interface{}{float64(37), float64(105), float64(58), float64(155), float64(219), float64(252), float64(65), float64(25), float64(141), float64(190), float64(226), float64(29), float64(129), float64(114), float64(208), float64(210)},
+				}, Type: "_uuid"},
+			},
+
+			wantColumns: []string{`"id"`, `"related_ids"`},
+			wantValues: []any{1, []interface{}{
+				[16]byte{146, 153, 57, 8, 41, 90, 71, 21, 148, 162, 80, 102, 51, 84, 40, 135},
+				[16]byte{37, 105, 58, 155, 219, 252, 65, 25, 141, 190, 226, 29, 129, 114, 208, 210},
+			}},
+		},
+		{
+			name:             "uuid array with string values from wal path",
+			generatedColumns: map[string]struct{}{},
+			columns: []wal.Column{
+				{Name: "id", Value: 1},
+				{Name: "related_ids", Value: "{550e8400-e29b-41d4-a716-446655440000}", Type: "_uuid"},
+			},
+
+			wantColumns: []string{`"id"`, `"related_ids"`},
+			wantValues:  []any{1, "{550e8400-e29b-41d4-a716-446655440000}"},
+		},
+		{
+			name:             "single uuid from kafka round-trip still works",
+			generatedColumns: map[string]struct{}{},
+			columns: []wal.Column{
+				{Name: "id", Value: []interface{}{float64(146), float64(153), float64(57), float64(8), float64(41), float64(90), float64(71), float64(21), float64(148), float64(162), float64(80), float64(102), float64(51), float64(84), float64(40), float64(135)}, Type: "uuid"},
+			},
+
+			wantColumns: []string{`"id"`},
+			wantValues:  []any{[16]byte{146, 153, 57, 8, 41, 90, 71, 21, 148, 162, 80, 102, 51, 84, 40, 135}},
+		},
 	}
 
 	for _, tc := range tests {

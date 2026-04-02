@@ -313,13 +313,15 @@ func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo, 
 
 		// Kafka JSON round-trip converts hstore's map[string]*string to
 		// map[string]interface{}. pgx requires the named type pgtype.Hstore.
-		if c.Type == "hstore" {
+		// _hstore is the array variant (hstore[]).
+		if c.Type == "hstore" || c.Type == "_hstore" {
 			val = convertToHstore(val)
 		}
 
 		// Kafka JSON round-trip converts UUID [16]byte to []interface{} (array of 16 float64).
 		// pgx needs [16]byte or string. WAL path sends UUID as string (already works).
-		if c.Type == "uuid" {
+		// _uuid is the array variant (uuid[]).
+		if c.Type == "uuid" || c.Type == "_uuid" {
 			val = convertToUUID(val)
 		}
 
@@ -327,7 +329,8 @@ func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo, 
 		// Snapshot path: base64 (Go json.Marshal encodes []byte as base64).
 		// WAL path: hex (wal2json uses Postgres hex format).
 		// pgx needs []byte, not the encoded string.
-		if c.Type == "bytea" {
+		// _bytea is the array variant (bytea[]).
+		if c.Type == "bytea" || c.Type == "_bytea" {
 			val = decodeBytea(val, isSnapshot)
 		}
 
@@ -483,7 +486,16 @@ func serializeJSONBValue(colType string, val any) any {
 // Kafka JSON round-trip turns map[string]*string into map[string]interface{}.
 // WAL path (wal2json) sends hstore as a Go string like "key1=>val1, key2=>val2".
 // pgx requires the named type pgtype.Hstore for encoding.
+// Also handles hstore arrays (_hstore): []interface{} of map[string]interface{}.
 func convertToHstore(val any) any {
+	// Hstore array: convert each element
+	if arr, ok := val.([]interface{}); ok {
+		for i, elem := range arr {
+			arr[i] = convertToHstore(elem)
+		}
+		return arr
+	}
+
 	switch v := val.(type) {
 	case map[string]interface{}:
 		hstore := make(pgtype.Hstore, len(v))
@@ -507,21 +519,33 @@ func convertToHstore(val any) any {
 // Snapshot path: pgx returns [16]byte, JSON marshal makes it a JSON array of 16 numbers,
 // JSON unmarshal on kafka2pg produces []interface{} of 16 float64.
 // WAL path: wal2json sends UUID as string (pgx handles this natively).
+// Also handles UUID arrays (_uuid): []interface{} of []interface{} of 16 float64.
 func convertToUUID(val any) any {
 	arr, ok := val.([]interface{})
-	if !ok || len(arr) != 16 {
+	if !ok {
 		return val
 	}
 
-	var uuid [16]byte
-	for i, v := range arr {
-		f, ok := v.(float64)
-		if !ok {
-			return val
+	// Single UUID: exactly 16 float64 byte values
+	if len(arr) == 16 {
+		if _, ok := arr[0].(float64); ok {
+			var uuid [16]byte
+			for i, v := range arr {
+				f, ok := v.(float64)
+				if !ok {
+					return val
+				}
+				uuid[i] = byte(f)
+			}
+			return uuid
 		}
-		uuid[i] = byte(f)
 	}
-	return uuid
+
+	// UUID array: convert each element
+	for i, elem := range arr {
+		arr[i] = convertToUUID(elem)
+	}
+	return arr
 }
 
 // decodeBytea converts bytea string values back to []byte.
@@ -531,7 +555,16 @@ func convertToUUID(val any) any {
 //
 // Uses the isSnapshot flag from the event's LSN to determine the encoding
 // definitively — no heuristic guessing needed.
+// Also handles bytea arrays (_bytea): []interface{} of base64/hex strings.
 func decodeBytea(val any, isSnapshot bool) any {
+	// Bytea array: convert each element
+	if arr, ok := val.([]interface{}); ok {
+		for i, elem := range arr {
+			arr[i] = decodeBytea(elem, isSnapshot)
+		}
+		return arr
+	}
+
 	strVal, ok := val.(string)
 	if !ok {
 		return val
