@@ -41,7 +41,11 @@ func (a *dmlAdapter) getIdentityColumns(d *wal.Data) ([]wal.Column, error) {
 	case len(d.Identity) > 0:
 		return d.Identity, nil
 	case len(d.Metadata.InternalColIDs) > 0:
-		return a.extractPrimaryKeyColumns(d.Metadata.InternalColIDs, d.Columns), nil
+		cols := a.extractPrimaryKeyColumns(d.Metadata.InternalColIDs, d.Columns)
+		if len(cols) == 0 {
+			return nil, errUnableToBuildQuery
+		}
+		return cols, nil
 	default:
 		return nil, errUnableToBuildQuery
 	}
