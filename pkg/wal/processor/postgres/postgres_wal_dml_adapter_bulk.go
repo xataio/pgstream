@@ -283,7 +283,8 @@ func (a *dmlAdapter) buildBulkInsertQueries(events []*wal.Data, si schemaInfo) [
 		queries = append(queries, &query{
 			table:  events[0].Table,
 			schema: events[0].Schema,
-			sql:    fmt.Sprintf("SELECT setval('%s', %d, true)", seqName, maxVal),
+			sql:    "SELECT setval($1::regclass, $2::bigint, true)",
+			args:   []any{seqName, maxVal},
 		})
 	}
 

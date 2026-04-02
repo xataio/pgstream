@@ -329,8 +329,8 @@ func TestBuildBulkInsertQueries_WithSequence(t *testing.T) {
 
 	// the setval should use the max value (10)
 	setvalQuery := queries[1]
-	require.Contains(t, setvalQuery.sql, "setval")
-	require.Contains(t, setvalQuery.sql, "10")
+	require.Equal(t, "SELECT setval($1::regclass, $2::bigint, true)", setvalQuery.sql)
+	require.Equal(t, []any{"users_id_seq", int64(10)}, setvalQuery.args)
 }
 
 func TestBuildBulkInsertQueries_WithGeneratedColumns(t *testing.T) {
