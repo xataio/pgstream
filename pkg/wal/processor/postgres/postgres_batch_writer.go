@@ -122,6 +122,10 @@ func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]
 		}
 
 		for _, msg := range messages {
+			if msg.IsEmpty() {
+				continue
+			}
+
 			if msg.isDDL {
 				// flush any pending DML run before executing DDL
 				if err := flushRun(); err != nil {
