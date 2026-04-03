@@ -53,6 +53,7 @@ func Prepare() *cobra.Command {
 	initCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be created by pgstream on the source url")
 	initCmd.Flags().Bool("with-injector", false, "Whether to initialise pgstream with the injector database migrations")
 	initCmd.Flags().Bool("migrations-only", false, "Whether to only run the initialization database migrations")
+	initCmd.Flags().Bool("upgrade", false, "Clean up v0.9.x state before initializing (idempotent, safe for repeated use)")
 
 	// destroy cmd
 	destroyCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream destroy will be run")
@@ -85,6 +86,7 @@ func Prepare() *cobra.Command {
 	runCmd.Flags().Bool("reset", false, "Whether to reset the target before snapshotting (only for postgres target)")
 	runCmd.Flags().Bool("profile", false, "Whether to expose a /debug/pprof endpoint on localhost:6060")
 	runCmd.Flags().BoolVar(&initFlag, "init", false, "Whether to initialize pgstream before starting replication")
+	runCmd.Flags().BoolVar(&upgradeFlag, "upgrade", false, "Clean up v0.9.x state before initializing (idempotent, safe for repeated use; implies --init)")
 	runCmd.Flags().String("dump-file", "", "File where the pg_dump output will be written if initial snapshot is enabled")
 	runCmd.Flags().Bool("with-injector", false, "Whether to enable the injection of pgstream metadata to the WAL events. Required for search targets.")
 

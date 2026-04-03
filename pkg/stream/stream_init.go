@@ -21,6 +21,7 @@ type InitConfig struct {
 	ReplicationSlotName       string
 	InjectorMigrationsEnabled bool
 	MigrationsOnly            bool
+	Upgrade                   bool
 }
 
 type InitOption func(*InitConfig)
@@ -28,6 +29,12 @@ type InitOption func(*InitConfig)
 func WithMigrationsOnly() InitOption {
 	return func(cfg *InitConfig) {
 		cfg.MigrationsOnly = true
+	}
+}
+
+func WithUpgrade() InitOption {
+	return func(cfg *InitConfig) {
+		cfg.Upgrade = true
 	}
 }
 
@@ -54,6 +61,12 @@ func Init(ctx context.Context, config *InitConfig) error {
 	// created under it
 	if err := createPGStreamSchema(ctx, conn); err != nil {
 		return fmt.Errorf("failed to create pgstream schema: %w", err)
+	}
+
+	if config.Upgrade {
+		if err := cleanupV09xState(ctx, conn); err != nil {
+			return fmt.Errorf("failed to clean up v0.9.x state: %w", err)
+		}
 	}
 
 	migrationAssets := []*migratorlib.MigrationAssets{
@@ -243,4 +256,43 @@ func getReplicationSlotName(pgURL string) (string, error) {
 		dbName = cfg.Database
 	}
 	return pglib.DefaultReplicationSlotName(dbName), nil
+}
+
+// cleanupV09xState removes database objects that were created by v0.9.x but
+// are no longer needed in v1.0. The cleanup is idempotent — all statements use
+// IF EXISTS so they are safe to run concurrently or repeatedly.
+func cleanupV09xState(ctx context.Context, conn *pgx.Conn) error {
+	// Check if v0.9.x state exists by looking for the old schema_migrations
+	// table (v1.0 uses schema_migrations_core/schema_migrations_injector instead).
+	var exists bool
+	err := conn.QueryRow(ctx,
+		`SELECT EXISTS (
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = 'pgstream' AND table_name = 'schema_migrations'
+		)`).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("checking for v0.9.x state: %w", err)
+	}
+	if !exists {
+		return nil
+	}
+
+	// v0.9.x objects that are not present in v1.0
+	cleanupStatements := []string{
+		"DROP EVENT TRIGGER IF EXISTS pgstream_log_schema_create_alter_table",
+		"DROP EVENT TRIGGER IF EXISTS pgstream_log_schema_drop_schema_table",
+		"DROP FUNCTION IF EXISTS pgstream.log_schema()",
+		"DROP FUNCTION IF EXISTS pgstream.get_schema(text)",
+		"DROP FUNCTION IF EXISTS pgstream.refresh_schema()",
+		"DROP TABLE IF EXISTS pgstream.schema_log",
+		"DROP TABLE IF EXISTS pgstream.schema_migrations",
+	}
+
+	for _, stmt := range cleanupStatements {
+		if _, err := conn.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("executing %q: %w", stmt, err)
+		}
+	}
+
+	return nil
 }
