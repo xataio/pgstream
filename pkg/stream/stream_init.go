@@ -277,10 +277,32 @@ func cleanupV09xState(ctx context.Context, conn *pgx.Conn) error {
 		return nil
 	}
 
+	// Drop all pgstream event triggers first (they depend on pgstream.log_schema)
+	rows, err := conn.Query(ctx, `SELECT evtname FROM pg_event_trigger WHERE evtname LIKE 'pgstream_%'`)
+	if err != nil {
+		return fmt.Errorf("querying event triggers: %w", err)
+	}
+	var triggers []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return fmt.Errorf("scanning event trigger name: %w", err)
+		}
+		triggers = append(triggers, name)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating event triggers: %w", err)
+	}
+	for _, name := range triggers {
+		if _, err := conn.Exec(ctx, fmt.Sprintf("DROP EVENT TRIGGER IF EXISTS %s", name)); err != nil {
+			return fmt.Errorf("dropping event trigger %s: %w", name, err)
+		}
+	}
+
 	// v0.9.x objects that are not present in v1.0
 	cleanupStatements := []string{
-		"DROP EVENT TRIGGER IF EXISTS pgstream_log_schema_create_alter_table",
-		"DROP EVENT TRIGGER IF EXISTS pgstream_log_schema_drop_schema_table",
 		"DROP FUNCTION IF EXISTS pgstream.log_schema()",
 		"DROP FUNCTION IF EXISTS pgstream.get_schema(text)",
 		"DROP FUNCTION IF EXISTS pgstream.refresh_schema()",
