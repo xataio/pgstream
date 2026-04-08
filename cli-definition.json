@@ -53,6 +53,11 @@
           "default": ""
         },
         {
+          "name": "upgrade",
+          "description": "Clean up v0.9.x state before initializing (idempotent, safe for repeated use)",
+          "default": "false"
+        },
+        {
           "name": "with-injector",
           "description": "Whether to initialise pgstream with the injector database migrations",
           "default": "false"
@@ -116,6 +121,11 @@
           "name": "target-url",
           "description": "Target URL",
           "default": ""
+        },
+        {
+          "name": "upgrade",
+          "description": "Clean up v0.9.x state before initializing (idempotent, safe for repeated use; implies --init)",
+          "default": "false"
         },
         {
           "name": "with-injector",
