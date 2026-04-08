@@ -34,6 +34,13 @@ func (i *instrumentedWalAdapter) walEventToQueries(ctx context.Context, event *w
 	return i.inner.walEventToQueries(ctx, event)
 }
 
+func (i *instrumentedWalAdapter) walEventToMessage(ctx context.Context, event *wal.Event) (msg *walMessage, err error) {
+	ctx, span := otel.StartSpan(ctx, i.tracer, "walAdapter.walEventToMessage")
+	defer otel.CloseSpan(span, err)
+
+	return i.inner.walEventToMessage(ctx, event)
+}
+
 func (i *instrumentedWalAdapter) close() error {
 	return i.inner.close()
 }
