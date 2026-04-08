@@ -218,7 +218,8 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				{
 					schema: testSchema,
 					table:  testTable,
-					sql:    `SELECT setval('"id_seq"', 1, true)`,
+					sql:    "SELECT setval($1::regclass, $2::bigint, true)",
+					args:   []any{`"id_seq"`, int64(1)},
 				},
 			},
 		},

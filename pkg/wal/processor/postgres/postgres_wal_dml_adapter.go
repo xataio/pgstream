@@ -137,9 +137,8 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 			qs = append(qs, &query{
 				table:  d.Table,
 				schema: d.Schema,
-				sql: fmt.Sprintf("SELECT setval('%s', %d, true)",
-					seqName,
-					int64(colValueFloat)),
+				sql:    "SELECT setval($1::regclass, $2::bigint, true)",
+				args:   []any{seqName, int64(colValueFloat)},
 			})
 		}
 	}
