@@ -213,7 +213,9 @@ func parsePostgresListenerConfig() (*stream.PostgresListenerConfig, error) {
 			PostgresURL:         pgURL,
 			ReplicationSlotName: viper.GetString("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME"),
 			PluginArguments: pgreplication.PluginArguments{
-				IncludeXIDs: viper.GetBool("PGSTREAM_POSTGRES_REPLICATION_PLUGIN_INCLUDE_XIDS"),
+				IncludeXIDs:  viper.GetBool("PGSTREAM_POSTGRES_REPLICATION_PLUGIN_INCLUDE_XIDS"),
+				AddTables:    viper.GetString("PGSTREAM_POSTGRES_REPLICATION_PLUGIN_ADD_TABLES"),
+				FilterTables: viper.GetString("PGSTREAM_POSTGRES_REPLICATION_PLUGIN_FILTER_TABLES"),
 			},
 		},
 		RetryPolicy: parseBackoffConfig("PGSTREAM_POSTGRES_LISTENER"),

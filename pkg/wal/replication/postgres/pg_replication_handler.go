@@ -47,7 +47,9 @@ type Config struct {
 }
 
 type PluginArguments struct {
-	IncludeXIDs bool
+	IncludeXIDs  bool
+	AddTables    string // wal2json add-tables option (e.g., "public.*")
+	FilterTables string // wal2json filter-tables option (e.g., "pipelines.*,private.*")
 }
 
 type Option func(h *Handler)
@@ -109,6 +111,12 @@ func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, erro
 
 	if cfg.PluginArguments.IncludeXIDs {
 		h.pluginArguments = append(h.pluginArguments, `"include-xids" '1'`)
+	}
+	if cfg.PluginArguments.AddTables != "" {
+		h.pluginArguments = append(h.pluginArguments, fmt.Sprintf(`"add-tables" '%s'`, cfg.PluginArguments.AddTables))
+	}
+	if cfg.PluginArguments.FilterTables != "" {
+		h.pluginArguments = append(h.pluginArguments, fmt.Sprintf(`"filter-tables" '%s'`, cfg.PluginArguments.FilterTables))
 	}
 
 	if len(cfg.IncludeTables) > 0 {
