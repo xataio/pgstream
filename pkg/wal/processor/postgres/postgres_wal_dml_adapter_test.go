@@ -426,6 +426,58 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 			},
 		},
 		{
+			name: "insert with tsvector - for copy enabled",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "search_vec", Value: []byte("'hello':1 'world':2"), Type: "tsvector"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+			forCopy: true,
+
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: []string{`"id"`, `"search_vec"`},
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"search_vec\") OVERRIDING SYSTEM VALUE VALUES($1, $2)", quotedTestTable),
+					args:        []any{1, "'hello':1 'world':2"},
+				},
+			},
+		},
+		{
+			name: "insert with tsvector string - for copy enabled",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "search_vec", Value: "'hello':1 'world':2", Type: "tsvector"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+			forCopy: true,
+
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: []string{`"id"`, `"search_vec"`},
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"search_vec\") OVERRIDING SYSTEM VALUE VALUES($1, $2)", quotedTestTable),
+					args:        []any{1, "'hello':1 'world':2"},
+				},
+			},
+		},
+		{
 			name: "insert with enum array - for copy enabled",
 			walData: &wal.Data{
 				Action: "I",

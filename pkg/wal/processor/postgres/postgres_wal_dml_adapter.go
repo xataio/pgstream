@@ -298,6 +298,11 @@ func (a *dmlAdapter) updateValueForCopy(value any, colType string) any {
 		return getInfinityValueForDateTime(value, colType)
 	case "tstzrange":
 		return getTypedTSTZRange(value)
+	case "tsvector":
+		if b, ok := value.([]byte); ok {
+			return string(b)
+		}
+		return value
 	}
 
 	// Handle array types
