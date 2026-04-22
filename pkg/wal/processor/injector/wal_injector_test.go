@@ -483,6 +483,57 @@ func TestInjector_inject(t *testing.T) {
 	}
 }
 
+func TestInjector_Close(t *testing.T) {
+	t.Parallel()
+
+	t.Run("propagates close to processor and querier", func(t *testing.T) {
+		t.Parallel()
+
+		processorClosed := false
+		querierClosed := false
+
+		i := &Injector{
+			logger: loglib.NewNoopLogger(),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(_ context.Context, _ *wal.Event) error { return nil },
+				CloseFn: func() error {
+					processorClosed = true
+					return nil
+				},
+			},
+			querier: &pgmocks.Querier{
+				CloseFn: func(_ context.Context) error {
+					querierClosed = true
+					return nil
+				},
+			},
+		}
+
+		err := i.Close()
+		require.NoError(t, err)
+		require.True(t, processorClosed, "Close must propagate to the wrapped processor")
+		require.True(t, querierClosed, "Close must propagate to the querier")
+	})
+
+	t.Run("returns joined errors", func(t *testing.T) {
+		t.Parallel()
+
+		i := &Injector{
+			logger: loglib.NewNoopLogger(),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(_ context.Context, _ *wal.Event) error { return nil },
+				CloseFn:           func() error { return errTest },
+			},
+			querier: &pgmocks.Querier{
+				CloseFn: func(_ context.Context) error { return errTest },
+			},
+		}
+
+		err := i.Close()
+		require.Error(t, err)
+	})
+}
+
 func TestInjector_injectColumnIDs(t *testing.T) {
 	t.Parallel()
 

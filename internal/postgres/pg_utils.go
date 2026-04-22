@@ -60,11 +60,34 @@ func (qn *QualifiedName) Name() string {
 	return qn.name
 }
 
+// QuoteIdentifier quotes an identifier (e.g. table or schema name) if it is not
+// already quoted. Trailing and leading quotes are added, and any embedded
+// double quotes are escaped by doubling them. For example:
+// - my_table -> "my_table"
+// - "my_table" -> "my_table" (already quoted, returned as-is)
+// - my"table -> "my""table"
 func QuoteIdentifier(s string) string {
 	if IsQuotedIdentifier(s) {
 		return s
 	}
 	return pq.QuoteIdentifier(s)
+}
+
+// UnquoteIdentifier reverses the quoting applied by QuoteIdentifier. If the
+// string is not a quoted identifier, it is returned as-is. If it is a quoted
+// identifier, the leading and trailing quotes are removed, and any embedded
+// double quotes are unescaped by replacing "" with ". For example:
+// - `my_table`-> `my_table` (not quoted, returned as-is)
+// - `"my_table"` -> `my_table` (quotes removed)
+// - `"my""table"` -> `my"table` (quotes removed, embedded quotes unescaped)
+func UnquoteIdentifier(s string) string {
+	if !IsQuotedIdentifier(s) {
+		return s
+	}
+	// Strip exactly one leading and trailing double quote, then unescape
+	// embedded double quotes by collapsing "" to ".
+	inner := s[1 : len(s)-1]
+	return strings.ReplaceAll(inner, `""`, `"`)
 }
 
 func QuoteQualifiedIdentifier(schema, table string) string {

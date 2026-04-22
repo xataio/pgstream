@@ -106,20 +106,106 @@ func Test_QualifiedName_Schema_Name(t *testing.T) {
 
 func Test_QuoteIdentifier(t *testing.T) {
 	t.Parallel()
-	require.Equal(t, `"table"`, QuoteIdentifier("table"))
-	require.Equal(t, `"schema"`, QuoteIdentifier("schema"))
 
-	// Test with already quoted identifier
-	require.Equal(t, `"quoted"`, QuoteIdentifier(`"quoted"`))
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple identifier",
+			input:    "table",
+			expected: `"table"`,
+		},
+		{
+			name:     "schema name",
+			input:    "schema",
+			expected: `"schema"`,
+		},
+		{
+			name:     "already quoted identifier",
+			input:    `"quoted"`,
+			expected: `"quoted"`,
+		},
+		{
+			name:     "identifier with underscore",
+			input:    "my_table",
+			expected: `"my_table"`,
+		},
+		{
+			name:     "identifier with numbers",
+			input:    "table123",
+			expected: `"table123"`,
+		},
+		{
+			name:     "identifier with embedded quote needs escaping",
+			input:    `my"table`,
+			expected: `"my""table"`,
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: `""`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := QuoteIdentifier(tc.input)
+			require.Equal(t, tc.expected, got)
+		})
+	}
 }
 
 func Test_QuoteQualifiedIdentifier(t *testing.T) {
 	t.Parallel()
-	require.Equal(t, `"schema"."table"`, QuoteQualifiedIdentifier("schema", "table"))
-	require.Equal(t, `"a"."b"`, QuoteQualifiedIdentifier("a", "b"))
 
-	// Test with already quoted identifiers
-	require.Equal(t, `"schema"."Table"`, QuoteQualifiedIdentifier(`"schema"`, `"Table"`))
+	tests := []struct {
+		name     string
+		schema   string
+		table    string
+		expected string
+	}{
+		{
+			name:     "simple identifiers",
+			schema:   "schema",
+			table:    "table",
+			expected: `"schema"."table"`,
+		},
+		{
+			name:     "short identifiers",
+			schema:   "a",
+			table:    "b",
+			expected: `"a"."b"`,
+		},
+		{
+			name:     "already quoted identifiers",
+			schema:   `"schema"`,
+			table:    `"Table"`,
+			expected: `"schema"."Table"`,
+		},
+		{
+			name:     "mixed quoted and unquoted",
+			schema:   `"schema"`,
+			table:    "table",
+			expected: `"schema"."table"`,
+		},
+		{
+			name:     "empty strings",
+			schema:   "",
+			table:    "",
+			expected: `"".""`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := QuoteQualifiedIdentifier(tc.schema, tc.table)
+			require.Equal(t, tc.expected, got)
+		})
+	}
 }
 
 func Test_newIdentifier(t *testing.T) {
@@ -428,6 +514,95 @@ func Test_IsValidReplicationSlotName(t *testing.T) {
 			t.Parallel()
 			err := IsValidReplicationSlotName(tc.slotName)
 			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
+func Test_UnquoteIdentifier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "quoted identifier",
+			input:    `"table"`,
+			expected: "table",
+		},
+		{
+			name:     "unquoted identifier - returned as-is",
+			input:    "table",
+			expected: "table",
+		},
+		{
+			name:     "empty string - returned as-is",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "only opening quote - returned as-is (not properly quoted)",
+			input:    `"table`,
+			expected: `"table`,
+		},
+		{
+			name:     "only closing quote - returned as-is (not properly quoted)",
+			input:    `table"`,
+			expected: `table"`,
+		},
+		{
+			name:     "single quote - returned as-is (too short)",
+			input:    `"`,
+			expected: `"`,
+		},
+		{
+			name:     "two quotes - returned as-is (too short, len=2)",
+			input:    `""`,
+			expected: `""`,
+		},
+		{
+			name:     "three quotes - empty after unquoting",
+			input:    `"""`,
+			expected: `"`,
+		},
+		{
+			name:     "quoted with special characters",
+			input:    `"My Table"`,
+			expected: "My Table",
+		},
+		{
+			name:     "quoted with numbers",
+			input:    `"table123"`,
+			expected: "table123",
+		},
+		{
+			name:     "quoted with embedded escaped quotes",
+			input:    `"my""table"`,
+			expected: `my"table`,
+		},
+		{
+			name:     "quoted with multiple embedded escaped quotes",
+			input:    `"my""table""name"`,
+			expected: `my"table"name`,
+		},
+		{
+			name:     "quoted empty string",
+			input:    `""""`,
+			expected: `"`,
+		},
+		{
+			name:     "identifier with spaces",
+			input:    `"table name"`,
+			expected: "table name",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := UnquoteIdentifier(tc.input)
+			require.Equal(t, tc.expected, got)
 		})
 	}
 }

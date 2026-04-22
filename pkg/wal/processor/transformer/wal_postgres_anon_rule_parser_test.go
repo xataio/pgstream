@@ -22,9 +22,11 @@ func TestAnonRuleParser_ParseAndValidate(t *testing.T) {
 
 	errTest := errors.New("oh noes")
 
-	validTransformers := map[string]ColumnTransformers{
-		"public.users": map[string]transformers.Transformer{
-			"email": &transformermocks.Transformer{},
+	validTransformers := &TransformerMap{
+		activeTransformerMap: map[string]ColumnTransformers{
+			"public.users": map[string]transformers.Transformer{
+				"email": &transformermocks.Transformer{},
+			},
 		},
 	}
 
@@ -60,7 +62,7 @@ func TestAnonRuleParser_ParseAndValidate(t *testing.T) {
 		marshaler  func(v any) ([]byte, error)
 
 		wantFile   bool
-		wantResult map[string]ColumnTransformers
+		wantResult *TransformerMap
 		wantErr    error
 	}{
 		{
@@ -70,7 +72,7 @@ func TestAnonRuleParser_ParseAndValidate(t *testing.T) {
 					return testRows(), nil
 				},
 			},
-			parser: func(ctx context.Context, rules Rules) (map[string]ColumnTransformers, error) {
+			parser: func(ctx context.Context, rules Rules) (*TransformerMap, error) {
 				return validTransformers, nil
 			},
 			dumpToFile: false,
@@ -84,7 +86,7 @@ func TestAnonRuleParser_ParseAndValidate(t *testing.T) {
 					return testRows(), nil
 				},
 			},
-			parser: func(ctx context.Context, rules Rules) (map[string]ColumnTransformers, error) {
+			parser: func(ctx context.Context, rules Rules) (*TransformerMap, error) {
 				return validTransformers, nil
 			},
 			dumpToFile: true,
@@ -103,11 +105,11 @@ func TestAnonRuleParser_ParseAndValidate(t *testing.T) {
 					}, nil
 				},
 			},
-			parser: func(ctx context.Context, rules Rules) (map[string]ColumnTransformers, error) {
-				return map[string]ColumnTransformers{}, nil
+			parser: func(ctx context.Context, rules Rules) (*TransformerMap, error) {
+				return NewTransformerMap(), nil
 			},
 			dumpToFile: false,
-			wantResult: map[string]ColumnTransformers{},
+			wantResult: NewTransformerMap(),
 			wantErr:    nil,
 		},
 		{
@@ -117,7 +119,7 @@ func TestAnonRuleParser_ParseAndValidate(t *testing.T) {
 					return nil, errTest
 				},
 			},
-			parser: func(ctx context.Context, rules Rules) (map[string]ColumnTransformers, error) {
+			parser: func(ctx context.Context, rules Rules) (*TransformerMap, error) {
 				return nil, nil
 			},
 			dumpToFile: false,
@@ -131,7 +133,7 @@ func TestAnonRuleParser_ParseAndValidate(t *testing.T) {
 					return testRows(), nil
 				},
 			},
-			parser: func(ctx context.Context, rules Rules) (map[string]ColumnTransformers, error) {
+			parser: func(ctx context.Context, rules Rules) (*TransformerMap, error) {
 				return nil, errTest
 			},
 			dumpToFile: false,
@@ -145,7 +147,7 @@ func TestAnonRuleParser_ParseAndValidate(t *testing.T) {
 					return testRows(), nil
 				},
 			},
-			parser: func(ctx context.Context, rules Rules) (map[string]ColumnTransformers, error) {
+			parser: func(ctx context.Context, rules Rules) (*TransformerMap, error) {
 				return validTransformers, nil
 			},
 			dumpToFile: true,

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,78 +44,81 @@ func TestBatchWriter_ProcessWALEvent(t *testing.T) {
 		CommitPosition: testCommitPosition,
 	}
 
-	testInsertQuery := &query{
-		sql:  "INSERT INTO test(id, name) VALUES($1, $2) ON CONFLICT (id) DO NOTHING",
-		args: []any{1, "alice"},
+	testMessage := &walMessage{
+		data: testWalEvent.Data,
+		schemaInfo: schemaInfo{
+			generatedColumns: map[string]struct{}{},
+			sequenceColumns:  map[string]string{},
+		},
 	}
 
 	tests := []struct {
 		name        string
 		walEvent    *wal.Event
-		batchSender *batchmocks.BatchSender[*query]
+		batchSender *batchmocks.BatchSender[*walMessage]
 		adapter     walAdapter
 
-		wantMsgs []*batch.WALMessage[*query]
+		wantMsgs []*batch.WALMessage[*walMessage]
 		wantErr  error
 	}{
 		{
 			name:        "ok",
 			walEvent:    testWalEvent,
-			batchSender: batchmocks.NewBatchSender[*query](),
+			batchSender: batchmocks.NewBatchSender[*walMessage](),
 			adapter: &mockAdapter{
-				walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
+				walEventToMessageFn: func(e *wal.Event) (*walMessage, error) {
 					require.Equal(t, e, testWalEvent)
-					return []*query{testInsertQuery}, nil
+					return testMessage, nil
 				},
 			},
 
-			wantMsgs: []*batch.WALMessage[*query]{
-				batch.NewWALMessage(testInsertQuery, testCommitPosition),
+			wantMsgs: []*batch.WALMessage[*walMessage]{
+				batch.NewWALMessage(testMessage, testCommitPosition),
 			},
 			wantErr: nil,
 		},
 		{
-			name:        "error - event to query",
+			name:        "error - event to message",
 			walEvent:    testWalEvent,
-			batchSender: batchmocks.NewBatchSender[*query](),
+			batchSender: batchmocks.NewBatchSender[*walMessage](),
 			adapter: &mockAdapter{
-				walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
+				walEventToMessageFn: func(e *wal.Event) (*walMessage, error) {
 					return nil, errTest
 				},
 			},
 
-			wantMsgs: []*batch.WALMessage[*query]{},
+			wantMsgs: []*batch.WALMessage[*walMessage]{},
 			wantErr:  errTest,
 		},
 		{
 			name:     "error - adding to batch",
 			walEvent: testWalEvent,
-			batchSender: func() *batchmocks.BatchSender[*query] {
-				s := batchmocks.NewBatchSender[*query]()
-				s.SendMessageFn = func(ctx context.Context, w *batch.WALMessage[*query]) error { return errTest }
+			batchSender: func() *batchmocks.BatchSender[*walMessage] {
+				s := batchmocks.NewBatchSender[*walMessage]()
+				s.SendMessageFn = func(ctx context.Context, w *batch.WALMessage[*walMessage]) error { return errTest }
 				return s
 			}(),
 			adapter: &mockAdapter{
-				walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
+				walEventToMessageFn: func(e *wal.Event) (*walMessage, error) {
 					require.Equal(t, e, testWalEvent)
-					return []*query{testInsertQuery}, nil
+					return testMessage, nil
 				},
 			},
 
-			wantMsgs: []*batch.WALMessage[*query]{},
+			wantMsgs: []*batch.WALMessage[*walMessage]{},
 			wantErr:  errTest,
 		},
 		{
 			name:        "error - panic recovery",
 			walEvent:    testWalEvent,
-			batchSender: batchmocks.NewBatchSender[*query](),
+			batchSender: batchmocks.NewBatchSender[*walMessage](),
 			adapter: &mockAdapter{
-				walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
+				walEventToMessageFn: func(e *wal.Event) (*walMessage, error) {
 					panic(errTest)
 				},
 			},
 
-			wantMsgs: []*batch.WALMessage[*query]{},
+			wantMsgs: []*batch.WALMessage[*walMessage]{},
 			wantErr:  processor.ErrPanic,
 		},
 	}
@@ -151,28 +155,39 @@ func TestBatchWriter_ProcessWALEvent(t *testing.T) {
 func TestBatchWriter_sendBatch(t *testing.T) {
 	t.Parallel()
 
-	testQuery := &query{
-		sql:  "INSERT INTO test(id, name) VALUES($1, $2)",
-		args: []any{1, "alice"},
+	newDMLMsg := func(action string, schema, table string, identity []wal.Column) *walMessage {
+		return &walMessage{
+			data: &wal.Data{
+				Action:   action,
+				Schema:   schema,
+				Table:    table,
+				Identity: identity,
+			},
+		}
+	}
+
+	deleteMsg := func(id any) *walMessage {
+		return newDMLMsg("D", testSchema, testTable, []wal.Column{
+			{Name: "id", Type: "bigint", Value: id},
+		})
 	}
 
 	tests := []struct {
 		name         string
 		pgconn       *pgmocks.Querier
-		batchSender  *batchmocks.BatchSender[*query]
-		batch        *batch.Batch[*query]
+		adapter      walAdapter
+		dmlAdapter   *dmlAdapter
+		batch        *batch.Batch[*walMessage]
 		checkpointer checkpointer.Checkpoint
 
 		wantErr error
 	}{
 		{
-			name: "ok",
+			name: "ok - single insert message",
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					mockTx := pgmocks.Tx{
-						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
-							require.Equal(t, testQuery.sql, query)
-							require.Equal(t, testQuery.args, args)
+						ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
 							return pglib.CommandTag{}, nil
 						},
 					}
@@ -180,8 +195,80 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 				},
 				CloseFn: func(ctx context.Context) error { return nil },
 			},
-			batchSender: batchmocks.NewBatchSender[*query](),
-			batch:       batch.NewBatch([]*query{testQuery}, []wal.CommitPosition{testCommitPosition}),
+			adapter:    &mockAdapter{},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
+				{
+					data: &wal.Data{
+						Action: "I",
+						Schema: testSchema,
+						Table:  testTable,
+						Columns: []wal.Column{
+							{Name: "id", Type: "bigint", Value: float64(1)},
+							{Name: "name", Type: "text", Value: "alice"},
+						},
+					},
+				},
+			}, []wal.CommitPosition{testCommitPosition}),
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - coalesced deletes",
+			pgconn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
+							require.True(t, strings.Contains(sql, "ANY"), "expected bulk delete with ANY, got: %s", sql)
+							return pglib.CommandTag{}, nil
+						},
+					}
+					return f(&mockTx)
+				},
+				CloseFn: func(ctx context.Context) error { return nil },
+			},
+			adapter:    &mockAdapter{},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
+				deleteMsg(float64(1)),
+				deleteMsg(float64(2)),
+				deleteMsg(float64(3)),
+			}, []wal.CommitPosition{testCommitPosition}),
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - DDL flushes pending DML",
+			pgconn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
+							return pglib.CommandTag{}, nil
+						},
+					}
+					return f(&mockTx)
+				},
+				ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
+					require.Equal(t, "ALTER TABLE test_schema.test_table ADD COLUMN x text", sql)
+					return pglib.CommandTag{}, nil
+				},
+				CloseFn: func(ctx context.Context) error { return nil },
+			},
+			adapter: &mockAdapter{
+				walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
+					return []*query{{
+						schema: testSchema,
+						table:  testTable,
+						sql:    "ALTER TABLE test_schema.test_table ADD COLUMN x text",
+						isDDL:  true,
+					}}, nil
+				},
+			},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
+				deleteMsg(float64(1)),
+				{data: &wal.Data{Action: "M", Prefix: "pgstream.ddl", Schema: testSchema, Table: testTable}, isDDL: true},
+			}, []wal.CommitPosition{testCommitPosition}),
 
 			wantErr: nil,
 		},
@@ -190,7 +277,7 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					mockTx := pgmocks.Tx{
-						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+						ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
 							return pglib.CommandTag{}, errTest
 						},
 					}
@@ -198,8 +285,11 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 				},
 				CloseFn: func(ctx context.Context) error { return nil },
 			},
-			batchSender: batchmocks.NewBatchSender[*query](),
-			batch:       batch.NewBatch([]*query{testQuery}, []wal.CommitPosition{testCommitPosition}),
+			adapter:    &mockAdapter{},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
+				deleteMsg(float64(1)),
+			}, []wal.CommitPosition{testCommitPosition}),
 
 			wantErr: errTest,
 		},
@@ -208,7 +298,7 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
 					mockTx := pgmocks.Tx{
-						ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+						ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
 							return pglib.CommandTag{}, nil
 						},
 					}
@@ -216,8 +306,11 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 				},
 				CloseFn: func(ctx context.Context) error { return nil },
 			},
-			batchSender:  batchmocks.NewBatchSender[*query](),
-			batch:        batch.NewBatch([]*query{testQuery}, []wal.CommitPosition{testCommitPosition}),
+			adapter:    &mockAdapter{},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
+				deleteMsg(float64(1)),
+			}, []wal.CommitPosition{testCommitPosition}),
 			checkpointer: func(ctx context.Context, positions []wal.CommitPosition) error { return errTest },
 
 			wantErr: errTest,
@@ -233,9 +326,10 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 					logger:       loglib.NewNoopLogger(),
 					pgConn:       tc.pgconn,
 					checkpointer: tc.checkpointer,
-					adapter:      &mockAdapter{},
+					adapter:      tc.adapter,
 				},
-				batchSender: tc.batchSender,
+				dmlAdapter:  tc.dmlAdapter,
+				batchSender: batchmocks.NewBatchSender[*walMessage](),
 			}
 			defer writer.Close()
 
@@ -457,4 +551,11 @@ func TestBatchWriter_flushQueries(t *testing.T) {
 			execCalls = 0
 		})
 	}
+}
+
+func mustNewDMLAdapter(t *testing.T) *dmlAdapter {
+	t.Helper()
+	a, err := newDMLAdapter("", false, loglib.NewNoopLogger())
+	require.NoError(t, err)
+	return a
 }

@@ -27,6 +27,7 @@ type Data struct {
 	Table     string   `json:"table"`
 	Columns   []Column `json:"columns"`
 	Identity  []Column `json:"identity"`
+	XID       int64    `json:"xid,omitempty"`
 	// For logical messages (when Action == "M")
 	Prefix  string `json:"prefix,omitempty"`
 	Content string `json:"content,omitempty"`

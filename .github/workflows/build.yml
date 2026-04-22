@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - v0.9.x
     tags:
       - "**"
   pull_request:
@@ -28,7 +29,7 @@ jobs:
         run: make test
 
       - name: Archive code coverage results
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: code-coverage
           path: coverage
@@ -82,7 +83,7 @@ jobs:
       actions: read # to download code coverage results from "test" job
       pull-requests: write # write permission needed to comment on PR
     steps:
-      - uses: fgrosse/go-coverage-report@v1.2.0
+      - uses: fgrosse/go-coverage-report@v1.3.0
         with:
           coverage-artifact-name: "code-coverage"
           coverage-file-name: "coverage"

@@ -3,6 +3,7 @@
 package postgres
 
 import (
+	stdjson "encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -136,9 +137,8 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 			qs = append(qs, &query{
 				table:  d.Table,
 				schema: d.Schema,
-				sql: fmt.Sprintf("SELECT setval('%s', %d, true)",
-					seqName,
-					int64(colValueFloat)),
+				sql:    "SELECT setval($1::regclass, $2::bigint, true)",
+				args:   []any{seqName, int64(colValueFloat)},
 			})
 		}
 	}
@@ -189,12 +189,21 @@ func (a *dmlAdapter) buildWhereQuery(d *wal.Data, placeholderOffset int) (string
 
 	whereQuery := "WHERE"
 	whereValues := make([]any, 0, len(cols))
+	placeholderIdx := placeholderOffset
 	for i, c := range cols {
 		if i != 0 {
 			whereQuery = fmt.Sprintf("%s AND", whereQuery)
 		}
-		whereQuery = fmt.Sprintf("%s %s = $%d", whereQuery, pglib.QuoteIdentifier(c.Name), i+placeholderOffset+1)
+
+		if c.Value == nil {
+			whereQuery = fmt.Sprintf("%s %s IS NULL", whereQuery, pglib.QuoteIdentifier(c.Name))
+			continue
+		}
+
+		placeholderIdx++
+		whereQuery = fmt.Sprintf("%s %s = $%d", whereQuery, pglib.QuoteIdentifier(c.Name), placeholderIdx)
 		whereValues = append(whereValues, serializeJSONBValue(c.Type, c.Value))
+
 	}
 	return whereQuery, whereValues, nil
 }
@@ -379,15 +388,24 @@ func isArray(colType string) bool {
 		(len(colType) > 1 && colType[0] == '_')
 }
 
-// serializeJSONBValue pre-serializes JSONB/JSON map/slice values with Sonic to
-// ensure consistent encoding between Sonic (wal2json parsing) and pgx (encoding/json).
-// String values pass through unchanged to avoid double-encoding.
+// serializeJSONBValue pre-serializes JSONB/JSON values to ensure consistent
+// encoding between Sonic (wal2json parsing) and pgx (encoding/json).
+// Map and slice values are always serialized. String values are serialized
+// only if they are not already valid JSON (e.g. JSON scalar strings like
+// "FIRST" from pgx rows.Values()), to avoid double-encoding pre-built JSON
+// documents passed as strings (e.g. from the schemalog snapshot generator).
 func serializeJSONBValue(colType string, val any) any {
 	if (colType == "jsonb" || colType == "json") && val != nil {
-		switch val.(type) {
+		switch v := val.(type) {
 		case map[string]any, []any:
 			if jsonBytes, err := json.Marshal(val); err == nil {
 				return jsonBytes
+			}
+		case string:
+			if !stdjson.Valid([]byte(v)) {
+				if jsonBytes, err := json.Marshal(v); err == nil {
+					return jsonBytes
+				}
 			}
 		}
 	}

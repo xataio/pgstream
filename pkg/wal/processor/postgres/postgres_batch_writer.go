@@ -16,11 +16,13 @@ import (
 )
 
 // BatchWriter is a WAL processor implementation that batches and writes wal
-// events to a Postgres instance.
+// events to a Postgres instance. It coalesces consecutive same-table DML
+// events into bulk SQL statements for improved throughput.
 type BatchWriter struct {
 	*Writer
 
-	batchSender queryBatchSender
+	batchSender walMessageBatchSender
+	dmlAdapter  *dmlAdapter
 }
 
 const batchWriter = "postgres_batch_writer"
@@ -33,8 +35,14 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...WriterOption) (
 		return nil, err
 	}
 
+	dml, err := newDMLAdapter(config.OnConflictAction, false, w.logger)
+	if err != nil {
+		return nil, err
+	}
+
 	bw := &BatchWriter{
-		Writer: w,
+		Writer:     w,
+		dmlAdapter: dml,
 	}
 
 	bw.batchSender, err = batch.NewSender(ctx, &config.BatchConfig, bw.sendBatch, w.logger)
@@ -60,17 +68,14 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) 
 		}
 	}()
 
-	queries, err := w.adapter.walEventToQueries(ctx, walEvent)
+	walMsg, err := w.adapter.walEventToMessage(ctx, walEvent)
 	if err != nil {
 		return err
 	}
 
-	for _, q := range queries {
-		w.logger.Debug("batching query", loglib.Fields{"sql": q.getSQL(), "args": q.getArgs(), "commit_position": walEvent.CommitPosition})
-		msg := batch.NewWALMessage(q, walEvent.CommitPosition)
-		if err := w.batchSender.SendMessage(ctx, msg); err != nil {
-			return err
-		}
+	msg := batch.NewWALMessage(walMsg, walEvent.CommitPosition)
+	if err := w.batchSender.SendMessage(ctx, msg); err != nil {
+		return err
 	}
 
 	return nil
@@ -87,45 +92,125 @@ func (w *BatchWriter) Close() error {
 	return w.close()
 }
 
-func (w *BatchWriter) sendBatch(ctx context.Context, batch *batch.Batch[*query]) error {
-	queries := batch.GetMessages()
-	if len(queries) > 0 {
-		w.logger.Debug("sending batch", loglib.Fields{"batch_size": len(queries)})
-		// we'll mostly process DML queries, so pre-allocate the max size
-		dmlQueries := make([]*query, 0, len(queries))
-		for _, q := range queries {
-			if !q.isDDL {
-				dmlQueries = append(dmlQueries, q)
+func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]) error {
+	messages := b.GetMessages()
+	if len(messages) > 0 {
+		w.logger.Debug("sending batch", loglib.Fields{"batch_size": len(messages)})
+
+		// Walk messages in order, building "runs" of consecutive
+		// same-(schema, table, action) DML events that can be coalesced.
+		var currentRun []*walMessage
+		var runSchema, runTable, runAction string
+
+		flushRun := func() error {
+			if len(currentRun) == 0 {
+				return nil
+			}
+			queries, err := w.buildCoalescedQueries(currentRun)
+			if err != nil {
+				w.logger.Error(err, "building coalesced queries", loglib.Fields{
+					"action": runAction, "schema": runSchema, "table": runTable, "run_size": len(currentRun),
+				})
+				return err
+			}
+			if err := w.flushQueries(ctx, queries); err != nil {
+				w.logger.Error(err, "flushing coalesced DML queries")
+				return err
+			}
+			currentRun = currentRun[:0]
+			return nil
+		}
+
+		for _, msg := range messages {
+			if msg.IsEmpty() {
 				continue
 			}
 
-			// flush any previous DML queries before running the DDL query to ensure
-			// they are run in their own separate transaction
-			if err := w.flushQueries(ctx, dmlQueries); err != nil {
-				w.logger.Error(err, "flushing DML queries")
-				return err
+			if msg.isDDL {
+				// flush any pending DML run before executing DDL
+				if err := flushRun(); err != nil {
+					return err
+				}
+
+				ddlQueries, err := w.adapter.walEventToQueries(ctx, &wal.Event{Data: msg.data})
+				if err != nil {
+					w.logger.Error(err, "converting DDL event to queries")
+					return err
+				}
+				for _, q := range ddlQueries {
+					if q.IsEmpty() {
+						continue
+					}
+					if _, err := w.pgConn.Exec(ctx, q.sql, q.args...); err != nil {
+						w.logger.Error(err, "running DDL query", loglib.Fields{"query_sql": q.sql, "query_args": q.args})
+						if !w.isInternalError(err) {
+							continue
+						}
+						return err
+					}
+				}
+				continue
 			}
 
-			if _, err := w.pgConn.Exec(ctx, q.sql, q.args...); err != nil {
-				w.logger.Error(err, "running DDL query", loglib.Fields{"query_sql": q.sql, "query_args": q.args})
-				if !w.isInternalError(err) {
-					continue
+			// check if this message continues the current run
+			if len(currentRun) > 0 && (msg.data.Schema != runSchema || msg.data.Table != runTable || msg.data.Action != runAction) {
+				if err := flushRun(); err != nil {
+					return err
 				}
-				return err
 			}
+
+			if len(currentRun) == 0 {
+				runSchema = msg.data.Schema
+				runTable = msg.data.Table
+				runAction = msg.data.Action
+			}
+			currentRun = append(currentRun, msg)
 		}
 
-		if err := w.flushQueries(ctx, dmlQueries); err != nil {
-			w.logger.Error(err, "flushing DML queries")
+		// flush any trailing run
+		if err := flushRun(); err != nil {
 			return err
 		}
 	}
 
-	if w.checkpointer != nil && len(batch.GetCommitPositions()) > 0 {
-		return w.checkpointer(ctx, batch.GetCommitPositions())
+	if w.checkpointer != nil && len(b.GetCommitPositions()) > 0 {
+		return w.checkpointer(ctx, b.GetCommitPositions())
 	}
 
 	return nil
+}
+
+func (w *BatchWriter) buildCoalescedQueries(run []*walMessage) ([]*query, error) {
+	if len(run) == 0 {
+		return nil, nil
+	}
+
+	action := run[0].data.Action
+	switch action {
+	case "D":
+		events := make([]*wal.Data, len(run))
+		for i, m := range run {
+			events[i] = m.data
+		}
+		return w.dmlAdapter.buildBulkDeleteQuery(events)
+	case "I":
+		events := make([]*wal.Data, len(run))
+		for i, m := range run {
+			events[i] = m.data
+		}
+		return w.dmlAdapter.buildBulkInsertQueries(events, run[0].schemaInfo), nil
+	default:
+		// UPDATE, TRUNCATE, and anything else: individual queries
+		queries := make([]*query, 0, len(run))
+		for _, m := range run {
+			qs, err := w.dmlAdapter.walDataToQueries(m.data, m.schemaInfo)
+			if err != nil {
+				return nil, err
+			}
+			queries = append(queries, qs...)
+		}
+		return queries, nil
+	}
 }
 
 func (w *BatchWriter) flushQueries(ctx context.Context, queries []*query) error {

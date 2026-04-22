@@ -92,11 +92,24 @@ func RunPGRestore(ctx context.Context, opts PGRestoreOptions, dump []byte) (stri
 
 	// TODO: add streaming support when large data output is required
 	out, err := cmd.CombinedOutput()
-	if err != nil || strings.Contains(string(out), "ERROR") {
-		return "", fmt.Errorf("error restoring dump: %w", parsePgRestoreOutputErrs(out))
+	if restoreErr := buildRestoreError(out, err); restoreErr != nil {
+		return "", restoreErr
 	}
 
 	return string(out), nil
+}
+
+func buildRestoreError(out []byte, execErr error) error {
+	if execErr == nil && !strings.Contains(string(out), "ERROR") {
+		return nil
+	}
+	if parseErr := parsePgRestoreOutputErrs(out); parseErr != nil {
+		return fmt.Errorf("error restoring dump: %w", parseErr)
+	}
+	if execErr != nil {
+		return fmt.Errorf("error restoring dump: %w", execErr)
+	}
+	return nil
 }
 
 func removeDatabaseFromConnectionString(url string) (string, error) {
@@ -173,6 +186,8 @@ func parseErrorLine(line string) error {
 		return &ErrConstraintViolation{Details: line}
 	case strings.Contains(line, `permission denied to grant privileges as role`):
 		return &ErrPermissionDenied{Details: line}
+	case strings.Contains(line, "does not exist"):
+		return &ErrRelationDoesNotExist{Details: line}
 	default:
 		return errors.New(line)
 	}
@@ -219,10 +234,12 @@ func (e *PGRestoreErrors) addError(err error) {
 	var errAlreadyExists *ErrRelationAlreadyExists
 	var errConstraintViolation *ErrConstraintViolation
 	var errPermissionDenied *ErrPermissionDenied
+	var errDoesNotExist *ErrRelationDoesNotExist
 	switch {
 	case errors.As(err, &errAlreadyExists),
 		errors.As(err, &errConstraintViolation),
-		errors.As(err, &errPermissionDenied):
+		errors.As(err, &errPermissionDenied),
+		errors.As(err, &errDoesNotExist):
 		e.ignoredErrs = append(e.ignoredErrs, err)
 	default:
 		e.criticalErrs = append(e.criticalErrs, err)

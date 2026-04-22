@@ -28,6 +28,11 @@ type queryBatchSender interface {
 	Close()
 }
 
+type walMessageBatchSender interface {
+	SendMessage(context.Context, *batch.WALMessage[*walMessage]) error
+	Close()
+}
+
 type WriterOption func(*Writer)
 
 func newWriter(ctx context.Context, config *Config, writerType string, opts ...WriterOption) (*Writer, error) {

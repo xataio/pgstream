@@ -112,8 +112,18 @@ pg_restore: error: could not execute query: ERROR:  permission denied to grant p
 			output: "psql: error: FATAL:  database \"test\" does not exist\n",
 
 			wantErrs: &PGRestoreErrors{
-				criticalErrs: []error{
-					errors.New("psql: error: FATAL:  database \"test\" does not exist"),
+				ignoredErrs: []error{
+					&ErrRelationDoesNotExist{Details: "psql: error: FATAL:  database \"test\" does not exist"},
+				},
+			},
+		},
+		{
+			name:   "relation does not exist error from trigger drop",
+			output: "ERROR:  relation \"public.vendor_products\" does not exist\n",
+
+			wantErrs: &PGRestoreErrors{
+				ignoredErrs: []error{
+					&ErrRelationDoesNotExist{Details: "ERROR:  relation \"public.vendor_products\" does not exist"},
 				},
 			},
 		},
@@ -135,6 +145,67 @@ pg_restore: finished`,
 		t.Run(tt.name, func(t *testing.T) {
 			err := parsePgRestoreOutputErrs([]byte(tt.output))
 			require.Equal(t, tt.wantErrs, err)
+		})
+	}
+}
+
+func TestBuildRestoreError(t *testing.T) {
+	t.Parallel()
+
+	execErr := errors.New("exit status 1")
+
+	tests := []struct {
+		name    string
+		output  []byte
+		execErr error
+
+		wantNil     bool
+		wantContain string
+	}{
+		{
+			name:    "no error - success",
+			output:  []byte("pg_restore: finished\n"),
+			execErr: nil,
+			wantNil: true,
+		},
+		{
+			name:        "exec error with no parseable output",
+			output:      []byte("some unexpected output\n"),
+			execErr:     execErr,
+			wantContain: "exit status 1",
+		},
+		{
+			name:        "exec error with empty output",
+			output:      []byte{},
+			execErr:     execErr,
+			wantContain: "exit status 1",
+		},
+		{
+			name:        "exec error with parseable ERROR lines",
+			output:      []byte("pg_restore: error: could not execute query: ERROR:  relation \"users\" already exists\n"),
+			execErr:     execErr,
+			wantContain: "already exists",
+		},
+		{
+			name:        "no exec error but output contains ERROR",
+			output:      []byte("ERROR:  relation \"users\" already exists\n"),
+			execErr:     nil,
+			wantContain: "already exists",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := buildRestoreError(tc.output, tc.execErr)
+			if tc.wantNil {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantContain)
+			assert.NotContains(t, err.Error(), "%!w(<nil>)")
 		})
 	}
 }
@@ -206,6 +277,11 @@ func TestParseErrorLine(t *testing.T) {
 			name:    "permission denied",
 			line:    "pg_restore: error: could not execute query: ERROR:  permission denied to grant privileges as role \"admin\"",
 			wantErr: &ErrPermissionDenied{Details: "pg_restore: error: could not execute query: ERROR:  permission denied to grant privileges as role \"admin\""},
+		},
+		{
+			name:    "relation does not exist",
+			line:    `ERROR:  relation "public.vendor_products" does not exist`,
+			wantErr: &ErrRelationDoesNotExist{Details: `ERROR:  relation "public.vendor_products" does not exist`},
 		},
 		{
 			name:    "generic error",

@@ -27,6 +27,8 @@ type Handler struct {
 	includedTables pglib.SchemaTableMap
 
 	lsnParser replication.LSNParser
+
+	pluginArguments []string
 }
 
 type Config struct {
@@ -39,6 +41,13 @@ type Config struct {
 	ExcludeTables []string
 	// List of qualified tables included for replication.
 	IncludeTables []string
+	// PluginArguments are arguments to be passed to the logical decoding plugin
+	// (wal2json).
+	PluginArguments PluginArguments
+}
+
+type PluginArguments struct {
+	IncludeXIDs bool
 }
 
 type Option func(h *Handler)
@@ -50,7 +59,7 @@ const (
 	logSystemID    = "system_id"
 )
 
-var pluginArguments = []string{
+var defaultPluginArguments = []string{
 	`"include-timestamp" '1'`,
 	`"format-version" '2'`,
 	`"write-in-chunks" '1'`,
@@ -95,6 +104,11 @@ func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, erro
 			logSlotName:    replicationSlotName,
 			logLSNPosition: sysID.XLogPos,
 		},
+		pluginArguments: defaultPluginArguments,
+	}
+
+	if cfg.PluginArguments.IncludeXIDs {
+		h.pluginArguments = append(h.pluginArguments, `"include-xids" '1'`)
 	}
 
 	if len(cfg.IncludeTables) > 0 {
@@ -171,7 +185,7 @@ func (h *Handler) StartReplicationFromLSN(ctx context.Context, lsn replication.L
 		ctx, pglib.ReplicationConfig{
 			SlotName:        h.pgReplicationSlotName,
 			StartPos:        uint64(lsn),
-			PluginArguments: pluginArguments,
+			PluginArguments: h.pluginArguments,
 		})
 	if err != nil {
 		return fmt.Errorf("startReplication: %w", err)

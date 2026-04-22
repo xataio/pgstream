@@ -10,10 +10,18 @@ import (
 
 type mockAdapter struct {
 	walEventToQueriesFn func(*wal.Event) ([]*query, error)
+	walEventToMessageFn func(*wal.Event) (*walMessage, error)
 }
 
 func (m *mockAdapter) walEventToQueries(_ context.Context, e *wal.Event) ([]*query, error) {
 	return m.walEventToQueriesFn(e)
+}
+
+func (m *mockAdapter) walEventToMessage(_ context.Context, e *wal.Event) (*walMessage, error) {
+	if m.walEventToMessageFn != nil {
+		return m.walEventToMessageFn(e)
+	}
+	return &walMessage{}, nil
 }
 
 func (m *mockAdapter) close() error {

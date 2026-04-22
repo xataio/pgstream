@@ -12,6 +12,203 @@ import (
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
+func TestAdapter_walEventToMessage(t *testing.T) {
+	t.Parallel()
+
+	testDDLEvent := wal.DDLEvent{
+		DDL:        "CREATE TABLE users (id INT PRIMARY KEY, name TEXT);",
+		SchemaName: "public",
+		Objects: []wal.DDLObject{
+			{
+				Type:     "table",
+				Identity: "public.users",
+				Schema:   "public",
+			},
+		},
+	}
+
+	testDDLEventJSON, err := json.Marshal(testDDLEvent)
+	require.NoError(t, err)
+
+	testDDLWalEvent := &wal.Event{
+		Data: &wal.Data{
+			Action:  wal.LogicalMessageAction,
+			Prefix:  wal.DDLPrefix,
+			Content: string(testDDLEventJSON),
+		},
+	}
+
+	errTest := errors.New("oh noes")
+
+	testGeneratedCols := map[string]struct{}{"gen": {}}
+	testSeqCols := map[string]string{"id": "users_id_seq"}
+
+	tests := []struct {
+		name            string
+		event           *wal.Event
+		schemaObserver  schemaObserver
+		ddlAdapter      ddlQueryAdapter
+		ddlEventAdapter ddlEventAdapter
+
+		wantMsg *walMessage
+		wantErr error
+	}{
+		{
+			name: "nil event data",
+			event: &wal.Event{
+				Data: nil,
+			},
+			schemaObserver: &mockSchemaObserver{},
+
+			wantMsg: &walMessage{},
+			wantErr: nil,
+		},
+		{
+			name: "materialized view",
+			event: &wal.Event{
+				Data: &wal.Data{
+					Schema: "public",
+					Table:  "mat_view",
+				},
+			},
+			schemaObserver: &mockSchemaObserver{
+				isMaterializedViewFn: func(schema, table string) bool {
+					return schema == "public" && table == "mat_view"
+				},
+			},
+
+			wantMsg: &walMessage{},
+			wantErr: nil,
+		},
+		{
+			name:  "ddl event with ddl adapter",
+			event: testDDLWalEvent,
+			schemaObserver: &mockSchemaObserver{
+				isMaterializedViewFn: func(schema, table string) bool { return false },
+				updateFn:             func(ddlEvent *wal.DDLEvent) {},
+			},
+			ddlEventAdapter: func(d *wal.Data) (*wal.DDLEvent, error) {
+				return &testDDLEvent, nil
+			},
+			ddlAdapter: &mockDDLAdapter{},
+
+			wantMsg: &walMessage{data: testDDLWalEvent.Data, isDDL: true},
+			wantErr: nil,
+		},
+		{
+			name:  "ddl event without ddl adapter",
+			event: testDDLWalEvent,
+			schemaObserver: &mockSchemaObserver{
+				isMaterializedViewFn: func(schema, table string) bool { return false },
+				updateFn:             func(ddlEvent *wal.DDLEvent) {},
+			},
+			ddlEventAdapter: func(d *wal.Data) (*wal.DDLEvent, error) {
+				return &testDDLEvent, nil
+			},
+			ddlAdapter: nil,
+
+			wantMsg: &walMessage{},
+			wantErr: nil,
+		},
+		{
+			name: "regular dml event",
+			event: &wal.Event{
+				Data: &wal.Data{
+					Schema: "public",
+					Table:  "users",
+					Action: "I",
+				},
+			},
+			schemaObserver: &mockSchemaObserver{
+				isMaterializedViewFn: func(schema, table string) bool { return false },
+				getGeneratedColumnNamesFn: func(ctx context.Context, schema, table string) (map[string]struct{}, error) {
+					return testGeneratedCols, nil
+				},
+				getSequenceColumnsFn: func(ctx context.Context, schema, table string) (map[string]string, error) {
+					return testSeqCols, nil
+				},
+			},
+
+			wantMsg: &walMessage{
+				data: &wal.Data{Schema: "public", Table: "users", Action: "I"},
+				schemaInfo: schemaInfo{
+					generatedColumns: testGeneratedCols,
+					sequenceColumns:  testSeqCols,
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name:  "error - ddl event adapter",
+			event: testDDLWalEvent,
+			schemaObserver: &mockSchemaObserver{
+				isMaterializedViewFn: func(schema, table string) bool { return false },
+			},
+			ddlEventAdapter: func(d *wal.Data) (*wal.DDLEvent, error) {
+				return nil, errTest
+			},
+
+			wantMsg: nil,
+			wantErr: errTest,
+		},
+		{
+			name: "error getting generated columns",
+			event: &wal.Event{
+				Data: &wal.Data{
+					Schema: "public",
+					Table:  "users",
+				},
+			},
+			schemaObserver: &mockSchemaObserver{
+				isMaterializedViewFn: func(schema, table string) bool { return false },
+				getGeneratedColumnNamesFn: func(ctx context.Context, schema, table string) (map[string]struct{}, error) {
+					return nil, errTest
+				},
+			},
+
+			wantMsg: nil,
+			wantErr: errTest,
+		},
+		{
+			name: "error getting sequence columns",
+			event: &wal.Event{
+				Data: &wal.Data{
+					Schema: "public",
+					Table:  "users",
+				},
+			},
+			schemaObserver: &mockSchemaObserver{
+				isMaterializedViewFn: func(schema, table string) bool { return false },
+				getGeneratedColumnNamesFn: func(ctx context.Context, schema, table string) (map[string]struct{}, error) {
+					return map[string]struct{}{}, nil
+				},
+				getSequenceColumnsFn: func(ctx context.Context, schema, table string) (map[string]string, error) {
+					return nil, errTest
+				},
+			},
+
+			wantMsg: nil,
+			wantErr: errTest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			a := adapter{
+				ddlAdapter:      tc.ddlAdapter,
+				schemaObserver:  tc.schemaObserver,
+				ddlEventAdapter: tc.ddlEventAdapter,
+			}
+
+			msg, err := a.walEventToMessage(context.Background(), tc.event)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantMsg, msg)
+		})
+	}
+}
+
 func TestAdapter_walEventToQueries(t *testing.T) {
 	t.Parallel()
 

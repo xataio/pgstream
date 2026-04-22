@@ -95,6 +95,15 @@ func (e *DDLEvent) GetObjectsByType(objectType string) []DDLObject {
 	return objs
 }
 
+func (e *DDLEvent) GetTableObjectByName(schema, table string) *DDLObject {
+	for _, obj := range e.GetTableObjects() {
+		if obj.Schema == schema && obj.GetTable() == table {
+			return &obj
+		}
+	}
+	return nil
+}
+
 func (e *DDLEvent) IsDropEvent() bool {
 	return strings.HasPrefix(e.CommandTag, "DROP")
 }
