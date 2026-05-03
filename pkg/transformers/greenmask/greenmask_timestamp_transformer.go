@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
@@ -13,6 +14,7 @@ import (
 )
 
 type UTCTimestampTransformer struct {
+	mu          sync.Mutex
 	transformer *greenmasktransformers.Timestamp
 }
 
@@ -117,6 +119,12 @@ func (t *UTCTimestampTransformer) Transform(_ context.Context, value transformer
 	default:
 		return nil, transformers.ErrUnsupportedValueType
 	}
+	// greenmask's Timestamp transformer holds a *rand.Rand that is not safe
+	// for concurrent use, but pgstream shares one transformer across snapshot
+	// worker goroutines. Serialize the call so concurrent writers don't
+	// corrupt the shared rng (issue #789).
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	return t.transformer.Transform(nil, toTransform)
 }
 
