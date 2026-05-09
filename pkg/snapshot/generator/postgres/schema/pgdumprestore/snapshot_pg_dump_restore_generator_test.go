@@ -1284,7 +1284,10 @@ ALTER TABLE ONLY public.test_table
     ADD CONSTRAINT test_table_pkey PRIMARY KEY (id);
 
 ALTER TABLE ONLY public.test_table
-    ADD CONSTRAINT test_table_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.test_table(id);
+    ADD CONSTRAINT test_table_value_key UNIQUE (value);
+
+ALTER TABLE ONLY public.test_table
+    ADD CONSTRAINT "test_table UNIQUE named foreign key" FOREIGN KEY (parent_id) REFERENCES public.test_table(id);
 
 CREATE INDEX test_table_value_idx ON public.test_table USING btree (value);
 `)
@@ -1298,9 +1301,12 @@ CREATE INDEX test_table_value_idx ON public.test_table USING btree (value);
 	conflictTargetDump := []byte(`ALTER TABLE ONLY public.test_table
     ADD CONSTRAINT test_table_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY public.test_table
+    ADD CONSTRAINT test_table_value_key UNIQUE (value);
+
 `)
 	remainingConstraintsDump := []byte(`ALTER TABLE ONLY public.test_table
-    ADD CONSTRAINT test_table_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.test_table(id);
+    ADD CONSTRAINT "test_table UNIQUE named foreign key" FOREIGN KEY (parent_id) REFERENCES public.test_table(id);
 
 CREATE INDEX test_table_value_idx ON public.test_table USING btree (value);
 

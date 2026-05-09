@@ -308,8 +308,14 @@ func isConflictTargetConstraint(block string) bool {
 	if strings.HasPrefix(upperBlock, "CREATE UNIQUE INDEX") {
 		return true
 	}
-	return strings.Contains(upperBlock, "ADD CONSTRAINT") &&
-		(strings.Contains(upperBlock, " PRIMARY KEY ") || strings.Contains(upperBlock, " UNIQUE "))
+	if !strings.Contains(upperBlock, "ADD CONSTRAINT") {
+		return false
+	}
+	return strings.Contains(upperBlock, " PRIMARY KEY (") ||
+		strings.Contains(upperBlock, " PRIMARY KEY USING INDEX ") ||
+		strings.Contains(upperBlock, " UNIQUE (") ||
+		strings.Contains(upperBlock, " UNIQUE NULLS NOT DISTINCT (") ||
+		strings.Contains(upperBlock, " UNIQUE USING INDEX ")
 }
 
 func (s *SnapshotGenerator) restoreIndicesAndConstraints(ctx context.Context, dump []byte, ss *snapshot.Snapshot) error {
