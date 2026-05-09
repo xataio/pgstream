@@ -39,6 +39,12 @@ type SnapshotGenerator struct {
 	roleSQLParser          *roleSQLParser
 	optionGenerator        *optionGenerator
 	snapshotTracker        snapshotProgressTracker
+	// restoreIndicesAndConstraintsBeforeData restores primary keys, indexes and
+	// constraints before the wrapped data snapshot generator runs. This is
+	// needed when the data writer uses INSERT ... ON CONFLICT DO UPDATE, since
+	// Postgres requires the conflict target to have a matching unique or primary
+	// key constraint before data is inserted.
+	restoreIndicesAndConstraintsBeforeData bool
 }
 
 type snapshotProgressTracker interface {
@@ -67,6 +73,11 @@ type Config struct {
 	DumpDebugFile string
 	// if set, security label providers that will be excluded from the dump
 	ExcludedSecurityLabels []string
+	// Restore primary keys, indexes and constraints before data is snapshotted.
+	// This is required when the data snapshot writer emits INSERT ... ON
+	// CONFLICT DO UPDATE, because the target table must already have a matching
+	// unique or primary key constraint.
+	RestoreIndicesAndConstraintsBeforeData bool
 }
 
 type Option func(s *SnapshotGenerator)
@@ -96,17 +107,18 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 	}
 
 	sg := &SnapshotGenerator{
-		sourceURL:              c.SourcePGURL,
-		targetURL:              c.TargetPGURL,
-		pgDumpFn:               pglib.RunPGDump,
-		pgDumpAllFn:            pglib.RunPGDumpAll,
-		pgRestoreFn:            pglib.RunPGRestore,
-		logger:                 loglib.NewNoopLogger(),
-		dumpDebugFile:          c.DumpDebugFile,
-		excludedSecurityLabels: c.ExcludedSecurityLabels,
-		roleSQLParser:          &roleSQLParser{},
-		sourceQuerier:          sourceConnPool,
-		optionGenerator:        newOptionGenerator(sourceConnPool, c),
+		sourceURL:                              c.SourcePGURL,
+		targetURL:                              c.TargetPGURL,
+		pgDumpFn:                               pglib.RunPGDump,
+		pgDumpAllFn:                            pglib.RunPGDumpAll,
+		pgRestoreFn:                            pglib.RunPGRestore,
+		logger:                                 loglib.NewNoopLogger(),
+		dumpDebugFile:                          c.DumpDebugFile,
+		excludedSecurityLabels:                 c.ExcludedSecurityLabels,
+		restoreIndicesAndConstraintsBeforeData: c.RestoreIndicesAndConstraintsBeforeData,
+		roleSQLParser:                          &roleSQLParser{},
+		sourceQuerier:                          sourceConnPool,
+		optionGenerator:                        newOptionGenerator(sourceConnPool, c),
 	}
 
 	for _, opt := range opts {
@@ -225,8 +237,18 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return err
 	}
 
+	indicesAndConstraintsRestored := false
+	if s.generator != nil && s.restoreIndicesAndConstraintsBeforeData {
+		if err := s.restoreIndicesAndConstraints(ctx, dump.indicesAndConstraints, ss); err != nil {
+			return err
+		}
+		indicesAndConstraintsRestored = true
+	}
+
 	// call the wrapped snapshot generator if any before restoring sequences,
-	// indices and constraints to improve performance.
+	// indices and constraints to improve performance. When the data snapshot
+	// writer emits INSERT ... ON CONFLICT DO UPDATE, constraints are restored
+	// before data above so conflict targets are valid.
 	if s.generator != nil {
 		if err := s.generator.CreateSnapshot(ctx, ss); err != nil {
 			return err
@@ -239,17 +261,22 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return err
 	}
 
-	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
-	if s.snapshotTracker != nil {
-		if err := s.restoreIndicesWithTracking(ctx, dump.indicesAndConstraints); err != nil {
+	if !indicesAndConstraintsRestored {
+		if err := s.restoreIndicesAndConstraints(ctx, dump.indicesAndConstraints, ss); err != nil {
 			return err
 		}
-	} else if err := s.restoreDump(ctx, dump.indicesAndConstraints); err != nil {
-		return err
 	}
 
 	s.logger.Info("restoring views")
 	return s.restoreDump(ctx, dump.views)
+}
+
+func (s *SnapshotGenerator) restoreIndicesAndConstraints(ctx context.Context, dump []byte, ss *snapshot.Snapshot) error {
+	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
+	if s.snapshotTracker != nil {
+		return s.restoreIndicesWithTracking(ctx, dump)
+	}
+	return s.restoreDump(ctx, dump)
 }
 
 func (s *SnapshotGenerator) Close() error {

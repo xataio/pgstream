@@ -22,6 +22,7 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 	if err := config.IsValid(); err != nil {
 		return fmt.Errorf("incompatible configuration: %w", err)
 	}
+	prepareSnapshotSchemaRestore(config)
 
 	eg, ctx := errgroup.WithContext(ctx)
 
