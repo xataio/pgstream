@@ -39,11 +39,10 @@ type SnapshotGenerator struct {
 	roleSQLParser          *roleSQLParser
 	optionGenerator        *optionGenerator
 	snapshotTracker        snapshotProgressTracker
-	// restoreIndicesAndConstraintsBeforeData restores primary keys, indexes and
-	// constraints before the wrapped data snapshot generator runs. This is
-	// needed when the data writer uses INSERT ... ON CONFLICT DO UPDATE, since
-	// Postgres requires the conflict target to have a matching unique or primary
-	// key constraint before data is inserted.
+	// restoreIndicesAndConstraintsBeforeData restores constraints/indexes that can
+	// be used as INSERT ... ON CONFLICT targets before the wrapped data snapshot
+	// generator runs. Other indexes and constraints, such as foreign keys, are
+	// still restored after data is inserted.
 	restoreIndicesAndConstraintsBeforeData bool
 }
 
@@ -73,10 +72,10 @@ type Config struct {
 	DumpDebugFile string
 	// if set, security label providers that will be excluded from the dump
 	ExcludedSecurityLabels []string
-	// Restore primary keys, indexes and constraints before data is snapshotted.
-	// This is required when the data snapshot writer emits INSERT ... ON
-	// CONFLICT DO UPDATE, because the target table must already have a matching
-	// unique or primary key constraint.
+	// Restore constraints/indexes that can be used as INSERT ... ON CONFLICT
+	// targets before data is snapshotted. This is required when the data snapshot
+	// writer emits INSERT ... ON CONFLICT DO UPDATE, because the target table must
+	// already have a matching unique or primary key constraint.
 	RestoreIndicesAndConstraintsBeforeData bool
 }
 
@@ -237,18 +236,19 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return err
 	}
 
-	indicesAndConstraintsRestored := false
+	indicesAndConstraintsDump := dump.indicesAndConstraints
 	if s.generator != nil && s.restoreIndicesAndConstraintsBeforeData {
-		if err := s.restoreIndicesAndConstraints(ctx, dump.indicesAndConstraints, ss); err != nil {
+		conflictTargets, remaining := splitConflictTargetConstraints(dump.indicesAndConstraints)
+		if err := s.restoreIndicesAndConstraints(ctx, conflictTargets, ss); err != nil {
 			return err
 		}
-		indicesAndConstraintsRestored = true
+		indicesAndConstraintsDump = remaining
 	}
 
 	// call the wrapped snapshot generator if any before restoring sequences,
 	// indices and constraints to improve performance. When the data snapshot
-	// writer emits INSERT ... ON CONFLICT DO UPDATE, constraints are restored
-	// before data above so conflict targets are valid.
+	// writer emits INSERT ... ON CONFLICT DO UPDATE, the subset of constraints
+	// needed as conflict targets is restored before data above.
 	if s.generator != nil {
 		if err := s.generator.CreateSnapshot(ctx, ss); err != nil {
 			return err
@@ -261,14 +261,55 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return err
 	}
 
-	if !indicesAndConstraintsRestored {
-		if err := s.restoreIndicesAndConstraints(ctx, dump.indicesAndConstraints, ss); err != nil {
-			return err
-		}
+	if err := s.restoreIndicesAndConstraints(ctx, indicesAndConstraintsDump, ss); err != nil {
+		return err
 	}
 
 	s.logger.Info("restoring views")
 	return s.restoreDump(ctx, dump.views)
+}
+
+func splitConflictTargetConstraints(d []byte) ([]byte, []byte) {
+	blocks := strings.Split(string(d), "\n\n")
+	connectBlocks := []string{}
+	conflictTargetBlocks := []string{}
+	remainingBlocks := []string{}
+
+	for _, block := range blocks {
+		block = strings.TrimSpace(block)
+		if block == "" {
+			continue
+		}
+		switch {
+		case strings.Contains(block, `\connect`):
+			connectBlocks = append(connectBlocks, block)
+		case isConflictTargetConstraint(block):
+			conflictTargetBlocks = append(conflictTargetBlocks, block)
+		default:
+			remainingBlocks = append(remainingBlocks, block)
+		}
+	}
+
+	return joinDumpBlocks(connectBlocks, conflictTargetBlocks), joinDumpBlocks(connectBlocks, remainingBlocks)
+}
+
+func joinDumpBlocks(connectBlocks, blocks []string) []byte {
+	if len(blocks) == 0 {
+		return nil
+	}
+	allBlocks := make([]string, 0, len(connectBlocks)+len(blocks))
+	allBlocks = append(allBlocks, connectBlocks...)
+	allBlocks = append(allBlocks, blocks...)
+	return []byte(strings.Join(allBlocks, "\n\n") + "\n\n")
+}
+
+func isConflictTargetConstraint(block string) bool {
+	upperBlock := strings.ToUpper(block)
+	if strings.HasPrefix(upperBlock, "CREATE UNIQUE INDEX") {
+		return true
+	}
+	return strings.Contains(upperBlock, "ADD CONSTRAINT") &&
+		(strings.Contains(upperBlock, " PRIMARY KEY ") || strings.Contains(upperBlock, " UNIQUE "))
 }
 
 func (s *SnapshotGenerator) restoreIndicesAndConstraints(ctx context.Context, dump []byte, ss *snapshot.Snapshot) error {

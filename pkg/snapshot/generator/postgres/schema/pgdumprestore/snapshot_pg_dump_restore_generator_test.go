@@ -1276,20 +1276,33 @@ func TestSnapshotGenerator_RestoresConstraintsBeforeDataWhenConfigured(t *testin
 
 	schemaDump := []byte(`CREATE TABLE public.test_table (
     id integer NOT NULL,
+    parent_id integer,
     value text NOT NULL
 );
 
 ALTER TABLE ONLY public.test_table
     ADD CONSTRAINT test_table_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.test_table
+    ADD CONSTRAINT test_table_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.test_table(id);
+
+CREATE INDEX test_table_value_idx ON public.test_table USING btree (value);
 `)
 	filteredDump := []byte(`CREATE TABLE public.test_table (
     id integer NOT NULL,
+    parent_id integer,
     value text NOT NULL
 );
 
 `)
-	constraintDump := []byte(`ALTER TABLE ONLY public.test_table
+	conflictTargetDump := []byte(`ALTER TABLE ONLY public.test_table
     ADD CONSTRAINT test_table_pkey PRIMARY KEY (id);
+
+`)
+	remainingConstraintsDump := []byte(`ALTER TABLE ONLY public.test_table
+    ADD CONSTRAINT test_table_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.test_table(id);
+
+CREATE INDEX test_table_value_idx ON public.test_table USING btree (value);
 
 `)
 
@@ -1316,11 +1329,13 @@ ALTER TABLE ONLY public.test_table
 			return schemaDump, nil
 		}),
 		pgRestoreFn: newMockPgrestore(func(_ context.Context, i uint, po pglib.PGRestoreOptions, dump []byte) (string, error) {
-			switch string(dump) {
-			case string(filteredDump):
+			switch strings.TrimSpace(string(dump)) {
+			case strings.TrimSpace(string(filteredDump)):
 				calls = append(calls, "schema")
-			case string(constraintDump):
-				calls = append(calls, "constraints")
+			case strings.TrimSpace(string(conflictTargetDump)):
+				calls = append(calls, "conflict targets")
+			case strings.TrimSpace(string(remainingConstraintsDump)):
+				calls = append(calls, "remaining constraints")
 			default:
 				require.Failf(t, "unexpected dump", "%q", string(dump))
 			}
@@ -1350,7 +1365,7 @@ ALTER TABLE ONLY public.test_table
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, []string{"schema", "constraints", "data"}, calls)
+	require.Equal(t, []string{"schema", "conflict targets", "data", "remaining constraints"}, calls)
 }
 
 func TestSnapshotGenerator_parseDump(t *testing.T) {
