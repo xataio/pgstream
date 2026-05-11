@@ -16,7 +16,7 @@ import (
 
 var runCmd = &cobra.Command{
 	Use:     "run",
-	Short:   "Run starts a continuous data stream from the configured source to the configured target",
+	Short:   "Run starts a continuous data stream from the configured source to the configured target (use 'snapshot' for one-time snapshots only)",
 	PreRunE: runFlagBinding,
 	RunE:    withProfiling(withSignalWatcher(run)),
 	Example: `
