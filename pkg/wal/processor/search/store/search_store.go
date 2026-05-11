@@ -469,7 +469,7 @@ func (s *Store) ensureSchemaMapping(ctx context.Context, schemaName string, meta
 }
 
 func (s *Store) getAllNewColumns(diff *schemalog.Diff) []schemalog.Column {
-	cols := []schemalog.Column{}
+	cols := make([]schemalog.Column, 0, len(diff.TablesAdded)+len(diff.TablesChanged))
 	for _, tbl := range diff.TablesAdded {
 		cols = append(cols, tbl.Columns...)
 	}
