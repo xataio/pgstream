@@ -68,13 +68,12 @@ func (a *ddlAdapter) schemaDiffToQueries(schemaName string, diff *schemalog.Diff
 		return []*query{a.newDDLQuery(schemaName, "", dropQuery)}, nil
 	}
 
-	queries := []*query{
-		a.createSchemaIfNotExists(schemaName),
-	}
-
 	sequenceQueries, dropSequenceQueries := a.buildSequenceQueries(schemaName, diff)
 	mvQueries, dropMVQueries := a.buildMaterializedViewQueries(schemaName, diff)
 	tableQueries, fkQueries := a.buildTableQueries(schemaName, diff)
+
+	queries := make([]*query, 0, 1+len(dropMVQueries)+len(sequenceQueries)+len(tableQueries)+len(mvQueries)+len(dropSequenceQueries)+len(fkQueries))
+	queries = append(queries, a.createSchemaIfNotExists(schemaName))
 
 	// materialized views are dropped first to avoid dependency issues when they
 	// depend on tables/sequences that are being dropped
@@ -94,13 +93,13 @@ func (a *ddlAdapter) schemaDiffToQueries(schemaName string, diff *schemalog.Diff
 }
 
 func (a *ddlAdapter) buildTableQueries(schemaName string, diff *schemalog.Diff) ([]*query, []*query) {
-	queries := []*query{}
+	queries := make([]*query, 0, len(diff.TablesRemoved)+len(diff.TablesAdded)+len(diff.TablesChanged))
 	for _, table := range diff.TablesRemoved {
 		dropQuery := fmt.Sprintf("DROP TABLE IF EXISTS %s", quotedTableName(schemaName, table.Name))
 		queries = append(queries, a.newDDLQuery(schemaName, table.Name, dropQuery))
 	}
 
-	fkQueries := []*query{}
+	fkQueries := make([]*query, 0, len(diff.TablesAdded)+len(diff.TablesChanged))
 	for _, table := range diff.TablesAdded {
 		queries = append(queries, a.buildCreateTableQuery(schemaName, table))
 		queries = append(queries, a.buildCreateTableIndexQueries(schemaName, table)...)
@@ -118,13 +117,13 @@ func (a *ddlAdapter) buildTableQueries(schemaName string, diff *schemalog.Diff) 
 }
 
 func (a *ddlAdapter) buildMaterializedViewQueries(schemaName string, diff *schemalog.Diff) ([]*query, []*query) {
-	dropQueries := []*query{}
+	dropQueries := make([]*query, 0, len(diff.MaterializedViewsRemoved))
 	for _, mv := range diff.MaterializedViewsRemoved {
 		dropQuery := fmt.Sprintf("DROP MATERIALIZED VIEW IF EXISTS %s", pglib.QuoteQualifiedIdentifier(schemaName, mv.Name))
 		dropQueries = append(dropQueries, a.newDDLQuery(schemaName, mv.Name, dropQuery))
 	}
 
-	queries := []*query{}
+	queries := make([]*query, 0, len(diff.MaterializedViewsAdded)+len(diff.MaterializedViewsChanged))
 	for _, mv := range diff.MaterializedViewsAdded {
 		createQuery := fmt.Sprintf("CREATE MATERIALIZED VIEW IF NOT EXISTS %s AS %s", pglib.QuoteQualifiedIdentifier(schemaName, mv.Name), mv.Definition)
 		queries = append(queries, a.newDDLQuery(schemaName, mv.Name, createQuery))
@@ -139,13 +138,13 @@ func (a *ddlAdapter) buildMaterializedViewQueries(schemaName string, diff *schem
 }
 
 func (a *ddlAdapter) buildSequenceQueries(schemaName string, diff *schemalog.Diff) ([]*query, []*query) {
-	dropQueries := []*query{}
+	dropQueries := make([]*query, 0, len(diff.SequencesRemoved))
 	for _, seq := range diff.SequencesRemoved {
 		dropQuery := fmt.Sprintf("DROP SEQUENCE IF EXISTS %s", pglib.QuoteQualifiedIdentifier(schemaName, seq.Name))
 		dropQueries = append(dropQueries, a.newDDLQuery(schemaName, seq.Name, dropQuery))
 	}
 
-	queries := []*query{}
+	queries := make([]*query, 0, len(diff.SequencesAdded)+len(diff.SequencesChanged))
 	for _, seq := range diff.SequencesAdded {
 		createQuery := a.buildCreateSequenceQuery(schemaName, seq)
 		queries = append(queries, a.newDDLQuery(schemaName, seq.Name, createQuery))

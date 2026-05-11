@@ -1,6 +1,6 @@
 version: "2"
 run:
-  go: "1.24"
+  go: "1.26"
 linters:
   default: none
   enable:
@@ -46,6 +46,10 @@ linters:
       excludes:
         - G115 # Potential integer overflow when converting between integer types
         - G108 # Profiling endpoint automatically exposed on /debug/pprof
+        - G101 # Hardcoded credentials (false positives in tests/fixtures)
+        - G117 # Exported struct field name matches secret pattern
+        - G704 # SSRF via taint analysis
+        - G705 # XSS via taint analysis
       severity: low
     makezero:
       always: false
