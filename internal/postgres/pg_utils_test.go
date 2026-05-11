@@ -259,6 +259,49 @@ func Test_newIdentifier(t *testing.T) {
 	}
 }
 
+func Test_handlePgvectorRegisterTypesErr(t *testing.T) {
+	t.Parallel()
+
+	sentinelErr := errors.New("unexpected query failure")
+
+	tests := []struct {
+		name    string
+		err     error
+		wantErr error
+	}{
+		{
+			name:    "nil error",
+			err:     nil,
+			wantErr: nil,
+		},
+		{
+			name:    "pgvector extension is not installed",
+			err:     errors.New("vector type not found in the database"),
+			wantErr: nil,
+		},
+		{
+			name:    "unexpected registration failure",
+			err:     sentinelErr,
+			wantErr: sentinelErr,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := handlePgvectorRegisterTypesErr(tc.err)
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+				return
+			}
+
+			require.ErrorIs(t, err, tc.wantErr)
+			require.ErrorContains(t, err, "registering pgvector types")
+		})
+	}
+}
+
 func Test_IsQuotedIdentifier(t *testing.T) {
 	t.Parallel()
 
