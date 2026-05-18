@@ -116,7 +116,9 @@ type ReplicationConfig struct {
 }
 
 type PluginConfig struct {
-	IncludeXIDs bool `mapstructure:"include_xids" yaml:"include_xids"`
+	IncludeXIDs  bool   `mapstructure:"include_xids" yaml:"include_xids"`
+	AddTables    string `mapstructure:"add_tables" yaml:"add_tables"`
+	FilterTables string `mapstructure:"filter_tables" yaml:"filter_tables"`
 }
 
 type KafkaConfig struct {
@@ -429,6 +431,8 @@ func (c *YAMLConfig) parsePostgresListenerConfig() (*stream.PostgresListenerConf
 			replicationSlotName = c.Source.Postgres.Replication.ReplicationSlot
 			if c.Source.Postgres.Replication.Plugin != nil {
 				pluginArgs.IncludeXIDs = c.Source.Postgres.Replication.Plugin.IncludeXIDs
+				pluginArgs.AddTables = c.Source.Postgres.Replication.Plugin.AddTables
+				pluginArgs.FilterTables = c.Source.Postgres.Replication.Plugin.FilterTables
 			}
 		}
 		streamCfg.Replication = pgreplication.Config{

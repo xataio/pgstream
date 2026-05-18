@@ -11,6 +11,7 @@ import (
 
 type walAdapter interface {
 	walEventToQueries(ctx context.Context, e *wal.Event) ([]*query, error)
+	walEventToMessage(ctx context.Context, e *wal.Event) (*walMessage, error)
 	close() error
 }
 
@@ -112,6 +113,46 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 		}
 
 		return qs, nil
+	}
+}
+
+func (a *adapter) walEventToMessage(ctx context.Context, e *wal.Event) (*walMessage, error) {
+	switch {
+	case e.Data == nil,
+		a.schemaObserver.isMaterializedView(ctx, e.Data.Schema, e.Data.Table):
+		return &walMessage{}, nil
+
+	case e.Data.IsDDLEvent():
+		ddlEvent, err := a.ddlEventAdapter(e.Data)
+		if err != nil {
+			return nil, err
+		}
+		a.schemaObserver.update(ddlEvent)
+
+		if a.ddlAdapter == nil {
+			return &walMessage{}, nil
+		}
+
+		return &walMessage{data: e.Data, isDDL: true}, nil
+
+	default:
+		generatedColumns, err := a.schemaObserver.getGeneratedColumnNames(ctx, e.Data.Schema, e.Data.Table)
+		if err != nil {
+			return nil, err
+		}
+
+		columnSequences, err := a.schemaObserver.getSequenceColumns(ctx, e.Data.Schema, e.Data.Table)
+		if err != nil {
+			return nil, err
+		}
+
+		return &walMessage{
+			data: e.Data,
+			schemaInfo: schemaInfo{
+				generatedColumns: generatedColumns,
+				sequenceColumns:  columnSequences,
+			},
+		}, nil
 	}
 }
 
