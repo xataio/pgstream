@@ -92,13 +92,11 @@ func initialSnapshotFlagBinding(cmd *cobra.Command) {
 	if cmd.Flags().Lookup("snapshot-tables").Changed {
 		viper.BindPFlag("source.postgres.snapshot.tables", cmd.Flags().Lookup("snapshot-tables"))
 		if len(viper.GetStringSlice("source.postgres.snapshot.tables")) > 0 {
+			viper.Set("source.postgres.mode", "snapshot_and_replication")
 			dataOnly, _ := cmd.Flags().GetBool("data-only")
 			if dataOnly {
-				// Data-only mode: skip schema restore, only snapshot table data
-				viper.Set("source.postgres.mode", "snapshot_and_replication")
 				viper.Set("source.postgres.snapshot.mode", "data")
 			} else {
-				viper.Set("source.postgres.mode", "snapshot_and_replication")
 				viper.Set("source.postgres.snapshot.mode", "full")
 				viper.Set("source.postgres.snapshot.schema.mode", "schemalog")
 				if cmd.Flags().Lookup("target").Value.String() == postgres {
