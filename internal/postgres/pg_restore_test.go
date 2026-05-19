@@ -128,6 +128,16 @@ pg_restore: error: could not execute query: ERROR:  permission denied to grant p
 			},
 		},
 		{
+			name:   "partition already attached error",
+			output: "ERROR:  \"linking_queue_000\" is already a partition\n",
+
+			wantErrs: &PGRestoreErrors{
+				ignoredErrs: []error{
+					&ErrRelationAlreadyExists{Details: "ERROR:  \"linking_queue_000\" is already a partition"},
+				},
+			},
+		},
+		{
 			name: "mixed success and error output",
 			output: `pg_restore: processing data for table "users"
 pg_restore: error: could not execute query: ERROR:  relation "posts" already exists
@@ -282,6 +292,11 @@ func TestParseErrorLine(t *testing.T) {
 			name:    "relation does not exist",
 			line:    `ERROR:  relation "public.vendor_products" does not exist`,
 			wantErr: &ErrRelationDoesNotExist{Details: `ERROR:  relation "public.vendor_products" does not exist`},
+		},
+		{
+			name:    "already a partition",
+			line:    `ERROR:  "linking_queue_000" is already a partition`,
+			wantErr: &ErrRelationAlreadyExists{Details: `ERROR:  "linking_queue_000" is already a partition`},
 		},
 		{
 			name:    "generic error",
