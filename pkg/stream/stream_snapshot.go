@@ -16,7 +16,7 @@ import (
 
 func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrumentation *otel.Instrumentation) error {
 	if config.Listener.Postgres == nil {
-		return errors.New("source postgres snapshot not configured: the snapshot command requires a standalone snapshot configuration (mode: 'snapshot'), not 'snapshot_and_replication' or 'replication'")
+		return errors.New("source postgres snapshot not configured: ensure source.postgres is set")
 	}
 
 	if err := config.IsValid(); err != nil {
