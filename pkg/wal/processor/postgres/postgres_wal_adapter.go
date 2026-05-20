@@ -17,6 +17,7 @@ type walAdapter interface {
 
 type schemaObserver interface {
 	getGeneratedColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error)
+	getAlwaysIdentityColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error)
 	getSequenceColumns(ctx context.Context, schema, table string) (map[string]string, error)
 	isMaterializedView(ctx context.Context, schema, table string) bool
 	update(ddlEvent *wal.DDLEvent)
@@ -32,8 +33,9 @@ type ddlQueryAdapter interface {
 }
 
 type schemaInfo struct {
-	generatedColumns map[string]struct{}
-	sequenceColumns  map[string]string
+	generatedColumns      map[string]struct{}
+	alwaysIdentityColumns map[string]struct{}
+	sequenceColumns       map[string]string
 }
 
 type adapter struct {
@@ -99,14 +101,20 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 			return nil, err
 		}
 
+		alwaysIdentityColumns, err := a.schemaObserver.getAlwaysIdentityColumnNames(ctx, e.Data.Schema, e.Data.Table)
+		if err != nil {
+			return nil, err
+		}
+
 		columnSequences, err := a.schemaObserver.getSequenceColumns(ctx, e.Data.Schema, e.Data.Table)
 		if err != nil {
 			return nil, err
 		}
 
 		qs, err := a.dmlAdapter.walDataToQueries(e.Data, schemaInfo{
-			generatedColumns: generatedColumns,
-			sequenceColumns:  columnSequences,
+			generatedColumns:      generatedColumns,
+			alwaysIdentityColumns: alwaysIdentityColumns,
+			sequenceColumns:       columnSequences,
 		})
 		if err != nil {
 			return nil, err
@@ -141,6 +149,11 @@ func (a *adapter) walEventToMessage(ctx context.Context, e *wal.Event) (*walMess
 			return nil, err
 		}
 
+		alwaysIdentityColumns, err := a.schemaObserver.getAlwaysIdentityColumnNames(ctx, e.Data.Schema, e.Data.Table)
+		if err != nil {
+			return nil, err
+		}
+
 		columnSequences, err := a.schemaObserver.getSequenceColumns(ctx, e.Data.Schema, e.Data.Table)
 		if err != nil {
 			return nil, err
@@ -149,8 +162,9 @@ func (a *adapter) walEventToMessage(ctx context.Context, e *wal.Event) (*walMess
 		return &walMessage{
 			data: e.Data,
 			schemaInfo: schemaInfo{
-				generatedColumns: generatedColumns,
-				sequenceColumns:  columnSequences,
+				generatedColumns:      generatedColumns,
+				alwaysIdentityColumns: alwaysIdentityColumns,
+				sequenceColumns:       columnSequences,
 			},
 		}, nil
 	}

@@ -29,12 +29,13 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 	now := time.Now()
 
 	tests := []struct {
-		name             string
-		walData          *wal.Data
-		action           onConflictAction
-		generatedColumns map[string]struct{}
-		sequenceColumns  map[string]string
-		forCopy          bool
+		name                  string
+		walData               *wal.Data
+		action                onConflictAction
+		generatedColumns      map[string]struct{}
+		alwaysIdentityColumns map[string]struct{}
+		sequenceColumns       map[string]string
+		forCopy               bool
 
 		wantQueries []*query
 		wantErr     error
@@ -712,6 +713,63 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 			},
 		},
 		{
+			// regression: previously the always-identity column was included
+			// in the SET clause, which Postgres rejects with
+			// "column ... can only be updated to DEFAULT".
+			name: "update - with always-identity column filtered from SET",
+			walData: &wal.Data{
+				Action: "U",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "request_id", Value: 42},
+					{ID: columnID(3), Name: "name", Value: "alice"},
+				},
+				Identity: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+				},
+				Metadata: wal.Metadata{},
+			},
+			alwaysIdentityColumns: map[string]struct{}{`"request_id"`: {}},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3", quotedTestTable),
+					args:   []any{1, "alice", 1},
+				},
+			},
+		},
+		{
+			// always-identity columns are kept in INSERTs since OVERRIDING
+			// SYSTEM VALUE lets Postgres accept the explicit value.
+			name: "insert - with always-identity column kept",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "request_id", Value: 42},
+					{ID: columnID(3), Name: "name", Value: "alice"},
+				},
+				Metadata: wal.Metadata{},
+			},
+			alwaysIdentityColumns: map[string]struct{}{`"request_id"`: {}},
+
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: []string{`"id"`, `"request_id"`, `"name"`},
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"request_id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2, $3)", quotedTestTable),
+					args:        []any{1, 42, "alice"},
+				},
+			},
+		},
+		{
 			name: "update - with generated column",
 			walData: &wal.Data{
 				Action: "U",
@@ -785,8 +843,9 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				pgTypeMap:        pgtype.NewMap(),
 			}
 			queries, err := a.walDataToQueries(tc.walData, schemaInfo{
-				generatedColumns: tc.generatedColumns,
-				sequenceColumns:  tc.sequenceColumns,
+				generatedColumns:      tc.generatedColumns,
+				alwaysIdentityColumns: tc.alwaysIdentityColumns,
+				sequenceColumns:       tc.sequenceColumns,
 			})
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.wantQueries, queries)
@@ -838,9 +897,11 @@ func TestDMLAdapter_filterRowColumns(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		generatedColumns map[string]struct{}
-		columns          []wal.Column
+		name                  string
+		generatedColumns      map[string]struct{}
+		alwaysIdentityColumns map[string]struct{}
+		forUpdate             bool
+		columns               []wal.Column
 
 		wantColumns []string
 		wantValues  []any
@@ -879,6 +940,34 @@ func TestDMLAdapter_filterRowColumns(t *testing.T) {
 			wantColumns: []string{`"id"`, `"name"`},
 			wantValues:  []any{1, "alice"},
 		},
+		{
+			// always-identity columns are NOT filtered for INSERT — the
+			// builder uses OVERRIDING SYSTEM VALUE.
+			name:                  "always-identity kept for insert",
+			alwaysIdentityColumns: map[string]struct{}{`"id"`: {}},
+			forUpdate:             false,
+			columns: []wal.Column{
+				{Name: "id", Value: 1},
+				{Name: "name", Value: "alice"},
+			},
+
+			wantColumns: []string{`"id"`, `"name"`},
+			wantValues:  []any{1, "alice"},
+		},
+		{
+			// always-identity columns ARE filtered for UPDATE — Postgres
+			// rejects explicit values in SET for GENERATED ALWAYS columns.
+			name:                  "always-identity filtered for update",
+			alwaysIdentityColumns: map[string]struct{}{`"id"`: {}},
+			forUpdate:             true,
+			columns: []wal.Column{
+				{Name: "id", Value: 1},
+				{Name: "name", Value: "alice"},
+			},
+
+			wantColumns: []string{`"name"`},
+			wantValues:  []any{"alice"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -886,9 +975,10 @@ func TestDMLAdapter_filterRowColumns(t *testing.T) {
 			t.Parallel()
 
 			a := dmlAdapter{}
-			rowColumns, rowValues := a.filterRowColumns(tc.columns, schemaInfo{
-				generatedColumns: tc.generatedColumns,
-			})
+			rowColumns, rowValues := a.filterRowColumnsForAction(tc.columns, schemaInfo{
+				generatedColumns:      tc.generatedColumns,
+				alwaysIdentityColumns: tc.alwaysIdentityColumns,
+			}, tc.forUpdate)
 			require.Equal(t, tc.wantColumns, rowColumns)
 			require.Equal(t, tc.wantValues, rowValues)
 		})
