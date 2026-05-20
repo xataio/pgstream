@@ -147,7 +147,7 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 }
 
 func (a *dmlAdapter) buildUpdateQuery(d *wal.Data, schemaInfo schemaInfo) (*query, error) {
-	rowColumns, rowValues := a.filterRowColumns(d.Columns, schemaInfo)
+	rowColumns, rowValues := a.filterRowColumnsForAction(d.Columns, schemaInfo, true)
 	// if there are no columns after filtering generated ones, no query to run
 	if len(rowColumns) == 0 {
 		return &query{}, nil
@@ -269,15 +269,27 @@ func (a *dmlAdapter) extractPrimaryKeyColumnNames(colIDs []string, cols []wal.Co
 }
 
 func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo) ([]string, []any) {
-	// we need to make sure we only add the arguments for the
-	// relevant column names (this removes any generated columns/sequence row values)
+	return a.filterRowColumnsForAction(cols, schemaInfo, false)
+}
+
+// filterRowColumnsForAction drops generated columns, and — when forUpdate is
+// true — also drops GENERATED ALWAYS AS IDENTITY columns. INSERTs use
+// OVERRIDING SYSTEM VALUE so always-identity values are accepted, but no such
+// clause exists for UPDATE and Postgres rejects explicit values in SET.
+func (a *dmlAdapter) filterRowColumnsForAction(cols []wal.Column, schemaInfo schemaInfo, forUpdate bool) ([]string, []any) {
 	rowValues := make([]any, 0, len(cols))
 	rowColumns := make([]string, 0, len(cols))
 	for _, c := range cols {
-		if _, found := schemaInfo.generatedColumns[pglib.QuoteIdentifier(c.Name)]; found {
+		quoted := pglib.QuoteIdentifier(c.Name)
+		if _, found := schemaInfo.generatedColumns[quoted]; found {
 			continue
 		}
-		rowColumns = append(rowColumns, pglib.QuoteIdentifier(c.Name))
+		if forUpdate {
+			if _, found := schemaInfo.alwaysIdentityColumns[quoted]; found {
+				continue
+			}
+		}
+		rowColumns = append(rowColumns, quoted)
 		val := c.Value
 
 		val = serializeJSONBValue(c.Type, val)
