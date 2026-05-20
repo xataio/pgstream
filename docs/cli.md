@@ -130,6 +130,7 @@ The `run` command is the main operation mode for pgstream. It:
 - `--profile` - Whether to expose a /debug/pprof endpoint on localhost:6060
 - `--init` - Whether to initialize pgstream before starting replication
 - `--dump-file` - File where the pg_dump output will be written if initial snapshot is enabled when using pgdump/restore
+- `--data-only` - When used with `--snapshot-tables`, skip schema restore and only snapshot data. Use this when the schema is already present on the target. Defaults to `false`
 - `--with-injector` - Whether to enable the injection of pgstream metadata to the WAL events. Required for search targets (OpenSearch/Elasticsearch)
 
 **Examples:**
