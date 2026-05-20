@@ -276,6 +276,14 @@ func (c *Column) IsGenerated() bool {
 	return c.Generated || c.Identity != ""
 }
 
+// IsAlwaysIdentity reports whether the column is defined as
+// GENERATED ALWAYS AS IDENTITY. Such columns reject explicit values in UPDATE
+// SET clauses — only DEFAULT is accepted. The DDL injector encodes this as
+// "ALWAYS" in the schema log (see migrations/postgres/core/2_create_emit_ddl_function_and_triggers.up.sql).
+func (c *Column) IsAlwaysIdentity() bool {
+	return c.Identity == "ALWAYS"
+}
+
 func (c *Column) IsSerial() bool {
 	return c.HasSequence() &&
 		(strings.ToUpper(c.DataType) == "INTEGER" ||

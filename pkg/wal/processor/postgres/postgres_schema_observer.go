@@ -21,6 +21,10 @@ type pgSchemaObserver struct {
 	pgConn pglib.Querier
 	// generatedTableColumns is a map of schema.table to a list of generated column names.
 	generatedTableColumns *synclib.Map[string, map[string]struct{}]
+	// alwaysIdentityTableColumns is a map of schema.table to a set of column names
+	// defined as GENERATED ALWAYS AS IDENTITY. These must be filtered from UPDATE
+	// SET clauses since Postgres rejects explicit values for them.
+	alwaysIdentityTableColumns *synclib.Map[string, map[string]struct{}]
 	// materializedViews is a map of schema name to a set of materialized view names.
 	materializedViews *synclib.Map[string, map[string]struct{}]
 	// columnTableSequences is a map of schema.table to a map of sequence column names.
@@ -37,11 +41,12 @@ func newPGSchemaObserver(ctx context.Context, pgURL string, logger loglib.Logger
 		return nil, err
 	}
 	return &pgSchemaObserver{
-		pgConn:                pgConn,
-		generatedTableColumns: synclib.NewMap[string, map[string]struct{}](),
-		materializedViews:     synclib.NewMap[string, map[string]struct{}](),
-		columnTableSequences:  synclib.NewMap[string, map[string]string](),
-		logger:                logger,
+		pgConn:                     pgConn,
+		generatedTableColumns:      synclib.NewMap[string, map[string]struct{}](),
+		alwaysIdentityTableColumns: synclib.NewMap[string, map[string]struct{}](),
+		materializedViews:          synclib.NewMap[string, map[string]struct{}](),
+		columnTableSequences:       synclib.NewMap[string, map[string]string](),
+		logger:                     logger,
 	}, nil
 }
 
@@ -63,6 +68,25 @@ func (o *pgSchemaObserver) getGeneratedColumnNames(ctx context.Context, schema, 
 	}
 
 	o.generatedTableColumns.Set(key, colNames)
+	return colNames, nil
+}
+
+// getAlwaysIdentityColumnNames returns the set of GENERATED ALWAYS AS IDENTITY
+// column names for the given schema.table. If not cached, it queries postgres.
+func (o *pgSchemaObserver) getAlwaysIdentityColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error) {
+	key := pglib.QuoteQualifiedIdentifier(schema, table)
+
+	columns, found := o.alwaysIdentityTableColumns.Get(key)
+	if found {
+		return columns, nil
+	}
+
+	colNames, err := o.queryAlwaysIdentityColumnNames(ctx, schema, table)
+	if err != nil {
+		return nil, err
+	}
+
+	o.alwaysIdentityTableColumns.Set(key, colNames)
 	return colNames, nil
 }
 
@@ -114,18 +138,28 @@ func (o *pgSchemaObserver) update(logEntry *schemalog.LogEntry) {
 }
 
 // updateGeneratedColumnNames will update the internal cache with the table
-// columns for the schema log on input.
+// columns for the schema log on input. Identity columns are added to
+// generatedColumns via IsGenerated() (preserved historical behavior so live
+// INSERTs let the target auto-generate ids and the sequence increments
+// naturally). GENERATED ALWAYS AS IDENTITY columns are additionally tracked in
+// alwaysIdentityTableColumns so UPDATE SET clauses can drop them even on
+// cache paths where generatedColumns is empty (e.g. populated via SQL query).
 func (o *pgSchemaObserver) updateGeneratedColumnNames(logEntry *schemalog.LogEntry) {
 	for _, table := range logEntry.Schema.Tables {
 		key := pglib.QuoteQualifiedIdentifier(logEntry.SchemaName, table.Name)
 		generatedColumns := make(map[string]struct{}, len(table.Columns))
+		alwaysIdentityColumns := make(map[string]struct{}, len(table.Columns))
 		for _, c := range table.Columns {
+			if c.IsAlwaysIdentity() {
+				alwaysIdentityColumns[pglib.QuoteIdentifier(c.Name)] = struct{}{}
+			}
 			if c.IsGenerated() {
 				generatedColumns[pglib.QuoteIdentifier(c.Name)] = struct{}{}
 			}
 		}
 
 		o.generatedTableColumns.Set(key, generatedColumns)
+		o.alwaysIdentityTableColumns.Set(key, alwaysIdentityColumns)
 	}
 }
 
@@ -172,6 +206,34 @@ func (o *pgSchemaObserver) queryGeneratedColumnNames(ctx context.Context, schema
 		var columnName string
 		if err := rows.Scan(&columnName); err != nil {
 			return nil, fmt.Errorf("scanning table generated column name: %w", err)
+		}
+		columnNames[pglib.QuoteIdentifier(columnName)] = struct{}{}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return columnNames, nil
+}
+
+const alwaysIdentityTableColumnsQuery = `SELECT attname FROM pg_attribute
+		WHERE attnum > 0
+		AND attrelid = (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE c.relname=$1 and n.nspname=$2)
+		AND attidentity = 'a'`
+
+func (o *pgSchemaObserver) queryAlwaysIdentityColumnNames(ctx context.Context, schemaName, tableName string) (map[string]struct{}, error) {
+	columnNames := map[string]struct{}{}
+	rows, err := o.pgConn.Query(ctx, alwaysIdentityTableColumnsQuery, tableName, schemaName)
+	if err != nil {
+		return nil, fmt.Errorf("getting table always-identity column names for table %s.%s: %w", schemaName, tableName, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var columnName string
+		if err := rows.Scan(&columnName); err != nil {
+			return nil, fmt.Errorf("scanning table always-identity column name: %w", err)
 		}
 		columnNames[pglib.QuoteIdentifier(columnName)] = struct{}{}
 	}
