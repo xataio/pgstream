@@ -168,6 +168,7 @@ modifiers:
       - "excluded_test"
       - "excluded_schema.test"
       - "another_excluded_schema.*"
+  strip_null_char_bytes: true # strip null bytes (0x00) from string column values. Defaults to false
   transformations:
     validation_mode: relaxed
     table_transformers:
@@ -374,6 +375,15 @@ One of exponential/constant/disable retries retry policies can be provided for t
 | ------------------------------ | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PGSTREAM_FILTER_INCLUDE_TABLES | N/A     | No       | List of schema qualified tables for which the WAL events should be processed. If no schema is provided, `public` schema will be assumed. Wildcards are supported. |
 | PGSTREAM_FILTER_EXCLUDE_TABLES | N/A     | No       | List of schema qualified tables for which the WAL events should be skipped. If no schema is provided, `public` schema will be assumed. Wildcards are supported.   |
+
+</details>
+
+<details>
+  <summary>Sanitizer</summary>
+
+| Environment Variable                      | Default | Required | Description                                                                                                                                  |
+| ----------------------------------------- | ------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| PGSTREAM_PROCESSOR_STRIP_NULL_CHAR_BYTES  | false   | No       | Strip null bytes (0x00) from string column values. Useful when the source database contains null bytes that are not allowed by the target.   |
 
 </details>
 

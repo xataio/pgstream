@@ -18,6 +18,7 @@ import (
 	processinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/instrumentation"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	pgwriter "github.com/xataio/pgstream/pkg/wal/processor/postgres"
+	"github.com/xataio/pgstream/pkg/wal/processor/sanitizer"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	searchinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/search/instrumentation"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
@@ -176,6 +177,12 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Logger, processor processor.Processor, instrumentation *otel.Instrumentation) (processor.Processor, closerFn, error) {
 	closerAgg := &closerAggregator{}
 	var err error
+
+	if config.Processor.StripNullCharBytes {
+		logger.Info("adding null byte sanitizer to processor...")
+		processor = sanitizer.New(processor, sanitizer.WithLogger(logger))
+	}
+
 	if config.Processor.Transformer != nil {
 		logger.Info("adding transformation layer to processor...")
 		builderOpts := []builder.Option{}
