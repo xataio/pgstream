@@ -74,7 +74,7 @@ func ParseStreamConfig() (*stream.Config, error) {
 	switch ext := filepath.Ext(cfgFile); ext {
 	case ".yml", ".yaml":
 		yamlCfg := YAMLConfig{}
-		if err := viper.Unmarshal(&yamlCfg); err != nil {
+		if err := viper.Unmarshal(&yamlCfg, viper.DecodeHook(byteSizeDecodeHook())); err != nil {
 			return nil, fmt.Errorf("invalid format in config file %q: %w", cfgFile, err)
 		}
 
