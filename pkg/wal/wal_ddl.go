@@ -187,3 +187,11 @@ func (c *DDLColumn) GetSequenceName() string {
 func (c *DDLColumn) IsGenerated() bool {
 	return c.Generated || c.Identity != nil
 }
+
+// IsAlwaysIdentity reports whether the column is defined as
+// GENERATED ALWAYS AS IDENTITY. Such columns reject explicit values in UPDATE
+// SET clauses — only DEFAULT is accepted. The DDL injector encodes this as
+// "ALWAYS" in the schema log (see migrations/postgres/core/2_create_emit_ddl_function_and_triggers.up.sql).
+func (c *DDLColumn) IsAlwaysIdentity() bool {
+	return c.Identity != nil && *c.Identity == "ALWAYS"
+}

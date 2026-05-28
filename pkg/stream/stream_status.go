@@ -140,29 +140,29 @@ func (is *InitStatus) PrettyPrint() string {
 	var prettyPrint strings.Builder
 	prettyPrint.WriteString("Initialisation status:\n")
 	if is.PgstreamSchema != nil {
-		prettyPrint.WriteString(fmt.Sprintf(" - Pgstream schema exists: %t\n", is.PgstreamSchema.SchemaExists))
+		fmt.Fprintf(&prettyPrint, " - Pgstream schema exists: %t\n", is.PgstreamSchema.SchemaExists)
 		if len(is.PgstreamSchema.Errors) > 0 {
-			prettyPrint.WriteString(fmt.Sprintf(" - Pgstream schema errors: %s\n", is.PgstreamSchema.Errors))
+			fmt.Fprintf(&prettyPrint, " - Pgstream schema errors: %s\n", is.PgstreamSchema.Errors)
 		}
 	}
 
 	if len(is.Migrations) > 0 {
 		for _, migration := range is.Migrations {
-			prettyPrint.WriteString(fmt.Sprintf(" - Migration for table %s:\n", migration.TableName))
-			prettyPrint.WriteString(fmt.Sprintf("\t- Migration current version: %d\n", migration.Version))
-			prettyPrint.WriteString(fmt.Sprintf("\t- Migration status: %s\n", migrationStatus(migration.Dirty)))
+			fmt.Fprintf(&prettyPrint, " - Migration for table %s:\n", migration.TableName)
+			fmt.Fprintf(&prettyPrint, "\t- Migration current version: %d\n", migration.Version)
+			fmt.Fprintf(&prettyPrint, "\t- Migration status: %s\n", migrationStatus(migration.Dirty))
 			if len(migration.Errors) > 0 {
-				prettyPrint.WriteString(fmt.Sprintf("\t- Migration errors: [%s]\n", strings.Join(migration.Errors, "; ")))
+				fmt.Fprintf(&prettyPrint, "\t- Migration errors: [%s]\n", strings.Join(migration.Errors, "; "))
 			}
 		}
 	}
 
 	if is.ReplicationSlot != nil {
-		prettyPrint.WriteString(fmt.Sprintf(" - Replication slot name: %s\n", is.ReplicationSlot.Name))
-		prettyPrint.WriteString(fmt.Sprintf(" - Replication slot plugin: %s\n", is.ReplicationSlot.Plugin))
-		prettyPrint.WriteString(fmt.Sprintf(" - Replication slot database: %s\n", is.ReplicationSlot.Database))
+		fmt.Fprintf(&prettyPrint, " - Replication slot name: %s\n", is.ReplicationSlot.Name)
+		fmt.Fprintf(&prettyPrint, " - Replication slot plugin: %s\n", is.ReplicationSlot.Plugin)
+		fmt.Fprintf(&prettyPrint, " - Replication slot database: %s\n", is.ReplicationSlot.Database)
 		if len(is.ReplicationSlot.Errors) > 0 {
-			prettyPrint.WriteString(fmt.Sprintf(" - Replication slot errors: %s\n", is.ReplicationSlot.Errors))
+			fmt.Fprintf(&prettyPrint, " - Replication slot errors: %s\n", is.ReplicationSlot.Errors)
 		}
 	}
 
@@ -177,9 +177,9 @@ func (ss *SourceStatus) PrettyPrint() string {
 
 	var prettyPrint strings.Builder
 	prettyPrint.WriteString("Source status:\n")
-	prettyPrint.WriteString(fmt.Sprintf(" - Reachable: %t\n", ss.Reachable))
+	fmt.Fprintf(&prettyPrint, " - Reachable: %t\n", ss.Reachable)
 	if len(ss.Errors) > 0 {
-		prettyPrint.WriteString(fmt.Sprintf(" - Errors: %s\n", ss.Errors))
+		fmt.Fprintf(&prettyPrint, " - Errors: %s\n", ss.Errors)
 	}
 
 	// trim the last newline character
@@ -193,9 +193,9 @@ func (cs *ConfigStatus) PrettyPrint() string {
 
 	var prettyPrint strings.Builder
 	prettyPrint.WriteString("Config status:\n")
-	prettyPrint.WriteString(fmt.Sprintf(" - Valid: %t\n", cs.Valid))
+	fmt.Fprintf(&prettyPrint, " - Valid: %t\n", cs.Valid)
 	if len(cs.Errors) > 0 {
-		prettyPrint.WriteString(fmt.Sprintf(" - Errors: %s\n", cs.Errors))
+		fmt.Fprintf(&prettyPrint, " - Errors: %s\n", cs.Errors)
 	}
 
 	// trim the last newline character
@@ -209,9 +209,9 @@ func (trs *TransformationRulesStatus) PrettyPrint() string {
 
 	var prettyPrint strings.Builder
 	prettyPrint.WriteString("Transformation rules status:\n")
-	prettyPrint.WriteString(fmt.Sprintf(" - Valid: %t\n", trs.Valid))
+	fmt.Fprintf(&prettyPrint, " - Valid: %t\n", trs.Valid)
 	if len(trs.Errors) > 0 {
-		prettyPrint.WriteString(fmt.Sprintf(" - Errors: %s\n", trs.Errors))
+		fmt.Fprintf(&prettyPrint, " - Errors: %s\n", trs.Errors)
 	}
 
 	// trim the last newline character

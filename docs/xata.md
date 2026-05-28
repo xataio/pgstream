@@ -81,7 +81,7 @@ This guide explains how to use **pgstream** with **Xata databases**, covering **
              no_privileges: true
    ```
 
-ℹ️ Xata-managed roles (`xata`, `xata_superuser`) will not be snapshotted.
+ℹ️ Xata-managed roles (`xata`, `xata_superuser`, `cnpg_pooler_pgbouncer`) will not be snapshotted.
 
 ### To Xata Database (Snapshots)
 
