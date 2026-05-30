@@ -100,7 +100,12 @@ var tearDownCmd = &cobra.Command{
 }
 
 func initDestroyFlagBinding(cmd *cobra.Command, _ []string) {
-	viper.BindPFlag("migrations-only", cmd.Flags().Lookup("migrations-only"))
+	if f := cmd.Flags().Lookup("migrations-only"); f != nil {
+		viper.BindPFlag("migrations-only", f)
+	}
+	if f := cmd.Flags().Lookup("upgrade"); f != nil {
+		viper.BindPFlag("upgrade", f)
+	}
 	// to be able to overwrite configuration with flags when yaml config file is
 	// provided
 	viper.BindPFlag("source.postgres.url", cmd.Flags().Lookup("postgres-url"))
@@ -122,6 +127,9 @@ func getInitOptions() []stream.InitOption {
 	initOpts := []stream.InitOption{}
 	if viper.GetBool("migrations-only") {
 		initOpts = append(initOpts, stream.WithMigrationsOnly())
+	}
+	if viper.GetBool("upgrade") {
+		initOpts = append(initOpts, stream.WithUpgrade())
 	}
 	return initOpts
 }
