@@ -259,7 +259,6 @@ func Test_newIdentifier(t *testing.T) {
 	}
 }
 
-
 func Test_IsQuotedIdentifier(t *testing.T) {
 	t.Parallel()
 
