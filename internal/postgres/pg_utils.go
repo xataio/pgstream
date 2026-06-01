@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq"
+	pgxvec "github.com/pgvector/pgvector-go/pgx"
 )
 
 type QualifiedName struct {
@@ -159,6 +160,13 @@ func registerTypesToConnMap(ctx context.Context, conn *pgx.Conn) error {
 			Name:  "hstore",
 			OID:   hstoreOID,
 		})
+	}
+
+	var vectorOID uint32
+	if err := conn.QueryRow(ctx, "SELECT to_regtype('vector')::oid").Scan(&vectorOID); err == nil && vectorOID != 0 {
+		if err := pgxvec.RegisterTypes(ctx, conn); err != nil {
+			return fmt.Errorf("registering pgvector types: %w", err)
+		}
 	}
 
 	return nil
