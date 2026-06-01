@@ -29,8 +29,6 @@ var (
 	errInvalidReplicationSlotName = errors.New("invalid replication slot name, may only contain lower case letters, numbers, and the underscore character")
 )
 
-const pgvectorTypeNotFoundMessage = "vector type not found"
-
 func NewQualifiedName(s string) (*QualifiedName, error) {
 	qualifiedName := strings.Split(s, ".")
 	switch len(qualifiedName) {
@@ -164,21 +162,14 @@ func registerTypesToConnMap(ctx context.Context, conn *pgx.Conn) error {
 		})
 	}
 
-	if err := handlePgvectorRegisterTypesErr(pgxvec.RegisterTypes(ctx, conn)); err != nil {
-		return err
+	var vectorOID uint32
+	if err := conn.QueryRow(ctx, "SELECT to_regtype('vector')::oid").Scan(&vectorOID); err == nil && vectorOID != 0 {
+		if err := pgxvec.RegisterTypes(ctx, conn); err != nil {
+			return fmt.Errorf("registering pgvector types: %w", err)
+		}
 	}
 
 	return nil
-}
-
-func handlePgvectorRegisterTypesErr(err error) error {
-	if err == nil {
-		return nil
-	}
-	if strings.Contains(err.Error(), pgvectorTypeNotFoundMessage) {
-		return nil
-	}
-	return fmt.Errorf("registering pgvector types: %w", err)
 }
 
 const DiscoverAllSchemasQuery = "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')"
