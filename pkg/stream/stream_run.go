@@ -32,6 +32,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 	if err := config.IsValid(); err != nil {
 		return fmt.Errorf("incompatible configuration: %w", err)
 	}
+	prepareSnapshotSchemaRestore(config)
 
 	if init {
 		if err := Init(ctx, config.GetInitConfig()); err != nil {

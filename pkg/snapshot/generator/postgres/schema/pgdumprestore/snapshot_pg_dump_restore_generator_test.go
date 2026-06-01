@@ -1271,6 +1271,109 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	}
 }
 
+func TestSnapshotGenerator_RestoresConstraintsBeforeDataWhenConfigured(t *testing.T) {
+	t.Parallel()
+
+	schemaDump := []byte(`CREATE TABLE public.test_table (
+    id integer NOT NULL,
+    parent_id integer,
+    value text NOT NULL
+);
+
+ALTER TABLE ONLY public.test_table
+    ADD CONSTRAINT test_table_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.test_table
+    ADD CONSTRAINT test_table_value_key UNIQUE (value);
+
+ALTER TABLE ONLY public.test_table
+    ADD CONSTRAINT "test_table UNIQUE named foreign key" FOREIGN KEY (parent_id) REFERENCES public.test_table(id);
+
+CREATE INDEX test_table_value_idx ON public.test_table USING btree (value);
+`)
+	filteredDump := []byte(`CREATE TABLE public.test_table (
+    id integer NOT NULL,
+    parent_id integer,
+    value text NOT NULL
+);
+
+`)
+	conflictTargetDump := []byte(`ALTER TABLE ONLY public.test_table
+    ADD CONSTRAINT test_table_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.test_table
+    ADD CONSTRAINT test_table_value_key UNIQUE (value);
+
+`)
+	remainingConstraintsDump := []byte(`ALTER TABLE ONLY public.test_table
+    ADD CONSTRAINT "test_table UNIQUE named foreign key" FOREIGN KEY (parent_id) REFERENCES public.test_table(id);
+
+CREATE INDEX test_table_value_idx ON public.test_table USING btree (value);
+
+`)
+
+	calls := []string{}
+	conn := &mocks.Querier{
+		ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
+			return pglib.CommandTag{}, nil
+		},
+		QueryFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.Rows, error) {
+			return &mocks.Rows{
+				CloseFn: func() {},
+				NextFn:  func(i uint) bool { return false },
+				ErrFn:   func() error { return nil },
+			}, nil
+		},
+	}
+
+	sg := SnapshotGenerator{
+		sourceURL:     "source-url",
+		targetURL:     "target-url",
+		sourceQuerier: conn,
+		pgDumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
+			require.Equal(t, uint(1), i)
+			return schemaDump, nil
+		}),
+		pgRestoreFn: newMockPgrestore(func(_ context.Context, i uint, po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			switch strings.TrimSpace(string(dump)) {
+			case strings.TrimSpace(string(filteredDump)):
+				calls = append(calls, "schema")
+			case strings.TrimSpace(string(conflictTargetDump)):
+				calls = append(calls, "conflict targets")
+			case strings.TrimSpace(string(remainingConstraintsDump)):
+				calls = append(calls, "remaining constraints")
+			default:
+				require.Failf(t, "unexpected dump", "%q", string(dump))
+			}
+			return "", nil
+		}),
+		logger: log.NewNoopLogger(),
+		generator: &generatormocks.Generator{
+			CreateSnapshotFn: func(ctx context.Context, snapshot *snapshot.Snapshot) error {
+				calls = append(calls, "data")
+				return nil
+			},
+		},
+		roleSQLParser: &roleSQLParser{},
+		optionGenerator: &optionGenerator{
+			sourceURL:         "source-url",
+			targetURL:         "target-url",
+			noOwner:           true,
+			rolesSnapshotMode: roleSnapshotDisabled,
+			querier:           conn,
+		},
+		restoreIndicesAndConstraintsBeforeData: true,
+	}
+
+	err := sg.CreateSnapshot(context.Background(), &snapshot.Snapshot{
+		SchemaTables: map[string][]string{
+			publicSchema: {"test_table"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"schema", "conflict targets", "data", "remaining constraints"}, calls)
+}
+
 func TestSnapshotGenerator_parseDump(t *testing.T) {
 	t.Parallel()
 

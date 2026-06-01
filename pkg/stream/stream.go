@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
@@ -37,6 +38,19 @@ const (
 	processorTypeReplication processorType = iota
 	processorTypeSnapshot
 )
+
+func prepareSnapshotSchemaRestore(config *Config) {
+	if config.Listener.Postgres == nil || config.Listener.Postgres.Snapshot == nil ||
+		config.Listener.Postgres.Snapshot.Data == nil || config.Listener.Postgres.Snapshot.Schema == nil ||
+		config.Listener.Postgres.Snapshot.Schema.DumpRestore == nil || config.Processor.Postgres == nil {
+		return
+	}
+
+	batchWriterConfig := config.Processor.Postgres.BatchWriter
+	if !batchWriterConfig.BulkIngestEnabled && strings.EqualFold(batchWriterConfig.OnConflictAction, "update") {
+		config.Listener.Postgres.Snapshot.Schema.DumpRestore.RestoreIndicesAndConstraintsBeforeData = true
+	}
+}
 
 func buildProcessor(ctx context.Context, logger loglib.Logger, config *ProcessorConfig, checkpoint checkpointer.Checkpoint, processorType processorType, instrumentation *otel.Instrumentation) (processor.Processor, error) {
 	var processor processor.Processor
