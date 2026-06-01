@@ -139,11 +139,11 @@ func (in *Injector) Name() string {
 }
 
 func (in *Injector) Close() error {
+	var querierErr error
 	if in.querier != nil {
-		in.querier.Close(context.Background())
+		querierErr = in.querier.Close(context.Background())
 	}
-
-	return nil
+	return errors.Join(in.processor.Close(), querierErr)
 }
 
 func (in *Injector) updateTableCache(ddlEvent *wal.DDLEvent) {

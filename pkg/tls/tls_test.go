@@ -159,7 +159,7 @@ func Test_NewConfig(t *testing.T) {
 			if !errors.Is(err, tc.wantErr) {
 				require.EqualError(t, err, tc.wantErr.Error())
 			}
-			require.Equal(t, "", cmp.Diff(tlsCfg, tc.wantConfig, cmpopts.IgnoreUnexported(tls.Config{}))) //nolint:gosec
+			require.Equal(t, "", cmp.Diff(tlsCfg, tc.wantConfig, cmpopts.IgnoreUnexported(tls.Config{})))
 		})
 	}
 }

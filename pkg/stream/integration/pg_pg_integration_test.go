@@ -27,6 +27,11 @@ type testTableColumn struct {
 	username string
 }
 
+type idNameRow struct {
+	id   int
+	name string
+}
+
 func Test_PostgresToPostgres(t *testing.T) {
 	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
 		t.Skip("skipping integration test...")
@@ -554,6 +559,93 @@ func Test_PostgresToPostgres_IdentityColumns(t *testing.T) {
 	execQuery(t, ctx, fmt.Sprintf("DROP TABLE %s", testTable))
 }
 
+// Test_PostgresToPostgres_AlwaysIdentityUpdate verifies that UPDATE events on a
+// table with a GENERATED ALWAYS AS IDENTITY column are replicated successfully.
+// Postgres rejects UPDATE ... SET <always-identity-col> = <value> with
+// "column can only be updated to DEFAULT", so the column must be filtered out
+// of the SET clause on the target.
+func Test_PostgresToPostgres_AlwaysIdentityUpdate(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfg(),
+		Processor: testPostgresProcessorCfg(),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	runStream(t, ctx, cfg)
+
+	testTable := "pg2pg_always_identity_update_test"
+	defer execQuery(t, ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", testTable))
+
+	// Table has a separate primary key plus a GENERATED ALWAYS AS IDENTITY
+	// column. UPDATEs on `name` must not include `request_id` in the SET
+	// clause, or Postgres rejects them.
+	execQuery(t, ctx, fmt.Sprintf(`
+		CREATE TABLE %s (
+			id bigint PRIMARY KEY,
+			request_id bigint GENERATED ALWAYS AS IDENTITY,
+			name text
+		)
+	`, testTable))
+
+	// Wait for the table schema to land on the target before querying it.
+	require.Eventually(t, func() bool {
+		columns := getInformationSchemaColumns(t, ctx, targetConn, testTable)
+		return len(columns) == 3
+	}, 20*time.Second, 200*time.Millisecond, "table schema not replicated")
+
+	execQuery(t, ctx, fmt.Sprintf("INSERT INTO %s(id, name) VALUES(1, 'Alice')", testTable))
+	execQuery(t, ctx, fmt.Sprintf("INSERT INTO %s(id, name) VALUES(2, 'Bob')", testTable))
+
+	require.Eventually(t, func() bool {
+		rows := getIDNameRows(t, ctx, targetConn,
+			fmt.Sprintf("SELECT id, name FROM %s ORDER BY id", testTable))
+		return len(rows) == 2 && rows[0].name == "Alice" && rows[1].name == "Bob"
+	}, 20*time.Second, 200*time.Millisecond, "initial inserts not replicated")
+
+	// Capture the original request_id values on the target so we can verify
+	// they are preserved across the UPDATE (since the SET clause must not
+	// touch the always-identity column).
+	var aliceReqIDBefore, bobReqIDBefore int64
+	err = targetConn.QueryRow(ctx, []any{&aliceReqIDBefore},
+		fmt.Sprintf("SELECT request_id FROM %s WHERE id = 1", testTable))
+	require.NoError(t, err)
+	err = targetConn.QueryRow(ctx, []any{&bobReqIDBefore},
+		fmt.Sprintf("SELECT request_id FROM %s WHERE id = 2", testTable))
+	require.NoError(t, err)
+
+	// Perform UPDATEs that, pre-fix, produced
+	// "column \"request_id\" can only be updated to DEFAULT" on the target.
+	execQuery(t, ctx, fmt.Sprintf("UPDATE %s SET name = 'Alice2' WHERE id = 1", testTable))
+	execQuery(t, ctx, fmt.Sprintf("UPDATE %s SET name = 'Bob2' WHERE id = 2", testTable))
+
+	require.Eventually(t, func() bool {
+		rows := getIDNameRows(t, ctx, targetConn,
+			fmt.Sprintf("SELECT id, name FROM %s ORDER BY id", testTable))
+		return len(rows) == 2 && rows[0].name == "Alice2" && rows[1].name == "Bob2"
+	}, 20*time.Second, 200*time.Millisecond, "UPDATE not replicated — likely rejected by always-identity rule")
+
+	var aliceReqIDAfter, bobReqIDAfter int64
+	err = targetConn.QueryRow(ctx, []any{&aliceReqIDAfter},
+		fmt.Sprintf("SELECT request_id FROM %s WHERE id = 1", testTable))
+	require.NoError(t, err)
+	err = targetConn.QueryRow(ctx, []any{&bobReqIDAfter},
+		fmt.Sprintf("SELECT request_id FROM %s WHERE id = 2", testTable))
+	require.NoError(t, err)
+
+	require.Equal(t, aliceReqIDBefore, aliceReqIDAfter, "request_id should be unchanged by UPDATE")
+	require.Equal(t, bobReqIDBefore, bobReqIDAfter, "request_id should be unchanged by UPDATE")
+}
+
 func Test_PostgresToPostgres_Sequences(t *testing.T) {
 	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
 		t.Skip("skipping integration test...")
@@ -805,6 +897,38 @@ func getTestTableColumns(t *testing.T, ctx context.Context, conn pglib.Querier, 
 	require.NoError(t, rows.Err())
 
 	return columns
+}
+
+func getIDRows(t *testing.T, ctx context.Context, conn pglib.Querier, query string) []int {
+	rows, err := conn.Query(ctx, query)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var ids []int
+	for rows.Next() {
+		var id int
+		err := rows.Scan(&id)
+		require.NoError(t, err)
+		ids = append(ids, id)
+	}
+	require.NoError(t, rows.Err())
+	return ids
+}
+
+func getIDNameRows(t *testing.T, ctx context.Context, conn pglib.Querier, query string) []idNameRow {
+	rows, err := conn.Query(ctx, query)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var result []idNameRow
+	for rows.Next() {
+		var r idNameRow
+		err := rows.Scan(&r.id, &r.name)
+		require.NoError(t, err)
+		result = append(result, r)
+	}
+	require.NoError(t, rows.Err())
+	return result
 }
 
 func getRoles(t *testing.T, ctx context.Context, conn pglib.Querier) []string {

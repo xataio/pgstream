@@ -66,7 +66,7 @@ jobs:
           # Require: The version of golangci-lint to use.
           # When `install-mode` is `binary` (default) the value can be v1.2 or v1.2.3 or `latest` to use the latest version.
           # When `install-mode` is `goinstall` the value can be v1.2.3, `latest`, or the hash of a commit.
-          version: v2.5.0
+          version: v2.10.0
 
           # Optional: golangci-lint command line arguments.
           #
@@ -83,7 +83,7 @@ jobs:
       actions: read # to download code coverage results from "test" job
       pull-requests: write # write permission needed to comment on PR
     steps:
-      - uses: fgrosse/go-coverage-report@v1.2.0
+      - uses: fgrosse/go-coverage-report@v1.3.0
         with:
           coverage-artifact-name: "code-coverage"
           coverage-file-name: "coverage"
@@ -134,10 +134,10 @@ jobs:
       - run: git fetch --force --tags
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
@@ -149,7 +149,7 @@ jobs:
           go-version-file: "go.mod"
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: latest
