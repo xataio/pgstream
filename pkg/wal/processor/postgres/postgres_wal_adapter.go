@@ -11,11 +11,13 @@ import (
 
 type walAdapter interface {
 	walEventToQueries(ctx context.Context, e *wal.Event) ([]*query, error)
+	walEventToMessage(ctx context.Context, e *wal.Event) (*walMessage, error)
 	close() error
 }
 
 type schemaObserver interface {
 	getGeneratedColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error)
+	getAlwaysIdentityColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error)
 	getSequenceColumns(ctx context.Context, schema, table string) (map[string]string, error)
 	isMaterializedView(ctx context.Context, schema, table string) bool
 	update(ddlEvent *wal.DDLEvent)
@@ -31,8 +33,9 @@ type ddlQueryAdapter interface {
 }
 
 type schemaInfo struct {
-	generatedColumns map[string]struct{}
-	sequenceColumns  map[string]string
+	generatedColumns      map[string]struct{}
+	alwaysIdentityColumns map[string]struct{}
+	sequenceColumns       map[string]string
 }
 
 type adapter struct {
@@ -98,20 +101,72 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 			return nil, err
 		}
 
+		alwaysIdentityColumns, err := a.schemaObserver.getAlwaysIdentityColumnNames(ctx, e.Data.Schema, e.Data.Table)
+		if err != nil {
+			return nil, err
+		}
+
 		columnSequences, err := a.schemaObserver.getSequenceColumns(ctx, e.Data.Schema, e.Data.Table)
 		if err != nil {
 			return nil, err
 		}
 
 		qs, err := a.dmlAdapter.walDataToQueries(e.Data, schemaInfo{
-			generatedColumns: generatedColumns,
-			sequenceColumns:  columnSequences,
+			generatedColumns:      generatedColumns,
+			alwaysIdentityColumns: alwaysIdentityColumns,
+			sequenceColumns:       columnSequences,
 		})
 		if err != nil {
 			return nil, err
 		}
 
 		return qs, nil
+	}
+}
+
+func (a *adapter) walEventToMessage(ctx context.Context, e *wal.Event) (*walMessage, error) {
+	switch {
+	case e.Data == nil,
+		a.schemaObserver.isMaterializedView(ctx, e.Data.Schema, e.Data.Table):
+		return &walMessage{}, nil
+
+	case e.Data.IsDDLEvent():
+		ddlEvent, err := a.ddlEventAdapter(e.Data)
+		if err != nil {
+			return nil, err
+		}
+		a.schemaObserver.update(ddlEvent)
+
+		if a.ddlAdapter == nil {
+			return &walMessage{}, nil
+		}
+
+		return &walMessage{data: e.Data, isDDL: true}, nil
+
+	default:
+		generatedColumns, err := a.schemaObserver.getGeneratedColumnNames(ctx, e.Data.Schema, e.Data.Table)
+		if err != nil {
+			return nil, err
+		}
+
+		alwaysIdentityColumns, err := a.schemaObserver.getAlwaysIdentityColumnNames(ctx, e.Data.Schema, e.Data.Table)
+		if err != nil {
+			return nil, err
+		}
+
+		columnSequences, err := a.schemaObserver.getSequenceColumns(ctx, e.Data.Schema, e.Data.Table)
+		if err != nil {
+			return nil, err
+		}
+
+		return &walMessage{
+			data: e.Data,
+			schemaInfo: schemaInfo{
+				generatedColumns:      generatedColumns,
+				alwaysIdentityColumns: alwaysIdentityColumns,
+				sequenceColumns:       columnSequences,
+			},
+		}, nil
 	}
 }
 

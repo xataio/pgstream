@@ -378,7 +378,7 @@ func (s *SnapshotGenerator) restoreSchemas(ctx context.Context, schemaTables map
 	schemaDump := strings.Builder{}
 	for schema, tables := range schemaTables {
 		if len(tables) > 0 && schema != publicSchema && schema != wildcard {
-			schemaDump.WriteString(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s;\n", pglib.QuoteIdentifier(schema)))
+			fmt.Fprintf(&schemaDump, "CREATE SCHEMA IF NOT EXISTS %s;\n", pglib.QuoteIdentifier(schema))
 		}
 	}
 
@@ -522,7 +522,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 					// Cleanup handling is not required, since the schema will
 					// be dropped anyway if clean is enabled.
 					for schema := range role.schemasWithOwnership {
-						filteredDump.WriteString(fmt.Sprintf("GRANT ALL ON SCHEMA %s TO %s;\n", pglib.QuoteIdentifier(schema), pglib.QuoteIdentifier(role.name)))
+						fmt.Fprintf(&filteredDump, "GRANT ALL ON SCHEMA %s TO %s;\n", pglib.QuoteIdentifier(schema), pglib.QuoteIdentifier(role.name))
 					}
 				}
 			}
@@ -610,7 +610,7 @@ func (s *SnapshotGenerator) filterRolesDump(rolesDump []byte, keepRoles map[stri
 		// add a line to grant the role to the current user to avoid permission
 		// issues when granting ownership (OWNER TO) when using non superuser
 		// roles to restore the dump
-		filteredDump.WriteString(fmt.Sprintf("GRANT %s TO CURRENT_USER;\n", pglib.QuoteIdentifier(role.name)))
+		fmt.Fprintf(&filteredDump, "GRANT %s TO CURRENT_USER;\n", pglib.QuoteIdentifier(role.name))
 	}
 
 	return []byte(filteredDump.String())

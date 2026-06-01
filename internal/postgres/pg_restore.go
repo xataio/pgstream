@@ -180,6 +180,7 @@ func isErrorLine(line string) bool {
 func parseErrorLine(line string) error {
 	switch {
 	case strings.Contains(line, "already exists"),
+		strings.Contains(line, "already a partition"),
 		strings.Contains(line, "multiple primary keys for table"):
 		return &ErrRelationAlreadyExists{Details: line}
 	case strings.Contains(line, "cannot drop schema public because other objects depend on it"):
