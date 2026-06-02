@@ -9,6 +9,7 @@ type query struct {
 	columnNames []string
 	args        []any
 	isDDL       bool
+	needsTextCopy bool
 }
 
 const (
