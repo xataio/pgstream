@@ -168,12 +168,26 @@ func (w *BulkIngestWriter) copyFromInsertQueries(ctx context.Context, inserts []
 		rows = append(rows, q.args)
 	}
 
+	// Tables with extension types pgx has no binary codec for
+	// must round-trip through text-format COPY, otherwise
+	// the destination misreads the raw text bytes as the binary
+	// representation of the type.
+	// The dml adapter precomputes the needsTextCopy flag
+	// from the column type list when building the query.
+	copyFn := func(tx pglib.Tx) (int64, error) {
+		target := pglib.QuoteQualifiedIdentifier(query.schema, query.table)
+		if query.needsTextCopy {
+			return tx.CopyFromText(ctx, target, query.columnNames, rows)
+		}
+		return tx.CopyFrom(ctx, target, query.columnNames, rows)
+	}
+
 	err := w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
 		if err := w.setReplicationRoleToReplica(ctx, tx); err != nil {
 			return err
 		}
 
-		rowsCopied, err := tx.CopyFrom(ctx, pglib.QuoteQualifiedIdentifier(query.schema, query.table), query.columnNames, rows)
+		rowsCopied, err := copyFn(tx)
 		if err != nil {
 			return err
 		}

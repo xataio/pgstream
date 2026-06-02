@@ -52,3 +52,9 @@ func (i *Tx) CopyFrom(ctx context.Context, tableName string, columnNames []strin
 	defer otel.CloseSpan(span, err)
 	return i.inner.CopyFrom(ctx, tableName, columnNames, srcRows)
 }
+
+func (i *Tx) CopyFromText(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (rowCount int64, err error) {
+	ctx, span := otel.StartSpan(ctx, i.tracer, "tx.CopyFromText")
+	defer otel.CloseSpan(span, err)
+	return i.inner.CopyFromText(ctx, tableName, columnNames, srcRows)
+}

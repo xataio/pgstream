@@ -975,7 +975,7 @@ func TestDMLAdapter_filterRowColumns(t *testing.T) {
 			t.Parallel()
 
 			a := dmlAdapter{}
-			rowColumns, rowValues := a.filterRowColumnsForAction(tc.columns, schemaInfo{
+			rowColumns, _, rowValues := a.filterRowColumnsForAction(tc.columns, schemaInfo{
 				generatedColumns:      tc.generatedColumns,
 				alwaysIdentityColumns: tc.alwaysIdentityColumns,
 			}, tc.forUpdate)

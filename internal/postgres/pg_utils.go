@@ -151,25 +151,75 @@ func extractDatabase(url string) (string, error) {
 	return pgCfg.Database, nil
 }
 
-func registerTypesToConnMap(ctx context.Context, conn *pgx.Conn) error {
-	var hstoreOID uint32
-	err := conn.QueryRow(ctx, "SELECT oid FROM pg_type WHERE typname = 'hstore'").Scan(&hstoreOID)
-	if err == nil && hstoreOID != 0 {
-		conn.TypeMap().RegisterType(&pgtype.Type{
-			Codec: pgtype.HstoreCodec{},
-			Name:  "hstore",
-			OID:   hstoreOID,
-		})
-	}
+// extensionType describes a postgres extension type that pgx does not know
+// about out of the box and how to make pgx encode/decode it correctly.
+type extensionType struct {
+	// name is the unqualified type name as it appears to `to_regtype`
+	name string
+	// register is invoked with the resolved OID once the type has been found
+	// in pg_type. Implementations are free to register additional related types.
+	register func(ctx context.Context, conn *pgx.Conn, oid uint32) error
+}
 
-	var vectorOID uint32
-	if err := conn.QueryRow(ctx, "SELECT to_regtype('vector')::oid").Scan(&vectorOID); err == nil && vectorOID != 0 {
+// extensionTypes lists the postgres extension types pgstream teaches pgx
+// about on every connection.
+var extensionTypes = []extensionType{
+	{name: "hstore", register: registerWithCodec("hstore", pgtype.HstoreCodec{})},
+	{name: "vector", register: func(ctx context.Context, conn *pgx.Conn, _ uint32) error {
+		// pgxvec registers vector, halfvec and sparsevec in one call —
+		// the OID lookup above is just a gate to skip when pgvector is
+		// not installed.
 		if err := pgxvec.RegisterTypes(ctx, conn); err != nil {
 			return fmt.Errorf("registering pgvector types: %w", err)
 		}
-	}
+		return nil
+	}},
+	{name: "cube", register: registerWithCodec("cube", pgtype.TextCodec{})},
+}
 
+// registerTypesToConnMap teaches pgx about the postgres extension types
+// listed in extensionTypes for every new connection.
+//
+// To add a new extension type, append one entry to extensionTypes above:
+//   - Simple case (one OID, one codec): use registerWithCodec("name", codec).
+//     For COPY-safe text round-trip, pass pgtype.TextCodec{}.
+//   - Complex case (extension exposes several related types, or needs
+//     library-side setup): inline a register func; see the "vector" entry,
+//     which delegates to pgxvec.RegisterTypes.
+//
+// Entries are no-ops when the extension is not installed on the target.
+func registerTypesToConnMap(ctx context.Context, conn *pgx.Conn) error {
+	for _, ext := range extensionTypes {
+		if err := registerExtensionType(ctx, conn, ext); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// registerExtensionType resolves the OID for ext.name via `to_regtype` and,
+// if the type exists, hands it to ext.register. A missing extension is not
+// an error.
+func registerExtensionType(ctx context.Context, conn *pgx.Conn, ext extensionType) error {
+	var oid uint32
+	if err := conn.QueryRow(ctx, "SELECT to_regtype($1)::oid", ext.name).Scan(&oid); err != nil || oid == 0 {
+		return nil
+	}
+	return ext.register(ctx, conn, oid)
+}
+
+// registerWithCodec builds a register function that binds the given codec to
+// the (name, OID) pair on the connection's type map. Used for extensions
+// where one OID maps to one codec.
+func registerWithCodec(name string, codec pgtype.Codec) func(ctx context.Context, conn *pgx.Conn, oid uint32) error {
+	return func(_ context.Context, conn *pgx.Conn, oid uint32) error {
+		conn.TypeMap().RegisterType(&pgtype.Type{
+			Codec: codec,
+			Name:  name,
+			OID:   oid,
+		})
+		return nil
+	}
 }
 
 const DiscoverAllSchemasQuery = "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')"
