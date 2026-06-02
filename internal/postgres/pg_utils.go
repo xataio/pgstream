@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq"
 	pgxvec "github.com/pgvector/pgvector-go/pgx"
+	pgjson "github.com/xataio/pgstream/internal/json"
 )
 
 type QualifiedName struct {
@@ -164,6 +165,9 @@ type extensionType struct {
 // extensionTypes lists the postgres extension types pgstream teaches pgx
 // about on every connection.
 var extensionTypes = []extensionType{
+	{name: "json", register: registerWithCodec("json", &pgtype.JSONCodec{Marshal: pgjson.Marshal, Unmarshal: pgjson.UnmarshalUseInt64})},
+	{name: "jsonb", register: registerWithCodec("jsonb", &pgtype.JSONBCodec{Marshal: pgjson.Marshal, Unmarshal: pgjson.UnmarshalUseInt64})},
+
 	{name: "hstore", register: registerWithCodec("hstore", pgtype.HstoreCodec{})},
 	{name: "vector", register: func(ctx context.Context, conn *pgx.Conn, _ uint32) error {
 		// pgxvec registers vector, halfvec and sparsevec in one call —
