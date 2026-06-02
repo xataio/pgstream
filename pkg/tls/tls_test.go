@@ -107,6 +107,22 @@ func Test_NewConfig(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - insecure_skip_verify propagates",
+			cfg: &Config{
+				Enabled:            true,
+				InsecureSkipVerify: true,
+			},
+
+			wantConfig: &tls.Config{
+				MinVersion:         tls.VersionTLS12,
+				MaxVersion:         0,
+				Certificates:       []tls.Certificate{},
+				RootCAs:            systemCAs,
+				InsecureSkipVerify: true, //nolint:gosec // the test case asserts the opt-in skip propagates from Config to *tls.Config
+			},
+			wantErr: nil,
+		},
+		{
 			name: "error - invalid CA certificate file",
 			cfg: &Config{
 				Enabled:    true,

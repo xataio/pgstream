@@ -189,11 +189,21 @@ type KafkaTopicConfig struct {
 }
 
 type SearchConfig struct {
-	Engine     string         `mapstructure:"engine" yaml:"engine"`
-	URL        string         `mapstructure:"url" yaml:"url"`
-	Batch      *BatchConfig   `mapstructure:"batch" yaml:"batch"`
-	Backoff    *BackoffConfig `mapstructure:"backoff" yaml:"backoff"`
-	HashDocIDs bool           `mapstructure:"hash_doc_ids" yaml:"hash_doc_ids"`
+	Engine     string           `mapstructure:"engine" yaml:"engine"`
+	URL        string           `mapstructure:"url" yaml:"url"`
+	Batch      *BatchConfig     `mapstructure:"batch" yaml:"batch"`
+	Backoff    *BackoffConfig   `mapstructure:"backoff" yaml:"backoff"`
+	HashDocIDs bool             `mapstructure:"hash_doc_ids" yaml:"hash_doc_ids"`
+	TLS        *SearchTLSConfig `mapstructure:"tls" yaml:"tls"`
+}
+
+// SearchTLSConfig configures the HTTPS transport used to talk to the search
+// store.
+type SearchTLSConfig struct {
+	CACert             string `mapstructure:"ca_cert" yaml:"ca_cert"`
+	ClientCert         string `mapstructure:"client_cert" yaml:"client_cert"`
+	ClientKey          string `mapstructure:"client_key" yaml:"client_key"`
+	InsecureSkipVerify bool   `mapstructure:"insecure_skip_verify" yaml:"insecure_skip_verify"`
 }
 
 type BatchConfig struct {
@@ -646,6 +656,16 @@ func (c *YAMLConfig) parseSearchProcessorConfig() (*stream.SearchProcessorConfig
 		storeCfg.OpenSearchURL = c.Target.Search.URL
 	default:
 		return nil, errUnsupportedSearchEngine
+	}
+
+	if tlsCfg := c.Target.Search.TLS; tlsCfg != nil {
+		storeCfg.TLS = tls.Config{
+			Enabled:            true,
+			CaCertFile:         tlsCfg.CACert,
+			ClientCertFile:     tlsCfg.ClientCert,
+			ClientKeyFile:      tlsCfg.ClientKey,
+			InsecureSkipVerify: tlsCfg.InsecureSkipVerify,
+		}
 	}
 
 	return &stream.SearchProcessorConfig{
