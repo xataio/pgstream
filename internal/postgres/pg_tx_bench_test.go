@@ -104,7 +104,6 @@ func BenchmarkCopyFrom(b *testing.B) {
 	}
 
 	for _, shape := range shapes {
-		shape := shape
 		// reset table once per shape so benchmarks share state
 		_, err := pool.Exec(ctx, "DROP TABLE IF EXISTS bench_numeric, bench_text")
 		require.NoError(b, err)

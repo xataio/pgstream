@@ -94,7 +94,7 @@ func (t *Txn) CopyFromText(ctx context.Context, tableName string, columnNames []
 		return -1, err
 	}
 
-	conn := t.Tx.Conn()
+	conn := t.Conn()
 	tm := conn.TypeMap()
 
 	// Look up the column OIDs once via a prepared statement description so

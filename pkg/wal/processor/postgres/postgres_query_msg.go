@@ -3,12 +3,12 @@
 package postgres
 
 type query struct {
-	schema      string
-	table       string
-	sql         string
-	columnNames []string
-	args        []any
-	isDDL       bool
+	schema        string
+	table         string
+	sql           string
+	columnNames   []string
+	args          []any
+	isDDL         bool
 	needsTextCopy bool
 }
 
