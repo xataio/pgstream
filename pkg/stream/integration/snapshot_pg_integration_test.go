@@ -436,6 +436,119 @@ func Test_SnapshotToPostgres_LtreeColumns(t *testing.T) {
 	})
 }
 
+// Test_SnapshotToPostgres_CitextColumns verifies that snapshot/restore
+// preserves citext column values end-to-end. Unlike cube and ltree, citext
+// rides the pgx binary COPY path — its wire format is the text bytes
+// because citext_recv aliases textrecv. The codec registration is purely
+// for source-side string consistency.
+func Test_SnapshotToPostgres_CitextColumns(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	run := func(suffix string, opts ...option) {
+		testTable := fmt.Sprintf("citext_columns_%s", suffix)
+		for _, url := range []string{snapshotPGURL, targetPGURL} {
+			execQueryWithURL(t, ctx, url, "CREATE EXTENSION IF NOT EXISTS citext")
+		}
+
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`CREATE TABLE %s(
+				id    INTEGER PRIMARY KEY,
+				email citext NOT NULL
+			)`, testTable))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`INSERT INTO %s(id, email) VALUES
+				(1, 'Alice@Example.COM'),
+				(2, 'bob@example.com'),
+				(3, 'CAROL@x.io')`,
+			testTable))
+
+		cfg := &stream.Config{
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
+			Processor: testPostgresProcessorCfg(opts...),
+		}
+		initStream(t, ctx, snapshotPGURL)
+		runSnapshot(t, ctx, cfg)
+
+		targetConn, err := pglib.NewConn(ctx, targetPGURL)
+		require.NoError(t, err)
+		sourceConn, err := pglib.NewConn(ctx, snapshotPGURL)
+		require.NoError(t, err)
+
+		timer := time.NewTimer(20 * time.Second)
+		defer timer.Stop()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		type row struct {
+			id    int
+			email string
+		}
+		query := fmt.Sprintf("SELECT id, email::text FROM %s ORDER BY id", testTable)
+		fetch := func(conn pglib.Querier) ([]row, error) {
+			rows, err := conn.Query(ctx, query)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+			out := []row{}
+			for rows.Next() {
+				var r row
+				if err := rows.Scan(&r.id, &r.email); err != nil {
+					return nil, err
+				}
+				out = append(out, r)
+			}
+			return out, rows.Err()
+		}
+
+		want, err := fetch(sourceConn)
+		require.NoError(t, err)
+		require.Len(t, want, 3)
+		// case is preserved by citext storage; this also confirms the
+		// codec registration didn't down-case during the source read.
+		require.Equal(t, "Alice@Example.COM", want[0].email)
+
+		validation := func() bool {
+			got, err := fetch(targetConn)
+			if err != nil || len(got) != len(want) {
+				return false
+			}
+			require.Equal(t, want, got)
+			return true
+		}
+
+		for {
+			select {
+			case <-timer.C:
+				cancel()
+				t.Error("timeout waiting for postgres snapshot sync of citext columns")
+				return
+			case <-ticker.C:
+				if validation() {
+					return
+				}
+			}
+		}
+	}
+
+	t.Run("bulk ingest", func(t *testing.T) {
+		run("bulk", withBulkIngestionEnabled())
+	})
+	t.Run("batch writer", func(t *testing.T) {
+		run("batch")
+	})
+}
+
 // Test_SnapshotToPostgres_IdentityAndGeneratedColumns verifies that identity
 // columns have their values preserved while generated (stored) columns are
 // correctly excluded from inserts and recomputed by the target database.

@@ -176,6 +176,12 @@ var extensionTypes = []extensionType{
 	}},
 	{name: "cube", register: registerWithCodec("cube", pgtype.TextCodec{})},
 	{name: "ltree", register: registerWithCodec("ltree", pgtype.TextCodec{})},
+	// citext is registered for read-side consistency only — pgx's binary
+	// CopyFrom happens to round-trip citext because citext_recv is an
+	// alias for textrecv on the server, but unregistered the source-side
+	// rows.Values() would return []byte instead of string. The TextCodec
+	// pinning produces strings, matching cube/ltree.
+	{name: "citext", register: registerWithCodec("citext", pgtype.TextCodec{})},
 }
 
 // registerTypesToConnMap teaches pgx about the postgres extension types
