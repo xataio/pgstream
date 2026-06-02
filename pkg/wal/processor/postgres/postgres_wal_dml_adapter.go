@@ -95,7 +95,7 @@ func (a *dmlAdapter) buildDeleteQuery(d *wal.Data) (*query, error) {
 }
 
 func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*query {
-	names, values := a.filterRowColumns(d.Columns, schemaInfo)
+	names, types, values := a.filterRowColumnsWithTypes(d.Columns, schemaInfo)
 	// if there are no columns after filtering generated ones, no query to run
 	if len(names) == 0 {
 		return []*query{}
@@ -108,9 +108,10 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 
 	qs := []*query{
 		{
-			table:       d.Table,
-			schema:      d.Schema,
-			columnNames: names,
+			table:         d.Table,
+			schema:        d.Schema,
+			columnNames:   names,
+			needsTextCopy: needsTextCopy(types),
 			sql: fmt.Sprintf("INSERT INTO %s(%s) OVERRIDING SYSTEM VALUE VALUES(%s)%s",
 				quotedTableName(d.Schema, d.Table), strings.Join(names, ", "),
 				strings.Join(placeholders, ", "),
@@ -147,7 +148,7 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 }
 
 func (a *dmlAdapter) buildUpdateQuery(d *wal.Data, schemaInfo schemaInfo) (*query, error) {
-	rowColumns, rowValues := a.filterRowColumnsForAction(d.Columns, schemaInfo, true)
+	rowColumns, _, rowValues := a.filterRowColumnsForAction(d.Columns, schemaInfo, true)
 	// if there are no columns after filtering generated ones, no query to run
 	if len(rowColumns) == 0 {
 		return &query{}, nil
@@ -269,6 +270,14 @@ func (a *dmlAdapter) extractPrimaryKeyColumnNames(colIDs []string, cols []wal.Co
 }
 
 func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo) ([]string, []any) {
+	names, _, vals := a.filterRowColumnsForAction(cols, schemaInfo, false)
+	return names, vals
+}
+
+// filterRowColumnsWithTypes is the variant used on the bulk-COPY path: it
+// also returns the postgres type name for each kept column so the writer
+// can decide between binary and text-format COPY.
+func (a *dmlAdapter) filterRowColumnsWithTypes(cols []wal.Column, schemaInfo schemaInfo) ([]string, []string, []any) {
 	return a.filterRowColumnsForAction(cols, schemaInfo, false)
 }
 
@@ -276,9 +285,10 @@ func (a *dmlAdapter) filterRowColumns(cols []wal.Column, schemaInfo schemaInfo) 
 // true — also drops GENERATED ALWAYS AS IDENTITY columns. INSERTs use
 // OVERRIDING SYSTEM VALUE so always-identity values are accepted, but no such
 // clause exists for UPDATE and Postgres rejects explicit values in SET.
-func (a *dmlAdapter) filterRowColumnsForAction(cols []wal.Column, schemaInfo schemaInfo, forUpdate bool) ([]string, []any) {
+func (a *dmlAdapter) filterRowColumnsForAction(cols []wal.Column, schemaInfo schemaInfo, forUpdate bool) ([]string, []string, []any) {
 	rowValues := make([]any, 0, len(cols))
 	rowColumns := make([]string, 0, len(cols))
+	rowTypes := make([]string, 0, len(cols))
 	for _, c := range cols {
 		quoted := pglib.QuoteIdentifier(c.Name)
 		if _, found := schemaInfo.generatedColumns[quoted]; found {
@@ -290,6 +300,7 @@ func (a *dmlAdapter) filterRowColumnsForAction(cols []wal.Column, schemaInfo sch
 			}
 		}
 		rowColumns = append(rowColumns, quoted)
+		rowTypes = append(rowTypes, c.Type)
 		val := c.Value
 
 		val = serializeJSONBValue(c.Type, val)
@@ -299,7 +310,7 @@ func (a *dmlAdapter) filterRowColumnsForAction(cols []wal.Column, schemaInfo sch
 		}
 		rowValues = append(rowValues, val)
 	}
-	return rowColumns, rowValues
+	return rowColumns, rowTypes, rowValues
 }
 
 func (a *dmlAdapter) updateValueForCopy(value any, colType string) any {
@@ -395,6 +406,22 @@ func getTypedTSTZRange(value any) any {
 		UpperType: v.UpperType,
 		Valid:     v.Valid,
 	}
+}
+
+// textOnlyCopyTypes lists postgres type names whose binary wire format pgx
+// can't produce correctly, so bulk ingest must fall back to text-format
+// COPY for any batch that touches one of these columns.
+var textOnlyCopyTypes = map[string]struct{}{
+	"cube": {}, // binary header: int32 dim+flags + N×float8 — pgx writes the text rep, server misreads it as a dimension count
+}
+
+func needsTextCopy(columnTypes []string) bool {
+	for _, t := range columnTypes {
+		if _, ok := textOnlyCopyTypes[t]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func isArray(colType string) bool {

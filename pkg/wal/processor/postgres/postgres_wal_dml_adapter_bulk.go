@@ -214,8 +214,9 @@ func (a *dmlAdapter) buildBulkInsertQueries(events []*wal.Data, si schemaInfo) [
 		return nil
 	}
 
-	// determine column names from first event
-	names, _ := a.filterRowColumns(events[0].Columns, si)
+	// determine column names + types from first event so the writer can
+	// decide between binary and text COPY downstream.
+	names, types, _ := a.filterRowColumnsWithTypes(events[0].Columns, si)
 	if len(names) == 0 {
 		return []*query{}
 	}
@@ -274,11 +275,12 @@ func (a *dmlAdapter) buildBulkInsertQueries(events []*wal.Data, si schemaInfo) [
 			a.buildOnConflictQuery(events[0], names))
 
 		queries = append(queries, &query{
-			schema:      events[0].Schema,
-			table:       events[0].Table,
-			columnNames: names,
-			sql:         sql,
-			args:        args,
+			schema:        events[0].Schema,
+			table:         events[0].Table,
+			columnNames:   names,
+			needsTextCopy: needsTextCopy(types),
+			sql:           sql,
+			args:          args,
 		})
 	}
 
