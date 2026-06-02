@@ -109,6 +109,11 @@ func init() {
 
 	viper.BindEnv("PGSTREAM_OPENSEARCH_STORE_URL")
 	viper.BindEnv("PGSTREAM_ELASTICSEARCH_STORE_URL")
+	viper.BindEnv("PGSTREAM_SEARCH_TLS_ENABLED")
+	viper.BindEnv("PGSTREAM_SEARCH_TLS_CA_CERT_FILE")
+	viper.BindEnv("PGSTREAM_SEARCH_TLS_CLIENT_CERT_FILE")
+	viper.BindEnv("PGSTREAM_SEARCH_TLS_CLIENT_KEY_FILE")
+	viper.BindEnv("PGSTREAM_SEARCH_TLS_INSECURE_SKIP_VERIFY")
 	viper.BindEnv("PGSTREAM_SEARCH_INDEXER_BATCH_SIZE")
 	viper.BindEnv("PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT")
 	viper.BindEnv("PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES")
@@ -471,6 +476,7 @@ func parseSearchProcessorConfig() (*stream.SearchProcessorConfig, error) {
 		Store: store.Config{
 			OpenSearchURL:    opensearchStore,
 			ElasticsearchURL: elasticsearchStore,
+			TLS:              parseSearchTLSConfig(),
 		},
 		Retrier: search.StoreRetryConfig{
 			Backoff: parseBackoffConfig("PGSTREAM_SEARCH_STORE"),
@@ -631,4 +637,18 @@ func parseTLSConfig(prefix string) tls.Config {
 		ClientCertFile: viper.GetString(fmt.Sprintf("%s_TLS_CLIENT_CERT_FILE", prefix)),
 		ClientKeyFile:  viper.GetString(fmt.Sprintf("%s_TLS_CLIENT_KEY_FILE", prefix)),
 	}
+}
+
+// parseSearchTLSConfig reads the search store TLS settings from the
+// environment.
+func parseSearchTLSConfig() tls.Config {
+	cfg := tls.Config{
+		CaCertFile:         viper.GetString("PGSTREAM_SEARCH_TLS_CA_CERT_FILE"),
+		ClientCertFile:     viper.GetString("PGSTREAM_SEARCH_TLS_CLIENT_CERT_FILE"),
+		ClientKeyFile:      viper.GetString("PGSTREAM_SEARCH_TLS_CLIENT_KEY_FILE"),
+		InsecureSkipVerify: viper.GetBool("PGSTREAM_SEARCH_TLS_INSECURE_SKIP_VERIFY"),
+	}
+	cfg.Enabled = viper.GetBool("PGSTREAM_SEARCH_TLS_ENABLED") ||
+		cfg.CaCertFile != "" || cfg.ClientCertFile != "" || cfg.InsecureSkipVerify
+	return cfg
 }
