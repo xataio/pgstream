@@ -73,6 +73,11 @@
       "example": "\n\tpgstream run --source postgres --source-url <source-postgres-url> --target postgres --target-url <target-postgres-url> --init\n\tpgstream run --source postgres --source-url <source-postgres-url> --target postgres --target-url <target-postgres-url> --snapshot-tables <schema.table> --reset\n\tpgstream run --source kafka --source-url <kafka-url> --target elasticsearch --target-url <elasticsearch-url>\n\tpgstream run --source postgres --source-url <postgres-url> --target kafka --target-url <kafka-url>\n\tpgstream run --config config.yaml --log-level info\n\tpgstream run --config config.env",
       "flags": [
         {
+          "name": "data-only",
+          "description": "When used with --snapshot-tables, skip schema restore and only snapshot data (use when schema is already present on target)",
+          "default": "false"
+        },
+        {
           "name": "dump-file",
           "description": "File where the pg_dump output will be written if initial snapshot is enabled",
           "default": ""
@@ -138,9 +143,9 @@
     },
     {
       "name": "snapshot",
-      "short": "Snapshot performs a snapshot of the configured source Postgres database into the configured target",
+      "short": "Snapshot performs a one-time data snapshot of a PostgreSQL database",
       "use": "snapshot",
-      "example": "\n\tpgstream snapshot --postgres-url <postgres-url> --target postgres --target-url <target-url> --tables <schema.table> --reset\n\tpgstream snapshot --config config.yaml --log-level info\n\tpgstream snapshot --config config.env",
+      "example": "  # Snapshot specific tables from a PostgreSQL database to a target PostgreSQL database\n  pgstream snapshot --postgres-url <postgres-url> --target postgres --target-url <target-url> --tables <schema.table> --reset\n  # Snapshot using a YAML configuration file (requires source.postgres.mode: 'snapshot')\n  pgstream snapshot --config config.yaml --log-level info\n  # Snapshot using an environment configuration file\n  pgstream snapshot --config config.env",
       "flags": [
         {
           "name": "dump-file",

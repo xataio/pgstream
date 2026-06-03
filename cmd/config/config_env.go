@@ -109,6 +109,11 @@ func init() {
 
 	viper.BindEnv("PGSTREAM_OPENSEARCH_STORE_URL")
 	viper.BindEnv("PGSTREAM_ELASTICSEARCH_STORE_URL")
+	viper.BindEnv("PGSTREAM_SEARCH_TLS_ENABLED")
+	viper.BindEnv("PGSTREAM_SEARCH_TLS_CA_CERT_FILE")
+	viper.BindEnv("PGSTREAM_SEARCH_TLS_CLIENT_CERT_FILE")
+	viper.BindEnv("PGSTREAM_SEARCH_TLS_CLIENT_KEY_FILE")
+	viper.BindEnv("PGSTREAM_SEARCH_TLS_INSECURE_SKIP_VERIFY")
 	viper.BindEnv("PGSTREAM_SEARCH_INDEXER_BATCH_SIZE")
 	viper.BindEnv("PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT")
 	viper.BindEnv("PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES")
@@ -213,7 +218,9 @@ func parsePostgresListenerConfig() (*stream.PostgresListenerConfig, error) {
 			PostgresURL:         pgURL,
 			ReplicationSlotName: viper.GetString("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME"),
 			PluginArguments: pgreplication.PluginArguments{
-				IncludeXIDs: viper.GetBool("PGSTREAM_POSTGRES_REPLICATION_PLUGIN_INCLUDE_XIDS"),
+				IncludeXIDs:  viper.GetBool("PGSTREAM_POSTGRES_REPLICATION_PLUGIN_INCLUDE_XIDS"),
+				AddTables:    viper.GetString("PGSTREAM_POSTGRES_REPLICATION_PLUGIN_ADD_TABLES"),
+				FilterTables: viper.GetString("PGSTREAM_POSTGRES_REPLICATION_PLUGIN_FILTER_TABLES"),
 			},
 		},
 		RetryPolicy: parseBackoffConfig("PGSTREAM_POSTGRES_LISTENER"),
@@ -262,9 +269,13 @@ func parseSnapshotConfig(pgURL string) (*snapshotbuilder.SnapshotListenerConfig,
 
 	var dataSnapshotCfg *pgsnapshotgenerator.Config
 	if snapshotMode == fullSnapshotMode || snapshotMode == dataSnapshotMode {
+		batchBytes, err := getByteSize("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES")
+		if err != nil {
+			return nil, err
+		}
 		dataSnapshotCfg = &pgsnapshotgenerator.Config{
 			URL:             pgURL,
-			BatchBytes:      viper.GetUint64("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES"),
+			BatchBytes:      uint64(batchBytes),
 			SchemaWorkers:   viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS"),
 			TableWorkers:    viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS"),
 			SnapshotWorkers: viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS"),
@@ -358,30 +369,63 @@ func parseProcessorConfig() (stream.ProcessorConfig, error) {
 	if err != nil {
 		return stream.ProcessorConfig{}, err
 	}
+
+	kafkaCfg, err := parseKafkaProcessorConfig()
+	if err != nil {
+		return stream.ProcessorConfig{}, err
+	}
+
+	searchCfg, err := parseSearchProcessorConfig()
+	if err != nil {
+		return stream.ProcessorConfig{}, err
+	}
+
+	webhookCfg, err := parseWebhookProcessorConfig()
+	if err != nil {
+		return stream.ProcessorConfig{}, err
+	}
+
+	postgresCfg, err := parsePostgresProcessorConfig()
+	if err != nil {
+		return stream.ProcessorConfig{}, err
+	}
+
 	return stream.ProcessorConfig{
-		Kafka:       parseKafkaProcessorConfig(),
-		Search:      parseSearchProcessorConfig(),
-		Webhook:     parseWebhookProcessorConfig(),
-		Postgres:    parsePostgresProcessorConfig(),
+		Kafka:       kafkaCfg,
+		Search:      searchCfg,
+		Webhook:     webhookCfg,
+		Postgres:    postgresCfg,
 		Injector:    parseInjectorConfig(),
 		Transformer: transformerCfg,
 		Filter:      parseFilterConfig(),
 	}, nil
 }
 
-func parseKafkaProcessorConfig() *stream.KafkaProcessorConfig {
+func parseKafkaProcessorConfig() (*stream.KafkaProcessorConfig, error) {
 	kafkaTopic := viper.GetString("PGSTREAM_KAFKA_TOPIC_NAME")
 	kafkaServers := viper.GetStringSlice("PGSTREAM_KAFKA_WRITER_SERVERS")
 	if len(kafkaServers) == 0 || kafkaTopic == "" {
-		return nil
+		return nil, nil
 	}
 
-	return &stream.KafkaProcessorConfig{
-		Writer: parseKafkaWriterConfig(kafkaServers, kafkaTopic),
+	writerCfg, err := parseKafkaWriterConfig(kafkaServers, kafkaTopic)
+	if err != nil {
+		return nil, err
 	}
+	return &stream.KafkaProcessorConfig{
+		Writer: writerCfg,
+	}, nil
 }
 
-func parseKafkaWriterConfig(kafkaServers []string, kafkaTopic string) *kafkaprocessor.Config {
+func parseKafkaWriterConfig(kafkaServers []string, kafkaTopic string) (*kafkaprocessor.Config, error) {
+	maxBatchBytes, err := getByteSize("PGSTREAM_KAFKA_WRITER_BATCH_BYTES")
+	if err != nil {
+		return nil, err
+	}
+	maxQueueBytes, err := getByteSize("PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES")
+	if err != nil {
+		return nil, err
+	}
 	return &kafkaprocessor.Config{
 		Kafka: kafka.ConnConfig{
 			Servers: kafkaServers,
@@ -395,28 +439,36 @@ func parseKafkaWriterConfig(kafkaServers []string, kafkaTopic string) *kafkaproc
 		},
 		Batch: batch.Config{
 			BatchTimeout:     viper.GetDuration("PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT"),
-			MaxBatchBytes:    viper.GetInt64("PGSTREAM_KAFKA_WRITER_BATCH_BYTES"),
+			MaxBatchBytes:    maxBatchBytes,
 			MaxBatchSize:     viper.GetInt64("PGSTREAM_KAFKA_WRITER_BATCH_SIZE"),
-			MaxQueueBytes:    viper.GetInt64("PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES"),
+			MaxQueueBytes:    maxQueueBytes,
 			IgnoreSendErrors: viper.GetBool("PGSTREAM_KAFKA_WRITER_BATCH_IGNORE_SEND_ERRORS"),
 		},
-	}
+	}, nil
 }
 
-func parseSearchProcessorConfig() *stream.SearchProcessorConfig {
+func parseSearchProcessorConfig() (*stream.SearchProcessorConfig, error) {
 	opensearchStore := viper.GetString("PGSTREAM_OPENSEARCH_STORE_URL")
 	elasticsearchStore := viper.GetString("PGSTREAM_ELASTICSEARCH_STORE_URL")
 	if opensearchStore == "" && elasticsearchStore == "" {
-		return nil
+		return nil, nil
 	}
 
+	maxQueueBytes, err := getByteSize("PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES")
+	if err != nil {
+		return nil, err
+	}
+	maxBatchBytes, err := getByteSize("PGSTREAM_SEARCH_INDEXER_BATCH_BYTES")
+	if err != nil {
+		return nil, err
+	}
 	return &stream.SearchProcessorConfig{
 		Indexer: search.IndexerConfig{
 			Batch: batch.Config{
 				MaxBatchSize:     viper.GetInt64("PGSTREAM_SEARCH_INDEXER_BATCH_SIZE"),
 				BatchTimeout:     viper.GetDuration("PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT"),
-				MaxQueueBytes:    viper.GetInt64("PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES"),
-				MaxBatchBytes:    viper.GetInt64("PGSTREAM_SEARCH_INDEXER_BATCH_BYTES"),
+				MaxQueueBytes:    maxQueueBytes,
+				MaxBatchBytes:    maxBatchBytes,
 				IgnoreSendErrors: viper.GetBool("PGSTREAM_SEARCH_INDEXER_BATCH_IGNORE_SEND_ERRORS"),
 			},
 			HashDocIDs: viper.GetBool("PGSTREAM_SEARCH_INDEXER_HASH_DOC_IDS"),
@@ -424,19 +476,24 @@ func parseSearchProcessorConfig() *stream.SearchProcessorConfig {
 		Store: store.Config{
 			OpenSearchURL:    opensearchStore,
 			ElasticsearchURL: elasticsearchStore,
+			TLS:              parseSearchTLSConfig(),
 		},
 		Retrier: search.StoreRetryConfig{
 			Backoff: parseBackoffConfig("PGSTREAM_SEARCH_STORE"),
 		},
-	}
+	}, nil
 }
 
-func parseWebhookProcessorConfig() *stream.WebhookProcessorConfig {
+func parseWebhookProcessorConfig() (*stream.WebhookProcessorConfig, error) {
 	subscriptionStore := viper.GetString("PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_URL")
 	if subscriptionStore == "" {
-		return nil
+		return nil, nil
 	}
 
+	maxQueueBytes, err := getByteSize("PGSTREAM_WEBHOOK_NOTIFIER_MAX_QUEUE_BYTES")
+	if err != nil {
+		return nil, err
+	}
 	return &stream.WebhookProcessorConfig{
 		SubscriptionStore: stream.WebhookSubscriptionStoreConfig{
 			URL:                  subscriptionStore,
@@ -444,7 +501,7 @@ func parseWebhookProcessorConfig() *stream.WebhookProcessorConfig {
 			CacheRefreshInterval: viper.GetDuration("PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_REFRESH_INTERVAL"),
 		},
 		Notifier: notifier.Config{
-			MaxQueueBytes:  viper.GetInt64("PGSTREAM_WEBHOOK_NOTIFIER_MAX_QUEUE_BYTES"),
+			MaxQueueBytes:  maxQueueBytes,
 			URLWorkerCount: viper.GetUint("PGSTREAM_WEBHOOK_NOTIFIER_WORKER_COUNT"),
 			ClientTimeout:  viper.GetDuration("PGSTREAM_WEBHOOK_NOTIFIER_CLIENT_TIMEOUT"),
 		},
@@ -453,13 +510,30 @@ func parseWebhookProcessorConfig() *stream.WebhookProcessorConfig {
 			ReadTimeout:  viper.GetDuration("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_READ_TIMEOUT"),
 			WriteTimeout: viper.GetDuration("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_WRITE_TIMEOUT"),
 		},
-	}
+	}, nil
 }
 
-func parsePostgresProcessorConfig() *stream.PostgresProcessorConfig {
+func parsePostgresProcessorConfig() (*stream.PostgresProcessorConfig, error) {
 	targetPostgresURL := viper.GetString("PGSTREAM_POSTGRES_WRITER_TARGET_URL")
 	if targetPostgresURL == "" {
-		return nil
+		return nil, nil
+	}
+
+	maxBatchBytes, err := getByteSize("PGSTREAM_POSTGRES_WRITER_BATCH_BYTES")
+	if err != nil {
+		return nil, err
+	}
+	maxQueueBytes, err := getByteSize("PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES")
+	if err != nil {
+		return nil, err
+	}
+	autoTuneMinBytes, err := getByteSize("PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_MIN_BYTES")
+	if err != nil {
+		return nil, err
+	}
+	autoTuneMaxBytes, err := getByteSize("PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_MAX_BYTES")
+	if err != nil {
+		return nil, err
 	}
 
 	bulkIngestEnabled := viper.GetBool("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED")
@@ -468,14 +542,14 @@ func parsePostgresProcessorConfig() *stream.PostgresProcessorConfig {
 			URL: targetPostgresURL,
 			BatchConfig: batch.Config{
 				BatchTimeout:     viper.GetDuration("PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT"),
-				MaxBatchBytes:    viper.GetInt64("PGSTREAM_POSTGRES_WRITER_BATCH_BYTES"),
+				MaxBatchBytes:    maxBatchBytes,
 				MaxBatchSize:     viper.GetInt64("PGSTREAM_POSTGRES_WRITER_BATCH_SIZE"),
-				MaxQueueBytes:    viper.GetInt64("PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES"),
+				MaxQueueBytes:    maxQueueBytes,
 				IgnoreSendErrors: viper.GetBool("PGSTREAM_POSTGRES_WRITER_BATCH_IGNORE_SEND_ERRORS"),
 				AutoTune: batch.AutoTuneConfig{
 					Enabled:              viper.GetBool("PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_ENABLE"),
-					MinBatchBytes:        viper.GetInt64("PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_MIN_BYTES"),
-					MaxBatchBytes:        viper.GetInt64("PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_MAX_BYTES"),
+					MinBatchBytes:        autoTuneMinBytes,
+					MaxBatchBytes:        autoTuneMaxBytes,
 					ConvergenceThreshold: viper.GetFloat64("PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_CONVERGENCE_THRESHOLD"),
 				},
 			},
@@ -491,7 +565,7 @@ func parsePostgresProcessorConfig() *stream.PostgresProcessorConfig {
 		applyPostgresBulkBatchDefaults(&cfg.BatchWriter.BatchConfig)
 	}
 
-	return cfg
+	return cfg, nil
 }
 
 func parseBackoffConfig(prefix string) backoff.Config {
@@ -563,4 +637,18 @@ func parseTLSConfig(prefix string) tls.Config {
 		ClientCertFile: viper.GetString(fmt.Sprintf("%s_TLS_CLIENT_CERT_FILE", prefix)),
 		ClientKeyFile:  viper.GetString(fmt.Sprintf("%s_TLS_CLIENT_KEY_FILE", prefix)),
 	}
+}
+
+// parseSearchTLSConfig reads the search store TLS settings from the
+// environment.
+func parseSearchTLSConfig() tls.Config {
+	cfg := tls.Config{
+		CaCertFile:         viper.GetString("PGSTREAM_SEARCH_TLS_CA_CERT_FILE"),
+		ClientCertFile:     viper.GetString("PGSTREAM_SEARCH_TLS_CLIENT_CERT_FILE"),
+		ClientKeyFile:      viper.GetString("PGSTREAM_SEARCH_TLS_CLIENT_KEY_FILE"),
+		InsecureSkipVerify: viper.GetBool("PGSTREAM_SEARCH_TLS_INSECURE_SKIP_VERIFY"),
+	}
+	cfg.Enabled = viper.GetBool("PGSTREAM_SEARCH_TLS_ENABLED") ||
+		cfg.CaCertFile != "" || cfg.ClientCertFile != "" || cfg.InsecureSkipVerify
+	return cfg
 }

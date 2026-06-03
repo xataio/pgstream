@@ -98,6 +98,11 @@ target:
     engine: "elasticsearch" # options are elasticsearch or opensearch
     url: "http://localhost:9200" # URL of the search engine
     hash_doc_ids: false # if true, hash document IDs using SHA256 to avoid exceeding the 512 byte limit
+    tls: # optional. Only needed when the search target requires HTTPS or a custom CA / mTLS.
+      ca_cert: "" # path to a PEM-encoded CA certificate. Leave empty to use the system pool.
+      client_cert: "" # path to a PEM-encoded client certificate (mTLS).
+      client_key: "" # path to a PEM-encoded client key (mTLS).
+      insecure_skip_verify: false # if true, skip server certificate verification. Use only against trusted/self-signed clusters in internal networks.
     batch:
       timeout: 1000 # batch timeout in milliseconds. Defaults to 1s
       size: 100 # number of messages in a batch. Defaults to 100
