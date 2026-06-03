@@ -130,11 +130,13 @@ func (n *Notifier) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (er
 
 	select {
 	case n.notifyChan <- msg:
-	case notifyDoneErr, ok := <-n.notifyDone:
-		if ok && notifyDoneErr != nil {
-			n.notifyErr = notifyDoneErr
-		}
+	case <-n.notifyDone:
+		// n.notifyErr is set by Notify before closing n.notifyDone, so it is
+		// safe to read here from any number of concurrent callers.
 		n.logger.Error(n.notifyErr, "stop processing, notify has stopped")
+		if n.notifyErr == nil {
+			return errNotifyStopped
+		}
 		return fmt.Errorf("%w: %w", errNotifyStopped, n.notifyErr)
 	}
 
@@ -147,7 +149,10 @@ func (n *Notifier) Notify(ctx context.Context) error {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case msg := <-n.notifyChan:
+			case msg, ok := <-n.notifyChan:
+				if !ok {
+					return nil
+				}
 				err := n.notify(ctx, msg)
 				n.queueBytesSema.Release(int64(msg.size()))
 				if err != nil {
@@ -163,7 +168,9 @@ func (n *Notifier) Notify(ctx context.Context) error {
 	}
 
 	err := notifyLoop()
-	n.notifyDone <- err
+	// publish the notify error before signalling shutdown so any goroutines
+	// waiting in ProcessWALEvent can observe it after the channel is closed.
+	n.notifyErr = err
 	close(n.notifyDone)
 	return err
 }

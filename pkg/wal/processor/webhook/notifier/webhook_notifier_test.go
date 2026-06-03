@@ -376,3 +376,87 @@ func TestNotifier(t *testing.T) {
 		}
 	}
 }
+
+// Regression test: Notify must not dereference a nil msg when notifyChan is
+// closed via Close(). Prior to the fix, Close()-during-Notify produced a
+// "invalid memory address or nil pointer dereference" panic at notify().
+func TestNotifier_NotifyAfterClose(t *testing.T) {
+	t.Parallel()
+
+	n := New(&Config{}, &mocks.Store{})
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- n.Notify(context.Background())
+	}()
+
+	// give Notify a moment to enter its select
+	time.Sleep(50 * time.Millisecond)
+	require.NoError(t, n.Close())
+
+	select {
+	case err := <-errChan:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Notify did not return after Close")
+	}
+}
+
+// Regression test: concurrent ProcessWALEvent callers must all observe the
+// underlying Notify error rather than wrapping a nil notifyErr (which would
+// produce "%!w(<nil>)" messages, the same pattern fixed for the batch sender
+// in issue #372).
+func TestNotifier_ConcurrentProcessWALEventErrorPropagation(t *testing.T) {
+	t.Parallel()
+
+	n := New(&Config{}, &mocks.Store{
+		GetSubscriptionsFn: func(ctx context.Context, action, schema, table string) ([]*subscription.Subscription, error) {
+			return []*subscription.Subscription{newTestSubscription("url-1", "", "", nil)}, nil
+		},
+	})
+	n.checkpointer = func(ctx context.Context, positions []wal.CommitPosition) error {
+		return errTest
+	}
+
+	notifyDone := make(chan struct{})
+	go func() {
+		defer close(notifyDone)
+		err := n.Notify(context.Background())
+		require.ErrorIs(t, err, errTest)
+	}()
+
+	// seed a message that will make Notify exit with errTest
+	require.NoError(t, n.ProcessWALEvent(context.Background(), &wal.Event{
+		CommitPosition: wal.CommitPosition("seed"),
+		Data:           &wal.Data{Action: "I"},
+	}))
+
+	select {
+	case <-notifyDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Notify to fail")
+	}
+	// give time for notifyDone close to propagate
+	time.Sleep(100 * time.Millisecond)
+
+	const workers = 8
+	errs := make([]error, workers)
+	wg := sync.WaitGroup{}
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = n.ProcessWALEvent(context.Background(), &wal.Event{
+				CommitPosition: wal.CommitPosition(fmt.Sprintf("w-%d", i)),
+				Data:           &wal.Data{Action: "I"},
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		require.ErrorIsf(t, err, errNotifyStopped, "worker %d: missing errNotifyStopped", i)
+		require.ErrorIsf(t, err, errTest, "worker %d: missing underlying notify error", i)
+		require.NotContainsf(t, err.Error(), "%!w(<nil>)", "worker %d: nil error wrapping leaked through", i)
+	}
+}
