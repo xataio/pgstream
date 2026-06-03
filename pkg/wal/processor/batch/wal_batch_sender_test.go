@@ -464,3 +464,70 @@ func TestSender(t *testing.T) {
 		}
 	}
 }
+
+// Regression test for https://github.com/xataio/pgstream/issues/372:
+// concurrent SendMessage callers must all observe the underlying send error
+// rather than wrapping a nil sendErr (which produced "%!w(<nil>)" messages
+// that obscured the real cause of snapshot worker failures).
+func TestSender_ConcurrentSendErrorPropagation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	errTest := errors.New("oh noes")
+	testCommitPos := wal.CommitPosition("1")
+
+	mockMsg := func(i uint) *mockMessage {
+		return &mockMessage{id: i}
+	}
+	testWALMsg := func(i uint) *WALMessage[*mockMessage] {
+		return NewWALMessage(mockMsg(i), testCommitPos)
+	}
+
+	doneChan := make(chan struct{}, 1)
+	defer close(doneChan)
+
+	sendFn := func(doneChan chan<- struct{}) sendBatchFn[*mockMessage] {
+		once := sync.Once{}
+		return func(ctx context.Context, b *Batch[*mockMessage]) error {
+			defer once.Do(func() { doneChan <- struct{}{} })
+			return errTest
+		}
+	}
+
+	sender, err := NewSender(ctx, &Config{
+		BatchTimeout: 100 * time.Millisecond,
+		MaxBatchSize: 1,
+	}, sendFn(doneChan), log.NewNoopLogger())
+	require.NoError(t, err)
+	defer sender.Close()
+
+	// prime the sender so the batch send fails
+	require.NoError(t, sender.SendMessage(ctx, testWALMsg(1)))
+
+	select {
+	case <-doneChan:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for send to fail")
+	}
+	// give time for the error to propagate through sendDone
+	time.Sleep(100 * time.Millisecond)
+
+	const workers = 8
+	errs := make([]error, workers)
+	wg := sync.WaitGroup{}
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = sender.SendMessage(ctx, testWALMsg(uint(i+2)))
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		require.ErrorIsf(t, err, errSendStopped, "worker %d: missing errSendStopped", i)
+		require.ErrorIsf(t, err, errTest, "worker %d: missing underlying send error", i)
+		require.NotContainsf(t, err.Error(), "%!w(<nil>)", "worker %d: nil error wrapping leaked through", i)
+	}
+}

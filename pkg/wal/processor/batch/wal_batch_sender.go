@@ -106,13 +106,13 @@ func (s *Sender[T]) SendMessage(ctx context.Context, msg *WALMessage[T]) error {
 	// longer processing), and an error will be returned.
 	select {
 	case s.msgChan <- msg:
-	case sendDoneErr, ok := <-s.sendDone:
-		// check if a different call has closed the send channel already, to
-		// prevent blocking when called concurrently.
-		if ok && sendDoneErr != nil {
-			s.sendErr = sendDoneErr
-		}
+	case <-s.sendDone:
+		// s.sendErr is set by send() before closing s.sendDone, so it is safe
+		// to read here from any number of concurrent callers.
 		s.logger.Error(s.sendErr, "stop processing, sending has stopped")
+		if s.sendErr == nil {
+			return errSendStopped
+		}
 		return fmt.Errorf("%w: %w", errSendStopped, s.sendErr)
 	}
 
@@ -211,7 +211,9 @@ func (s *Sender[T]) send(ctx context.Context) error {
 	if err != nil && !errors.Is(err, context.Canceled) {
 		s.logger.Error(err, "sending stopped")
 	}
-	s.sendDone <- err
+	// publish the send error before signalling shutdown so any goroutines
+	// waiting in SendMessage can observe it after the channel is closed.
+	s.sendErr = err
 	close(s.sendDone)
 	return err
 }
