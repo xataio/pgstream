@@ -9,11 +9,12 @@ import (
 )
 
 type Tx struct {
-	QueryRowFn    func(ctx context.Context, dest []any, query string, args ...any) error
-	QueryFn       func(ctx context.Context, query string, args ...any) (postgres.Rows, error)
-	ExecFn        func(ctx context.Context, i uint, query string, args ...any) (postgres.CommandTag, error)
-	CopyFromFn    func(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
-	execCallCount uint
+	QueryRowFn     func(ctx context.Context, dest []any, query string, args ...any) error
+	QueryFn        func(ctx context.Context, query string, args ...any) (postgres.Rows, error)
+	ExecFn         func(ctx context.Context, i uint, query string, args ...any) (postgres.CommandTag, error)
+	CopyFromFn     func(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
+	CopyFromTextFn func(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
+	execCallCount  uint
 }
 
 func (m *Tx) QueryRow(ctx context.Context, dest []any, query string, args ...any) error {
@@ -30,5 +31,12 @@ func (m *Tx) Exec(ctx context.Context, query string, args ...any) (postgres.Comm
 }
 
 func (m *Tx) CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (rowCount int64, err error) {
+	return m.CopyFromFn(ctx, tableName, columnNames, srcRows)
+}
+
+func (m *Tx) CopyFromText(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (rowCount int64, err error) {
+	if m.CopyFromTextFn != nil {
+		return m.CopyFromTextFn(ctx, tableName, columnNames, srcRows)
+	}
 	return m.CopyFromFn(ctx, tableName, columnNames, srcRows)
 }

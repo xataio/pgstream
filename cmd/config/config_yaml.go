@@ -88,10 +88,10 @@ type SnapshotRecorderConfig struct {
 }
 
 type SnapshotDataConfig struct {
-	SchemaWorkers  int    `mapstructure:"schema_workers" yaml:"schema_workers"`
-	TableWorkers   int    `mapstructure:"table_workers" yaml:"table_workers"`
-	BatchBytes     uint64 `mapstructure:"batch_bytes" yaml:"batch_bytes"`
-	MaxConnections uint   `mapstructure:"max_connections" yaml:"max_connections"`
+	SchemaWorkers  int      `mapstructure:"schema_workers" yaml:"schema_workers"`
+	TableWorkers   int      `mapstructure:"table_workers" yaml:"table_workers"`
+	BatchBytes     byteSize `mapstructure:"batch_bytes" yaml:"batch_bytes"`
+	MaxConnections uint     `mapstructure:"max_connections" yaml:"max_connections"`
 }
 
 type SnapshotSchemaConfig struct {
@@ -189,27 +189,37 @@ type KafkaTopicConfig struct {
 }
 
 type SearchConfig struct {
-	Engine     string         `mapstructure:"engine" yaml:"engine"`
-	URL        string         `mapstructure:"url" yaml:"url"`
-	Batch      *BatchConfig   `mapstructure:"batch" yaml:"batch"`
-	Backoff    *BackoffConfig `mapstructure:"backoff" yaml:"backoff"`
-	HashDocIDs bool           `mapstructure:"hash_doc_ids" yaml:"hash_doc_ids"`
+	Engine     string           `mapstructure:"engine" yaml:"engine"`
+	URL        string           `mapstructure:"url" yaml:"url"`
+	Batch      *BatchConfig     `mapstructure:"batch" yaml:"batch"`
+	Backoff    *BackoffConfig   `mapstructure:"backoff" yaml:"backoff"`
+	HashDocIDs bool             `mapstructure:"hash_doc_ids" yaml:"hash_doc_ids"`
+	TLS        *SearchTLSConfig `mapstructure:"tls" yaml:"tls"`
+}
+
+// SearchTLSConfig configures the HTTPS transport used to talk to the search
+// store.
+type SearchTLSConfig struct {
+	CACert             string `mapstructure:"ca_cert" yaml:"ca_cert"`
+	ClientCert         string `mapstructure:"client_cert" yaml:"client_cert"`
+	ClientKey          string `mapstructure:"client_key" yaml:"client_key"`
+	InsecureSkipVerify bool   `mapstructure:"insecure_skip_verify" yaml:"insecure_skip_verify"`
 }
 
 type BatchConfig struct {
 	Timeout          int                  `mapstructure:"timeout" yaml:"timeout"`
 	Size             int                  `mapstructure:"size" yaml:"size"`
-	MaxBytes         int                  `mapstructure:"max_bytes" yaml:"max_bytes"`
-	MaxQueueBytes    int                  `mapstructure:"max_queue_bytes" yaml:"max_queue_bytes"`
+	MaxBytes         byteSize             `mapstructure:"max_bytes" yaml:"max_bytes"`
+	MaxQueueBytes    byteSize             `mapstructure:"max_queue_bytes" yaml:"max_queue_bytes"`
 	IgnoreSendErrors bool                 `mapstructure:"ignore_send_errors" yaml:"ignore_send_errors"`
 	AutoTune         *BatchAutoTuneConfig `mapstructure:"auto_tune" yaml:"auto_tune"`
 }
 
 type BatchAutoTuneConfig struct {
-	Enabled              bool    `mapstructure:"enabled" yaml:"enabled"`
-	MaxBatchBytes        int64   `mapstructure:"max_batch_bytes" yaml:"max_batch_bytes"`
-	MinBatchBytes        int64   `mapstructure:"min_batch_bytes" yaml:"min_batch_bytes"`
-	ConvergenceThreshold float64 `mapstructure:"convergence_threshold" yaml:"convergence_threshold"`
+	Enabled              bool     `mapstructure:"enabled" yaml:"enabled"`
+	MaxBatchBytes        byteSize `mapstructure:"max_batch_bytes" yaml:"max_batch_bytes"`
+	MinBatchBytes        byteSize `mapstructure:"min_batch_bytes" yaml:"min_batch_bytes"`
+	ConvergenceThreshold float64  `mapstructure:"convergence_threshold" yaml:"convergence_threshold"`
 }
 
 type BulkIngestConfig struct {
@@ -520,7 +530,7 @@ func (c *YAMLConfig) parseDataSnapshotConfig() *pgsnapshotgenerator.Config {
 	}
 
 	if snapshotCfg.Data != nil {
-		streamCfg.BatchBytes = snapshotCfg.Data.BatchBytes
+		streamCfg.BatchBytes = uint64(snapshotCfg.Data.BatchBytes)
 		streamCfg.SchemaWorkers = uint(snapshotCfg.Data.SchemaWorkers)
 		streamCfg.TableWorkers = uint(snapshotCfg.Data.TableWorkers)
 		streamCfg.MaxConnections = snapshotCfg.Data.MaxConnections
@@ -646,6 +656,16 @@ func (c *YAMLConfig) parseSearchProcessorConfig() (*stream.SearchProcessorConfig
 		storeCfg.OpenSearchURL = c.Target.Search.URL
 	default:
 		return nil, errUnsupportedSearchEngine
+	}
+
+	if tlsCfg := c.Target.Search.TLS; tlsCfg != nil {
+		storeCfg.TLS = tls.Config{
+			Enabled:            true,
+			CaCertFile:         tlsCfg.CACert,
+			ClientCertFile:     tlsCfg.ClientCert,
+			ClientKeyFile:      tlsCfg.ClientKey,
+			InsecureSkipVerify: tlsCfg.InsecureSkipVerify,
+		}
 	}
 
 	return &stream.SearchProcessorConfig{
@@ -866,8 +886,8 @@ func (bc *BatchConfig) parseBatchConfig() batch.Config {
 	if bc.AutoTune != nil {
 		cfg.AutoTune = batch.AutoTuneConfig{
 			Enabled:              bc.AutoTune.Enabled,
-			MinBatchBytes:        bc.AutoTune.MinBatchBytes,
-			MaxBatchBytes:        bc.AutoTune.MaxBatchBytes,
+			MinBatchBytes:        int64(bc.AutoTune.MinBatchBytes),
+			MaxBatchBytes:        int64(bc.AutoTune.MaxBatchBytes),
 			ConvergenceThreshold: bc.AutoTune.ConvergenceThreshold,
 		}
 	}

@@ -23,6 +23,10 @@ type Config struct {
 	// File path to the client PEM key or client PEM key content
 	ClientKeyFile string
 	ClientKeyPEM  string
+	// InsecureSkipVerify disables verification of the server certificate. Use
+	// only against trusted hosts (development, self-signed certs in an
+	// internal network); never against untrusted endpoints.
+	InsecureSkipVerify bool
 }
 
 func NewConfig(cfg *Config) (*tls.Config, error) {
@@ -41,10 +45,11 @@ func NewConfig(cfg *Config) (*tls.Config, error) {
 	}
 
 	return &tls.Config{
-		MinVersion:   tls.VersionTLS12,
-		MaxVersion:   0,
-		Certificates: certificates,
-		RootCAs:      certPool,
+		MinVersion:         tls.VersionTLS12,
+		MaxVersion:         0,
+		Certificates:       certificates,
+		RootCAs:            certPool,
+		InsecureSkipVerify: cfg.InsecureSkipVerify, //nolint:gosec // opt-in
 	}, nil
 }
 
