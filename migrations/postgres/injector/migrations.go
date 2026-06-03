@@ -11,6 +11,8 @@
 // migrations/postgres/injector/3_update_emit_ddl_function.up.sql
 // migrations/postgres/injector/4_fix_duplicate_ddl_emission.down.sql
 // migrations/postgres/injector/4_fix_duplicate_ddl_emission.up.sql
+// migrations/postgres/injector/5_handle_duplicate_table_mapping.down.sql
+// migrations/postgres/injector/5_handle_duplicate_table_mapping.up.sql
 package pginjectormigrations
 
 import (
@@ -247,6 +249,46 @@ func _4_fix_duplicate_ddl_emissionUpSql() (*asset, error) {
 	return a, nil
 }
 
+var __5_handle_duplicate_table_mappingDownSql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x44\xce\x3d\x6a\xc4\x30\x10\x05\xe0\xde\xa7\x78\x85\x8b\x0d\x84\x5c\x60\x49\x21\xcc\xc4\x18\x84\x9c\xe8\x27\xad\x98\x58\x42\x2b\x58\xc7\xc2\x56\x91\xe3\x07\xb4\x2c\xee\x66\x86\x79\xbc\x6f\xd0\x24\x2c\x61\xd6\xd0\xf4\x29\xc5\x40\xf8\x70\x6a\xb0\xd3\xac\x50\xd2\x51\xf7\xc8\xeb\xdb\xb2\x47\xae\xd1\x57\xfe\xb9\x47\xbf\x72\x29\xf9\x37\x5d\x1e\xdb\x96\x03\xb6\x1c\x5e\xa0\xc9\x3a\xad\xcc\x19\xfa\xcb\xa1\x03\x00\x29\xd4\xe8\xc4\x48\x30\x5f\xb2\x1d\x0c\x59\x1c\x91\xf7\xe5\xe6\x0b\xd7\x1b\xde\x51\x92\x5f\xb8\xf2\x7d\x4b\xaf\x25\xf9\x1a\xd7\xd2\x1e\x85\x41\xdf\xb7\x69\x52\x86\xb4\xc5\xa4\xec\x7c\x16\x3c\x00\x39\x1c\xb8\x34\xc1\xb7\x90\x8e\x0c\x4e\xd8\x13\x35\xa9\x11\x39\x5c\xbb\xbe\xbf\x76\xff\x01\x00\x00\xff\xff\x1f\x15\x02\x91\xef\x00\x00\x00")
+
+func _5_handle_duplicate_table_mappingDownSqlBytes() ([]byte, error) {
+	return bindataRead(
+		__5_handle_duplicate_table_mappingDownSql,
+		"5_handle_duplicate_table_mapping.down.sql",
+	)
+}
+
+func _5_handle_duplicate_table_mappingDownSql() (*asset, error) {
+	bytes, err := _5_handle_duplicate_table_mappingDownSqlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "5_handle_duplicate_table_mapping.down.sql", size: 239, mode: os.FileMode(420), modTime: time.Unix(1778327910, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var __5_handle_duplicate_table_mappingUpSql = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x44\x8f\xcd\x8a\x83\x30\x14\x85\xf7\x3e\xc5\x59\xb8\x68\x61\xe8\x0b\x94\x2e\x42\xbc\x15\x21\x24\x9d\xfc\x0c\xb3\x93\x8c\x06\x1b\xa8\x63\xd0\x2c\xe6\xf1\x07\xb5\xe0\xee\xde\xcb\x39\xdc\xef\xe3\x9a\x98\x25\x28\x0d\x4d\x0f\xc1\x38\xe1\xee\x24\xb7\x8d\x92\x48\xc3\x92\xe7\xe0\xc7\x4b\x37\x07\x9f\x43\x9b\xfd\xcf\x2b\xb4\xa3\x4f\x29\xfe\x0e\xa7\x7d\x9b\x62\x8f\x29\xf6\x67\x68\xb2\x4e\x4b\x73\x94\xfe\x62\x5f\x00\x80\x60\xb2\x76\xac\x26\x98\x4f\xb1\x1d\x0c\x59\x2c\xc1\xcf\xdd\xb3\x4d\x3e\x3f\x71\x43\x1a\xda\xce\x67\xff\x9a\x86\x8f\x34\xb4\x39\x8c\x69\x0b\x32\x83\xb2\xdc\xa6\x46\x1a\xd2\x16\x8d\xb4\xea\x78\xb0\x03\xc4\x7e\xc1\x69\x23\xf8\x62\xc2\x91\xc1\x01\x76\xde\xba\x4a\x82\x2b\x79\x17\x0d\xb7\xef\x60\xa5\xe0\x1e\xd5\x6a\xbd\xa2\xac\x06\x37\xd0\x37\x17\xae\xa2\xea\x32\xbd\xb1\x77\x9f\x46\xd6\x88\xfd\xb5\x28\xcb\x6b\xf1\x1f\x00\x00\xff\xff\xf2\x0e\x5d\x2d\x2a\x01\x00\x00")
+
+func _5_handle_duplicate_table_mappingUpSqlBytes() ([]byte, error) {
+	return bindataRead(
+		__5_handle_duplicate_table_mappingUpSql,
+		"5_handle_duplicate_table_mapping.up.sql",
+	)
+}
+
+func _5_handle_duplicate_table_mappingUpSql() (*asset, error) {
+	bytes, err := _5_handle_duplicate_table_mappingUpSqlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "5_handle_duplicate_table_mapping.up.sql", size: 298, mode: os.FileMode(420), modTime: time.Unix(1778327910, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
 // Asset loads and returns the asset for the given name.
 // It returns an error if the asset could not be found or
 // could not be loaded.
@@ -307,6 +349,8 @@ var _bindata = map[string]func() (*asset, error){
 	"3_update_emit_ddl_function.up.sql":         _3_update_emit_ddl_functionUpSql,
 	"4_fix_duplicate_ddl_emission.down.sql":     _4_fix_duplicate_ddl_emissionDownSql,
 	"4_fix_duplicate_ddl_emission.up.sql":       _4_fix_duplicate_ddl_emissionUpSql,
+	"5_handle_duplicate_table_mapping.down.sql":  _5_handle_duplicate_table_mappingDownSql,
+	"5_handle_duplicate_table_mapping.up.sql":    _5_handle_duplicate_table_mappingUpSql,
 }
 
 // AssetDir returns the file names below a certain
@@ -358,6 +402,8 @@ var _bintree = &bintree{nil, map[string]*bintree{
 	"3_update_emit_ddl_function.up.sql":         &bintree{_3_update_emit_ddl_functionUpSql, map[string]*bintree{}},
 	"4_fix_duplicate_ddl_emission.down.sql":     &bintree{_4_fix_duplicate_ddl_emissionDownSql, map[string]*bintree{}},
 	"4_fix_duplicate_ddl_emission.up.sql":       &bintree{_4_fix_duplicate_ddl_emissionUpSql, map[string]*bintree{}},
+	"5_handle_duplicate_table_mapping.down.sql":  &bintree{_5_handle_duplicate_table_mappingDownSql, map[string]*bintree{}},
+	"5_handle_duplicate_table_mapping.up.sql":    &bintree{_5_handle_duplicate_table_mappingUpSql, map[string]*bintree{}},
 }}
 
 // RestoreAsset restores an asset under the given directory
