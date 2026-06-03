@@ -11,7 +11,7 @@ require (
 	github.com/eminano/greenmask v0.0.0-20250718112128-2fb5fa726c02
 	github.com/ggwhite/go-masker v1.1.0
 	github.com/go-logr/zerologr v1.2.3
-	github.com/go-viper/mapstructure/v2 v2.4.0
+	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
