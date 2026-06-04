@@ -10,10 +10,18 @@ import (
 
 type mockAdapter struct {
 	walEventToQueriesFn func(*wal.Event) ([]*query, error)
+	walEventToMessageFn func(*wal.Event) (*walMessage, error)
 }
 
 func (m *mockAdapter) walEventToQueries(_ context.Context, e *wal.Event) ([]*query, error) {
 	return m.walEventToQueriesFn(e)
+}
+
+func (m *mockAdapter) walEventToMessage(_ context.Context, e *wal.Event) (*walMessage, error) {
+	if m.walEventToMessageFn != nil {
+		return m.walEventToMessageFn(e)
+	}
+	return &walMessage{}, nil
 }
 
 func (m *mockAdapter) close() error {
@@ -21,15 +29,23 @@ func (m *mockAdapter) close() error {
 }
 
 type mockSchemaObserver struct {
-	getGeneratedColumnNamesFn func(ctx context.Context, schema, table string) (map[string]struct{}, error)
-	getSequenceColumnsFn      func(ctx context.Context, schema, table string) (map[string]string, error)
-	isMaterializedViewFn      func(schema, table string) bool
-	updateFn                  func(ddlEvent *wal.DDLEvent)
-	closeFn                   func() error
+	getGeneratedColumnNamesFn      func(ctx context.Context, schema, table string) (map[string]struct{}, error)
+	getAlwaysIdentityColumnNamesFn func(ctx context.Context, schema, table string) (map[string]struct{}, error)
+	getSequenceColumnsFn           func(ctx context.Context, schema, table string) (map[string]string, error)
+	isMaterializedViewFn           func(schema, table string) bool
+	updateFn                       func(ddlEvent *wal.DDLEvent)
+	closeFn                        func() error
 }
 
 func (m *mockSchemaObserver) getGeneratedColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error) {
 	return m.getGeneratedColumnNamesFn(ctx, schema, table)
+}
+
+func (m *mockSchemaObserver) getAlwaysIdentityColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error) {
+	if m.getAlwaysIdentityColumnNamesFn == nil {
+		return nil, nil
+	}
+	return m.getAlwaysIdentityColumnNamesFn(ctx, schema, table)
 }
 
 func (m *mockSchemaObserver) getSequenceColumns(ctx context.Context, schema, table string) (map[string]string, error) {
