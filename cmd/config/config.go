@@ -36,7 +36,7 @@ func LoadFile(file string) error {
 	if err != nil {
 		return fmt.Errorf("reading config file: %w", err)
 	}
-	buf = []byte(os.ExpandEnv(string(buf)))
+	buf = []byte(expandBracedEnvVars(string(buf)))
 
 	viper.SetConfigFile(file)
 	viper.SetConfigType(filepath.Ext(file)[1:])
@@ -50,7 +50,7 @@ func LoadFile(file string) error {
 		if err != nil {
 			return fmt.Errorf("reading transformer rules config file: %w", err)
 		}
-		trBuf = []byte(os.ExpandEnv(string(trBuf)))
+		trBuf = []byte(expandBracedEnvVars(string(trBuf)))
 
 		viper.SetConfigFile(transformerRulesFile)
 		viper.SetConfigType(filepath.Ext(transformerRulesFile)[1:])
@@ -95,7 +95,7 @@ func ParseStreamConfig() (*stream.Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		buf = []byte(os.ExpandEnv(string(buf)))
+		buf = []byte(expandBracedEnvVars(string(buf)))
 		// yaml.Unmarshal is used to override the viper.Umarshal to be able to
 		// parse the transformers configuration with support for case sensitive
 		// keys.
@@ -122,7 +122,7 @@ func ParseTransformerConfig(filename string) (*transformer.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	buf = []byte(os.ExpandEnv(string(buf)))
+	buf = []byte(expandBracedEnvVars(string(buf)))
 
 	yamlConfig := struct {
 		Transformations TransformationsConfig `mapstructure:"transformations" yaml:"transformations"`
