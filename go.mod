@@ -24,7 +24,8 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/nucleuscloud/neosync v0.5.40
 	github.com/opensearch-project/opensearch-go v1.1.0
-	github.com/pgvector/pgvector-go v0.3.0
+	github.com/pgvector/pgvector-go v0.4.0
+	github.com/pgvector/pgvector-go/pgx v0.4.0
 	github.com/pterm/pterm v0.12.83
 	github.com/rs/xid v1.6.0
 	github.com/rs/zerolog v1.35.1
