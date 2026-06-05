@@ -22,7 +22,7 @@ type Sender[T Message] struct {
 	queueBytesSema   synclib.WeightedSemaphore
 	msgChan          chan (*WALMessage[T])
 	once             *sync.Once
-	sendDone         chan (error)
+	sendDone         chan struct{}
 	sendErr          error
 	ignoreSendErrors bool
 
@@ -47,7 +47,7 @@ func NewSender[T Message](ctx context.Context, config *Config, sendfn sendBatchF
 		maxBatchBytes:     config.GetMaxBatchBytes(),
 		maxBatchSize:      config.GetMaxBatchSize(),
 		msgChan:           make(chan *WALMessage[T]),
-		sendDone:          make(chan error, 1),
+		sendDone:          make(chan struct{}),
 		once:              &sync.Once{},
 		logger:            logger,
 		sendBatchFn:       sendfn,
@@ -108,11 +108,10 @@ func (s *Sender[T]) SendMessage(ctx context.Context, msg *WALMessage[T]) error {
 	case s.msgChan <- msg:
 	case <-s.sendDone:
 		// s.sendErr is set by send() before closing s.sendDone, so it is safe
-		// to read here from any number of concurrent callers.
+		// to read here from any number of concurrent callers. It is always
+		// non-nil — every return path of batchMsgLoop carries an error
+		// (ctx.Err, sendErrChan, or a non-nil drainBatch result).
 		s.logger.Error(s.sendErr, "stop processing, sending has stopped")
-		if s.sendErr == nil {
-			return errSendStopped
-		}
 		return fmt.Errorf("%w: %w", errSendStopped, s.sendErr)
 	}
 

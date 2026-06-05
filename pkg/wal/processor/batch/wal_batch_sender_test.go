@@ -124,7 +124,7 @@ func TestSender_SendMessage(t *testing.T) {
 				maxBatchSize:      10,
 				msgChan:           make(chan *WALMessage[*mockMessage]),
 				queueBytesSema:    tc.weightedSemaphore,
-				sendDone:          make(chan error, 1),
+				sendDone:          make(chan struct{}),
 				once:              &sync.Once{},
 				logger:            log.NewNoopLogger(),
 				sendBatchFn:       noopSendFn,
@@ -137,7 +137,9 @@ func TestSender_SendMessage(t *testing.T) {
 			defer cancel()
 
 			if tc.sendDone {
-				batchSender.sendDone <- errSendStopped
+				// Simulate the post-fix shape: send() publishes the error
+				// into the shared field before closing sendDone.
+				batchSender.sendErr = errSendStopped
 				close(batchSender.sendDone)
 			}
 
@@ -309,7 +311,7 @@ func TestSender_send(t *testing.T) {
 				maxBatchSize:      10,
 				msgChan:           make(chan *WALMessage[*mockMessage]),
 				queueBytesSema:    tc.semaphore,
-				sendDone:          make(chan error, 1),
+				sendDone:          make(chan struct{}),
 				once:              &sync.Once{},
 				logger:            log.NewNoopLogger(),
 				sendBatchFn:       tc.sendFn(doneChan),
@@ -382,7 +384,7 @@ func TestSender_send(t *testing.T) {
 					}
 				},
 			},
-			sendDone:    make(chan error, 1),
+			sendDone:    make(chan struct{}),
 			once:        &sync.Once{},
 			logger:      log.NewNoopLogger(),
 			sendBatchFn: sendFn(doneChan),
