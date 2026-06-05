@@ -510,8 +510,14 @@ func TestSender_ConcurrentSendErrorPropagation(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for send to fail")
 	}
-	// give time for the error to propagate through sendDone
-	time.Sleep(100 * time.Millisecond)
+	// Wait deterministically for send() to publish the error and close
+	// sendDone — that's the exact "happens-before" we want every concurrent
+	// SendMessage caller below to observe.
+	select {
+	case <-sender.sendDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for sendDone to close")
+	}
 
 	const workers = 8
 	errs := make([]error, workers)

@@ -36,9 +36,13 @@ type Notifier struct {
 	queueBytesSema synclib.WeightedSemaphore
 	notifyChan     chan *notifyMsg
 	workerCount    uint
-	notifyDone     chan (error)
-	notifyErr      error
-	once           *sync.Once
+	// shutdownCh is closed by Close() to signal Notify and any in-flight
+	// ProcessWALEvent calls to stop. notifyChan is never closed, so concurrent
+	// senders cannot panic on "send on closed channel".
+	shutdownCh chan struct{}
+	notifyDone chan struct{}
+	notifyErr  error
+	once       *sync.Once
 }
 
 type subscriptionRetriever interface {
@@ -59,7 +63,8 @@ func New(cfg *Config, store subscriptionRetriever, opts ...Option) *Notifier {
 		notifyChan:        make(chan *notifyMsg),
 		workerCount:       cfg.workerCount(),
 		serialiser:        json.Marshal,
-		notifyDone:        make(chan error, 1),
+		shutdownCh:        make(chan struct{}),
+		notifyDone:        make(chan struct{}),
 		once:              &sync.Once{},
 	}
 
@@ -130,7 +135,13 @@ func (n *Notifier) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (er
 
 	select {
 	case n.notifyChan <- msg:
+	case <-n.shutdownCh:
+		// Close() was called before Notify processed this event. notifyChan is
+		// never closed, so we cannot send into it — bail out cleanly.
+		n.logger.Error(nil, "stop processing, notify is shutting down")
+		return errNotifyStopped
 	case <-n.notifyDone:
+		// Notify has exited on its own (external ctx cancel or notify error).
 		// n.notifyErr is set by Notify before closing n.notifyDone, so it is
 		// safe to read here from any number of concurrent callers.
 		n.logger.Error(n.notifyErr, "stop processing, notify has stopped")
@@ -149,10 +160,10 @@ func (n *Notifier) Notify(ctx context.Context) error {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case msg, ok := <-n.notifyChan:
-				if !ok {
-					return nil
-				}
+			case <-n.shutdownCh:
+				// graceful shutdown via Close(); not an error
+				return nil
+			case msg := <-n.notifyChan:
 				err := n.notify(ctx, msg)
 				n.queueBytesSema.Release(int64(msg.size()))
 				if err != nil {
@@ -179,17 +190,14 @@ func (n *Notifier) Name() string {
 	return "webhooks-notifier"
 }
 
+// Close signals Notify and any in-flight ProcessWALEvent callers to stop. It
+// is safe to call multiple times. notifyChan itself is not closed: that would
+// race with a concurrent ProcessWALEvent's send and panic.
 func (n *Notifier) Close() error {
-	n.closeNotifyChan()
-	return nil
-}
-
-// closeNotifyChan closes the internal notify channel. It can be called multiple
-// times.
-func (n *Notifier) closeNotifyChan() {
 	n.once.Do(func() {
-		close(n.notifyChan)
+		close(n.shutdownCh)
 	})
+	return nil
 }
 
 func (n *Notifier) notify(ctx context.Context, msg *notifyMsg) error {
