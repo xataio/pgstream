@@ -40,27 +40,22 @@ import (
 // │ └─────────┘  └─────────┘  └────────┘  └─────────┘ │
 // └───────────────────────────────────────────────────┘
 
-func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p listener.Processor, logger loglib.Logger, instrumentation *otel.Instrumentation, opts ...Option) (listenersnapshot.Generator, error) {
-	options := &options{}
-	for _, opt := range opts {
-		opt(options)
-	}
-
+func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p listener.Processor, logger loglib.Logger, instrumentation *otel.Instrumentation, restoreConflictTargetsBeforeData bool) (listenersnapshot.Generator, error) {
 	var g generator.SnapshotGenerator
 	var err error
 
 	// postgres data snapshot generator layer
 	if cfg.Data != nil {
-		dataOpts := []pgsnapshotgenerator.Option{
+		opts := []pgsnapshotgenerator.Option{
 			pgsnapshotgenerator.WithLogger(logger),
 		}
 		if !cfg.DisableProgressTracking {
-			dataOpts = append(dataOpts, pgsnapshotgenerator.WithProgressTracking())
+			opts = append(opts, pgsnapshotgenerator.WithProgressTracking())
 		}
 		if instrumentation.IsEnabled() {
-			dataOpts = append(dataOpts, pgsnapshotgenerator.WithInstrumentation(instrumentation))
+			opts = append(opts, pgsnapshotgenerator.WithInstrumentation(instrumentation))
 		}
-		g, err = pgsnapshotgenerator.NewSnapshotGenerator(ctx, cfg.Data, p, dataOpts...)
+		g, err = pgsnapshotgenerator.NewSnapshotGenerator(ctx, cfg.Data, p, opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -79,7 +74,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 
 	if cfg.Schema != nil {
 		// postgres schema snapshot generator layer
-		g, err = newSchemaSnapshotGenerator(ctx, cfg.Schema, g, p, logger, instrumentation, !cfg.DisableProgressTracking, options.restoreConflictTargetsBeforeData)
+		g, err = newSchemaSnapshotGenerator(ctx, cfg.Schema, g, p, logger, instrumentation, !cfg.DisableProgressTracking, restoreConflictTargetsBeforeData)
 		if err != nil {
 			return nil, err
 		}

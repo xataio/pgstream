@@ -137,17 +137,13 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 				return fmt.Errorf("error creating snapshot processor: %w", err)
 			}
 
-			snapshotOpts := []snapshotbuilder.Option{}
-			if config.restoreConflictTargetsBeforeData() {
-				snapshotOpts = append(snapshotOpts, snapshotbuilder.WithRestoreConflictTargetsBeforeData())
-			}
 			snapshotGenerator, err := snapshotbuilder.NewSnapshotGenerator(
 				ctx,
 				config.Listener.Postgres.Snapshot,
 				snapshotProcessor,
 				logger,
 				instrumentation,
-				snapshotOpts...)
+				config.restoreConflictTargetsBeforeData())
 			if err != nil {
 				return err
 			}

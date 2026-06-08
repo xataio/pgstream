@@ -42,17 +42,13 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 
 	// Listener
 
-	snapshotOpts := []snapshotbuilder.Option{}
-	if config.restoreConflictTargetsBeforeData() {
-		snapshotOpts = append(snapshotOpts, snapshotbuilder.WithRestoreConflictTargetsBeforeData())
-	}
 	snapshotGenerator, err := snapshotbuilder.NewSnapshotGenerator(
 		ctx,
 		config.Listener.Postgres.Snapshot,
 		processor,
 		logger,
 		instrumentation,
-		snapshotOpts...)
+		config.restoreConflictTargetsBeforeData())
 	if err != nil {
 		return err
 	}

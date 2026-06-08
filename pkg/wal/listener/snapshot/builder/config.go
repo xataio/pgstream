@@ -25,19 +25,3 @@ type SnapshotRecorderConfig struct {
 	SnapshotWorkers     uint
 	SnapshotStoreURL    string
 }
-
-// Option configures the snapshot generator built by NewSnapshotGenerator.
-type Option func(*options)
-
-type options struct {
-	restoreConflictTargetsBeforeData bool
-}
-
-// WithRestoreConflictTargetsBeforeData makes the schema snapshot restore
-// constraints/indexes usable as INSERT ... ON CONFLICT targets (primary keys,
-// unique constraints and unique indexes) before the data snapshot runs.
-func WithRestoreConflictTargetsBeforeData() Option {
-	return func(o *options) {
-		o.restoreConflictTargetsBeforeData = true
-	}
-}
