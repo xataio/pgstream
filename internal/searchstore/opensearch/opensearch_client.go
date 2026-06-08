@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,10 +22,30 @@ type Client struct {
 	client *opensearch.Client
 }
 
+// Option configures the underlying opensearch.Client.
+type Option func(*opensearch.Config)
+
+// WithTLS installs the given TLS config on the client's HTTP transport.
+// Passing nil leaves the default transport untouched.
+func WithTLS(tlsCfg *tls.Config) Option {
+	return func(c *opensearch.Config) {
+		if tlsCfg == nil {
+			return
+		}
+		base, ok := http.DefaultTransport.(*http.Transport)
+		if !ok {
+			return
+		}
+		transport := base.Clone()
+		transport.TLSClientConfig = tlsCfg
+		c.Transport = transport
+	}
+}
+
 var errInvalidSearchEnvelope = errors.New("invalid search response")
 
-func NewClient(url string) (*Client, error) {
-	os, err := newClient(url)
+func NewClient(url string, opts ...Option) (*Client, error) {
+	os, err := newClient(url, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create opensearch client: %w", err)
 	}
@@ -473,7 +494,7 @@ func (c *Client) isErrResponse(res *opensearchapi.Response) error {
 	return searchstore.IsErrResponse(newAPIResponse(res))
 }
 
-func newClient(address string) (*opensearch.Client, error) {
+func newClient(address string, opts ...Option) (*opensearch.Client, error) {
 	if address == "" {
 		return nil, errors.New("no address provided")
 	}
@@ -483,6 +504,10 @@ func newClient(address string) (*opensearch.Client, error) {
 			address,
 		},
 		Transport: http.DefaultTransport,
+	}
+
+	for _, opt := range opts {
+		opt(&cfg)
 	}
 
 	return opensearch.NewClient(cfg)

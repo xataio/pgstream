@@ -17,8 +17,9 @@ type cleanup func() error
 type PostgresImage string
 
 const (
-	Postgres14 PostgresImage = "debezium/postgres:14-alpine"
-	Postgres17 PostgresImage = "debezium/postgres:17-alpine"
+	Postgres14         PostgresImage = "debezium/postgres:14-alpine"
+	Postgres17         PostgresImage = "debezium/postgres:17-alpine"
+	PgvectorPostgres17 PostgresImage = "pgvector/pgvector:pg17"
 )
 
 func SetupPostgresContainer(ctx context.Context, url *string, image PostgresImage, configFile ...string) (cleanup, error) {
