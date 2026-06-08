@@ -46,13 +46,14 @@ type KafkaListenerConfig struct {
 }
 
 type ProcessorConfig struct {
-	Kafka       *KafkaProcessorConfig
-	Search      *SearchProcessorConfig
-	Webhook     *WebhookProcessorConfig
-	Postgres    *PostgresProcessorConfig
-	Injector    *injector.Config
-	Transformer *transformer.Config
-	Filter      *filter.Config
+	Kafka              *KafkaProcessorConfig
+	Search             *SearchProcessorConfig
+	Webhook            *WebhookProcessorConfig
+	Postgres           *PostgresProcessorConfig
+	Injector           *injector.Config
+	Transformer        *transformer.Config
+	Filter             *filter.Config
+	StripNullCharBytes bool
 }
 
 type KafkaProcessorConfig struct {

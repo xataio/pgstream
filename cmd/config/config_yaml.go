@@ -258,9 +258,10 @@ type WebhookNotifierConfig struct {
 }
 
 type ModifiersConfig struct {
-	Injector        *InjectorConfig        `mapstructure:"injector" yaml:"injector"`
-	Transformations *TransformationsConfig `mapstructure:"transformations" yaml:"transformations"`
-	Filter          *FilterConfig          `mapstructure:"filter" yaml:"filter"`
+	Injector           *InjectorConfig        `mapstructure:"injector" yaml:"injector"`
+	Transformations    *TransformationsConfig `mapstructure:"transformations" yaml:"transformations"`
+	Filter             *FilterConfig          `mapstructure:"filter" yaml:"filter"`
+	StripNullCharBytes bool                   `mapstructure:"strip_null_char_bytes" yaml:"strip_null_char_bytes"`
 }
 
 type InjectorConfig struct {
@@ -393,10 +394,11 @@ func (c *YAMLConfig) parseListenerConfig() (stream.ListenerConfig, error) {
 
 func (c *YAMLConfig) parseProcessorConfig() (stream.ProcessorConfig, error) {
 	streamCfg := stream.ProcessorConfig{
-		Kafka:    c.parseKafkaProcessorConfig(),
-		Postgres: c.parsePostgresProcessorConfig(),
-		Webhook:  c.parseWebhookProcessorConfig(),
-		Filter:   c.parseFilterConfig(),
+		Kafka:              c.parseKafkaProcessorConfig(),
+		Postgres:           c.parsePostgresProcessorConfig(),
+		Webhook:            c.parseWebhookProcessorConfig(),
+		Filter:             c.parseFilterConfig(),
+		StripNullCharBytes: c.parseStripNullCharBytesConfig(),
 	}
 
 	var err error
@@ -724,6 +726,10 @@ func (c YAMLConfig) parseFilterConfig() *filter.Config {
 		ExcludeTables: c.Modifiers.Filter.ExcludeTables,
 		IncludeTables: c.Modifiers.Filter.IncludeTables,
 	}
+}
+
+func (c YAMLConfig) parseStripNullCharBytesConfig() bool {
+	return c.Modifiers.StripNullCharBytes
 }
 
 func (c TransformationsConfig) parseTransformationConfig() (*transformer.Config, error) {
