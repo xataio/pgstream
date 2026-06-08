@@ -40,22 +40,27 @@ import (
 // │ └─────────┘  └─────────┘  └────────┘  └─────────┘ │
 // └───────────────────────────────────────────────────┘
 
-func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p listener.Processor, logger loglib.Logger, instrumentation *otel.Instrumentation) (listenersnapshot.Generator, error) {
+func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p listener.Processor, logger loglib.Logger, instrumentation *otel.Instrumentation, opts ...Option) (listenersnapshot.Generator, error) {
+	options := &options{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	var g generator.SnapshotGenerator
 	var err error
 
 	// postgres data snapshot generator layer
 	if cfg.Data != nil {
-		opts := []pgsnapshotgenerator.Option{
+		dataOpts := []pgsnapshotgenerator.Option{
 			pgsnapshotgenerator.WithLogger(logger),
 		}
 		if !cfg.DisableProgressTracking {
-			opts = append(opts, pgsnapshotgenerator.WithProgressTracking())
+			dataOpts = append(dataOpts, pgsnapshotgenerator.WithProgressTracking())
 		}
 		if instrumentation.IsEnabled() {
-			opts = append(opts, pgsnapshotgenerator.WithInstrumentation(instrumentation))
+			dataOpts = append(dataOpts, pgsnapshotgenerator.WithInstrumentation(instrumentation))
 		}
-		g, err = pgsnapshotgenerator.NewSnapshotGenerator(ctx, cfg.Data, p, opts...)
+		g, err = pgsnapshotgenerator.NewSnapshotGenerator(ctx, cfg.Data, p, dataOpts...)
 		if err != nil {
 			return nil, err
 		}
@@ -74,7 +79,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 
 	if cfg.Schema != nil {
 		// postgres schema snapshot generator layer
-		g, err = newSchemaSnapshotGenerator(ctx, cfg.Schema, g, p, logger, instrumentation, !cfg.DisableProgressTracking)
+		g, err = newSchemaSnapshotGenerator(ctx, cfg.Schema, g, p, logger, instrumentation, !cfg.DisableProgressTracking, options.restoreConflictTargetsBeforeData)
 		if err != nil {
 			return nil, err
 		}
@@ -106,7 +111,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 	return adapter.NewSnapshotGeneratorAdapter(&cfg.Adapter, g, adapter.WithLogger(logger)), nil
 }
 
-func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, g generator.SnapshotGenerator, processor listener.Processor, logger loglib.Logger, instrumentation *otel.Instrumentation, progressTracking bool) (generator.SnapshotGenerator, error) {
+func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, g generator.SnapshotGenerator, processor listener.Processor, logger loglib.Logger, instrumentation *otel.Instrumentation, progressTracking, restoreConflictTargetsBeforeData bool) (generator.SnapshotGenerator, error) {
 	// postgres pgdump schema snapshot generator
 	opts := []pgdumprestoregenerator.Option{
 		pgdumprestoregenerator.WithLogger(logger),
@@ -122,6 +127,9 @@ func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, 
 		// if no target postgres is provided, use WAL restore instead of
 		// direct pgrestore
 		opts = append(opts, pgdumprestoregenerator.WithRestoreToWAL(processor))
+	}
+	if restoreConflictTargetsBeforeData {
+		opts = append(opts, pgdumprestoregenerator.WithRestoreConflictTargetsBeforeData())
 	}
 	return pgdumprestoregenerator.NewSnapshotGenerator(ctx, cfg.DumpRestore, opts...)
 }

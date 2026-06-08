@@ -39,11 +39,11 @@ type SnapshotGenerator struct {
 	roleSQLParser          *roleSQLParser
 	optionGenerator        *optionGenerator
 	snapshotTracker        snapshotProgressTracker
-	// restoreIndicesAndConstraintsBeforeData restores constraints/indexes that can
+	// restoreConflictTargetsBeforeData restores constraints/indexes that can
 	// be used as INSERT ... ON CONFLICT targets before the wrapped data snapshot
 	// generator runs. Other indexes and constraints, such as foreign keys, are
 	// still restored after data is inserted.
-	restoreIndicesAndConstraintsBeforeData bool
+	restoreConflictTargetsBeforeData bool
 }
 
 type snapshotProgressTracker interface {
@@ -72,11 +72,6 @@ type Config struct {
 	DumpDebugFile string
 	// if set, security label providers that will be excluded from the dump
 	ExcludedSecurityLabels []string
-	// Restore constraints/indexes that can be used as INSERT ... ON CONFLICT
-	// targets before data is snapshotted. This is required when the data snapshot
-	// writer emits INSERT ... ON CONFLICT DO UPDATE, because the target table must
-	// already have a matching unique or primary key constraint.
-	RestoreIndicesAndConstraintsBeforeData bool
 }
 
 type Option func(s *SnapshotGenerator)
@@ -106,18 +101,17 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 	}
 
 	sg := &SnapshotGenerator{
-		sourceURL:                              c.SourcePGURL,
-		targetURL:                              c.TargetPGURL,
-		pgDumpFn:                               pglib.RunPGDump,
-		pgDumpAllFn:                            pglib.RunPGDumpAll,
-		pgRestoreFn:                            pglib.RunPGRestore,
-		logger:                                 loglib.NewNoopLogger(),
-		dumpDebugFile:                          c.DumpDebugFile,
-		excludedSecurityLabels:                 c.ExcludedSecurityLabels,
-		restoreIndicesAndConstraintsBeforeData: c.RestoreIndicesAndConstraintsBeforeData,
-		roleSQLParser:                          &roleSQLParser{},
-		sourceQuerier:                          sourceConnPool,
-		optionGenerator:                        newOptionGenerator(sourceConnPool, c),
+		sourceURL:              c.SourcePGURL,
+		targetURL:              c.TargetPGURL,
+		pgDumpFn:               pglib.RunPGDump,
+		pgDumpAllFn:            pglib.RunPGDumpAll,
+		pgRestoreFn:            pglib.RunPGRestore,
+		logger:                 loglib.NewNoopLogger(),
+		dumpDebugFile:          c.DumpDebugFile,
+		excludedSecurityLabels: c.ExcludedSecurityLabels,
+		roleSQLParser:          &roleSQLParser{},
+		sourceQuerier:          sourceConnPool,
+		optionGenerator:        newOptionGenerator(sourceConnPool, c),
 	}
 
 	for _, opt := range opts {
@@ -170,6 +164,18 @@ func WithProgressTracking(ctx context.Context) Option {
 func WithRestoreToWAL(processor processor.Processor) Option {
 	return func(sg *SnapshotGenerator) {
 		sg.pgRestoreFn = newPGSnapshotWALRestore(processor, sg.sourceQuerier).restoreToWAL
+	}
+}
+
+// WithRestoreConflictTargetsBeforeData restores constraints and indexes that
+// can be used as INSERT ... ON CONFLICT targets (primary keys, unique
+// constraints and unique indexes) before the wrapped data snapshot generator
+// runs. This is required when the data writer emits
+// INSERT ... ON CONFLICT DO UPDATE, since the target table must already have a
+// matching unique or primary key constraint at insert time.
+func WithRestoreConflictTargetsBeforeData() Option {
+	return func(sg *SnapshotGenerator) {
+		sg.restoreConflictTargetsBeforeData = true
 	}
 }
 
@@ -237,7 +243,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	}
 
 	indicesAndConstraintsDump := dump.indicesAndConstraints
-	if s.generator != nil && s.restoreIndicesAndConstraintsBeforeData {
+	if s.generator != nil && s.restoreConflictTargetsBeforeData {
 		conflictTargets, remaining := splitConflictTargetConstraints(dump.indicesAndConstraints)
 		if err := s.restoreIndicesAndConstraints(ctx, conflictTargets, ss); err != nil {
 			return err

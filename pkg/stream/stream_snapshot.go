@@ -22,7 +22,6 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 	if err := config.IsValid(); err != nil {
 		return fmt.Errorf("incompatible configuration: %w", err)
 	}
-	prepareSnapshotSchemaRestore(config)
 
 	eg, ctx := errgroup.WithContext(ctx)
 
@@ -43,12 +42,17 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 
 	// Listener
 
+	snapshotOpts := []snapshotbuilder.Option{}
+	if config.restoreConflictTargetsBeforeData() {
+		snapshotOpts = append(snapshotOpts, snapshotbuilder.WithRestoreConflictTargetsBeforeData())
+	}
 	snapshotGenerator, err := snapshotbuilder.NewSnapshotGenerator(
 		ctx,
 		config.Listener.Postgres.Snapshot,
 		processor,
 		logger,
-		instrumentation)
+		instrumentation,
+		snapshotOpts...)
 	if err != nil {
 		return err
 	}

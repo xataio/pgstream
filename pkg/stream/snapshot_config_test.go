@@ -6,26 +6,24 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
-	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
-	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	pgwriter "github.com/xataio/pgstream/pkg/wal/processor/postgres"
 )
 
-func TestPrepareSnapshotSchemaRestore(t *testing.T) {
+func TestConfig_restoreConflictTargetsBeforeData(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name             string
 		onConflictAction string
 		bulkIngest       bool
+		noPostgres       bool
 
-		wantRestoreConstraintsBeforeData bool
+		want bool
 	}{
 		{
-			name:                             "update with batch writer restores constraints before data",
-			onConflictAction:                 "update",
-			wantRestoreConstraintsBeforeData: true,
+			name:             "update with batch writer restores constraints before data",
+			onConflictAction: "update",
+			want:             true,
 		},
 		{
 			name:             "update with bulk ingest keeps default order",
@@ -39,6 +37,10 @@ func TestPrepareSnapshotSchemaRestore(t *testing.T) {
 		{
 			name: "default error behavior keeps default order",
 		},
+		{
+			name:       "no postgres processor keeps default order",
+			noPostgres: true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -46,31 +48,18 @@ func TestPrepareSnapshotSchemaRestore(t *testing.T) {
 			t.Parallel()
 
 			config := &Config{
-				Listener: ListenerConfig{
-					Postgres: &PostgresListenerConfig{
-						Snapshot: &snapshotbuilder.SnapshotListenerConfig{
-							Data: &pgsnapshotgenerator.Config{},
-							Schema: &snapshotbuilder.SchemaSnapshotConfig{
-								DumpRestore: &pgdumprestore.Config{},
-							},
-						},
+				Processor: ProcessorConfig{},
+			}
+			if !tc.noPostgres {
+				config.Processor.Postgres = &PostgresProcessorConfig{
+					BatchWriter: pgwriter.Config{
+						OnConflictAction:  tc.onConflictAction,
+						BulkIngestEnabled: tc.bulkIngest,
 					},
-				},
-				Processor: ProcessorConfig{
-					Postgres: &PostgresProcessorConfig{
-						BatchWriter: pgwriter.Config{
-							OnConflictAction:  tc.onConflictAction,
-							BulkIngestEnabled: tc.bulkIngest,
-						},
-					},
-				},
+				}
 			}
 
-			prepareSnapshotSchemaRestore(config)
-
-			require.Equal(t,
-				tc.wantRestoreConstraintsBeforeData,
-				config.Listener.Postgres.Snapshot.Schema.DumpRestore.RestoreIndicesAndConstraintsBeforeData)
+			require.Equal(t, tc.want, config.restoreConflictTargetsBeforeData())
 		})
 	}
 }

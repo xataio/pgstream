@@ -1362,7 +1362,7 @@ CREATE INDEX test_table_value_idx ON public.test_table USING btree (value);
 			rolesSnapshotMode: roleSnapshotDisabled,
 			querier:           conn,
 		},
-		restoreIndicesAndConstraintsBeforeData: true,
+		restoreConflictTargetsBeforeData: true,
 	}
 
 	err := sg.CreateSnapshot(context.Background(), &snapshot.Snapshot{
