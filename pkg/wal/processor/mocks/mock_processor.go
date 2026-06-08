@@ -4,6 +4,7 @@ package mocks
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/xataio/pgstream/pkg/wal"
 )
@@ -11,16 +12,16 @@ import (
 type Processor struct {
 	ProcessWALEventFn func(ctx context.Context, walEvent *wal.Event) error
 	CloseFn           func() error
-	processCalls      uint
+	processCalls      atomic.Uint64
 }
 
 func (m *Processor) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) error {
-	m.processCalls++
+	m.processCalls.Add(1)
 	return m.ProcessWALEventFn(ctx, walEvent)
 }
 
 func (m *Processor) GetProcessCalls() uint {
-	return m.processCalls
+	return uint(m.processCalls.Load())
 }
 
 func (m *Processor) Close() error {
