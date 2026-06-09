@@ -25,7 +25,7 @@ require (
 	github.com/pgvector/pgvector-go/pgx v0.4.0
 	github.com/pterm/pterm v0.12.83
 	github.com/rs/xid v1.6.0
-	github.com/rs/zerolog v1.34.0
+	github.com/rs/zerolog v1.35.1
 	github.com/schollz/progressbar/v3 v3.19.0
 	github.com/segmentio/kafka-go v0.4.51
 	github.com/spf13/cobra v1.10.2
