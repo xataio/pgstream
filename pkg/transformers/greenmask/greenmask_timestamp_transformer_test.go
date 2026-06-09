@@ -4,6 +4,7 @@ package greenmask
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -241,4 +242,46 @@ func TestUTCTimestampTransformer_Transform(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestUTCTimestampTransformer_ConcurrentTransform exercises #789: greenmask's
+// Timestamp transformer holds a non-thread-safe *rand.Rand, and pgstream
+// shares one *UTCTimestampTransformer across snapshot worker goroutines.
+// Without the wrapper's mutex, concurrent Transform calls corrupt the rng
+// state and panic deep inside math/rand. Run with -race to catch any future
+// regression that drops the lock.
+func TestUTCTimestampTransformer_ConcurrentTransform(t *testing.T) {
+	t.Parallel()
+
+	transformer, err := NewUTCTimestampTransformer(transformers.ParameterValues{
+		"generator":     random,
+		"min_timestamp": "2020-01-01T00:00:00Z",
+		"max_timestamp": "2030-01-01T00:00:00Z",
+	})
+	require.NoError(t, err)
+
+	const (
+		goroutines = 64
+		callsPer   = 1000
+	)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < callsPer; j++ {
+				if _, err := transformer.Transform(
+					context.Background(),
+					transformers.Value{TransformValue: time.Now()},
+				); err != nil {
+					t.Errorf("Transform: %v", err)
+					return
+				}
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
 }
