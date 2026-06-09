@@ -175,6 +175,7 @@ var extensionTypes = []extensionType{
 		return nil
 	}},
 	{name: "cube", register: registerWithCodec("cube", pgtype.TextCodec{})},
+	{name: "ltree", register: registerWithCodec("ltree", pgtype.TextCodec{})},
 }
 
 // registerTypesToConnMap teaches pgx about the postgres extension types

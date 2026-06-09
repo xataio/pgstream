@@ -40,7 +40,7 @@ import (
 // │ └─────────┘  └─────────┘  └────────┘  └─────────┘ │
 // └───────────────────────────────────────────────────┘
 
-func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p listener.Processor, logger loglib.Logger, instrumentation *otel.Instrumentation) (listenersnapshot.Generator, error) {
+func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p listener.Processor, logger loglib.Logger, instrumentation *otel.Instrumentation, restoreConflictTargetsBeforeData bool) (listenersnapshot.Generator, error) {
 	var g generator.SnapshotGenerator
 	var err error
 
@@ -74,7 +74,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 
 	if cfg.Schema != nil {
 		// postgres schema snapshot generator layer
-		g, err = newSchemaSnapshotGenerator(ctx, cfg.Schema, g, p, logger, instrumentation, !cfg.DisableProgressTracking)
+		g, err = newSchemaSnapshotGenerator(ctx, cfg.Schema, g, p, logger, instrumentation, !cfg.DisableProgressTracking, restoreConflictTargetsBeforeData)
 		if err != nil {
 			return nil, err
 		}
@@ -106,7 +106,7 @@ func NewSnapshotGenerator(ctx context.Context, cfg *SnapshotListenerConfig, p li
 	return adapter.NewSnapshotGeneratorAdapter(&cfg.Adapter, g, adapter.WithLogger(logger)), nil
 }
 
-func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, g generator.SnapshotGenerator, processor listener.Processor, logger loglib.Logger, instrumentation *otel.Instrumentation, progressTracking bool) (generator.SnapshotGenerator, error) {
+func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, g generator.SnapshotGenerator, processor listener.Processor, logger loglib.Logger, instrumentation *otel.Instrumentation, progressTracking, restoreConflictTargetsBeforeData bool) (generator.SnapshotGenerator, error) {
 	// postgres pgdump schema snapshot generator
 	opts := []pgdumprestoregenerator.Option{
 		pgdumprestoregenerator.WithLogger(logger),
@@ -122,6 +122,9 @@ func newSchemaSnapshotGenerator(ctx context.Context, cfg *SchemaSnapshotConfig, 
 		// if no target postgres is provided, use WAL restore instead of
 		// direct pgrestore
 		opts = append(opts, pgdumprestoregenerator.WithRestoreToWAL(processor))
+	}
+	if restoreConflictTargetsBeforeData {
+		opts = append(opts, pgdumprestoregenerator.WithRestoreConflictTargetsBeforeData())
 	}
 	return pgdumprestoregenerator.NewSnapshotGenerator(ctx, cfg.DumpRestore, opts...)
 }

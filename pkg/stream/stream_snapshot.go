@@ -47,7 +47,8 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 		config.Listener.Postgres.Snapshot,
 		processor,
 		logger,
-		instrumentation)
+		instrumentation,
+		config.restoreConflictTargetsBeforeData())
 	if err != nil {
 		return err
 	}
