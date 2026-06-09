@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/xataio/pgstream/cmd/config"
+	"github.com/xataio/pgstream/internal/log/zerolog"
 	"github.com/xataio/pgstream/internal/profiling"
 	"github.com/xataio/pgstream/pkg/otel"
 )
@@ -35,6 +36,10 @@ func Prepare() *cobra.Command {
 				return fmt.Errorf("loading configuration: %w", err)
 			}
 
+			if err := loggerConfigFromViper().Validate(); err != nil {
+				return err
+			}
+
 			return nil
 		},
 	}
@@ -47,6 +52,8 @@ func Prepare() *cobra.Command {
 	// root cmd
 	rootCmd.PersistentFlags().StringP("config", "c", "", ".env or .yaml config file to use with pgstream if any")
 	rootCmd.PersistentFlags().String("log-level", "debug", "log level for the application. One of trace, debug, info, warn, error, fatal, panic")
+	rootCmd.PersistentFlags().String("log-format", "console", "log output format. One of console, json")
+	rootCmd.PersistentFlags().Bool("no-color", false, "disable ANSI color codes in console log output (ignored when --log-format=json)")
 
 	// init cmd
 	initCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream setup will be run")
@@ -167,9 +174,19 @@ func withProfiling(fn func(cmd *cobra.Command, args []string) error) func(cmd *c
 	}
 }
 
+func loggerConfigFromViper() *zerolog.Config {
+	return &zerolog.Config{
+		LogLevel:  viper.GetString("PGSTREAM_LOG_LEVEL"),
+		LogFormat: viper.GetString("PGSTREAM_LOG_FORMAT"),
+		NoColor:   viper.GetBool("PGSTREAM_LOG_NO_COLOR"),
+	}
+}
+
 func rootFlagBinding(cmd *cobra.Command) {
 	viper.BindPFlag("config", cmd.PersistentFlags().Lookup("config"))
 	viper.BindPFlag("PGSTREAM_LOG_LEVEL", cmd.PersistentFlags().Lookup("log-level"))
+	viper.BindPFlag("PGSTREAM_LOG_FORMAT", cmd.PersistentFlags().Lookup("log-format"))
+	viper.BindPFlag("PGSTREAM_LOG_NO_COLOR", cmd.PersistentFlags().Lookup("no-color"))
 }
 
 func version() string {
