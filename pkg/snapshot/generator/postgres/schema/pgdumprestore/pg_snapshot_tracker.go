@@ -50,9 +50,7 @@ func newSnapshotTracker(ctx context.Context, pgurl string) (*snapshotTracker, er
 		conn:         connPool,
 		progressBars: synclib.NewMap[string, progress.Bar](),
 		clock:        clockwork.NewRealClock(),
-		barBuilder: func(total int64, description, unit string) progress.Bar {
-			return progress.NewBar(total, description, unit)
-		},
+		barBuilder:   progress.NewBar,
 	}, nil
 }
 
