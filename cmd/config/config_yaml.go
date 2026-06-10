@@ -257,11 +257,15 @@ type WebhookNotifierConfig struct {
 	ClientTimeout int `mapstructure:"client_timeout" yaml:"client_timeout"`
 }
 
+type SanitizeConfig struct {
+	StripNullCharBytes bool `mapstructure:"strip_null_char_bytes" yaml:"strip_null_char_bytes"`
+}
+
 type ModifiersConfig struct {
-	Injector           *InjectorConfig        `mapstructure:"injector" yaml:"injector"`
-	Transformations    *TransformationsConfig `mapstructure:"transformations" yaml:"transformations"`
-	Filter             *FilterConfig          `mapstructure:"filter" yaml:"filter"`
-	StripNullCharBytes bool                   `mapstructure:"strip_null_char_bytes" yaml:"strip_null_char_bytes"`
+	Injector        *InjectorConfig        `mapstructure:"injector" yaml:"injector"`
+	Transformations *TransformationsConfig `mapstructure:"transformations" yaml:"transformations"`
+	Filter          *FilterConfig          `mapstructure:"filter" yaml:"filter"`
+	Sanitize        *SanitizeConfig        `mapstructure:"sanitize" yaml:"sanitize"`
 }
 
 type InjectorConfig struct {
@@ -394,11 +398,11 @@ func (c *YAMLConfig) parseListenerConfig() (stream.ListenerConfig, error) {
 
 func (c *YAMLConfig) parseProcessorConfig() (stream.ProcessorConfig, error) {
 	streamCfg := stream.ProcessorConfig{
-		Kafka:              c.parseKafkaProcessorConfig(),
-		Postgres:           c.parsePostgresProcessorConfig(),
-		Webhook:            c.parseWebhookProcessorConfig(),
-		Filter:             c.parseFilterConfig(),
-		StripNullCharBytes: c.parseStripNullCharBytesConfig(),
+		Kafka:    c.parseKafkaProcessorConfig(),
+		Postgres: c.parsePostgresProcessorConfig(),
+		Webhook:  c.parseWebhookProcessorConfig(),
+		Filter:   c.parseFilterConfig(),
+		Sanitize: c.parseSanitizeConfig(),
 	}
 
 	var err error
@@ -728,8 +732,13 @@ func (c YAMLConfig) parseFilterConfig() *filter.Config {
 	}
 }
 
-func (c YAMLConfig) parseStripNullCharBytesConfig() bool {
-	return c.Modifiers.StripNullCharBytes
+func (c YAMLConfig) parseSanitizeConfig() *stream.SanitizeConfig {
+	if c.Modifiers.Sanitize == nil || !c.Modifiers.Sanitize.StripNullCharBytes {
+		return nil
+	}
+	return &stream.SanitizeConfig{
+		StripNullCharBytes: c.Modifiers.Sanitize.StripNullCharBytes,
+	}
 }
 
 func (c TransformationsConfig) parseTransformationConfig() (*transformer.Config, error) {

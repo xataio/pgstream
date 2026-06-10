@@ -177,7 +177,7 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 	closerAgg := &closerAggregator{}
 	var err error
 
-	if config.Processor.StripNullCharBytes {
+	if config.Processor.Sanitize != nil && config.Processor.Sanitize.StripNullCharBytes {
 		logger.Info("adding null byte sanitizer to processor...")
 		processor = sanitizer.New(processor, sanitizer.WithLogger(logger))
 	}

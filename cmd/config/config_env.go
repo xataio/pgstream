@@ -141,7 +141,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_TRANSFORMER_RULES_FILE")
 	viper.BindEnv("PGSTREAM_FILTER_INCLUDE_TABLES")
 	viper.BindEnv("PGSTREAM_FILTER_EXCLUDE_TABLES")
-	viper.BindEnv("PGSTREAM_PROCESSOR_STRIP_NULL_CHAR_BYTES")
+	viper.BindEnv("PGSTREAM_PROCESSOR_SANITIZE_STRIP_NULL_CHAR_BYTES")
 
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_ENABLED")
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CA_CERT_FILE")
@@ -392,14 +392,14 @@ func parseProcessorConfig() (stream.ProcessorConfig, error) {
 	}
 
 	return stream.ProcessorConfig{
-		Kafka:              kafkaCfg,
-		Search:             searchCfg,
-		Webhook:            webhookCfg,
-		Postgres:           postgresCfg,
-		Injector:           parseInjectorConfig(),
-		Transformer:        transformerCfg,
-		Filter:             parseFilterConfig(),
-		StripNullCharBytes: parseStripNullCharBytesConfig(),
+		Kafka:       kafkaCfg,
+		Search:      searchCfg,
+		Webhook:     webhookCfg,
+		Postgres:    postgresCfg,
+		Injector:    parseInjectorConfig(),
+		Transformer: transformerCfg,
+		Filter:      parseFilterConfig(),
+		Sanitize:    parseSanitizeConfig(),
 	}, nil
 }
 
@@ -632,8 +632,13 @@ func parseFilterConfig() *filter.Config {
 	}
 }
 
-func parseStripNullCharBytesConfig() bool {
-	return viper.GetBool("PGSTREAM_PROCESSOR_STRIP_NULL_CHAR_BYTES")
+func parseSanitizeConfig() *stream.SanitizeConfig {
+	if !viper.GetBool("PGSTREAM_PROCESSOR_SANITIZE_STRIP_NULL_CHAR_BYTES") {
+		return nil
+	}
+	return &stream.SanitizeConfig{
+		StripNullCharBytes: true,
+	}
 }
 
 func parseTLSConfig(prefix string) tls.Config {

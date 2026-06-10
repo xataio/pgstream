@@ -170,7 +170,8 @@ modifiers:
       - "excluded_test"
       - "excluded_schema.test"
       - "another_excluded_schema.*"
-  strip_null_char_bytes: true # strip null bytes (0x00) from string column values. Defaults to false
+  sanitize:
+    strip_null_char_bytes: true # strip null bytes (0x00) from string column values. Defaults to false
   transformations:
     validation_mode: relaxed
     table_transformers:
@@ -388,7 +389,7 @@ One of exponential/constant/disable retries retry policies can be provided for t
 
 | Environment Variable                       | Default | Required | Description                                                                                                                                    |
 | ------------------------------------------ | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| PGSTREAM_PROCESSOR_STRIP_NULL_CHAR_BYTES   | false   | No       | Strip null bytes (0x00) from string column values. Useful when the source database contains null bytes that are not allowed by the target.     |
+| PGSTREAM_PROCESSOR_SANITIZE_STRIP_NULL_CHAR_BYTES   | false   | No       | Strip null bytes (0x00) from string column values. Useful when the source database contains null bytes that are not allowed by the target.     |
 
 </details>
 
