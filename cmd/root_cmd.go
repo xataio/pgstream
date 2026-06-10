@@ -176,10 +176,35 @@ func withProfiling(fn func(cmd *cobra.Command, args []string) error) func(cmd *c
 
 func loggerConfigFromViper() *zerolog.Config {
 	return &zerolog.Config{
-		LogLevel:  viper.GetString("PGSTREAM_LOG_LEVEL"),
-		LogFormat: viper.GetString("PGSTREAM_LOG_FORMAT"),
-		NoColor:   viper.GetBool("PGSTREAM_LOG_NO_COLOR"),
+		LogLevel:  resolveLogString("PGSTREAM_LOG_LEVEL", "logging.level"),
+		LogFormat: resolveLogString("PGSTREAM_LOG_FORMAT", "logging.format.type"),
+		NoColor:   resolveLogBool("PGSTREAM_LOG_NO_COLOR", "logging.format.no_color"),
 	}
+}
+
+// resolveLogString picks the value from the flag/env-style key when it was set
+// explicitly (CLI flag changed or env var present), otherwise it falls back to
+// the YAML key, and finally to the flag default.
+func resolveLogString(envKey, yamlKey string) string {
+	if viper.IsSet(envKey) {
+		return viper.GetString(envKey)
+	}
+	if v := viper.GetString(yamlKey); v != "" {
+		return v
+	}
+	return viper.GetString(envKey)
+}
+
+// resolveLogBool mirrors resolveLogString for boolean values: the explicit
+// flag/env wins, then the YAML key, then the flag default.
+func resolveLogBool(envKey, yamlKey string) bool {
+	if viper.IsSet(envKey) {
+		return viper.GetBool(envKey)
+	}
+	if viper.IsSet(yamlKey) {
+		return viper.GetBool(yamlKey)
+	}
+	return viper.GetBool(envKey)
 }
 
 func rootFlagBinding(cmd *cobra.Command) {

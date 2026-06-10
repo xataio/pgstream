@@ -49,6 +49,17 @@ type YAMLConfig struct {
 	Source    SourceConfig    `mapstructure:"source" yaml:"source"`
 	Target    TargetConfig    `mapstructure:"target" yaml:"target"`
 	Modifiers ModifiersConfig `mapstructure:"modifiers" yaml:"modifiers"`
+	Logging   *LoggingConfig  `mapstructure:"logging" yaml:"logging"`
+}
+
+type LoggingConfig struct {
+	Level  string              `mapstructure:"level" yaml:"level"`
+	Format LoggingFormatConfig `mapstructure:"format" yaml:"format"`
+}
+
+type LoggingFormatConfig struct {
+	Type    string `mapstructure:"type" yaml:"type"`
+	NoColor bool   `mapstructure:"no_color" yaml:"no_color"`
 }
 
 type SourceConfig struct {

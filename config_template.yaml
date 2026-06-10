@@ -1,3 +1,9 @@
+logging:
+  level: debug # log level for the application. One of trace, debug, info, warn, error, fatal, panic. Defaults to debug.
+  format:
+    type: console # log output format. One of console or json. Defaults to console.
+    no_color: false # disable ANSI color codes in console log output. Only valid when type is console. Defaults to false.
+
 instrumentation:
   metrics:
     endpoint: "0.0.0.0:4317"

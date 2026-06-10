@@ -34,13 +34,20 @@ type Config struct {
 	NoColor bool
 }
 
+// ErrNoColorUnderJSONFormat is returned by Validate when NoColor is enabled
+// while LogFormat is "json"; the option only applies to the console writer.
+var ErrNoColorUnderJSONFormat = fmt.Errorf("no_color is only valid when log format is 'console'")
+
 // Validate returns an error if the Config contains an unsupported value.
-// Empty fields are treated as defaults and accepted. NoColor is unconstrained.
+// Empty fields are treated as defaults and accepted.
 func (c *Config) Validate() error {
 	switch c.LogFormat {
 	case "", "console", "json":
 	default:
 		return fmt.Errorf("invalid log format %q: must be one of console, json", c.LogFormat)
+	}
+	if c.NoColor && c.LogFormat == "json" {
+		return ErrNoColorUnderJSONFormat
 	}
 	return nil
 }
