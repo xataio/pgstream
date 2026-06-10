@@ -19,6 +19,11 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const (
+	formatConsole = "console"
+	formatJSON    = "json"
+)
+
 type Config struct {
 	// LogLevel selects the minimum log level emitted. Supported values are
 	// trace, debug, info, warn, error, fatal, panic, and disabled. An empty
@@ -42,11 +47,11 @@ var ErrNoColorUnderJSONFormat = fmt.Errorf("no_color is only valid when log form
 // Empty fields are treated as defaults and accepted.
 func (c *Config) Validate() error {
 	switch c.LogFormat {
-	case "", "console", "json":
+	case "", formatConsole, formatJSON:
 	default:
 		return fmt.Errorf("invalid log format %q: must be one of console, json", c.LogFormat)
 	}
-	if c.NoColor && c.LogFormat == "json" {
+	if c.NoColor && c.LogFormat == formatJSON {
 		return ErrNoColorUnderJSONFormat
 	}
 	return nil
@@ -99,7 +104,7 @@ func NewLogger(config *Config) *zerolog.Logger {
 	level, _ := zerolog.ParseLevel(config.LogLevel)
 
 	var out io.Writer
-	if config.LogFormat == "json" {
+	if config.LogFormat == formatJSON {
 		out = os.Stderr
 	} else {
 		out = zerolog.NewConsoleWriter(
