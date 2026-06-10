@@ -130,6 +130,7 @@ The `run` command is the main operation mode for pgstream. It:
 - `--profile` - Whether to expose a /debug/pprof endpoint on localhost:6060
 - `--init` - Whether to initialize pgstream before starting replication
 - `--dump-file` - File where the pg_dump output will be written if initial snapshot is enabled when using pgdump/restore
+- `--data-only` - When used with `--snapshot-tables`, skip schema restore and only snapshot data. Use this when the schema is already present on the target. Defaults to `false`
 - `--with-injector` - Whether to enable the injection of pgstream metadata to the WAL events. Required for search targets (OpenSearch/Elasticsearch)
 
 **Examples:**
@@ -150,7 +151,7 @@ pgstream run --config config.env
 
 ### snapshot
 
-Snapshot performs a snapshot of the configured source Postgres database into the configured target.
+Snapshot performs a one-time data snapshot of a PostgreSQL database. For continuous replication or combined snapshot+replication, use the `run` command with `--snapshot-tables` flag.
 
 ```bash
 pgstream snapshot [flags]
@@ -184,8 +185,11 @@ The `snapshot` command creates a point-in-time copy of database tables. It:
 **Examples:**
 
 ```bash
+# Snapshot specific tables from a PostgreSQL database to a target PostgreSQL database
 pgstream snapshot --postgres-url <postgres-url> --target postgres --target-url <target-url> --tables <schema.table> --reset
+# Snapshot using a YAML configuration file (requires source.postgres.mode: 'snapshot')
 pgstream snapshot --config config.yaml --log-level info
+# Snapshot using an environment configuration file
 pgstream snapshot --config config.env
 ```
 

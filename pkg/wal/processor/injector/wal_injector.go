@@ -139,11 +139,11 @@ func (in *Injector) Name() string {
 }
 
 func (in *Injector) Close() error {
+	var querierErr error
 	if in.querier != nil {
-		in.querier.Close(context.Background())
+		querierErr = in.querier.Close(context.Background())
 	}
-
-	return nil
+	return errors.Join(in.processor.Close(), querierErr)
 }
 
 func (in *Injector) updateTableCache(ddlEvent *wal.DDLEvent) {
@@ -190,19 +190,24 @@ func (in *Injector) inject(ctx context.Context, data *wal.Data) error {
 	return nil
 }
 
-// fillEventMetadata will update the event on input with the
-// pgstream ids for the table and the internal id column. It will return an
-// error if the id column is not found.
+// fillEventMetadata will update the event on input with the pgstream ids for
+// the table and the internal identity columns. For tables with a primary key,
+// every primary-key column is included so downstream processors can build valid
+// WHERE/ON CONFLICT clauses for composite primary keys. It will return an error
+// if no identity column can be found.
 func (in *Injector) fillEventMetadata(event *wal.Data, tbl *wal.DDLObject) error {
 	event.Metadata.TablePgstreamID = tbl.PgstreamID
 
-	identityColumn := getIdentityColumn(tbl)
-	if identityColumn == nil {
+	identityColumns := getIdentityColumns(tbl)
+	if len(identityColumns) == 0 {
 		// the id is required
 		return fmt.Errorf("table [%s]: %w", tbl.Identity, processor.ErrIDNotFound)
 	}
 
-	event.Metadata.InternalColIDs = append(event.Metadata.InternalColIDs, identityColumn.GetColumnPgstreamID(tbl.PgstreamID))
+	event.Metadata.InternalColIDs = event.Metadata.InternalColIDs[:0]
+	for _, identityColumn := range identityColumns {
+		event.Metadata.InternalColIDs = append(event.Metadata.InternalColIDs, identityColumn.GetColumnPgstreamID(tbl.PgstreamID))
+	}
 
 	return nil
 }
@@ -285,32 +290,39 @@ func (in *Injector) getTableObject(ctx context.Context, schema, table string) (*
 	return &tableObj, nil
 }
 
-func getIdentityColumn(tbl *wal.DDLObject) *wal.DDLColumn {
+func getIdentityColumns(tbl *wal.DDLObject) []wal.DDLColumn {
 	hasPrimaryKeys := len(tbl.PrimaryKeyColumns) > 0
 
-	// sort columns by attnum to have a deterministic order if no primary key is
-	// set when selecting the unique not null identity column.
-	if !hasPrimaryKeys {
-		sort.Slice(tbl.Columns, func(i, j int) bool {
-			return tbl.Columns[i].Attnum < tbl.Columns[j].Attnum
-		})
+	// Always sort by attnum so identity columns are emitted in table order. This
+	// keeps generated SQL deterministic and preserves composite primary-key order
+	// as it appears in WAL column data.
+	sort.Slice(tbl.Columns, func(i, j int) bool {
+		return tbl.Columns[i].Attnum < tbl.Columns[j].Attnum
+	})
+
+	// If the table has a primary key, every primary-key column is an identity
+	// column. Composite primary keys must include all components; using only the
+	// first column can generate invalid ON CONFLICT clauses and can match the
+	// wrong row for updates/deletes.
+	if hasPrimaryKeys {
+		identityColumns := make([]wal.DDLColumn, 0, len(tbl.PrimaryKeyColumns))
+		for _, col := range tbl.Columns {
+			if slices.Contains(tbl.PrimaryKeyColumns, col.Name) {
+				identityColumns = append(identityColumns, col)
+			}
+		}
+		if len(identityColumns) == 0 {
+			return nil
+		}
+		return identityColumns
 	}
 
-	// Flag as identity column the primary key of the table on input. If there's
-	// no primary key defined for the table, it will use the first
-	// (alphabetically ordered) not null unique column in the table. If there's
-	// no unique not null columns or primary keys, then no column will be
-	// flagged as identity. Composite primary keys are not currently supported,
-	// and will not be flagged as identity either.
+	// If there's no primary key defined for the table, use the first not-null
+	// unique column. A single unique column is enough for row identity; composite
+	// unique constraints are not represented in DDLColumn.Unique today.
 	for _, col := range tbl.Columns {
-		switch {
-		case hasPrimaryKeys:
-			if slices.Contains(tbl.PrimaryKeyColumns, col.Name) {
-				return &col
-			}
-		case col.Unique && !col.Nullable:
-			// only use the first unique not null column as identity
-			return &col
+		if col.Unique && !col.Nullable {
+			return []wal.DDLColumn{col}
 		}
 	}
 

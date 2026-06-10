@@ -48,6 +48,8 @@ source:
       replication_slot: "pgstream_mydatabase_slot"
       plugin:
         include_xids: false # whether to include transaction IDs in the replication stream events. Defaults to false.
+        add_tables: "public.*" # comma-separated list of tables to include in the wal2json output. Supports wildcards. Filters at the source decode level. Defaults to all tables.
+        filter_tables: "pipelines.*,private.*" # comma-separated list of tables to exclude from the wal2json output. Supports wildcards. Filters at the source decode level. Defaults to empty.
     retry_policy: # retry policy for postgres connections, one of exponential or constant or disable_retries
       disable_retries: false
       exponential:
@@ -185,6 +187,8 @@ modifiers:
 
 Here's a list of all the environment variables that can be used to configure the individual modules, along with their descriptions and default values.
 
+> Byte-size variables (those ending in `_BYTES`) accept either a plain integer or a human-readable size such as `64MiB` or `1GiB`. Units are case-insensitive and interpreted as binary multiples (`1MiB` = 1048576 bytes). The same applies to the equivalent fields in the YAML configuration.
+
 ### Sources
 
 <details>
@@ -195,6 +199,8 @@ Here's a list of all the environment variables that can be used to configure the
 | PGSTREAM_POSTGRES_LISTENER_URL                          | N/A                          | Yes      | URL of the Postgres database to connect to for replication purposes.                                                                                                                                                                                                                                         |
 | PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME                 | "pgstream_dbname_slot"       | No       | Name of the Postgres replication slot name.                                                                                                                                                                                                                                                                  |
 | PGSTREAM_POSTGRES_REPLICATION_PLUGIN_INCLUDE_XIDS       | False                        | No       | Whether to include XIDs in the replication events.                                                                                                                                                                                                                                                           |
+| PGSTREAM_POSTGRES_REPLICATION_PLUGIN_ADD_TABLES         | ""                           | No       | Comma-separated list of tables to include in the wal2json output. Supports wildcards (e.g. `public.*`). Filters at the source decode level, preventing wal2json from generating JSON for excluded tables.                                                                                                    |
+| PGSTREAM_POSTGRES_REPLICATION_PLUGIN_FILTER_TABLES      | ""                           | No       | Comma-separated list of tables to exclude from the wal2json output. Supports wildcards (e.g. `pipelines.*,private.*`). Filters at the source decode level, preventing wal2json from generating JSON for excluded tables.                                                                                     |
 | PGSTREAM_POSTGRES_SNAPSHOT_MODE                         | "full"                       | No       | Mode in which the snapshot will be run. It can be one of `schema`, `data` or `full` (both schema and data).                                                                                                                                                                                                  |
 | PGSTREAM_POSTGRES_SNAPSHOT_TABLES                       | ""                           | No       | Tables for which there will be an initial snapshot generated. The syntax supports wildcards. Tables without a schema defined will be applied the public schema. Example: for `public.test_table` and all tables in the `test_schema` schema, the value would be the following: `"test_table test_schema.\*"` |
 | PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES              | ""                           | No       | Tables that will be excluded in the snapshot process. The syntax does not support wildcards. Tables without a schema defined will be applied the public schema.                                                                                                                                              |
@@ -270,7 +276,7 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 | PGSTREAM_KAFKA_WRITER_BATCH_BYTES              | 1572864 | No               | Max size in bytes for a given batch. When this size is reached, the batch is sent to Kafka.         |
 | PGSTREAM_KAFKA_WRITER_BATCH_SIZE               | 100     | No               | Max number of messages to be sent per batch. When this size is reached, the batch is sent to Kafka. |
 | PGSTREAM_KAFKA_WRITER_BATCH_IGNORE_SEND_ERRORS | False   | No               | Whether to ignore errors encountered while sending batches to the target.                           |
-| PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES          | 100MiB  | No               | Max memory used by the Kafka batch writer for inflight batches.                                     |
+| PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES          | 104857600 (100MiB) | No               | Max memory used by the Kafka batch writer for inflight batches.                                     |
 
 </details>
 
@@ -285,7 +291,7 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 | PGSTREAM_SEARCH_INDEXER_BATCH_TIMEOUT              | 1s      | No       | Max time interval at which the batch sending to the search store is triggered.                                 |
 | PGSTREAM_SEARCH_INDEXER_BATCH_SIZE                 | 100     | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to the search store. |
 | PGSTREAM_SEARCH_INDEXER_BATCH_IGNORE_SEND_ERRORS   | False   | No       | Whether to ignore errors encountered while sending batches to the target.                                      |
-| PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES            | 100MiB  | No       | Max memory used by the search batch indexer for inflight batches.                                              |
+| PGSTREAM_SEARCH_INDEXER_MAX_QUEUE_BYTES            | 104857600 (100MiB) | No       | Max memory used by the search batch indexer for inflight batches.                                              |
 | PGSTREAM_SEARCH_STORE_EXP_BACKOFF_INITIAL_INTERVAL | 1s      | No       | Initial interval for the exponential backoff policy to be applied to the search store operation retries.       |
 | PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_INTERVAL     | 1min    | No       | Max interval for the exponential backoff policy to be applied to the search store operation retries.           |
 | PGSTREAM_SEARCH_STORE_EXP_BACKOFF_MAX_RETRIES      | 0       | No       | Max retries for the exponential backoff policy to be applied to the search store operation retries.            |
@@ -307,7 +313,7 @@ One of exponential/constant/disable retries backoff policies can be provided for
 | PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_URL                    | N/A     | Yes                | URL for the webhook subscription store to connect to.                                                       |
 | PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_ENABLED          | False   | No                 | Caching applied to the subscription store retrieval queries.                                                |
 | PGSTREAM_WEBHOOK_SUBSCRIPTION_STORE_CACHE_REFRESH_INTERVAL | 60s     | When cache enabled | Interval at which the subscription store cache will be refreshed. Indicates max cache staleness.            |
-| PGSTREAM_WEBHOOK_NOTIFIER_MAX_QUEUE_BYTES                  | 100MiB  | No                 | Max memory used by the webhook notifier for inflight notifications.                                         |
+| PGSTREAM_WEBHOOK_NOTIFIER_MAX_QUEUE_BYTES                  | 104857600 (100MiB) | No                 | Max memory used by the webhook notifier for inflight notifications.                                         |
 | PGSTREAM_WEBHOOK_NOTIFIER_WORKER_COUNT                     | 10      | No                 | Max number of concurrent workers that will send webhook notifications for a given WAL event.                |
 | PGSTREAM_WEBHOOK_NOTIFIER_CLIENT_TIMEOUT                   | 10s     | No                 | Max time the notifier will wait for a response from a webhook URL before timing out.                        |
 | PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_ADDRESS               | ":9900" | No                 | Address for the subscription server to listen on.                                                           |
@@ -324,8 +330,8 @@ One of exponential/constant/disable retries backoff policies can be provided for
 | PGSTREAM_POSTGRES_WRITER_TARGET_URL                            | N/A                             | Yes      | URL for the PostgreSQL store to connect to                                                                                                                                                                     |
 | PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT                         | 30s                             | No       | Max time interval at which the batch sending to PostgreSQL is triggered.                                                                                                                                       |
 | PGSTREAM_POSTGRES_WRITER_BATCH_SIZE                            | 20000                           | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                       |
-| PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES                       | 100MiB                          | No       | Max memory used by the postgres batch writer for inflight batches.                                                                                                                                             |
-| PGSTREAM_POSTGRES_WRITER_BATCH_BYTES                           | 1.5MiB, 80MiB with bulk enabled | No       | Max size in bytes for a given batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                               |
+| PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES                       | 104857600 (100MiB)              | No       | Max memory used by the postgres batch writer for inflight batches.                                                                                                                                             |
+| PGSTREAM_POSTGRES_WRITER_BATCH_BYTES                           | 1572864 (1.5MiB), 83886080 (80MiB) with bulk enabled | No       | Max size in bytes for a given batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                               |
 | PGSTREAM_POSTGRES_WRITER_BATCH_IGNORE_SEND_ERRORS              | False                           | No       | Whether to ignore errors encountered while sending events to the target.                                                                                                                                       |
 | PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS                      | False(run), True(snapshot)      | No       | Option to disable triggers on the target PostgreSQL database while performing the snaphot/replication streaming. It defaults to false when using the run command, and to true when using the snapshot command. |
 | PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION                    | error                           | No       | Action to apply to inserts on conflict. Options are `nothing`, `update` or `error`.                                                                                                                            |

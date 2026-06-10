@@ -15,13 +15,16 @@ import (
 
 var snapshotCmd = &cobra.Command{
 	Use:     "snapshot",
-	Short:   "Snapshot performs a snapshot of the configured source Postgres database into the configured target",
+	Short:   "Snapshot performs a one-time data snapshot of a PostgreSQL database",
+	Long:    "Snapshot performs a one-time data snapshot of a PostgreSQL database. For continuous replication or combined snapshot+replication, use the 'run' command with --snapshot-tables flag.",
 	PreRunE: snapshotFlagBinding,
 	RunE:    withProfiling(withSignalWatcher(snapshot)),
-	Example: `
-	pgstream snapshot --postgres-url <postgres-url> --target postgres --target-url <target-url> --tables <schema.table> --reset
-	pgstream snapshot --config config.yaml --log-level info
-	pgstream snapshot --config config.env`,
+	Example: `  # Snapshot specific tables from a PostgreSQL database to a target PostgreSQL database
+  pgstream snapshot --postgres-url <postgres-url> --target postgres --target-url <target-url> --tables <schema.table> --reset
+  # Snapshot using a YAML configuration file (requires source.postgres.mode: 'snapshot')
+  pgstream snapshot --config config.yaml --log-level info
+  # Snapshot using an environment configuration file
+  pgstream snapshot --config config.env`,
 }
 
 func snapshot(ctx context.Context) error {

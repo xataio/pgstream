@@ -3,6 +3,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,18 +32,30 @@ func LoadFile(file string) error {
 		return nil
 	}
 	fmt.Printf("using config file: %s\n", file) //nolint:forbidigo //logger hasn't been configured yet
+	buf, err := os.ReadFile(file)
+	if err != nil {
+		return fmt.Errorf("reading config file: %w", err)
+	}
+	buf = []byte(expandBracedEnvVars(string(buf)))
+
 	viper.SetConfigFile(file)
 	viper.SetConfigType(filepath.Ext(file)[1:])
-	if err := viper.ReadInConfig(); err != nil {
-		return fmt.Errorf("reading config: %w", err)
+	if err := viper.ReadConfig(bytes.NewReader(buf)); err != nil {
+		return fmt.Errorf("parsing config: %w", err)
 	}
 
 	transformerRulesFile := viper.GetString("PGSTREAM_TRANSFORMER_RULES_FILE")
 	if transformerRulesFile != "" {
+		trBuf, err := os.ReadFile(transformerRulesFile)
+		if err != nil {
+			return fmt.Errorf("reading transformer rules config file: %w", err)
+		}
+		trBuf = []byte(expandBracedEnvVars(string(trBuf)))
+
 		viper.SetConfigFile(transformerRulesFile)
 		viper.SetConfigType(filepath.Ext(transformerRulesFile)[1:])
-		if err := viper.MergeInConfig(); err != nil {
-			return fmt.Errorf("reading transformer rules config: %w", err)
+		if err := viper.MergeConfig(bytes.NewReader(trBuf)); err != nil {
+			return fmt.Errorf("parsing transformer rules config: %w", err)
 		}
 		// reset after merge
 		viper.SetConfigFile(file)
@@ -74,7 +87,7 @@ func ParseStreamConfig() (*stream.Config, error) {
 	switch ext := filepath.Ext(cfgFile); ext {
 	case ".yml", ".yaml":
 		yamlCfg := YAMLConfig{}
-		if err := viper.Unmarshal(&yamlCfg); err != nil {
+		if err := viper.Unmarshal(&yamlCfg, viper.DecodeHook(byteSizeDecodeHook())); err != nil {
 			return nil, fmt.Errorf("invalid format in config file %q: %w", cfgFile, err)
 		}
 
@@ -82,6 +95,7 @@ func ParseStreamConfig() (*stream.Config, error) {
 		if err != nil {
 			return nil, err
 		}
+		buf = []byte(expandBracedEnvVars(string(buf)))
 		// yaml.Unmarshal is used to override the viper.Umarshal to be able to
 		// parse the transformers configuration with support for case sensitive
 		// keys.
@@ -108,6 +122,7 @@ func ParseTransformerConfig(filename string) (*transformer.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	buf = []byte(expandBracedEnvVars(string(buf)))
 
 	yamlConfig := struct {
 		Transformations TransformationsConfig `mapstructure:"transformations" yaml:"transformations"`

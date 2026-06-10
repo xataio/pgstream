@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,10 +22,30 @@ type Client struct {
 	client *elasticsearch.Client
 }
 
+// Option configures the underlying elasticsearch.Client.
+type Option func(*elasticsearch.Config)
+
+// WithTLS installs the given TLS config on the client's HTTP transport.
+// Passing nil leaves the default transport untouched.
+func WithTLS(tlsCfg *tls.Config) Option {
+	return func(c *elasticsearch.Config) {
+		if tlsCfg == nil {
+			return
+		}
+		base, ok := http.DefaultTransport.(*http.Transport)
+		if !ok {
+			return
+		}
+		transport := base.Clone()
+		transport.TLSClientConfig = tlsCfg
+		c.Transport = transport
+	}
+}
+
 var errInvalidSearchEnvelope = errors.New("invalid search response")
 
-func NewClient(url string) (*Client, error) {
-	es, err := newClient(url)
+func NewClient(url string, opts ...Option) (*Client, error) {
+	es, err := newClient(url, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create elasticsearch client: %w", err)
 	}
@@ -468,7 +489,7 @@ func (ec *Client) isErrResponse(res *esapi.Response) error {
 	return searchstore.IsErrResponse(newAPIResponse(res))
 }
 
-func newClient(address string) (*elasticsearch.Client, error) {
+func newClient(address string, opts ...Option) (*elasticsearch.Client, error) {
 	if address == "" {
 		return nil, errors.New("no address provided")
 	}
@@ -478,6 +499,10 @@ func newClient(address string) (*elasticsearch.Client, error) {
 			address,
 		},
 		Transport: http.DefaultTransport,
+	}
+
+	for _, opt := range opts {
+		opt(&cfg)
 	}
 
 	return elasticsearch.NewClient(cfg)

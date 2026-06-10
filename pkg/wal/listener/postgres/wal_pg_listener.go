@@ -50,7 +50,7 @@ func New(handler replicationHandler, processEvent listenerProcessWalEvent, opts 
 		logger:              loglib.NewNoopLogger(),
 		replicationHandler:  handler,
 		processEvent:        processEvent,
-		walDataDeserialiser: json.Unmarshal,
+		walDataDeserialiser: json.UnmarshalUseInt64,
 		lsnParser:           handler.GetLSNParser(),
 	}
 

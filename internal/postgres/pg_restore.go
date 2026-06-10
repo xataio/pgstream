@@ -92,11 +92,24 @@ func RunPGRestore(ctx context.Context, opts PGRestoreOptions, dump []byte) (stri
 
 	// TODO: add streaming support when large data output is required
 	out, err := cmd.CombinedOutput()
-	if err != nil || strings.Contains(string(out), "ERROR") {
-		return "", fmt.Errorf("error restoring dump: %w", parsePgRestoreOutputErrs(out))
+	if restoreErr := buildRestoreError(out, err); restoreErr != nil {
+		return "", restoreErr
 	}
 
 	return string(out), nil
+}
+
+func buildRestoreError(out []byte, execErr error) error {
+	if execErr == nil && !strings.Contains(string(out), "ERROR") {
+		return nil
+	}
+	if parseErr := parsePgRestoreOutputErrs(out); parseErr != nil {
+		return fmt.Errorf("error restoring dump: %w", parseErr)
+	}
+	if execErr != nil {
+		return fmt.Errorf("error restoring dump: %w", execErr)
+	}
+	return nil
 }
 
 func removeDatabaseFromConnectionString(url string) (string, error) {
@@ -167,6 +180,7 @@ func isErrorLine(line string) bool {
 func parseErrorLine(line string) error {
 	switch {
 	case strings.Contains(line, "already exists"),
+		strings.Contains(line, "already a partition"),
 		strings.Contains(line, "multiple primary keys for table"):
 		return &ErrRelationAlreadyExists{Details: line}
 	case strings.Contains(line, "cannot drop schema public because other objects depend on it"):

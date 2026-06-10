@@ -368,6 +368,34 @@ func TestInjector_inject(t *testing.T) {
 			wantErr:    nil,
 		},
 		{
+			name: "ok - inject composite primary key metadata successfully",
+			data: newTestDataEvent("I").Data,
+			querier: &pgmocks.Querier{
+				QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+					require.Equal(t, tableObjectQuery, query)
+					require.Len(t, dest, 1)
+					jsonDest, ok := dest[0].(*[]byte)
+					require.True(t, ok)
+
+					tableObj := newTestTableObject()
+					tableObj.Columns[1].Nullable = false
+					tableObj.PrimaryKeyColumns = []string{"col-1", "col-2"}
+
+					tableObjJSON, err := jsonlib.Marshal(tableObj)
+					require.NoError(t, err)
+					*jsonDest = tableObjJSON
+					return nil
+				},
+			},
+
+			wantMetadata: wal.Metadata{
+				TablePgstreamID: testTableID,
+				InternalColIDs:  []string{"t1-1", "t1-2"},
+			},
+			wantColIDs: []string{"t1-1", "t1-2"},
+			wantErr:    nil,
+		},
+		{
 			name: "error - table not found",
 			data: newTestDataEvent("I").Data,
 			querier: &pgmocks.Querier{
@@ -481,6 +509,57 @@ func TestInjector_inject(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestInjector_Close(t *testing.T) {
+	t.Parallel()
+
+	t.Run("propagates close to processor and querier", func(t *testing.T) {
+		t.Parallel()
+
+		processorClosed := false
+		querierClosed := false
+
+		i := &Injector{
+			logger: loglib.NewNoopLogger(),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(_ context.Context, _ *wal.Event) error { return nil },
+				CloseFn: func() error {
+					processorClosed = true
+					return nil
+				},
+			},
+			querier: &pgmocks.Querier{
+				CloseFn: func(_ context.Context) error {
+					querierClosed = true
+					return nil
+				},
+			},
+		}
+
+		err := i.Close()
+		require.NoError(t, err)
+		require.True(t, processorClosed, "Close must propagate to the wrapped processor")
+		require.True(t, querierClosed, "Close must propagate to the querier")
+	})
+
+	t.Run("returns joined errors", func(t *testing.T) {
+		t.Parallel()
+
+		i := &Injector{
+			logger: loglib.NewNoopLogger(),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(_ context.Context, _ *wal.Event) error { return nil },
+				CloseFn:           func() error { return errTest },
+			},
+			querier: &pgmocks.Querier{
+				CloseFn: func(_ context.Context) error { return errTest },
+			},
+		}
+
+		err := i.Close()
+		require.Error(t, err)
+	})
 }
 
 func TestInjector_injectColumnIDs(t *testing.T) {
@@ -711,13 +790,13 @@ func TestInjector_getTableObject(t *testing.T) {
 	}
 }
 
-func TestGetIdentityColumn(t *testing.T) {
+func TestGetIdentityColumns(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		table   *wal.DDLObject
-		wantCol *wal.DDLColumn
+		name     string
+		table    *wal.DDLObject
+		wantCols []wal.DDLColumn
 	}{
 		{
 			name: "ok - single primary key column",
@@ -728,12 +807,12 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{"id"},
 			},
-			wantCol: &wal.DDLColumn{
-				Attnum: 1, Name: "id", Type: "integer", Nullable: false,
+			wantCols: []wal.DDLColumn{
+				{Attnum: 1, Name: "id", Type: "integer", Nullable: false},
 			},
 		},
 		{
-			name: "ok - multiple primary key columns returns first one",
+			name: "ok - multiple primary key columns returns all primary key columns",
 			table: &wal.DDLObject{
 				Columns: []wal.DDLColumn{
 					{Attnum: 1, Name: "id", Type: "integer", Nullable: false},
@@ -742,8 +821,9 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{"id", "tenant_id"},
 			},
-			wantCol: &wal.DDLColumn{
-				Attnum: 1, Name: "id", Type: "integer", Nullable: false,
+			wantCols: []wal.DDLColumn{
+				{Attnum: 1, Name: "id", Type: "integer", Nullable: false},
+				{Attnum: 2, Name: "tenant_id", Type: "text", Nullable: false},
 			},
 		},
 		{
@@ -756,8 +836,8 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{},
 			},
-			wantCol: &wal.DDLColumn{
-				Attnum: 2, Name: "email", Type: "text", Nullable: false, Unique: true,
+			wantCols: []wal.DDLColumn{
+				{Attnum: 2, Name: "email", Type: "text", Nullable: false, Unique: true},
 			},
 		},
 		{
@@ -770,8 +850,8 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{},
 			},
-			wantCol: &wal.DDLColumn{
-				Attnum: 2, Name: "email", Type: "text", Nullable: false, Unique: true,
+			wantCols: []wal.DDLColumn{
+				{Attnum: 2, Name: "email", Type: "text", Nullable: false, Unique: true},
 			},
 		},
 		{
@@ -783,7 +863,7 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{},
 			},
-			wantCol: nil,
+			wantCols: nil,
 		},
 		{
 			name: "nil - unique but nullable columns",
@@ -794,7 +874,7 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{},
 			},
-			wantCol: nil,
+			wantCols: nil,
 		},
 		{
 			name: "nil - not null but not unique columns",
@@ -805,7 +885,7 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{},
 			},
-			wantCol: nil,
+			wantCols: nil,
 		},
 		{
 			name: "nil - primary key column not found in columns",
@@ -816,7 +896,7 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{"id"},
 			},
-			wantCol: nil,
+			wantCols: nil,
 		},
 		{
 			name: "ok - primary key takes precedence over unique not null",
@@ -827,8 +907,8 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{"id"},
 			},
-			wantCol: &wal.DDLColumn{
-				Attnum: 1, Name: "id", Type: "integer", Nullable: false,
+			wantCols: []wal.DDLColumn{
+				{Attnum: 1, Name: "id", Type: "integer", Nullable: false},
 			},
 		},
 		{
@@ -837,10 +917,10 @@ func TestGetIdentityColumn(t *testing.T) {
 				Columns:           []wal.DDLColumn{},
 				PrimaryKeyColumns: []string{},
 			},
-			wantCol: nil,
+			wantCols: nil,
 		},
 		{
-			name: "ok - composite primary key returns first matching column",
+			name: "ok - composite primary key returns all matching columns",
 			table: &wal.DDLObject{
 				Columns: []wal.DDLColumn{
 					{Attnum: 1, Name: "tenant_id", Type: "text", Nullable: false},
@@ -849,8 +929,9 @@ func TestGetIdentityColumn(t *testing.T) {
 				},
 				PrimaryKeyColumns: []string{"tenant_id", "user_id"},
 			},
-			wantCol: &wal.DDLColumn{
-				Attnum: 1, Name: "tenant_id", Type: "text", Nullable: false,
+			wantCols: []wal.DDLColumn{
+				{Attnum: 1, Name: "tenant_id", Type: "text", Nullable: false},
+				{Attnum: 2, Name: "user_id", Type: "integer", Nullable: false},
 			},
 		},
 	}
@@ -859,8 +940,8 @@ func TestGetIdentityColumn(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			result := getIdentityColumn(tc.table)
-			require.Equal(t, tc.wantCol, result)
+			result := getIdentityColumns(tc.table)
+			require.Equal(t, tc.wantCols, result)
 		})
 	}
 }

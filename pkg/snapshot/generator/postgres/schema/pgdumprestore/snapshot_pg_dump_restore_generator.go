@@ -39,6 +39,11 @@ type SnapshotGenerator struct {
 	roleSQLParser          *roleSQLParser
 	optionGenerator        *optionGenerator
 	snapshotTracker        snapshotProgressTracker
+	// restoreConflictTargetsBeforeData restores constraints/indexes that can
+	// be used as INSERT ... ON CONFLICT targets before the wrapped data snapshot
+	// generator runs. Other indexes and constraints, such as foreign keys, are
+	// still restored after data is inserted.
+	restoreConflictTargetsBeforeData bool
 }
 
 type snapshotProgressTracker interface {
@@ -76,6 +81,7 @@ type dump struct {
 	filtered              []byte
 	cleanupPart           []byte
 	indicesAndConstraints []byte
+	views                 []byte
 	sequences             []string
 	roles                 map[string]role
 	eventTriggers         []byte
@@ -161,6 +167,18 @@ func WithRestoreToWAL(processor processor.Processor) Option {
 	}
 }
 
+// WithRestoreConflictTargetsBeforeData restores constraints and indexes that
+// can be used as INSERT ... ON CONFLICT targets (primary keys, unique
+// constraints and unique indexes) before the wrapped data snapshot generator
+// runs. This is required when the data writer emits
+// INSERT ... ON CONFLICT DO UPDATE, since the target table must already have a
+// matching unique or primary key constraint at insert time.
+func WithRestoreConflictTargetsBeforeData() Option {
+	return func(sg *SnapshotGenerator) {
+		sg.restoreConflictTargetsBeforeData = true
+	}
+}
+
 func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) (err error) {
 	s.logger.Info("creating schema snapshot", loglib.Fields{"schemaTables": ss.SchemaTables})
 
@@ -224,8 +242,19 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return err
 	}
 
+	indicesAndConstraintsDump := dump.indicesAndConstraints
+	if s.generator != nil && s.restoreConflictTargetsBeforeData {
+		conflictTargets, remaining := splitConflictTargetConstraints(dump.indicesAndConstraints)
+		if err := s.restoreIndicesAndConstraints(ctx, conflictTargets, ss); err != nil {
+			return err
+		}
+		indicesAndConstraintsDump = remaining
+	}
+
 	// call the wrapped snapshot generator if any before restoring sequences,
-	// indices and constraints to improve performance.
+	// indices and constraints to improve performance. When the data snapshot
+	// writer emits INSERT ... ON CONFLICT DO UPDATE, the subset of constraints
+	// needed as conflict targets is restored before data above.
 	if s.generator != nil {
 		if err := s.generator.CreateSnapshot(ctx, ss); err != nil {
 			return err
@@ -238,11 +267,69 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		return err
 	}
 
+	if err := s.restoreIndicesAndConstraints(ctx, indicesAndConstraintsDump, ss); err != nil {
+		return err
+	}
+
+	s.logger.Info("restoring views")
+	return s.restoreDump(ctx, dump.views)
+}
+
+func splitConflictTargetConstraints(d []byte) ([]byte, []byte) {
+	blocks := strings.Split(string(d), "\n\n")
+	connectBlocks := []string{}
+	conflictTargetBlocks := []string{}
+	remainingBlocks := []string{}
+
+	for _, block := range blocks {
+		block = strings.TrimSpace(block)
+		if block == "" {
+			continue
+		}
+		switch {
+		case strings.Contains(block, `\connect`):
+			connectBlocks = append(connectBlocks, block)
+		case isConflictTargetConstraint(block):
+			conflictTargetBlocks = append(conflictTargetBlocks, block)
+		default:
+			remainingBlocks = append(remainingBlocks, block)
+		}
+	}
+
+	return joinDumpBlocks(connectBlocks, conflictTargetBlocks), joinDumpBlocks(connectBlocks, remainingBlocks)
+}
+
+func joinDumpBlocks(connectBlocks, blocks []string) []byte {
+	if len(blocks) == 0 {
+		return nil
+	}
+	allBlocks := make([]string, 0, len(connectBlocks)+len(blocks))
+	allBlocks = append(allBlocks, connectBlocks...)
+	allBlocks = append(allBlocks, blocks...)
+	return []byte(strings.Join(allBlocks, "\n\n") + "\n\n")
+}
+
+func isConflictTargetConstraint(block string) bool {
+	upperBlock := strings.ToUpper(block)
+	if strings.HasPrefix(upperBlock, "CREATE UNIQUE INDEX") {
+		return true
+	}
+	if !strings.Contains(upperBlock, "ADD CONSTRAINT") {
+		return false
+	}
+	return strings.Contains(upperBlock, " PRIMARY KEY (") ||
+		strings.Contains(upperBlock, " PRIMARY KEY USING INDEX ") ||
+		strings.Contains(upperBlock, " UNIQUE (") ||
+		strings.Contains(upperBlock, " UNIQUE NULLS NOT DISTINCT (") ||
+		strings.Contains(upperBlock, " UNIQUE USING INDEX ")
+}
+
+func (s *SnapshotGenerator) restoreIndicesAndConstraints(ctx context.Context, dump []byte, ss *snapshot.Snapshot) error {
 	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
 	if s.snapshotTracker != nil {
-		return s.restoreIndicesWithTracking(ctx, dump.indicesAndConstraints)
+		return s.restoreIndicesWithTracking(ctx, dump)
 	}
-	return s.restoreDump(ctx, dump.indicesAndConstraints)
+	return s.restoreDump(ctx, dump)
 }
 
 func (s *SnapshotGenerator) Close() error {
@@ -290,6 +377,7 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[str
 
 	s.dumpToFile(s.getDumpFileName("-filtered"), pgdumpOpts, parsedDump.filtered)
 	s.dumpToFile(s.getDumpFileName("-indices-constraints"), pgdumpOpts, parsedDump.indicesAndConstraints)
+	s.dumpToFile(s.getDumpFileName("-views"), pgdumpOpts, parsedDump.views)
 
 	// only if clean is enabled, produce the clean up part of the dump
 	if s.optionGenerator.cleanTargetDB {
@@ -370,7 +458,7 @@ func (s *SnapshotGenerator) restoreSchemas(ctx context.Context, schemaTables map
 	schemaDump := strings.Builder{}
 	for schema, tables := range schemaTables {
 		if len(tables) > 0 && schema != publicSchema && schema != wildcard {
-			schemaDump.WriteString(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s;\n", pglib.QuoteIdentifier(schema)))
+			fmt.Fprintf(&schemaDump, "CREATE SCHEMA IF NOT EXISTS %s;\n", pglib.QuoteIdentifier(schema))
 		}
 	}
 
@@ -406,10 +494,12 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	indicesAndConstraints := strings.Builder{}
 	filteredDump := strings.Builder{}
 	eventTriggersDump := strings.Builder{}
+	viewsDump := strings.Builder{}
 	sequenceNames := []string{}
 	dumpRoles := make(map[string]role)
 	alterTable := ""
 	createEventTrigger := ""
+	createView := ""
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
@@ -446,11 +536,27 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			eventTriggersDump.WriteString(line)
 			eventTriggersDump.WriteString("\n")
 
+		case strings.HasPrefix(line, "CREATE VIEW"),
+			strings.HasPrefix(line, "CREATE MATERIALIZED VIEW"):
+			createView = line
+			fallthrough
+		case createView != "":
+			if strings.HasSuffix(line, ";") {
+				viewsDump.WriteString(line)
+				viewsDump.WriteString("\n\n")
+				createView = ""
+				continue
+			}
+			viewsDump.WriteString(line)
+			viewsDump.WriteString("\n")
+
 		case strings.Contains(line, `\connect`):
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
 			filteredDump.WriteString(line)
 			filteredDump.WriteString("\n")
+			viewsDump.WriteString(line)
+			viewsDump.WriteString("\n\n")
 		case strings.HasPrefix(line, "CREATE INDEX"),
 			strings.HasPrefix(line, "CREATE UNIQUE INDEX"),
 			strings.HasPrefix(line, "CREATE CONSTRAINT"),
@@ -496,7 +602,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 					// Cleanup handling is not required, since the schema will
 					// be dropped anyway if clean is enabled.
 					for schema := range role.schemasWithOwnership {
-						filteredDump.WriteString(fmt.Sprintf("GRANT ALL ON SCHEMA %s TO %s;\n", pglib.QuoteIdentifier(schema), pglib.QuoteIdentifier(role.name)))
+						fmt.Fprintf(&filteredDump, "GRANT ALL ON SCHEMA %s TO %s;\n", pglib.QuoteIdentifier(schema), pglib.QuoteIdentifier(role.name))
 					}
 				}
 			}
@@ -515,6 +621,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		full:                  d,
 		filtered:              []byte(filteredDump.String()),
 		indicesAndConstraints: []byte(indicesAndConstraints.String()),
+		views:                 []byte(viewsDump.String()),
 		sequences:             sequenceNames,
 		roles:                 dumpRoles,
 		eventTriggers:         []byte(eventTriggersDump.String()),
@@ -583,7 +690,7 @@ func (s *SnapshotGenerator) filterRolesDump(rolesDump []byte, keepRoles map[stri
 		// add a line to grant the role to the current user to avoid permission
 		// issues when granting ownership (OWNER TO) when using non superuser
 		// roles to restore the dump
-		filteredDump.WriteString(fmt.Sprintf("GRANT %s TO CURRENT_USER;\n", pglib.QuoteIdentifier(role.name)))
+		fmt.Fprintf(&filteredDump, "GRANT %s TO CURRENT_USER;\n", pglib.QuoteIdentifier(role.name))
 	}
 
 	return []byte(filteredDump.String())

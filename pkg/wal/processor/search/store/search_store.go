@@ -12,6 +12,7 @@ import (
 	elasticsearchstore "github.com/xataio/pgstream/internal/searchstore/elasticsearch"
 	opensearchstore "github.com/xataio/pgstream/internal/searchstore/opensearch"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/tls"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 )
@@ -29,6 +30,7 @@ type Store struct {
 type Config struct {
 	OpenSearchURL    string
 	ElasticsearchURL string
+	TLS              tls.Config
 }
 
 type Option func(*Store)
@@ -44,15 +46,19 @@ const (
 func NewStore(cfg Config, opts ...Option) (*Store, error) {
 	var searchStore searchstore.Client
 	var err error
+	tlsCfg, err := tls.NewConfig(&cfg.TLS)
+	if err != nil {
+		return nil, fmt.Errorf("building search store TLS config: %w", err)
+	}
 	switch {
 	case cfg.OpenSearchURL != "" && cfg.ElasticsearchURL != "":
 		return nil, errors.New("only one store URL must be provided")
 	case cfg.OpenSearchURL == "" && cfg.ElasticsearchURL == "":
 		return nil, errors.New("a store URL must be provided")
 	case cfg.OpenSearchURL != "":
-		searchStore, err = opensearchstore.NewClient(cfg.OpenSearchURL)
+		searchStore, err = opensearchstore.NewClient(cfg.OpenSearchURL, opensearchstore.WithTLS(tlsCfg))
 	case cfg.ElasticsearchURL != "":
-		searchStore, err = elasticsearchstore.NewClient(cfg.ElasticsearchURL)
+		searchStore, err = elasticsearchstore.NewClient(cfg.ElasticsearchURL, elasticsearchstore.WithTLS(tlsCfg))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("create search store client: %w", err)

@@ -1,0 +1,36 @@
+name: Backport
+on:
+  pull_request_target:
+    types: [closed, labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  backport:
+    name: Backport to v0.9.x
+    runs-on: ubuntu-latest
+    if: >
+      github.event.pull_request.merged == true &&
+      (
+        (github.event.action == 'closed' && contains(github.event.pull_request.labels.*.name, 'backport-0.9.x')) ||
+        (github.event.action == 'labeled' && github.event.label.name == 'backport-0.9.x')
+      )
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Create backport PR
+        uses: korthout/backport-action@v4
+        with:
+          github_token: ${{ secrets.GIT_TOKEN }}
+          target_branches: v0.9.x
+          pull_title: '[Backport v0.9.x] ${pull_title}'
+          pull_description: |-
+            Automated backport of #${pull_number} to `v0.9.x`.
+
+            ---
+
+            ${pull_description}

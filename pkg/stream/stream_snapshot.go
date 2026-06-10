@@ -16,7 +16,7 @@ import (
 
 func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrumentation *otel.Instrumentation) error {
 	if config.Listener.Postgres == nil {
-		return errors.New("source postgres snapshot not configured")
+		return errors.New("source postgres snapshot not configured: ensure source.postgres is set")
 	}
 
 	if err := config.IsValid(); err != nil {
@@ -47,7 +47,8 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 		config.Listener.Postgres.Snapshot,
 		processor,
 		logger,
-		instrumentation)
+		instrumentation,
+		config.restoreConflictTargetsBeforeData())
 	if err != nil {
 		return err
 	}
