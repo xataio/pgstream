@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+	"github.com/xataio/pgstream/internal/health"
 	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/stream"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
@@ -65,10 +66,34 @@ func LoadFile(file string) error {
 	return nil
 }
 
+func isYAMLConfigFile(cfgFile string) bool {
+	switch filepath.Ext(cfgFile) {
+	case ".yml", ".yaml":
+		return true
+	}
+	return false
+}
+
+func ParseHealthConfig() (*health.Config, error) {
+	cfgFile := viper.GetViper().ConfigFileUsed()
+	switch {
+	case isYAMLConfigFile(cfgFile):
+		yamlCfg := struct {
+			Instrumentation InstrumentationConfig `mapstructure:"instrumentation" yaml:"instrumentation"`
+		}{}
+		if err := viper.Unmarshal(&yamlCfg); err != nil {
+			return nil, fmt.Errorf("invalid format for instrumentation in config file %q: %w", cfgFile, err)
+		}
+		return yamlCfg.Instrumentation.toHealthConfig(), nil
+	default:
+		return envToHealthConfig(), nil
+	}
+}
+
 func ParseInstrumentationConfig() (*otel.Config, error) {
 	cfgFile := viper.GetViper().ConfigFileUsed()
-	switch ext := filepath.Ext(cfgFile); ext {
-	case ".yml", ".yaml":
+	switch {
+	case isYAMLConfigFile(cfgFile):
 		yamlCfg := struct {
 			Instrumentation InstrumentationConfig `mapstructure:"instrumentation" yaml:"instrumentation"`
 		}{}
@@ -84,8 +109,8 @@ func ParseInstrumentationConfig() (*otel.Config, error) {
 
 func ParseStreamConfig() (*stream.Config, error) {
 	cfgFile := viper.GetViper().ConfigFileUsed()
-	switch ext := filepath.Ext(cfgFile); ext {
-	case ".yml", ".yaml":
+	switch {
+	case isYAMLConfigFile(cfgFile):
 		yamlCfg := YAMLConfig{}
 		if err := viper.Unmarshal(&yamlCfg, viper.DecodeHook(byteSizeDecodeHook())); err != nil {
 			return nil, fmt.Errorf("invalid format in config file %q: %w", cfgFile, err)
