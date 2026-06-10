@@ -24,6 +24,23 @@ func TestYAMLConfig_toStreamConfig(t *testing.T) {
 	validateTestStreamConfig(t, streamConfig)
 }
 
+func TestYAMLConfig_LoggingConfig(t *testing.T) {
+	require.NoError(t, LoadFile("test/test_config.yaml"))
+
+	var config YAMLConfig
+	err := viper.Unmarshal(&config)
+	require.NoError(t, err)
+
+	require.NotNil(t, config.Logging)
+	require.Equal(t, &LoggingConfig{
+		Level: "info",
+		Format: LoggingFormatConfig{
+			Type:    "console",
+			NoColor: true,
+		},
+	}, config.Logging)
+}
+
 func TestYAMLConfig_toStreamConfig_ErrorCases(t *testing.T) {
 	t.Parallel()
 

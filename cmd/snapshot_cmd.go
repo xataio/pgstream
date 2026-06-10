@@ -28,9 +28,7 @@ var snapshotCmd = &cobra.Command{
 }
 
 func snapshot(ctx context.Context) error {
-	logger := zerolog.NewLogger(&zerolog.Config{
-		LogLevel: viper.GetString("PGSTREAM_LOG_LEVEL"),
-	})
+	logger := zerolog.NewLogger(loggerConfigFromViper())
 	zerolog.SetGlobalLogger(logger)
 
 	streamConfig, err := config.ParseStreamConfig()

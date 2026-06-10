@@ -3,6 +3,7 @@
 package zerolog
 
 import (
+	"fmt"
 	"io"
 	stdlog "log"
 	"os"
@@ -18,8 +19,42 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const (
+	formatConsole = "console"
+	formatJSON    = "json"
+)
+
 type Config struct {
+	// LogLevel selects the minimum log level emitted. Supported values are
+	// trace, debug, info, warn, error, fatal, panic, and disabled. An empty
+	// string disables level filtering (every event is written).
 	LogLevel string
+	// LogFormat selects the output encoding. Supported values are "console"
+	// (human-readable) and "json" (structured, one JSON object per line).
+	// An empty string defaults to "console". Unknown values also fall back
+	// to "console"; CLI input is validated up front by Config.Validate.
+	LogFormat string
+	// NoColor disables ANSI colors in the "console" format. Ignored when
+	// LogFormat is "json".
+	NoColor bool
+}
+
+// ErrNoColorUnderJSONFormat is returned by Validate when NoColor is enabled
+// while LogFormat is "json"; the option only applies to the console writer.
+var ErrNoColorUnderJSONFormat = fmt.Errorf("no_color is only valid when log format is 'console'")
+
+// Validate returns an error if the Config contains an unsupported value.
+// Empty fields are treated as defaults and accepted.
+func (c *Config) Validate() error {
+	switch c.LogFormat {
+	case "", formatConsole, formatJSON:
+	default:
+		return fmt.Errorf("invalid log format %q: must be one of console, json", c.LogFormat)
+	}
+	if c.NoColor && c.LogFormat == formatJSON {
+		return ErrNoColorUnderJSONFormat
+	}
+	return nil
 }
 
 // init sets some zerolog global defaults we want to keep throughout the project.
@@ -67,10 +102,17 @@ func NewStdLogger(l *zerolog.Logger) loglib.Logger {
 func NewLogger(config *Config) *zerolog.Logger {
 	// ignore the error, it defaults to no level
 	level, _ := zerolog.ParseLevel(config.LogLevel)
-	out := zerolog.NewConsoleWriter(
-		withTimeFormat(time.RFC3339Nano),
-		withOut(os.Stderr),
-	)
+
+	var out io.Writer
+	if config.LogFormat == formatJSON {
+		out = os.Stderr
+	} else {
+		out = zerolog.NewConsoleWriter(
+			withTimeFormat(time.RFC3339Nano),
+			withOut(os.Stderr),
+			withNoColor(config.NoColor),
+		)
+	}
 
 	logger := zerolog.New(out).
 		Sample(zerolog.LevelSampler{
@@ -103,5 +145,11 @@ func withTimeFormat(format string) func(*zerolog.ConsoleWriter) {
 func withOut(out io.Writer) func(*zerolog.ConsoleWriter) {
 	return func(w *zerolog.ConsoleWriter) {
 		w.Out = out
+	}
+}
+
+func withNoColor(noColor bool) func(*zerolog.ConsoleWriter) {
+	return func(w *zerolog.ConsoleWriter) {
+		w.NoColor = noColor
 	}
 }

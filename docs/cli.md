@@ -42,11 +42,15 @@ brew install pgstream
 
 These flags are available for all commands:
 
-| Flag             | Description                                                                         | Default |
-| ---------------- | ----------------------------------------------------------------------------------- | ------- |
-| `--config`, `-c` | .env or .yaml config file to use with pgstream if any                               | -       |
-| `--log-level`    | Log level for the application. One of trace, debug, info, warn, error, fatal, panic | `debug` |
-| `--help`, `-h`   | Show help information                                                               | -       |
+| Flag             | Description                                                                         | Default   |
+| ---------------- | ----------------------------------------------------------------------------------- | --------- |
+| `--config`, `-c` | .env or .yaml config file to use with pgstream if any                               | -         |
+| `--log-level`    | Log level for the application. One of trace, debug, info, warn, error, fatal, panic | `debug`   |
+| `--log-format`   | Log output format. One of `console` (human-readable) or `json` (structured)         | `console` |
+| `--no-color`     | Disable ANSI color codes in console log output (ignored when `--log-format=json`)   | `false`   |
+| `--help`, `-h`   | Show help information                                                               | -         |
+
+Every global flag also has an equivalent `PGSTREAM_`-prefixed environment variable (for example, `PGSTREAM_LOG_FORMAT=json`, `PGSTREAM_LOG_NO_COLOR=true`). Use `--log-format=json` when shipping logs to cloud aggregators like GCP Cloud Logging or Datadog that parse structured JSON.
 
 ## Commands
 
@@ -470,6 +474,7 @@ pgstream run --source kafka --source-url "localhost:9092" --target opensearch --
 export PGSTREAM_POSTGRES_LISTENER_URL="postgres://user:pass@localhost:5432/source_db"
 export PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME="pgstream_slot"
 export PGSTREAM_LOG_LEVEL="info"
+export PGSTREAM_LOG_FORMAT="json"
 
 # Run with environment configuration
 pgstream init

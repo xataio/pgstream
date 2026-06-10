@@ -126,9 +126,7 @@ func WithProgressTracking() Option {
 	return func(sg *SnapshotGenerator) {
 		sg.progressTracking = true
 		sg.progressBars = synclib.NewMap[string, progress.Bar]()
-		sg.progressBarBuilder = func(totalBytes int64, description string) progress.Bar {
-			return progress.NewBytesBar(totalBytes, description)
-		}
+		sg.progressBarBuilder = progress.NewBytesBar
 	}
 }
 
@@ -322,7 +320,7 @@ func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID strin
 	return errGroup.Wait()
 }
 
-func (sg *SnapshotGenerator) snapshotTableRangeWorker(ctx context.Context, snapshotID string, table *table, pageRangeChan <-chan (pageRange)) error {
+func (sg *SnapshotGenerator) snapshotTableRangeWorker(ctx context.Context, snapshotID string, table *table, pageRangeChan <-chan pageRange) error {
 	for pageRange := range pageRangeChan {
 		if err := sg.snapshotTableRange(ctx, snapshotID, table, pageRange); err != nil {
 			return err
