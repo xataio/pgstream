@@ -136,7 +136,13 @@ func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sn
 	defer func() {
 		// make sure we close the processor once the snapshot is completed.
 		// It will wait until all rows are processed before returning.
-		sg.processor.Close()
+		if closeErr := sg.processor.Close(); closeErr != nil {
+			if err == nil {
+				err = closeErr
+			} else {
+				err = errors.Join(err, closeErr)
+			}
+		}
 	}()
 
 	// parallelise the snapshot creation for each schema as configured by the snapshot workers.

@@ -412,7 +412,8 @@ func getTypedTSTZRange(value any) any {
 // can't produce correctly, so bulk ingest must fall back to text-format
 // COPY for any batch that touches one of these columns.
 var textOnlyCopyTypes = map[string]struct{}{
-	"cube": {}, // binary header: int32 dim+flags + N×float8 — pgx writes the text rep, server misreads it as a dimension count
+	"cube":  {}, // binary header: int32 dim+flags + N×float8 — pgx writes the text rep, server misreads it as a dimension count
+	"ltree": {}, // binary format: 1-byte version + path string — pgx writes the text rep, server reads byte 0 as the version number
 }
 
 func needsTextCopy(columnTypes []string) bool {

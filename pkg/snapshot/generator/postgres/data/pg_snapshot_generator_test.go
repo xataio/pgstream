@@ -108,11 +108,12 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	errTest := errors.New("oh noes")
 
 	tests := []struct {
-		name          string
-		querier       pglib.Querier
-		snapshot      *snapshot.Snapshot
-		schemaWorkers uint
-		progressBar   *progressmocks.Bar
+		name              string
+		querier           pglib.Querier
+		snapshot          *snapshot.Snapshot
+		schemaWorkers     uint
+		progressBar       *progressmocks.Bar
+		processorCloseErr error
 
 		wantEvents []*wal.Event
 		wantErr    error
@@ -180,6 +181,66 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 
 			wantErr:    nil,
 			wantEvents: []*wal.Event{testEvent(testTable1, testColumns)},
+		},
+		{
+			name: "error - closing processor",
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					require.Equal(t, txOptions, to)
+					switch i {
+					case 1:
+						mockTx := pgmocks.Tx{
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
+								require.Equal(t, exportSnapshotQuery, query)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok)
+								*snapshotID = testSnapshotID
+								return nil
+							},
+						}
+						return f(&mockTx)
+					case 2:
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+								return pglib.CommandTag{}, nil
+							},
+							QueryRowFn: validTableInfoQueryRowFn,
+						}
+						return f(&mockTx)
+					case 3:
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+								require.Equal(t, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", testSnapshotID), query)
+								return pglib.CommandTag{}, nil
+							},
+							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+								require.Equal(t, fmt.Sprintf(pageRangeQuery, quotedSchemaTable1, 0, 1), query)
+								return &pgmocks.Rows{
+									CloseFn: func() {},
+									NextFn:  func(i uint) bool { return i == 1 },
+									FieldDescriptionsFn: func() []pgconn.FieldDescription {
+										return []pgconn.FieldDescription{
+											{Name: "id", DataTypeOID: pgtype.UUIDOID},
+											{Name: "name", DataTypeOID: pgtype.TextOID},
+										}
+									},
+									ValuesFn: func() ([]any, error) {
+										return []any{testUUID, "alice"}, nil
+									},
+									ErrFn: func() error { return nil },
+								}, nil
+							},
+						}
+						return f(&mockTx)
+					default:
+						return fmt.Errorf("unexpected call to ExecInTxWithOptions: %d", i)
+					}
+				},
+			},
+			processorCloseErr: errTest,
+			wantErr:           errTest,
+			wantEvents:        []*wal.Event{testEvent(testTable1, testColumns)},
 		},
 		{
 			name: "ok - quoted identifiers in schema and table names",
@@ -1081,6 +1142,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					ProcessWALEventFn: func(ctx context.Context, e *wal.Event) error {
 						eventChan <- e
 						return nil
+					},
+					CloseFn: func() error {
+						return tc.processorCloseErr
 					},
 				},
 				schemaWorkers:    1,

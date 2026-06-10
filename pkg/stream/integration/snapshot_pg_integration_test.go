@@ -324,6 +324,118 @@ func Test_SnapshotToPostgres_CubeColumns(t *testing.T) {
 	})
 }
 
+// Test_SnapshotToPostgres_LtreeColumns verifies that snapshot/restore
+// preserves ltree column values end-to-end. ltree has the same root cause
+// as cube (#801): pgx has no binary codec for it, so binary COPY misreads
+// the leading byte of the text rep as the binary ltree version number and
+// errors with "unsupported ltree version number N".
+func Test_SnapshotToPostgres_LtreeColumns(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	run := func(suffix string, opts ...option) {
+		testTable := fmt.Sprintf("ltree_columns_%s", suffix)
+		for _, url := range []string{snapshotPGURL, targetPGURL} {
+			execQueryWithURL(t, ctx, url, "CREATE EXTENSION IF NOT EXISTS ltree")
+		}
+
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`CREATE TABLE %s(
+				id   INTEGER PRIMARY KEY,
+				path ltree NOT NULL
+			)`, testTable))
+		// ltree labels are [A-Za-z0-9_]+ on PG14 (the test container);
+		// hyphens are PG16+ so they're avoided here.
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`INSERT INTO %s(id, path) VALUES
+				(1, 'a.b.c'),
+				(2, 'root.x1.y2.z3.leaf'),
+				(3, 'Root_1.Sub_2.leaf_3_x')`,
+			testTable))
+
+		cfg := &stream.Config{
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
+			Processor: testPostgresProcessorCfg(opts...),
+		}
+		initStream(t, ctx, snapshotPGURL)
+		runSnapshot(t, ctx, cfg)
+
+		targetConn, err := pglib.NewConn(ctx, targetPGURL)
+		require.NoError(t, err)
+		sourceConn, err := pglib.NewConn(ctx, snapshotPGURL)
+		require.NoError(t, err)
+
+		timer := time.NewTimer(20 * time.Second)
+		defer timer.Stop()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		type row struct {
+			id   int
+			path string
+		}
+		query := fmt.Sprintf("SELECT id, path::text FROM %s ORDER BY id", testTable)
+		fetch := func(conn pglib.Querier) ([]row, error) {
+			rows, err := conn.Query(ctx, query)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+			out := []row{}
+			for rows.Next() {
+				var r row
+				if err := rows.Scan(&r.id, &r.path); err != nil {
+					return nil, err
+				}
+				out = append(out, r)
+			}
+			return out, rows.Err()
+		}
+
+		want, err := fetch(sourceConn)
+		require.NoError(t, err)
+		require.Len(t, want, 3)
+
+		validation := func() bool {
+			got, err := fetch(targetConn)
+			if err != nil || len(got) != len(want) {
+				return false
+			}
+			require.Equal(t, want, got)
+			return true
+		}
+
+		for {
+			select {
+			case <-timer.C:
+				cancel()
+				t.Error("timeout waiting for postgres snapshot sync of ltree columns")
+				return
+			case <-ticker.C:
+				if validation() {
+					return
+				}
+			}
+		}
+	}
+
+	t.Run("bulk ingest", func(t *testing.T) {
+		run("bulk", withBulkIngestionEnabled())
+	})
+	t.Run("batch writer", func(t *testing.T) {
+		run("batch")
+	})
+}
+
 // Test_SnapshotToPostgres_IdentityAndGeneratedColumns verifies that identity
 // columns have their values preserved while generated (stored) columns are
 // correctly excluded from inserts and recomputed by the target database.

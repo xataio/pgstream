@@ -5,6 +5,7 @@
 
 version: 2
 updates:
+  # main
   - package-ecosystem: "docker"
     directory: "build/docker/postgres"
     schedule:
@@ -21,3 +22,37 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+
+  # v0.9.x maintenance branch — minor/patch updates only
+  - package-ecosystem: "docker"
+    directory: "build/docker/postgres"
+    target-branch: "v0.9.x"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+  - package-ecosystem: "docker-compose"
+    directory: "build/docker"
+    target-branch: "v0.9.x"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "v0.9.x"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+  - package-ecosystem: "gomod"
+    directory: "/"
+    target-branch: "v0.9.x"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
