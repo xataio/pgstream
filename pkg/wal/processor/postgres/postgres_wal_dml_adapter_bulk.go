@@ -252,14 +252,13 @@ func (a *dmlAdapter) buildBulkInsertQueries(events []*wal.Data, si schemaInfo) [
 			if !a.forCopy {
 				for _, col := range e.Columns {
 					if seqName, ok := si.sequenceColumns[pglib.QuoteIdentifier(col.Name)]; ok {
-						colValueFloat, ok := col.Value.(float64)
+						val, ok := toInt64(col.Value)
 						if !ok {
 							a.logger.Warn(nil, "unexpected value type for sequence column, expected integer", loglib.Fields{
 								"column_name": col.Name, "column_type": col.Type, "column_value": col.Value,
 							})
 							continue
 						}
-						val := int64(colValueFloat)
 						if current, exists := seqMaxValues[seqName]; !exists || val > current {
 							seqMaxValues[seqName] = val
 						}
