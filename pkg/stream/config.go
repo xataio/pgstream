@@ -51,10 +51,13 @@ type ProcessorConfig struct {
 	Search      *SearchProcessorConfig
 	Webhook     *WebhookProcessorConfig
 	Postgres    *PostgresProcessorConfig
+	Stdout      *StdoutProcessorConfig
 	Injector    *injector.Config
 	Transformer *transformer.Config
 	Filter      *filter.Config
 }
+
+type StdoutProcessorConfig struct{}
 
 type KafkaProcessorConfig struct {
 	Writer *kafkaprocessor.Config
@@ -123,6 +126,9 @@ func (c *ProcessorConfig) IsValid() error {
 		processorCount++
 	}
 	if c.Webhook != nil {
+		processorCount++
+	}
+	if c.Stdout != nil {
 		processorCount++
 	}
 
