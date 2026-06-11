@@ -15,9 +15,9 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/filter"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	processinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/instrumentation"
-	"github.com/xataio/pgstream/pkg/wal/processor/sanitizer"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	pgwriter "github.com/xataio/pgstream/pkg/wal/processor/postgres"
+	"github.com/xataio/pgstream/pkg/wal/processor/sanitizer"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	searchinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/search/instrumentation"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
@@ -72,7 +72,8 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 			}
 		}
 
-		searchIndexer, err := search.NewBatchIndexer(ctx,
+		searchIndexer, err := search.NewBatchIndexer(
+			ctx,
 			config.Search.Indexer,
 			searchStore,
 			pgreplication.NewLSNParser(),
@@ -89,7 +90,8 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 
 		var subscriptionStore webhookstore.Store
 		var err error
-		subscriptionStore, err = pgwebhook.NewSubscriptionStore(ctx,
+		subscriptionStore, err = pgwebhook.NewSubscriptionStore(
+			ctx,
 			config.Webhook.SubscriptionStore.URL,
 			pgwebhook.WithLogger(logger),
 		)
@@ -113,13 +115,15 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 			&config.Webhook.Notifier,
 			subscriptionStore,
 			webhooknotifier.WithLogger(logger),
-			webhooknotifier.WithCheckpoint(checkpoint))
+			webhooknotifier.WithCheckpoint(checkpoint),
+		)
 		processor = notifier
 
 		subscriptionServer := subscriptionserver.New(
 			&config.Webhook.SubscriptionServer,
 			subscriptionStore,
-			subscriptionserver.WithLogger(logger))
+			subscriptionserver.WithLogger(logger),
+		)
 
 		go func() {
 			defer logger.Info("stopping subscription server...")
