@@ -8,10 +8,13 @@ import (
 
 	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
 	"github.com/xataio/pgstream/pkg/transformers"
+	"github.com/xataio/pgstream/pkg/transformers/internal/pool"
 )
 
 type StringTransformer struct {
-	transformer *greenmasktransformers.RandomStringTransformer
+	// the underlying greenmask transformer writes into a shared rune buffer
+	// on every call, so each concurrent caller needs its own instance
+	pool *pool.Pool[*greenmasktransformers.RandomStringTransformer]
 }
 
 const defaultSymbols = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
@@ -71,17 +74,22 @@ func NewStringTransformer(params transformers.ParameterValues) (*StringTransform
 		return nil, fmt.Errorf("greenmask_string: max_length must be an integer: %w", err)
 	}
 
-	t, err := greenmasktransformers.NewRandomStringTransformer([]rune(symbols), minLength, maxLength)
+	p, err := pool.New(func() (*greenmasktransformers.RandomStringTransformer, error) {
+		t, err := greenmasktransformers.NewRandomStringTransformer([]rune(symbols), minLength, maxLength)
+		if err != nil {
+			return nil, err
+		}
+		if err := setGenerator(t, params); err != nil {
+			return nil, err
+		}
+		return t, nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	if err := setGenerator(t, params); err != nil {
-		return nil, err
-	}
-
 	return &StringTransformer{
-		transformer: t,
+		pool: p,
 	}, nil
 }
 
@@ -96,8 +104,15 @@ func (st *StringTransformer) Transform(_ context.Context, value transformers.Val
 		return nil, transformers.ErrUnsupportedValueType
 	}
 
-	ret := st.transformer.Transform(toTransform)
-	return string(ret), nil
+	t, err := st.pool.Acquire()
+	if err != nil {
+		return nil, err
+	}
+	// the returned runes alias the instance's internal buffer, so it must be
+	// copied into a string before the instance is released
+	ret := string(t.Transform(toTransform))
+	st.pool.Release(t)
+	return ret, nil
 }
 
 func (st *StringTransformer) CompatibleTypes() []transformers.SupportedDataType {
