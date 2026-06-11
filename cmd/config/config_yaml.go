@@ -72,7 +72,10 @@ type TargetConfig struct {
 	Kafka    *KafkaTargetConfig    `mapstructure:"kafka" yaml:"kafka"`
 	Search   *SearchConfig         `mapstructure:"search" yaml:"search"`
 	Webhooks *WebhooksConfig       `mapstructure:"webhooks" yaml:"webhooks"`
+	Stdout   *StdoutTargetConfig   `mapstructure:"stdout" yaml:"stdout"`
 }
+
+type StdoutTargetConfig struct{}
 
 type PostgresConfig struct {
 	URL         string             `mapstructure:"url" yaml:"url"`
@@ -268,10 +271,15 @@ type WebhookNotifierConfig struct {
 	ClientTimeout int `mapstructure:"client_timeout" yaml:"client_timeout"`
 }
 
+type SanitizeConfig struct {
+	StripNullCharBytes bool `mapstructure:"strip_null_char_bytes" yaml:"strip_null_char_bytes"`
+}
+
 type ModifiersConfig struct {
 	Injector        *InjectorConfig        `mapstructure:"injector" yaml:"injector"`
 	Transformations *TransformationsConfig `mapstructure:"transformations" yaml:"transformations"`
 	Filter          *FilterConfig          `mapstructure:"filter" yaml:"filter"`
+	Sanitize        *SanitizeConfig        `mapstructure:"sanitize" yaml:"sanitize"`
 }
 
 type InjectorConfig struct {
@@ -407,7 +415,9 @@ func (c *YAMLConfig) parseProcessorConfig() (stream.ProcessorConfig, error) {
 		Kafka:    c.parseKafkaProcessorConfig(),
 		Postgres: c.parsePostgresProcessorConfig(),
 		Webhook:  c.parseWebhookProcessorConfig(),
+		Stdout:   c.parseStdoutProcessorConfig(),
 		Filter:   c.parseFilterConfig(),
+		Sanitize: c.parseSanitizeConfig(),
 	}
 
 	var err error
@@ -627,6 +637,13 @@ func (c *YAMLConfig) parseKafkaProcessorConfig() *stream.KafkaProcessorConfig {
 	}
 }
 
+func (c *YAMLConfig) parseStdoutProcessorConfig() *stream.StdoutProcessorConfig {
+	if c.Target.Stdout == nil {
+		return nil
+	}
+	return &stream.StdoutProcessorConfig{}
+}
+
 func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorConfig {
 	if c.Target.Postgres == nil {
 		return nil
@@ -734,6 +751,15 @@ func (c YAMLConfig) parseFilterConfig() *filter.Config {
 	return &filter.Config{
 		ExcludeTables: c.Modifiers.Filter.ExcludeTables,
 		IncludeTables: c.Modifiers.Filter.IncludeTables,
+	}
+}
+
+func (c YAMLConfig) parseSanitizeConfig() *stream.SanitizeConfig {
+	if c.Modifiers.Sanitize == nil || !c.Modifiers.Sanitize.StripNullCharBytes {
+		return nil
+	}
+	return &stream.SanitizeConfig{
+		StripNullCharBytes: c.Modifiers.Sanitize.StripNullCharBytes,
 	}
 }
 

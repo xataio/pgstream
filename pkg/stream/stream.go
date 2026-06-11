@@ -17,9 +17,11 @@ import (
 	processinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/instrumentation"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	pgwriter "github.com/xataio/pgstream/pkg/wal/processor/postgres"
+	"github.com/xataio/pgstream/pkg/wal/processor/sanitizer"
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	searchinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/search/instrumentation"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
+	stdoutwriter "github.com/xataio/pgstream/pkg/wal/processor/stdout"
 	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 	webhooknotifier "github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
 	subscriptionserver "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
@@ -71,7 +73,8 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 			}
 		}
 
-		searchIndexer, err := search.NewBatchIndexer(ctx,
+		searchIndexer, err := search.NewBatchIndexer(
+			ctx,
 			config.Search.Indexer,
 			searchStore,
 			pgreplication.NewLSNParser(),
@@ -88,7 +91,8 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 
 		var subscriptionStore webhookstore.Store
 		var err error
-		subscriptionStore, err = pgwebhook.NewSubscriptionStore(ctx,
+		subscriptionStore, err = pgwebhook.NewSubscriptionStore(
+			ctx,
 			config.Webhook.SubscriptionStore.URL,
 			pgwebhook.WithLogger(logger),
 		)
@@ -112,13 +116,15 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 			&config.Webhook.Notifier,
 			subscriptionStore,
 			webhooknotifier.WithLogger(logger),
-			webhooknotifier.WithCheckpoint(checkpoint))
+			webhooknotifier.WithCheckpoint(checkpoint),
+		)
 		processor = notifier
 
 		subscriptionServer := subscriptionserver.New(
 			&config.Webhook.SubscriptionServer,
 			subscriptionStore,
-			subscriptionserver.WithLogger(logger))
+			subscriptionserver.WithLogger(logger),
+		)
 
 		go func() {
 			defer logger.Info("stopping subscription server...")
@@ -165,6 +171,13 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 			processor = pgBatchWriter
 		}
 
+	case config.Stdout != nil:
+		logger.Info("stdout processor configured")
+		processor = stdoutwriter.NewWriter(
+			stdoutwriter.WithLogger(logger),
+			stdoutwriter.WithCheckpoint(checkpoint),
+		)
+
 	default:
 		return nil, errors.New("no supported processor found")
 	}
@@ -175,6 +188,12 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Logger, processor processor.Processor, instrumentation *otel.Instrumentation) (processor.Processor, closerFn, error) {
 	closerAgg := &closerAggregator{}
 	var err error
+
+	if config.Processor.Sanitize != nil && config.Processor.Sanitize.StripNullCharBytes {
+		logger.Info("adding null byte sanitizer to processor...")
+		processor = sanitizer.New(processor, sanitizer.WithLogger(logger))
+	}
+
 	if config.Processor.Transformer != nil {
 		logger.Info("adding transformation layer to processor...")
 		builderOpts := []builder.Option{}

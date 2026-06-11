@@ -156,6 +156,7 @@ target:
     notifier:
       worker_count: 4 # number of notifications to be processed in parallel. Defaults to 10
       client_timeout: 1000 # timeout for the webhook client in milliseconds. Defaults to 10s
+  stdout: {} # write WAL events as NDJSON to stdout. Useful for debugging and validating the pipeline without a real target.
 
 modifiers:
   injector:
@@ -170,6 +171,8 @@ modifiers:
       - "excluded_test"
       - "excluded_schema.test"
       - "another_excluded_schema.*"
+  sanitize:
+    strip_null_char_bytes: true # strip null bytes (0x00) from string column values. Defaults to false
   transformations:
     validation_mode: relaxed
     table_transformers:
@@ -306,6 +309,15 @@ One of exponential/constant/disable retries backoff policies can be provided for
 </details>
 
 <details>
+  <summary>Stdout Writer</summary>
+
+| Environment Variable             | Default | Required | Description                                                                                                                |
+| -------------------------------- | ------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| PGSTREAM_STDOUT_WRITER_ENABLED   | False   | No       | Set to true to enable the stdout writer target. WAL events are written as NDJSON (one JSON object per line) to stdout.     |
+
+</details>
+
+<details>
   <summary>Webhook Notifier</summary>
 
 | Environment Variable                                       | Default | Required           | Description                                                                                                 |
@@ -379,6 +391,15 @@ One of exponential/constant/disable retries retry policies can be provided for t
 | ------------------------------ | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PGSTREAM_FILTER_INCLUDE_TABLES | N/A     | No       | List of schema qualified tables for which the WAL events should be processed. If no schema is provided, `public` schema will be assumed. Wildcards are supported. |
 | PGSTREAM_FILTER_EXCLUDE_TABLES | N/A     | No       | List of schema qualified tables for which the WAL events should be skipped. If no schema is provided, `public` schema will be assumed. Wildcards are supported.   |
+
+</details>
+
+<details>
+  <summary>Sanitizer</summary>
+
+| Environment Variable                       | Default | Required | Description                                                                                                                                    |
+| ------------------------------------------ | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| PGSTREAM_PROCESSOR_SANITIZE_STRIP_NULL_CHAR_BYTES   | false   | No       | Strip null bytes (0x00) from string column values. Useful when the source database contains null bytes that are not allowed by the target.     |
 
 </details>
 

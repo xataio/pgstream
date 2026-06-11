@@ -137,10 +137,13 @@ func init() {
 	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_READ_TIMEOUT")
 	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_WRITE_TIMEOUT")
 
+	viper.BindEnv("PGSTREAM_STDOUT_WRITER_ENABLED")
+
 	viper.BindEnv("PGSTREAM_INJECTOR_STORE_POSTGRES_URL")
 	viper.BindEnv("PGSTREAM_TRANSFORMER_RULES_FILE")
 	viper.BindEnv("PGSTREAM_FILTER_INCLUDE_TABLES")
 	viper.BindEnv("PGSTREAM_FILTER_EXCLUDE_TABLES")
+	viper.BindEnv("PGSTREAM_PROCESSOR_SANITIZE_STRIP_NULL_CHAR_BYTES")
 
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_ENABLED")
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CA_CERT_FILE")
@@ -395,10 +398,19 @@ func parseProcessorConfig() (stream.ProcessorConfig, error) {
 		Search:      searchCfg,
 		Webhook:     webhookCfg,
 		Postgres:    postgresCfg,
+		Stdout:      parseStdoutProcessorConfig(),
 		Injector:    parseInjectorConfig(),
 		Transformer: transformerCfg,
 		Filter:      parseFilterConfig(),
+		Sanitize:    parseSanitizeConfig(),
 	}, nil
+}
+
+func parseStdoutProcessorConfig() *stream.StdoutProcessorConfig {
+	if !viper.GetBool("PGSTREAM_STDOUT_WRITER_ENABLED") {
+		return nil
+	}
+	return &stream.StdoutProcessorConfig{}
 }
 
 func parseKafkaProcessorConfig() (*stream.KafkaProcessorConfig, error) {
@@ -627,6 +639,15 @@ func parseFilterConfig() *filter.Config {
 	return &filter.Config{
 		IncludeTables: includeTables,
 		ExcludeTables: excludeTables,
+	}
+}
+
+func parseSanitizeConfig() *stream.SanitizeConfig {
+	if !viper.GetBool("PGSTREAM_PROCESSOR_SANITIZE_STRIP_NULL_CHAR_BYTES") {
+		return nil
+	}
+	return &stream.SanitizeConfig{
+		StripNullCharBytes: true,
 	}
 }
 
