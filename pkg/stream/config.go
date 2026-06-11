@@ -46,6 +46,10 @@ type KafkaListenerConfig struct {
 	Checkpointer kafkacheckpoint.Config
 }
 
+type SanitizeConfig struct {
+	StripNullCharBytes bool
+}
+
 type ProcessorConfig struct {
 	Kafka       *KafkaProcessorConfig
 	Search      *SearchProcessorConfig
@@ -55,6 +59,7 @@ type ProcessorConfig struct {
 	Injector    *injector.Config
 	Transformer *transformer.Config
 	Filter      *filter.Config
+	Sanitize    *SanitizeConfig
 }
 
 type StdoutProcessorConfig struct{}
