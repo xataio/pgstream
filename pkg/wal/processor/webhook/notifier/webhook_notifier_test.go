@@ -363,24 +363,29 @@ func TestNotifier(t *testing.T) {
 		close(doneChan)
 	}()
 
+	walEvent := &wal.Event{
+		CommitPosition: wal.CommitPosition("1"),
+		Data: &wal.Data{
+			Action: "I",
+		},
+	}
+
 	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
-	var processErr error
 	for {
 		select {
 		case <-doneChan:
-			require.ErrorIs(t, processErr, errTest)
+			// Notify has exited. The next ProcessWALEvent must observe the
+			// closed notifyDone and return the propagated error — assert on a
+			// fresh call rather than the previous loop iteration's result,
+			// which can be nil if Notify exited between PWE calls.
+			require.ErrorIs(t, n.ProcessWALEvent(context.Background(), walEvent), errTest)
 			return
 		case <-timer.C:
 			t.Error("test timeout")
 			return
 		default:
-			processErr = n.ProcessWALEvent(context.Background(), &wal.Event{
-				CommitPosition: wal.CommitPosition("1"),
-				Data: &wal.Data{
-					Action: "I",
-				},
-			})
+			_ = n.ProcessWALEvent(context.Background(), walEvent)
 		}
 	}
 }
