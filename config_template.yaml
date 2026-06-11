@@ -137,6 +137,7 @@ target:
     notifier:
       worker_count: 4 # number of notifications to be processed in parallel. Defaults to 10
       client_timeout: 1000 # timeout for the webhook client in milliseconds. Defaults to 10s
+  stdout: {} # write WAL events as NDJSON to stdout. Useful for debugging and validating the pipeline without a real target.
 
 modifiers:
   injector:
