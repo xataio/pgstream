@@ -21,6 +21,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	searchinstrumentation "github.com/xataio/pgstream/pkg/wal/processor/search/instrumentation"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
+	stdoutwriter "github.com/xataio/pgstream/pkg/wal/processor/stdout"
 	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 	webhooknotifier "github.com/xataio/pgstream/pkg/wal/processor/webhook/notifier"
 	subscriptionserver "github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription/server"
@@ -169,6 +170,13 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 
 			processor = pgBatchWriter
 		}
+
+	case config.Stdout != nil:
+		logger.Info("stdout processor configured")
+		processor = stdoutwriter.NewWriter(
+			stdoutwriter.WithLogger(logger),
+			stdoutwriter.WithCheckpoint(checkpoint),
+		)
 
 	default:
 		return nil, errors.New("no supported processor found")

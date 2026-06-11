@@ -79,7 +79,10 @@ type TargetConfig struct {
 	Kafka    *KafkaTargetConfig    `mapstructure:"kafka" yaml:"kafka"`
 	Search   *SearchConfig         `mapstructure:"search" yaml:"search"`
 	Webhooks *WebhooksConfig       `mapstructure:"webhooks" yaml:"webhooks"`
+	Stdout   *StdoutTargetConfig   `mapstructure:"stdout" yaml:"stdout"`
 }
+
+type StdoutTargetConfig struct{}
 
 type PostgresConfig struct {
 	URL         string             `mapstructure:"url" yaml:"url"`
@@ -429,6 +432,7 @@ func (c *YAMLConfig) parseProcessorConfig() (stream.ProcessorConfig, error) {
 		Kafka:    c.parseKafkaProcessorConfig(),
 		Postgres: c.parsePostgresProcessorConfig(),
 		Webhook:  c.parseWebhookProcessorConfig(),
+		Stdout:   c.parseStdoutProcessorConfig(),
 		Filter:   c.parseFilterConfig(),
 		Sanitize: c.parseSanitizeConfig(),
 	}
@@ -648,6 +652,13 @@ func (c *YAMLConfig) parseKafkaProcessorConfig() *stream.KafkaProcessorConfig {
 			Batch: c.Target.Kafka.Batch.parseBatchConfig(),
 		},
 	}
+}
+
+func (c *YAMLConfig) parseStdoutProcessorConfig() *stream.StdoutProcessorConfig {
+	if c.Target.Stdout == nil {
+		return nil
+	}
+	return &stream.StdoutProcessorConfig{}
 }
 
 func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorConfig {

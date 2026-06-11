@@ -156,6 +156,7 @@ target:
     notifier:
       worker_count: 4 # number of notifications to be processed in parallel. Defaults to 10
       client_timeout: 1000 # timeout for the webhook client in milliseconds. Defaults to 10s
+  stdout: {} # write WAL events as NDJSON to stdout. Useful for debugging and validating the pipeline without a real target.
 
 modifiers:
   injector:
@@ -304,6 +305,15 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 One of exponential/constant backoff policies can be provided for the search indexer cleanup retry strategy. If none is provided, no retries apply.
 
 One of exponential/constant/disable retries backoff policies can be provided for the search store retry strategy. If none is provided, a default exponential backoff policy applies.
+
+</details>
+
+<details>
+  <summary>Stdout Writer</summary>
+
+| Environment Variable             | Default | Required | Description                                                                                                                |
+| -------------------------------- | ------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| PGSTREAM_STDOUT_WRITER_ENABLED   | False   | No       | Set to true to enable the stdout writer target. WAL events are written as NDJSON (one JSON object per line) to stdout.     |
 
 </details>
 
