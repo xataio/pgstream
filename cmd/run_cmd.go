@@ -30,6 +30,7 @@ var runCmd = &cobra.Command{
 
 var (
 	initFlag             = false
+	upgradeFlag          = false
 	errUnsupportedSource = errors.New("unsupported source")
 	errUnsupportedTarget = errors.New("unsupported target")
 )
@@ -58,6 +59,16 @@ func run(ctx context.Context) error {
 	}
 	defer provider.Close()
 
+	// --upgrade implies --init
+	if upgradeFlag {
+		initFlag = true
+	}
+
+	var opts []stream.InitOption
+	if upgradeFlag {
+		opts = append(opts, stream.WithUpgrade())
+	}
+
 	stdLogger := zerolog.NewStdLogger(logger)
 	stopHealth, err := startHealthServer(ctx, stdLogger, streamConfig.SourcePostgresURL())
 	if err != nil {
@@ -65,7 +76,7 @@ func run(ctx context.Context) error {
 	}
 	defer stopHealth()
 
-	return stream.Run(ctx, stdLogger, streamConfig, initFlag, provider.NewInstrumentation("run"))
+	return stream.Run(ctx, stdLogger, streamConfig, initFlag, provider.NewInstrumentation("run"), opts...)
 }
 
 func runFlagBinding(cmd *cobra.Command, args []string) error {
