@@ -28,13 +28,13 @@ import (
 )
 
 // Run will run the configured pgstream processes. This call is blocking.
-func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, instrumentation *otel.Instrumentation) error {
+func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, instrumentation *otel.Instrumentation, opts ...InitOption) error {
 	if err := config.IsValid(); err != nil {
 		return fmt.Errorf("incompatible configuration: %w", err)
 	}
 
 	if init {
-		if err := Init(ctx, config.GetInitConfig()); err != nil {
+		if err := Init(ctx, config.GetInitConfig(opts...)); err != nil {
 			return err
 		}
 	}
