@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/viper"
+	"github.com/xataio/pgstream/internal/health"
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
 	"github.com/xataio/pgstream/pkg/otel"
@@ -34,6 +35,9 @@ func init() {
 	viper.BindEnv("PGSTREAM_METRICS_COLLECTION_INTERVAL")
 	viper.BindEnv("PGSTREAM_TRACES_ENDPOINT")
 	viper.BindEnv("PGSTREAM_TRACES_SAMPLE_RATIO")
+
+	viper.BindEnv("PGSTREAM_HEALTH_CHECK_ENABLED")
+	viper.BindEnv("PGSTREAM_HEALTH_CHECK_ADDRESS")
 
 	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_URL")
 	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_EXP_BACKOFF_INITIAL_INTERVAL")
@@ -149,6 +153,13 @@ func init() {
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CA_CERT_FILE")
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CLIENT_CERT_FILE")
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE")
+}
+
+func envToHealthConfig() *health.Config {
+	return &health.Config{
+		Enabled: viper.GetBool("PGSTREAM_HEALTH_CHECK_ENABLED"),
+		Address: viper.GetString("PGSTREAM_HEALTH_CHECK_ADDRESS"),
+	}
 }
 
 func envToOtelConfig() (*otel.Config, error) {

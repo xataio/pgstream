@@ -69,7 +69,14 @@ func run(ctx context.Context) error {
 		opts = append(opts, stream.WithUpgrade())
 	}
 
-	return stream.Run(ctx, zerolog.NewStdLogger(logger), streamConfig, initFlag, provider.NewInstrumentation("run"), opts...)
+	stdLogger := zerolog.NewStdLogger(logger)
+	stopHealth, err := startHealthServer(ctx, stdLogger, streamConfig.SourcePostgresURL())
+	if err != nil {
+		return err
+	}
+	defer stopHealth()
+
+	return stream.Run(ctx, stdLogger, streamConfig, initFlag, provider.NewInstrumentation("run"), opts...)
 }
 
 func runFlagBinding(cmd *cobra.Command, args []string) error {

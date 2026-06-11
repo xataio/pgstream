@@ -42,7 +42,14 @@ func snapshot(ctx context.Context) error {
 	}
 	defer provider.Close()
 
-	return stream.Snapshot(ctx, zerolog.NewStdLogger(logger), streamConfig, provider.NewInstrumentation("snapshot"))
+	stdLogger := zerolog.NewStdLogger(logger)
+	stopHealth, err := startHealthServer(ctx, stdLogger, streamConfig.SourcePostgresURL())
+	if err != nil {
+		return err
+	}
+	defer stopHealth()
+
+	return stream.Snapshot(ctx, stdLogger, streamConfig, provider.NewInstrumentation("snapshot"))
 }
 
 func snapshotFlagBinding(cmd *cobra.Command, args []string) error {

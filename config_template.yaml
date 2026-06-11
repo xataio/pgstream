@@ -11,6 +11,9 @@ instrumentation:
   traces:
     endpoint: "0.0.0.0:4317"
     sample_ratio: 0.5 # ratio of traces that will be sampled. Must be between 0.0-1.0, where 0 is no traces sampled, and 1 is all traces sampled.
+  health:
+    enabled: false # whether to expose the /health (liveness) and /ready (readiness) HTTP endpoints. Only honoured by the run and snapshot commands. Defaults to false.
+    address: "localhost:9910" # address the health server binds to. Defaults to localhost:9910.
 
 source:
   postgres:

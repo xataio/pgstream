@@ -424,3 +424,15 @@ One of exponential/constant/disable retries retry policies can be provided for t
 | PGSTREAM_TRACES_SAMPLE_RATIO | 0       | No       | Ratio for the trace sampling. Value must be between 0.0 and 1.0, where 0.0 is no traces sampled, and 1.0 is all traces sampled. |
 
 </details>
+
+<details>
+  <summary>Health endpoint</summary>
+
+Exposes `/health` (liveness, always 200) and `/ready` (readiness, pings the source postgres database when configured). Only the `run` and `snapshot` commands start the server. Responses are JSON.
+
+| Environment Variable           | Default          | Required | Description                                                                                                  |
+| ------------------------------ | ---------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| PGSTREAM_HEALTH_CHECK_ENABLED  | False            | No       | Enable the health endpoint server.                                                                           |
+| PGSTREAM_HEALTH_CHECK_ADDRESS  | localhost:9910   | No       | Address the health server listens on. Use `:9910` or `0.0.0.0:9910` to expose externally (e.g. in k8s pods). |
+
+</details>

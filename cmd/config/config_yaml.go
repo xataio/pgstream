@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/xataio/pgstream/internal/health"
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
 	"github.com/xataio/pgstream/pkg/otel"
@@ -33,6 +34,12 @@ import (
 type InstrumentationConfig struct {
 	Metrics *MetricsConfig `mapstructure:"metrics" yaml:"metrics"`
 	Traces  *TracesConfig  `mapstructure:"traces" yaml:"traces"`
+	Health  *HealthConfig  `mapstructure:"health" yaml:"health"`
+}
+
+type HealthConfig struct {
+	Enabled bool   `mapstructure:"enabled" yaml:"enabled"`
+	Address string `mapstructure:"address" yaml:"address"`
 }
 
 type MetricsConfig struct {
@@ -359,6 +366,16 @@ var (
 	errInvalidSampleRatio                      = errors.New("trace sample ratio must be a value between 0.0 and 1.0")
 	errSchemaSnapshotNotConfigured             = errors.New("schema snapshot config must be provided when snapshot mode is 'full' or 'schema'")
 )
+
+func (c *InstrumentationConfig) toHealthConfig() *health.Config {
+	if c.Health == nil {
+		return &health.Config{}
+	}
+	return &health.Config{
+		Enabled: c.Health.Enabled,
+		Address: c.Health.Address,
+	}
+}
 
 func (c *InstrumentationConfig) toOtelConfig() (*otel.Config, error) {
 	cfg := &otel.Config{}
