@@ -126,9 +126,7 @@ func WithProgressTracking() Option {
 	return func(sg *SnapshotGenerator) {
 		sg.progressTracking = true
 		sg.progressBars = synclib.NewMap[string, progress.Bar]()
-		sg.progressBarBuilder = func(totalBytes int64, description string) progress.Bar {
-			return progress.NewBytesBar(totalBytes, description)
-		}
+		sg.progressBarBuilder = progress.NewBytesBar
 	}
 }
 
@@ -136,7 +134,13 @@ func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sn
 	defer func() {
 		// make sure we close the processor once the snapshot is completed.
 		// It will wait until all rows are processed before returning.
-		sg.processor.Close()
+		if closeErr := sg.processor.Close(); closeErr != nil {
+			if err == nil {
+				err = closeErr
+			} else {
+				err = errors.Join(err, closeErr)
+			}
+		}
 	}()
 
 	// parallelise the snapshot creation for each schema as configured by the snapshot workers.
@@ -316,7 +320,7 @@ func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID strin
 	return errGroup.Wait()
 }
 
-func (sg *SnapshotGenerator) snapshotTableRangeWorker(ctx context.Context, snapshotID string, table *table, pageRangeChan <-chan (pageRange)) error {
+func (sg *SnapshotGenerator) snapshotTableRangeWorker(ctx context.Context, snapshotID string, table *table, pageRangeChan <-chan pageRange) error {
 	for pageRange := range pageRangeChan {
 		if err := sg.snapshotTableRange(ctx, snapshotID, table, pageRange); err != nil {
 			return err

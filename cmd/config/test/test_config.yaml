@@ -154,6 +154,12 @@ modifiers:
               gender:
                 column: sex
 
+logging:
+  level: info # log level for the application. One of trace, debug, info, warn, error, fatal, panic.
+  format:
+    type: console # log output format. One of console or json.
+    no_color: true # disable ANSI color codes in console log output. Only valid when type is console.
+
 instrumentation:
   metrics:
     endpoint: "http://localhost:4317"

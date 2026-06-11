@@ -4,8 +4,10 @@ package progress
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/schollz/progressbar/v3"
+	"golang.org/x/term"
 )
 
 type Bar interface {
@@ -28,7 +30,27 @@ func (pb *ProgressBar) SetCurrent(value int64) error {
 	return pb.Set64(value)
 }
 
-func NewBar(total int64, description, unit string) *ProgressBar {
+// noopBar is returned when stderr is not a terminal. The progress bar's
+// carriage returns and ANSI codes are noise when output is piped to a file or
+// log shipper, so we drop the bar entirely in that case.
+type noopBar struct{}
+
+func (noopBar) Add(int) error          { return nil }
+func (noopBar) Add64(int64) error      { return nil }
+func (noopBar) Current() int64         { return 0 }
+func (noopBar) SetCurrent(int64) error { return nil }
+func (noopBar) Close() error           { return nil }
+
+// stderrIsTTY reports whether the bar's output sink (stderr) is a terminal.
+// Indirected through a variable so tests can override it.
+var stderrIsTTY = func() bool {
+	return term.IsTerminal(int(os.Stderr.Fd()))
+}
+
+func NewBar(total int64, description, unit string) Bar {
+	if !stderrIsTTY() {
+		return noopBar{}
+	}
 	return &ProgressBar{
 		ProgressBar: progressbar.NewOptions64(total,
 			progressbar.OptionShowCount(),
@@ -54,7 +76,10 @@ func NewBar(total int64, description, unit string) *ProgressBar {
 	}
 }
 
-func NewBytesBar(totalBytes int64, description string) *ProgressBar {
+func NewBytesBar(totalBytes int64, description string) Bar {
+	if !stderrIsTTY() {
+		return noopBar{}
+	}
 	return &ProgressBar{
 		ProgressBar: progressbar.NewOptions64(totalBytes,
 			progressbar.OptionShowCount(),
