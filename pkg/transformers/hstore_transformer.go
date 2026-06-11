@@ -21,8 +21,6 @@ const (
 
 type HstoreTransformer struct {
 	operations []*hstoreOperation
-	hstoreVal  *hstoreValue
-	buf        *bytes.Buffer
 }
 
 var (
@@ -65,8 +63,6 @@ func NewHstoreTransformer(params ParameterValues) (*HstoreTransformer, error) {
 
 	return &HstoreTransformer{
 		operations: operations,
-		buf:        bytes.NewBuffer(nil),
-		hstoreVal:  &hstoreValue{},
 	}, nil
 }
 
@@ -88,13 +84,17 @@ func (t *HstoreTransformer) Transform(_ context.Context, value Value) (any, erro
 		return nil, fmt.Errorf("hstore_transformer: error parsing hstore: %w", err)
 	}
 
+	// the value and buffer are local to the call so that the transformer can
+	// be used concurrently
+	hstoreVal := &hstoreValue{}
 	// set dynamic values for the hstoreValue instance, to be used in templates
-	t.hstoreVal.setDynamicValues(value.DynamicValues)
+	hstoreVal.setDynamicValues(value.DynamicValues)
+	buf := bytes.NewBuffer(nil)
 
 	transformed := toTransform
 	for idx, op := range t.operations {
-		t.hstoreVal.setValue(transformed, op.key)
-		if !t.hstoreVal.exists {
+		hstoreVal.setValue(transformed, op.key)
+		if !hstoreVal.exists {
 			if op.skipNotExist {
 				continue
 			}
@@ -103,7 +103,7 @@ func (t *HstoreTransformer) Transform(_ context.Context, value Value) (any, erro
 			}
 		}
 		// apply each operation in the order they were provided
-		transformed, err = op.apply(transformed, t.hstoreVal, t.buf)
+		transformed, err = op.apply(transformed, hstoreVal, buf)
 		if err != nil {
 			return nil, fmt.Errorf("hstore_transformer: cannot apply \"%s\" operation[%d] with key %s: %w", op.operation, idx, op.key, err)
 		}
