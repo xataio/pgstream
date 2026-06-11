@@ -22,7 +22,7 @@ var validateCmd = &cobra.Command{
 	Short: "Validate different parts of the pgstream configuration",
 }
 
-var errNoPostgresURL = errors.New("postgres URL is required for transformation rules validation")
+var errNoPostgresURL = errors.New("postgres URL is required for validation")
 
 var validateRulesCmd = &cobra.Command{
 	Use:     "rules",
@@ -91,6 +91,55 @@ var validateRulesCmd = &cobra.Command{
 	`,
 }
 
+var validateSchemaCmd = &cobra.Command{
+	Use:     "schema",
+	Short:   "Validates source schema compatibility before running replication",
+	PreRunE: validateSchemaFlagBinding,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		sp, _ := pterm.DefaultSpinner.WithText("validating pgstream source schema...").Start()
+
+		err := func() error {
+			streamConfig, err := config.ParseStreamConfig()
+			if err != nil {
+				return fmt.Errorf("parsing stream config: %w", err)
+			}
+
+			if streamConfig.Listener.Postgres == nil || streamConfig.Listener.Postgres.URL == "" {
+				return errNoPostgresURL
+			}
+
+			statusChecker := stream.NewStatusChecker()
+			schemaStatus, err := statusChecker.SchemaCompatibilityStatus(context.Background(), streamConfig)
+			if err != nil {
+				return err
+			}
+
+			if len(schemaStatus.GetErrors()) == 0 {
+				sp.Success("source schema is compatible")
+			} else {
+				sp.Warning("pgstream validation check identified issues: ", strings.Join(schemaStatus.GetErrors(), ", "))
+			}
+
+			err = print(cmd, schemaStatus)
+			if err != nil {
+				return fmt.Errorf("failed to format pgstream schema compatibility status: %w", err)
+			}
+
+			return nil
+		}()
+		if err != nil {
+			sp.Fail(err.Error())
+		}
+
+		return err
+	},
+	Example: `
+	pgstream validate schema -c pg2pg.env
+	pgstream validate schema --postgres-url <postgres-url>
+	pgstream validate schema -c pg2pg.yaml --json
+	`,
+}
+
 func validateRulesFlagBinding(cmd *cobra.Command, _ []string) error {
 	// to be able to overwrite configuration with flags when yaml config file is
 	// provided
@@ -99,6 +148,12 @@ func validateRulesFlagBinding(cmd *cobra.Command, _ []string) error {
 	// to be able to overwrite configuration with flags when env config file is
 	// provided or when no configuration is provided
 	viper.BindPFlag("PGSTREAM_TRANSFORMER_RULES_FILE", cmd.Flags().Lookup("rules-file"))
+	viper.BindPFlag("PGSTREAM_POSTGRES_LISTENER_URL", cmd.Flags().Lookup("postgres-url"))
+	return nil
+}
+
+func validateSchemaFlagBinding(cmd *cobra.Command, _ []string) error {
+	viper.BindPFlag("source.postgres.url", cmd.Flags().Lookup("postgres-url"))
 	viper.BindPFlag("PGSTREAM_POSTGRES_LISTENER_URL", cmd.Flags().Lookup("postgres-url"))
 	return nil
 }

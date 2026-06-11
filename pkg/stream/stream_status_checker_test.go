@@ -11,11 +11,14 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 	migratorlib "github.com/xataio/pgstream/internal/migrator"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 	pgmigrations "github.com/xataio/pgstream/migrations/postgres"
+	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/adapter"
+	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	pgprocessor "github.com/xataio/pgstream/pkg/wal/processor/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 	replicationpg "github.com/xataio/pgstream/pkg/wal/replication/postgres"
@@ -1236,6 +1239,206 @@ func TestStatusChecker_validateReplicationSlotStatus(t *testing.T) {
 			status, err := sc.validateReplicationSlotStatus(context.Background(), tc.pgurl, tc.replicationSlotName)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, status, tc.wantStatus)
+		})
+	}
+}
+
+func TestStatusChecker_SchemaCompatibilityStatus(t *testing.T) {
+	t.Parallel()
+
+	validConfig := &Config{
+		Listener: ListenerConfig{
+			Postgres: &PostgresListenerConfig{
+				URL: "postgres://user:password@localhost:5432/db",
+				Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+					Adapter: adapter.SnapshotConfig{
+						Tables: []string{"public.users"},
+					},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name        string
+		connBuilder pglib.QuerierBuilder
+		wantStatus  *SchemaCompatibilityStatus
+		wantErr     error
+	}{
+		{
+			name: "ok - compatible schema",
+			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
+				return &pgmocks.Querier{
+					QueryFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.Rows, error) {
+						switch query {
+						case "SELECT * FROM \"public\".\"users\" LIMIT 0":
+							return &pgmocks.Rows{
+								FieldDescriptionsFn: func() []pgconn.FieldDescription {
+									return []pgconn.FieldDescription{
+										{Name: "id", DataTypeOID: pgtype.Int4OID},
+										{Name: "name", DataTypeOID: pgtype.TextOID},
+									}
+								},
+								ErrFn: func() error { return nil },
+							}, nil
+						default:
+							return nil, fmt.Errorf("unexpected query: %v", query)
+						}
+					},
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+						switch query {
+						case schemaReplicaIdentityQuery:
+							require.Len(t, dest, 3)
+							relreplident, ok := dest[0].(*string)
+							require.True(t, ok)
+							*relreplident = "d"
+
+							hasPrimaryKey, ok := dest[1].(*bool)
+							require.True(t, ok)
+							*hasPrimaryKey = true
+
+							hasReplicaIdentityIndex, ok := dest[2].(*bool)
+							require.True(t, ok)
+							*hasReplicaIdentityIndex = false
+
+							return nil
+						default:
+							return fmt.Errorf("unexpected query row: %v", query)
+						}
+					},
+				}, nil
+			},
+			wantStatus: &SchemaCompatibilityStatus{
+				Valid: true,
+				Tables: []SchemaTableStatus{
+					{
+						Schema: "public",
+						Table:  "users",
+					},
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - replica identity missing",
+			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
+				return &pgmocks.Querier{
+					QueryFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.Rows, error) {
+						switch query {
+						case "SELECT * FROM \"public\".\"users\" LIMIT 0":
+							return &pgmocks.Rows{
+								FieldDescriptionsFn: func() []pgconn.FieldDescription {
+									return []pgconn.FieldDescription{
+										{Name: "id", DataTypeOID: pgtype.Int4OID},
+									}
+								},
+								ErrFn: func() error { return nil },
+							}, nil
+						default:
+							return nil, fmt.Errorf("unexpected query: %v", query)
+						}
+					},
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+						switch query {
+						case schemaReplicaIdentityQuery:
+							relreplident, ok := dest[0].(*string)
+							require.True(t, ok)
+							*relreplident = "n"
+
+							hasPrimaryKey, ok := dest[1].(*bool)
+							require.True(t, ok)
+							*hasPrimaryKey = false
+
+							hasReplicaIdentityIndex, ok := dest[2].(*bool)
+							require.True(t, ok)
+							*hasReplicaIdentityIndex = false
+
+							return nil
+						default:
+							return fmt.Errorf("unexpected query row: %v", query)
+						}
+					},
+				}, nil
+			},
+			wantStatus: &SchemaCompatibilityStatus{
+				Valid: false,
+				Tables: []SchemaTableStatus{
+					{
+						Schema: "public",
+						Table:  "users",
+						Errors: []string{"table public.users does not have a usable replica identity for update/delete events"},
+					},
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - unsupported column type",
+			connBuilder: func(ctx context.Context, pgURL string) (pglib.Querier, error) {
+				return &pgmocks.Querier{
+					QueryFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.Rows, error) {
+						switch query {
+						case "SELECT * FROM \"public\".\"users\" LIMIT 0":
+							return &pgmocks.Rows{
+								FieldDescriptionsFn: func() []pgconn.FieldDescription {
+									return []pgconn.FieldDescription{
+										{Name: "payload", DataTypeOID: 999999},
+									}
+								},
+								ErrFn: func() error { return nil },
+							}, nil
+						default:
+							return nil, fmt.Errorf("unexpected query: %v", query)
+						}
+					},
+					QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+						switch query {
+						case "SELECT typname FROM pg_type WHERE oid = $1":
+							return pglib.ErrNoRows
+						case schemaReplicaIdentityQuery:
+							relreplident, ok := dest[0].(*string)
+							require.True(t, ok)
+							*relreplident = "d"
+
+							hasPrimaryKey, ok := dest[1].(*bool)
+							require.True(t, ok)
+							*hasPrimaryKey = true
+
+							hasReplicaIdentityIndex, ok := dest[2].(*bool)
+							require.True(t, ok)
+							*hasReplicaIdentityIndex = false
+
+							return nil
+						default:
+							return fmt.Errorf("unexpected query row: %v", query)
+						}
+					},
+				}, nil
+			},
+			wantStatus: &SchemaCompatibilityStatus{
+				Valid: false,
+				Tables: []SchemaTableStatus{
+					{
+						Schema: "public",
+						Table:  "users",
+						Errors: []string{"column public.users.payload has unsupported type OID 999999: selecting type for OID 999999: no rows"},
+					},
+				},
+			},
+			wantErr: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sc := NewStatusChecker()
+			sc.connBuilder = tc.connBuilder
+
+			status, err := sc.SchemaCompatibilityStatus(context.Background(), validConfig)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantStatus, status)
 		})
 	}
 }
