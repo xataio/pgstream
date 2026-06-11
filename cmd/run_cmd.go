@@ -30,6 +30,7 @@ var runCmd = &cobra.Command{
 
 var (
 	initFlag             = false
+	upgradeFlag          = false
 	errUnsupportedSource = errors.New("unsupported source")
 	errUnsupportedTarget = errors.New("unsupported target")
 )
@@ -40,9 +41,7 @@ const (
 )
 
 func run(ctx context.Context) error {
-	logger := zerolog.NewLogger(&zerolog.Config{
-		LogLevel: viper.GetString("PGSTREAM_LOG_LEVEL"),
-	})
+	logger := zerolog.NewLogger(loggerConfigFromViper())
 	zerolog.SetGlobalLogger(logger)
 
 	if isSnapshotMode() {
@@ -60,7 +59,17 @@ func run(ctx context.Context) error {
 	}
 	defer provider.Close()
 
-	return stream.Run(ctx, zerolog.NewStdLogger(logger), streamConfig, initFlag, provider.NewInstrumentation("run"))
+	// --upgrade implies --init
+	if upgradeFlag {
+		initFlag = true
+	}
+
+	var opts []stream.InitOption
+	if upgradeFlag {
+		opts = append(opts, stream.WithUpgrade())
+	}
+
+	return stream.Run(ctx, zerolog.NewStdLogger(logger), streamConfig, initFlag, provider.NewInstrumentation("run"), opts...)
 }
 
 func runFlagBinding(cmd *cobra.Command, args []string) error {

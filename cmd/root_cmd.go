@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/xataio/pgstream/cmd/config"
+	"github.com/xataio/pgstream/internal/log/zerolog"
 	"github.com/xataio/pgstream/internal/profiling"
 	"github.com/xataio/pgstream/pkg/otel"
 )
@@ -35,6 +36,10 @@ func Prepare() *cobra.Command {
 				return fmt.Errorf("loading configuration: %w", err)
 			}
 
+			if err := loggerConfigFromViper().Validate(); err != nil {
+				return err
+			}
+
 			return nil
 		},
 	}
@@ -47,12 +52,15 @@ func Prepare() *cobra.Command {
 	// root cmd
 	rootCmd.PersistentFlags().StringP("config", "c", "", ".env or .yaml config file to use with pgstream if any")
 	rootCmd.PersistentFlags().String("log-level", "debug", "log level for the application. One of trace, debug, info, warn, error, fatal, panic")
+	rootCmd.PersistentFlags().String("log-format", "console", "log output format. One of console, json")
+	rootCmd.PersistentFlags().Bool("no-color", false, "disable ANSI color codes in console log output (ignored when --log-format=json)")
 
 	// init cmd
 	initCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream setup will be run")
 	initCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be created by pgstream on the source url")
 	initCmd.Flags().Bool("with-injector", false, "Whether to initialise pgstream with the injector database migrations")
 	initCmd.Flags().Bool("migrations-only", false, "Whether to only run the initialization database migrations")
+	initCmd.Flags().Bool("upgrade", false, "Clean up v0.9.x state before initializing (idempotent, safe for repeated use)")
 
 	// destroy cmd
 	destroyCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream destroy will be run")
@@ -85,6 +93,7 @@ func Prepare() *cobra.Command {
 	runCmd.Flags().Bool("reset", false, "Whether to reset the target before snapshotting (only for postgres target)")
 	runCmd.Flags().Bool("profile", false, "Whether to expose a /debug/pprof endpoint on localhost:6060")
 	runCmd.Flags().BoolVar(&initFlag, "init", false, "Whether to initialize pgstream before starting replication")
+	runCmd.Flags().BoolVar(&upgradeFlag, "upgrade", false, "Clean up v0.9.x state before initializing (idempotent, safe for repeated use; implies --init)")
 	runCmd.Flags().String("dump-file", "", "File where the pg_dump output will be written if initial snapshot is enabled")
 	runCmd.Flags().Bool("data-only", false, "When used with --snapshot-tables, skip schema restore and only snapshot data (use when schema is already present on target)")
 	runCmd.Flags().Bool("with-injector", false, "Whether to enable the injection of pgstream metadata to the WAL events. Required for search targets.")
@@ -167,9 +176,44 @@ func withProfiling(fn func(cmd *cobra.Command, args []string) error) func(cmd *c
 	}
 }
 
+func loggerConfigFromViper() *zerolog.Config {
+	return &zerolog.Config{
+		LogLevel:  resolveLogString("PGSTREAM_LOG_LEVEL", "logging.level"),
+		LogFormat: resolveLogString("PGSTREAM_LOG_FORMAT", "logging.format.type"),
+		NoColor:   resolveLogBool("PGSTREAM_LOG_NO_COLOR", "logging.format.no_color"),
+	}
+}
+
+// resolveLogString picks the value from the flag/env-style key when it was set
+// explicitly (CLI flag changed or env var present), otherwise it falls back to
+// the YAML key, and finally to the flag default.
+func resolveLogString(envKey, yamlKey string) string {
+	if viper.IsSet(envKey) {
+		return viper.GetString(envKey)
+	}
+	if v := viper.GetString(yamlKey); v != "" {
+		return v
+	}
+	return viper.GetString(envKey)
+}
+
+// resolveLogBool mirrors resolveLogString for boolean values: the explicit
+// flag/env wins, then the YAML key, then the flag default.
+func resolveLogBool(envKey, yamlKey string) bool {
+	if viper.IsSet(envKey) {
+		return viper.GetBool(envKey)
+	}
+	if viper.IsSet(yamlKey) {
+		return viper.GetBool(yamlKey)
+	}
+	return viper.GetBool(envKey)
+}
+
 func rootFlagBinding(cmd *cobra.Command) {
 	viper.BindPFlag("config", cmd.PersistentFlags().Lookup("config"))
 	viper.BindPFlag("PGSTREAM_LOG_LEVEL", cmd.PersistentFlags().Lookup("log-level"))
+	viper.BindPFlag("PGSTREAM_LOG_FORMAT", cmd.PersistentFlags().Lookup("log-format"))
+	viper.BindPFlag("PGSTREAM_LOG_NO_COLOR", cmd.PersistentFlags().Lookup("no-color"))
 }
 
 func version() string {

@@ -53,6 +53,11 @@
           "default": ""
         },
         {
+          "name": "upgrade",
+          "description": "Clean up v0.9.x state before initializing (idempotent, safe for repeated use)",
+          "default": "false"
+        },
+        {
           "name": "with-injector",
           "description": "Whether to initialise pgstream with the injector database migrations",
           "default": "false"
@@ -121,6 +126,11 @@
           "name": "target-url",
           "description": "Target URL",
           "default": ""
+        },
+        {
+          "name": "upgrade",
+          "description": "Clean up v0.9.x state before initializing (idempotent, safe for repeated use; implies --init)",
+          "default": "false"
         },
         {
           "name": "with-injector",
@@ -276,9 +286,19 @@
       "default": ""
     },
     {
+      "name": "log-format",
+      "description": "log output format. One of console, json",
+      "default": "console"
+    },
+    {
       "name": "log-level",
       "description": "log level for the application. One of trace, debug, info, warn, error, fatal, panic",
       "default": "debug"
+    },
+    {
+      "name": "no-color",
+      "description": "disable ANSI color codes in console log output (ignored when --log-format=json)",
+      "default": "false"
     }
   ]
 }
