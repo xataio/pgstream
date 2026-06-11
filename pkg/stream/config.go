@@ -5,6 +5,7 @@ package stream
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/xataio/pgstream/pkg/backoff"
@@ -45,6 +46,10 @@ type KafkaListenerConfig struct {
 	Checkpointer kafkacheckpoint.Config
 }
 
+type SanitizeConfig struct {
+	StripNullCharBytes bool
+}
+
 type ProcessorConfig struct {
 	Kafka       *KafkaProcessorConfig
 	Search      *SearchProcessorConfig
@@ -53,6 +58,7 @@ type ProcessorConfig struct {
 	Injector    *injector.Config
 	Transformer *transformer.Config
 	Filter      *filter.Config
+	Sanitize    *SanitizeConfig
 }
 
 type KafkaProcessorConfig struct {
@@ -153,6 +159,19 @@ func (c *Config) PostgresReplicationSlot() string {
 
 func (c *Config) isInjectorEnabled() bool {
 	return c.Processor.Injector != nil && c.Processor.Injector.URL != ""
+}
+
+// restoreConflictTargetsBeforeData reports whether the schema snapshot must
+// restore primary keys, unique constraints and unique indexes before the data
+// snapshot runs. This is required when the postgres batch writer emits
+// INSERT ... ON CONFLICT DO UPDATE, since the target table needs a matching
+// conflict target at insert time.
+func (c *Config) restoreConflictTargetsBeforeData() bool {
+	if c.Processor.Postgres == nil {
+		return false
+	}
+	bw := c.Processor.Postgres.BatchWriter
+	return !bw.BulkIngestEnabled && strings.EqualFold(bw.OnConflictAction, "update")
 }
 
 func (c *Config) GetInitConfig(opts ...InitOption) *InitConfig {

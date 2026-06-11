@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -946,4 +947,129 @@ func getRoles(t *testing.T, ctx context.Context, conn pglib.Querier) []string {
 	require.NoError(t, rows.Err())
 
 	return roles
+}
+
+// Test_PostgresToPostgres_LargeIntegerPrecisionWAL is the WAL-replication
+// counterpart of Test_SnapshotToPostgres_LargeIntegerPrecision. It pins down
+// that INSERT / UPDATE events carrying large integers — both as plain bigint
+// column values and as integer fields inside a jsonb payload — replicate
+// bit-for-bit through the wal2json → listener → target path.
+//
+// Covers the WAL side of #824 (bigint) and #686 (jsonb large int).
+func Test_PostgresToPostgres_LargeIntegerPrecisionWAL(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfg(),
+		Processor: testPostgresProcessorCfg(),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runStream(t, ctx, cfg)
+
+	testTable := "pg2pg_largeint_wal"
+
+	// 9007199254740993 = 2^53 + 1, the smallest int64 that float64 cannot
+	// represent exactly. 9223372036854775807 is MaxInt64.
+	execQuery(t, ctx, fmt.Sprintf(
+		`CREATE TABLE %s(
+			id      bigint PRIMARY KEY,
+			amount  bigint NOT NULL,
+			payload jsonb  NOT NULL
+		)`, testTable))
+
+	type row struct {
+		id      int64
+		amount  int64
+		payload string
+	}
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+
+	fetch := func() ([]row, error) {
+		rows, err := targetConn.Query(ctx,
+			fmt.Sprintf("SELECT id, amount, payload::text FROM %s ORDER BY id", testTable))
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		out := []row{}
+		for rows.Next() {
+			var r row
+			if err := rows.Scan(&r.id, &r.amount, &r.payload); err != nil {
+				return nil, err
+			}
+			out = append(out, r)
+		}
+		return out, rows.Err()
+	}
+
+	waitFor := func(want []row) {
+		t.Helper()
+		timer := time.NewTimer(20 * time.Second)
+		defer timer.Stop()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-timer.C:
+				cancel()
+				t.Fatalf("timeout waiting for WAL replication; last fetch did not match %v", want)
+			case <-ticker.C:
+				got, err := fetch()
+				if err != nil || len(got) != len(want) {
+					continue
+				}
+				if reflect.DeepEqual(got, want) {
+					require.Equal(t, want, got)
+					return
+				}
+			}
+		}
+	}
+
+	t.Run("insert bigint above 2^53 + jsonb with large int", func(t *testing.T) {
+		execQuery(t, ctx, fmt.Sprintf(
+			`INSERT INTO %s(id, amount, payload) VALUES
+				(9007199254740993,    9007199254740993,    '{"n":9007199254740993}'),
+				(9223372036854775807, 9223372036854775807, '{"n":9223372036854775807,"nested":{"k":1234567890123456789}}')`,
+			testTable))
+
+		waitFor([]row{
+			{id: 9007199254740993, amount: 9007199254740993, payload: `{"n": 9007199254740993}`},
+			{id: 9223372036854775807, amount: 9223372036854775807, payload: `{"n": 9223372036854775807, "nested": {"k": 1234567890123456789}}`},
+		})
+	})
+
+	t.Run("update jsonb payload with new large int", func(t *testing.T) {
+		execQuery(t, ctx, fmt.Sprintf(
+			`UPDATE %s
+			    SET payload = jsonb_set(payload, '{k2}', '987654321987654321'::jsonb)
+			  WHERE id = 9223372036854775807`,
+			testTable))
+
+		// jsonb stores keys ordered by length then alphabetically, so
+		// `n` (1) before `k2` (2) before `nested` (6).
+		waitFor([]row{
+			{id: 9007199254740993, amount: 9007199254740993, payload: `{"n": 9007199254740993}`},
+			{id: 9223372036854775807, amount: 9223372036854775807, payload: `{"n": 9223372036854775807, "k2": 987654321987654321, "nested": {"k": 1234567890123456789}}`},
+		})
+	})
+
+	t.Run("update bigint above 2^53 by +1", func(t *testing.T) {
+		// The repro from #824: incrementing a bigint above 2^53 must
+		// land on the destination as exactly source+1, not source+0.
+		execQuery(t, ctx, fmt.Sprintf(
+			`UPDATE %s SET amount = amount + 1 WHERE id = 9007199254740993`,
+			testTable))
+
+		waitFor([]row{
+			{id: 9007199254740993, amount: 9007199254740994, payload: `{"n": 9007199254740993}`},
+			{id: 9223372036854775807, amount: 9223372036854775807, payload: `{"n": 9223372036854775807, "k2": 987654321987654321, "nested": {"k": 1234567890123456789}}`},
+		})
+	})
 }

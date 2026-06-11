@@ -22,7 +22,7 @@ type Sender[T Message] struct {
 	queueBytesSema   synclib.WeightedSemaphore
 	msgChan          chan (*WALMessage[T])
 	once             *sync.Once
-	sendDone         chan (error)
+	sendDone         chan struct{}
 	sendErr          error
 	ignoreSendErrors bool
 
@@ -47,7 +47,7 @@ func NewSender[T Message](ctx context.Context, config *Config, sendfn sendBatchF
 		maxBatchBytes:     config.GetMaxBatchBytes(),
 		maxBatchSize:      config.GetMaxBatchSize(),
 		msgChan:           make(chan *WALMessage[T]),
-		sendDone:          make(chan error, 1),
+		sendDone:          make(chan struct{}),
 		once:              &sync.Once{},
 		logger:            logger,
 		sendBatchFn:       sendfn,
@@ -106,12 +106,11 @@ func (s *Sender[T]) SendMessage(ctx context.Context, msg *WALMessage[T]) error {
 	// longer processing), and an error will be returned.
 	select {
 	case s.msgChan <- msg:
-	case sendDoneErr, ok := <-s.sendDone:
-		// check if a different call has closed the send channel already, to
-		// prevent blocking when called concurrently.
-		if ok && sendDoneErr != nil {
-			s.sendErr = sendDoneErr
-		}
+	case <-s.sendDone:
+		// s.sendErr is set by send() before closing s.sendDone, so it is safe
+		// to read here from any number of concurrent callers. It is always
+		// non-nil — every return path of batchMsgLoop carries an error
+		// (ctx.Err, sendErrChan, or a non-nil drainBatch result).
 		s.logger.Error(s.sendErr, "stop processing, sending has stopped")
 		return fmt.Errorf("%w: %w", errSendStopped, s.sendErr)
 	}
@@ -211,7 +210,9 @@ func (s *Sender[T]) send(ctx context.Context) error {
 	if err != nil && !errors.Is(err, context.Canceled) {
 		s.logger.Error(err, "sending stopped")
 	}
-	s.sendDone <- err
+	// publish the send error before signalling shutdown so any goroutines
+	// waiting in SendMessage can observe it after the channel is closed.
+	s.sendErr = err
 	close(s.sendDone)
 	return err
 }

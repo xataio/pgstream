@@ -128,7 +128,7 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 	// handle sequence columns that need to be updated after insert
 	for _, col := range d.Columns {
 		if seqName, ok := schemaInfo.sequenceColumns[pglib.QuoteIdentifier(col.Name)]; ok {
-			colValueFloat, ok := col.Value.(float64)
+			seqVal, ok := toInt64(col.Value)
 			if !ok {
 				a.logger.Warn(nil, "unexpected value type for sequence column, expected integer", loglib.Fields{
 					"column_name": col.Name, "column_type": col.Type, "column_value": col.Value,
@@ -139,7 +139,7 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 				table:  d.Table,
 				schema: d.Schema,
 				sql:    "SELECT setval($1::regclass, $2::bigint, true)",
-				args:   []any{seqName, int64(colValueFloat)},
+				args:   []any{seqName, seqVal},
 			})
 		}
 	}
@@ -412,7 +412,8 @@ func getTypedTSTZRange(value any) any {
 // can't produce correctly, so bulk ingest must fall back to text-format
 // COPY for any batch that touches one of these columns.
 var textOnlyCopyTypes = map[string]struct{}{
-	"cube": {}, // binary header: int32 dim+flags + N×float8 — pgx writes the text rep, server misreads it as a dimension count
+	"cube":  {}, // binary header: int32 dim+flags + N×float8 — pgx writes the text rep, server misreads it as a dimension count
+	"ltree": {}, // binary format: 1-byte version + path string — pgx writes the text rep, server reads byte 0 as the version number
 }
 
 func needsTextCopy(columnTypes []string) bool {
@@ -422,6 +423,24 @@ func needsTextCopy(columnTypes []string) bool {
 		}
 	}
 	return false
+}
+
+// toInt64 converts a wal.Column.Value into an int64 if it represents an
+// integer. WAL data deserialised with UseInt64 produces int64, but snapshots
+// and tests may produce other integer types or float64.
+func toInt64(v any) (int64, bool) {
+	switch n := v.(type) {
+	case int64:
+		return n, true
+	case int:
+		return int64(n), true
+	case int32:
+		return int64(n), true
+	case float64:
+		return int64(n), true
+	default:
+		return 0, false
+	}
 }
 
 func isArray(colType string) bool {

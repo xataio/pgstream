@@ -142,7 +142,8 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 				config.Listener.Postgres.Snapshot,
 				snapshotProcessor,
 				logger,
-				instrumentation)
+				instrumentation,
+				config.restoreConflictTargetsBeforeData())
 			if err != nil {
 				return err
 			}

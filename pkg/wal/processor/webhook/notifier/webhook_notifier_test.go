@@ -165,16 +165,24 @@ func TestNotifier_ProcessWALEvent(t *testing.T) {
 				n.queueBytesSema = tc.weightedSemaphore
 			}
 
+			errCh := make(chan error, 1)
 			go func() {
-				err := n.ProcessWALEvent(context.Background(), tc.event)
-				require.ErrorIs(t, err, tc.wantErr)
-				n.closeNotifyChan()
+				errCh <- n.ProcessWALEvent(context.Background(), tc.event)
 			}()
 
+			// ProcessWALEvent sends 0 or 1 messages on notifyChan before
+			// returning. Receive exactly len(wantMsgs) entries (driving the
+			// unbuffered send), then wait for the call to return.
 			msgs := []*notifyMsg{}
-			for msg := range n.notifyChan {
-				msgs = append(msgs, msg)
+			for i := 0; i < len(tc.wantMsgs); i++ {
+				select {
+				case msg := <-n.notifyChan:
+					msgs = append(msgs, msg)
+				case <-time.After(time.Second):
+					t.Fatalf("timed out waiting for notifyChan message %d", i)
+				}
 			}
+			require.ErrorIs(t, <-errCh, tc.wantErr)
 			require.Equal(t, tc.wantMsgs, msgs)
 		})
 	}
@@ -374,5 +382,131 @@ func TestNotifier(t *testing.T) {
 				},
 			})
 		}
+	}
+}
+
+// Regression test: Close() must signal Notify to exit cleanly without panic,
+// regardless of whether Notify has reached its select yet. Earlier, Close()
+// closed notifyChan directly, which raced with both Notify reading a nil msg
+// (panic on msg.urls deref) and any concurrent ProcessWALEvent sender (panic
+// on send to closed channel). Close() now closes a separate shutdownCh and
+// leaves notifyChan untouched.
+func TestNotifier_NotifyAfterClose(t *testing.T) {
+	t.Parallel()
+
+	n := New(&Config{}, &mocks.Store{})
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- n.Notify(context.Background())
+	}()
+
+	// No sleep needed: Notify exits via shutdownCh whether it was already in
+	// its select or hadn't started yet.
+	require.NoError(t, n.Close())
+
+	select {
+	case err := <-errChan:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Notify did not return after Close")
+	}
+}
+
+// Regression test: ProcessWALEvent must not panic on "send on closed channel"
+// when Close() races with an in-flight call. With shutdownCh-based shutdown
+// (notifyChan is never closed), the in-flight call observes shutdownCh and
+// returns errNotifyStopped instead.
+func TestNotifier_ProcessWALEventDuringClose(t *testing.T) {
+	t.Parallel()
+
+	n := New(&Config{}, &mocks.Store{
+		GetSubscriptionsFn: func(ctx context.Context, action, schema, table string) ([]*subscription.Subscription, error) {
+			return []*subscription.Subscription{}, nil
+		},
+	})
+
+	// Close before Notify ever runs: any ProcessWALEvent call must observe
+	// shutdownCh and return cleanly, never panic.
+	require.NoError(t, n.Close())
+
+	const workers = 8
+	errs := make([]error, workers)
+	wg := sync.WaitGroup{}
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = n.ProcessWALEvent(context.Background(), &wal.Event{
+				CommitPosition: wal.CommitPosition(fmt.Sprintf("w-%d", i)),
+				Data:           &wal.Data{Action: "I"},
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		require.ErrorIsf(t, err, errNotifyStopped, "worker %d: missing errNotifyStopped", i)
+	}
+}
+
+// Regression test: concurrent ProcessWALEvent callers must all observe the
+// underlying Notify error rather than wrapping a nil notifyErr (which would
+// produce "%!w(<nil>)" messages, the same pattern fixed for the batch sender
+// in issue #372).
+func TestNotifier_ConcurrentProcessWALEventErrorPropagation(t *testing.T) {
+	t.Parallel()
+
+	n := New(&Config{}, &mocks.Store{
+		GetSubscriptionsFn: func(ctx context.Context, action, schema, table string) ([]*subscription.Subscription, error) {
+			return []*subscription.Subscription{newTestSubscription("url-1", "", "", nil)}, nil
+		},
+	})
+	n.checkpointer = func(ctx context.Context, positions []wal.CommitPosition) error {
+		return errTest
+	}
+
+	notifyDone := make(chan struct{})
+	go func() {
+		defer close(notifyDone)
+		err := n.Notify(context.Background())
+		require.ErrorIs(t, err, errTest)
+	}()
+
+	// seed a message that will make Notify exit with errTest
+	require.NoError(t, n.ProcessWALEvent(context.Background(), &wal.Event{
+		CommitPosition: wal.CommitPosition("seed"),
+		Data:           &wal.Data{Action: "I"},
+	}))
+
+	// The test-local notifyDone is closed via `defer` AFTER n.Notify returns,
+	// which itself closes n.notifyDone before returning. So once we observe
+	// the test-local channel close, n.notifyDone is guaranteed visible too —
+	// no further sleep needed.
+	select {
+	case <-notifyDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Notify to fail")
+	}
+
+	const workers = 8
+	errs := make([]error, workers)
+	wg := sync.WaitGroup{}
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = n.ProcessWALEvent(context.Background(), &wal.Event{
+				CommitPosition: wal.CommitPosition(fmt.Sprintf("w-%d", i)),
+				Data:           &wal.Data{Action: "I"},
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		require.ErrorIsf(t, err, errNotifyStopped, "worker %d: missing errNotifyStopped", i)
+		require.ErrorIsf(t, err, errTest, "worker %d: missing underlying notify error", i)
+		require.NotContainsf(t, err.Error(), "%!w(<nil>)", "worker %d: nil error wrapping leaked through", i)
 	}
 }

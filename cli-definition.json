@@ -286,9 +286,19 @@
       "default": ""
     },
     {
+      "name": "log-format",
+      "description": "log output format. One of console, json",
+      "default": "console"
+    },
+    {
       "name": "log-level",
       "description": "log level for the application. One of trace, debug, info, warn, error, fatal, panic",
       "default": "debug"
+    },
+    {
+      "name": "no-color",
+      "description": "disable ANSI color codes in console log output (ignored when --log-format=json)",
+      "default": "false"
     }
   ]
 }

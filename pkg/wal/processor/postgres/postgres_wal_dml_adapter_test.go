@@ -225,6 +225,41 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 			},
 		},
 		{
+			name: "insert with int64 sequence value preserves precision above 2^53",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: int64(9007199254740993)},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+			sequenceColumns: map[string]string{
+				`"id"`: `"id_seq"`,
+			},
+			forCopy: false,
+
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: quotedColumnNames,
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2)", quotedTestTable),
+					args:        []any{int64(9007199254740993), "alice"},
+				},
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    "SELECT setval($1::regclass, $2::bigint, true)",
+					args:   []any{`"id_seq"`, int64(9007199254740993)},
+				},
+			},
+		},
+		{
 			name: "insert with sequences - for copy enabled",
 			walData: &wal.Data{
 				Action: "I",
@@ -580,6 +615,32 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 					table:       testTable,
 					columnNames: quotedColumnNames,
 					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2) ON CONFLICT (\"id\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"name\" = EXCLUDED.\"name\"", quotedTestTable),
+					args:        []any{1, "alice"},
+				},
+			},
+		},
+		{
+			name: "insert - on conflict do update with composite primary key",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1), columnID(2)},
+				},
+			},
+			action: onConflictUpdate,
+
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: quotedColumnNames,
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2) ON CONFLICT (\"id\",\"name\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"name\" = EXCLUDED.\"name\"", quotedTestTable),
 					args:        []any{1, "alice"},
 				},
 			},
