@@ -110,6 +110,11 @@ func Prepare() *cobra.Command {
 	validateRulesCmd.Flags().Bool("json", false, "Output the validation status in JSON format")
 	validateCmd.AddCommand(validateRulesCmd)
 
+	// validate schema cmd
+	validateSchemaCmd.Flags().String("postgres-url", "", "Source postgres URL to validate the schema against")
+	validateSchemaCmd.Flags().Bool("json", false, "Output the validation status in JSON format")
+	validateCmd.AddCommand(validateSchemaCmd)
+
 	// Flag binding for root cmd
 	rootFlagBinding(rootCmd)
 
