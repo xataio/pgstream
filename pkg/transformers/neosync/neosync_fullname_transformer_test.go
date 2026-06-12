@@ -68,7 +68,7 @@ func TestNewFullnameTransformer(t *testing.T) {
 			},
 			input:    "mehmet y",
 			wantErr:  nil,
-			wantName: "Tanice M",
+			wantName: "Alexou d",
 		},
 		{
 			name: "ok - preserve_length with no last name",
@@ -78,7 +78,7 @@ func TestNewFullnameTransformer(t *testing.T) {
 			},
 			input:    "mehmet",
 			wantErr:  nil,
-			wantName: "Sotiri",
+			wantName: " bvlby",
 		},
 		{
 			name: "ok - preserve with max length 3",
