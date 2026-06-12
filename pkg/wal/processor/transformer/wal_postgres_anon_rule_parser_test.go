@@ -160,7 +160,13 @@ func TestAnonRuleParser_ParseAndValidate(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+			// dumpToFile subtests share a hardcoded filename
+			// (anonRulesFile) and a deferred os.Remove of that path. Running
+			// them in parallel races: the error-case's cleanup can delete
+			// the success-case's file before its os.Stat check.
+			if !tc.dumpToFile {
+				t.Parallel()
+			}
 
 			// Clean up any test files
 			defer func() {
