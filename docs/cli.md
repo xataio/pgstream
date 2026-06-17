@@ -272,7 +272,7 @@ pgstream validate <subcommand> [flags]
 ```
 
 **Description:**
-The `validate` command allows you to validate specific aspects of your pgstream configuration before running it. Currently supports validating transformation rules.
+The `validate` command allows you to validate specific aspects of your pgstream configuration before running it. It currently supports validating transformation rules and source schema compatibility.
 
 #### validate rules
 
@@ -325,6 +325,44 @@ Transformation rules status:
 - Testing rule changes against production schema
 - CI/CD pipeline integration for rule validation
 - Debugging transformation rule issues
+
+#### validate schema
+
+Validates source schema compatibility before running replication.
+
+```bash
+pgstream validate schema [flags]
+```
+
+**Description:**
+The `validate schema` command checks that the configured source tables can be read safely by pgstream before replication starts.
+
+- Column type resolution from the source database
+- Replica identity safety for update and delete events
+- Table accessibility through the configured source connection
+
+**Prerequisites:**
+
+- Access to the source PostgreSQL database
+
+**Flags:**
+
+- `--postgres-url` - Source postgres URL to validate the schema against
+- `--json` - Output the validation status in JSON format
+
+**Examples:**
+
+```bash
+pgstream validate schema -c pg2pg.env
+pgstream validate schema --postgres-url <postgres-url>
+pgstream validate schema -c pg2pg.yaml --json
+```
+
+**Use Cases:**
+
+- Pre-deployment validation of source tables
+- Catching replica identity issues before replication starts
+- Verifying source tables are reachable and readable
 
 ### destroy
 
