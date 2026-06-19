@@ -115,6 +115,11 @@ func Prepare() *cobra.Command {
 	validateSchemaCmd.Flags().Bool("json", false, "Output the validation status in JSON format")
 	validateCmd.AddCommand(validateSchemaCmd)
 
+	// check cmd
+	checkCmd.Flags().String("postgres-url", "", "Source postgres URL to run checks against")
+	checkCmd.Flags().String("target-url", "", "Target URL to run checks against")
+	checkCmd.Flags().Bool("json", false, "Output the check report in JSON format")
+
 	// Flag binding for root cmd
 	rootFlagBinding(rootCmd)
 
@@ -126,6 +131,7 @@ func Prepare() *cobra.Command {
 	rootCmd.AddCommand(snapshotCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(validateCmd)
+	rootCmd.AddCommand(checkCmd)
 	return rootCmd
 }
 
