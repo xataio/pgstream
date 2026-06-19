@@ -2,6 +2,31 @@
   "name": "pgstream",
   "commands": [
     {
+      "name": "check",
+      "short": "Runs pre-migration checks to catch blocking issues before snapshot/run",
+      "use": "check",
+      "example": "\n\tpgstream check -c pg2pg.env\n\tpgstream check -c pg2pg.yaml --json\n\t",
+      "flags": [
+        {
+          "name": "json",
+          "description": "Output the check report in JSON format",
+          "default": "false"
+        },
+        {
+          "name": "postgres-url",
+          "description": "Source postgres URL to run checks against",
+          "default": ""
+        },
+        {
+          "name": "target-url",
+          "description": "Target URL to run checks against",
+          "default": ""
+        }
+      ],
+      "subcommands": [],
+      "args": []
+    },
+    {
       "name": "destroy",
       "short": "It destroys any pgstream setup, removing the replication slot and all the relevant tables/functions/triggers, along with the internal pgstream schema",
       "use": "destroy",
