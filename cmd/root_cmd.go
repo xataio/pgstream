@@ -119,6 +119,7 @@ func Prepare() *cobra.Command {
 	checkCmd.Flags().String("postgres-url", "", "Source postgres URL to run checks against")
 	checkCmd.Flags().String("target-url", "", "Target URL to run checks against")
 	checkCmd.Flags().Bool("json", false, "Output the check report in JSON format")
+	checkCmd.Flags().Bool("connectivity", false, "Run connectivity checks against the configured source and target")
 
 	// Flag binding for root cmd
 	rootFlagBinding(rootCmd)
