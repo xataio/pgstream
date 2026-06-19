@@ -156,6 +156,7 @@ target:
     notifier:
       worker_count: 4 # number of notifications to be processed in parallel. Defaults to 10
       client_timeout: 1000 # timeout for the webhook client in milliseconds. Defaults to 10s
+  stdout: {} # write WAL events as NDJSON to stdout. Useful for debugging and validating the pipeline without a real target.
 
 modifiers:
   injector:
@@ -170,6 +171,8 @@ modifiers:
       - "excluded_test"
       - "excluded_schema.test"
       - "another_excluded_schema.*"
+  sanitize:
+    strip_null_char_bytes: true # strip null bytes (0x00) from string column values. Defaults to false
   transformations:
     validation_mode: relaxed
     table_transformers:
@@ -306,6 +309,15 @@ One of exponential/constant/disable retries backoff policies can be provided for
 </details>
 
 <details>
+  <summary>Stdout Writer</summary>
+
+| Environment Variable             | Default | Required | Description                                                                                                                |
+| -------------------------------- | ------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| PGSTREAM_STDOUT_WRITER_ENABLED   | False   | No       | Set to true to enable the stdout writer target. WAL events are written as NDJSON (one JSON object per line) to stdout.     |
+
+</details>
+
+<details>
   <summary>Webhook Notifier</summary>
 
 | Environment Variable                                       | Default | Required           | Description                                                                                                 |
@@ -382,6 +394,15 @@ One of exponential/constant/disable retries retry policies can be provided for t
 
 </details>
 
+<details>
+  <summary>Sanitizer</summary>
+
+| Environment Variable                       | Default | Required | Description                                                                                                                                    |
+| ------------------------------------------ | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| PGSTREAM_PROCESSOR_SANITIZE_STRIP_NULL_CHAR_BYTES   | false   | No       | Strip null bytes (0x00) from string column values. Useful when the source database contains null bytes that are not allowed by the target.     |
+
+</details>
+
 ### Instrumentation
 
 <details>
@@ -401,5 +422,17 @@ One of exponential/constant/disable retries retry policies can be provided for t
 | ---------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | PGSTREAM_TRACES_ENDPOINT     | N/A     | No       | Endpoint where the pgstream traces will be exported to.                                                                         |
 | PGSTREAM_TRACES_SAMPLE_RATIO | 0       | No       | Ratio for the trace sampling. Value must be between 0.0 and 1.0, where 0.0 is no traces sampled, and 1.0 is all traces sampled. |
+
+</details>
+
+<details>
+  <summary>Health endpoint</summary>
+
+Exposes `/health` (liveness, always 200) and `/ready` (readiness, pings the source postgres database when configured). Only the `run` and `snapshot` commands start the server. Responses are JSON.
+
+| Environment Variable           | Default          | Required | Description                                                                                                  |
+| ------------------------------ | ---------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| PGSTREAM_HEALTH_CHECK_ENABLED  | False            | No       | Enable the health endpoint server.                                                                           |
+| PGSTREAM_HEALTH_CHECK_ADDRESS  | localhost:9910   | No       | Address the health server listens on. Use `:9910` or `0.0.0.0:9910` to expose externally (e.g. in k8s pods). |
 
 </details>

@@ -11,6 +11,9 @@ instrumentation:
   traces:
     endpoint: "0.0.0.0:4317"
     sample_ratio: 0.5 # ratio of traces that will be sampled. Must be between 0.0-1.0, where 0 is no traces sampled, and 1 is all traces sampled.
+  health:
+    enabled: false # whether to expose the /health (liveness) and /ready (readiness) HTTP endpoints. Only honoured by the run and snapshot commands. Defaults to false.
+    address: "localhost:9910" # address the health server binds to. Defaults to localhost:9910.
 
 source:
   postgres:
@@ -137,6 +140,7 @@ target:
     notifier:
       worker_count: 4 # number of notifications to be processed in parallel. Defaults to 10
       client_timeout: 1000 # timeout for the webhook client in milliseconds. Defaults to 10s
+  stdout: {} # write WAL events as NDJSON to stdout. Useful for debugging and validating the pipeline without a real target.
 
 modifiers:
   injector:
@@ -151,6 +155,8 @@ modifiers:
       - "excluded_test"
       - "excluded_schema.test"
       - "another_excluded_schema.*"
+  sanitize:
+    strip_null_char_bytes: true # strip null bytes (0x00) from string column values. Defaults to false
   transformations:
     infer_from_security_labels: false # whether to infer anonymization rules from Postgres `anon` security labels. Requires a live connection to the source database. Defaults to false
     dump_inferred_rules: false # if set, dumps the inferred anonymization rules to a file in YAML format for debugging purposes. The file will be named `inferred_anon_transformation_rules.yaml` and will be created in the directory where pgstream is run. Defaults to false

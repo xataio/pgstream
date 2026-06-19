@@ -18,7 +18,7 @@ jobs:
         (github.event.action == 'labeled' && github.event.label.name == 'backport-0.9.x')
       )
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

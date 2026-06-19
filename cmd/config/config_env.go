@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/viper"
+	"github.com/xataio/pgstream/internal/health"
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
 	"github.com/xataio/pgstream/pkg/otel"
@@ -34,6 +35,9 @@ func init() {
 	viper.BindEnv("PGSTREAM_METRICS_COLLECTION_INTERVAL")
 	viper.BindEnv("PGSTREAM_TRACES_ENDPOINT")
 	viper.BindEnv("PGSTREAM_TRACES_SAMPLE_RATIO")
+
+	viper.BindEnv("PGSTREAM_HEALTH_CHECK_ENABLED")
+	viper.BindEnv("PGSTREAM_HEALTH_CHECK_ADDRESS")
 
 	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_URL")
 	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_EXP_BACKOFF_INITIAL_INTERVAL")
@@ -137,15 +141,25 @@ func init() {
 	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_READ_TIMEOUT")
 	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_WRITE_TIMEOUT")
 
+	viper.BindEnv("PGSTREAM_STDOUT_WRITER_ENABLED")
+
 	viper.BindEnv("PGSTREAM_INJECTOR_STORE_POSTGRES_URL")
 	viper.BindEnv("PGSTREAM_TRANSFORMER_RULES_FILE")
 	viper.BindEnv("PGSTREAM_FILTER_INCLUDE_TABLES")
 	viper.BindEnv("PGSTREAM_FILTER_EXCLUDE_TABLES")
+	viper.BindEnv("PGSTREAM_PROCESSOR_SANITIZE_STRIP_NULL_CHAR_BYTES")
 
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_ENABLED")
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CA_CERT_FILE")
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CLIENT_CERT_FILE")
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE")
+}
+
+func envToHealthConfig() *health.Config {
+	return &health.Config{
+		Enabled: viper.GetBool("PGSTREAM_HEALTH_CHECK_ENABLED"),
+		Address: viper.GetString("PGSTREAM_HEALTH_CHECK_ADDRESS"),
+	}
 }
 
 func envToOtelConfig() (*otel.Config, error) {
@@ -395,10 +409,19 @@ func parseProcessorConfig() (stream.ProcessorConfig, error) {
 		Search:      searchCfg,
 		Webhook:     webhookCfg,
 		Postgres:    postgresCfg,
+		Stdout:      parseStdoutProcessorConfig(),
 		Injector:    parseInjectorConfig(),
 		Transformer: transformerCfg,
 		Filter:      parseFilterConfig(),
+		Sanitize:    parseSanitizeConfig(),
 	}, nil
+}
+
+func parseStdoutProcessorConfig() *stream.StdoutProcessorConfig {
+	if !viper.GetBool("PGSTREAM_STDOUT_WRITER_ENABLED") {
+		return nil
+	}
+	return &stream.StdoutProcessorConfig{}
 }
 
 func parseKafkaProcessorConfig() (*stream.KafkaProcessorConfig, error) {
@@ -627,6 +650,15 @@ func parseFilterConfig() *filter.Config {
 	return &filter.Config{
 		IncludeTables: includeTables,
 		ExcludeTables: excludeTables,
+	}
+}
+
+func parseSanitizeConfig() *stream.SanitizeConfig {
+	if !viper.GetBool("PGSTREAM_PROCESSOR_SANITIZE_STRIP_NULL_CHAR_BYTES") {
+		return nil
+	}
+	return &stream.SanitizeConfig{
+		StripNullCharBytes: true,
 	}
 }
 

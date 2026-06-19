@@ -53,6 +53,11 @@
           "default": ""
         },
         {
+          "name": "upgrade",
+          "description": "Clean up v0.9.x state before initializing (idempotent, safe for repeated use)",
+          "default": "false"
+        },
+        {
           "name": "with-injector",
           "description": "Whether to initialise pgstream with the injector database migrations",
           "default": "false"
@@ -121,6 +126,11 @@
           "name": "target-url",
           "description": "Target URL",
           "default": ""
+        },
+        {
+          "name": "upgrade",
+          "description": "Clean up v0.9.x state before initializing (idempotent, safe for repeated use; implies --init)",
+          "default": "false"
         },
         {
           "name": "with-injector",
@@ -258,6 +268,26 @@
               "name": "rules-file",
               "shorthand": "f",
               "description": "Path to a YAML file containing the transformation rules to validate",
+              "default": ""
+            }
+          ],
+          "subcommands": [],
+          "args": []
+        },
+        {
+          "name": "schema",
+          "short": "Validates source schema compatibility before running replication",
+          "use": "schema",
+          "example": "\n\tpgstream validate schema -c pg2pg.env\n\tpgstream validate schema --postgres-url <postgres-url>\n\tpgstream validate schema -c pg2pg.yaml --json\n\t",
+          "flags": [
+            {
+              "name": "json",
+              "description": "Output the validation status in JSON format",
+              "default": "false"
+            },
+            {
+              "name": "postgres-url",
+              "description": "Source postgres URL to validate the schema against",
               "default": ""
             }
           ],
