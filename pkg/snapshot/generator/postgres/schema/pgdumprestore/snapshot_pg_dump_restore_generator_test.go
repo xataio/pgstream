@@ -1415,6 +1415,30 @@ func TestSnapshotGenerator_parseDump(t *testing.T) {
 	require.Equal(t, wantViewsStr, viewsStr)
 }
 
+func TestSnapshotGenerator_parseDumpMovesClusterOnToConstraints(t *testing.T) {
+	t.Parallel()
+
+	dumpBytes := []byte(`CREATE TABLE public.example_table (
+    id bigint NOT NULL,
+    created_at timestamp without time zone
+);
+
+CREATE INDEX example_table_created_at_idx ON public.example_table USING btree (created_at);
+
+ALTER TABLE public.example_table CLUSTER ON example_table_created_at_idx;
+`)
+
+	dump := (&SnapshotGenerator{}).parseDump(dumpBytes)
+
+	require.Contains(t, string(dump.filtered), "CREATE TABLE public.example_table")
+	require.NotContains(t, string(dump.filtered), "CLUSTER ON example_table_created_at_idx")
+	require.Contains(t, string(dump.indicesAndConstraints), "CREATE INDEX example_table_created_at_idx")
+	require.Contains(t, string(dump.indicesAndConstraints), "ALTER TABLE public.example_table CLUSTER ON example_table_created_at_idx;")
+	require.Less(t,
+		strings.Index(string(dump.indicesAndConstraints), "CREATE INDEX example_table_created_at_idx"),
+		strings.Index(string(dump.indicesAndConstraints), "CLUSTER ON example_table_created_at_idx"))
+}
+
 func TestGetDumpsDiff(t *testing.T) {
 	t.Parallel()
 

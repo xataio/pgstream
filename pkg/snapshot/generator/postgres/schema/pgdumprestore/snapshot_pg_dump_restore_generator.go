@@ -509,7 +509,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			continue
 		case alterTable != "":
 			// check if the previous alter table line is split in two lines and matches a constraint
-			if strings.Contains(line, "ADD CONSTRAINT") {
+			if strings.Contains(line, "ADD CONSTRAINT") || isClusterOnAlterTable(line) {
 				indicesAndConstraints.WriteString(alterTable)
 				indicesAndConstraints.WriteString("\n")
 				indicesAndConstraints.WriteString(line)
@@ -568,6 +568,9 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			indicesAndConstraints.WriteString("\n\n")
 		case strings.HasPrefix(line, "ALTER TABLE") && strings.Contains(line, "ADD CONSTRAINT"):
 			indicesAndConstraints.WriteString(line)
+		case strings.HasPrefix(line, "ALTER TABLE") && isClusterOnAlterTable(line):
+			indicesAndConstraints.WriteString(line)
+			indicesAndConstraints.WriteString("\n\n")
 		case strings.HasPrefix(line, "ALTER TABLE") && strings.Contains(line, "REPLICA IDENTITY"):
 			// REPLICA IDENTITY lines should be in the indicesAndConstraints section
 			// since they reference constraints/indices that are also there
@@ -626,6 +629,10 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		roles:                 dumpRoles,
 		eventTriggers:         []byte(eventTriggersDump.String()),
 	}
+}
+
+func isClusterOnAlterTable(line string) bool {
+	return strings.Contains(line, " CLUSTER ON ")
 }
 
 func (s *SnapshotGenerator) filterTriggers(eventTriggersDump []byte, excludedSchemas []string) []byte {
