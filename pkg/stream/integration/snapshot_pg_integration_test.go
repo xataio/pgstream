@@ -436,6 +436,64 @@ func Test_SnapshotToPostgres_LtreeColumns(t *testing.T) {
 	})
 }
 
+// Test_SnapshotToPostgres_ClusteredIndex verifies that ALTER TABLE ... CLUSTER
+// ON ... is restored after its referenced index exists.
+func Test_SnapshotToPostgres_ClusteredIndex(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	suffix := time.Now().UnixNano()
+	testTable := fmt.Sprintf("clustered_snapshot_%d", suffix)
+	indexName := fmt.Sprintf("clustered_snapshot_idx_%d", suffix)
+
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s(
+			id integer PRIMARY KEY,
+			created_at timestamptz NOT NULL
+		)`, testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(id, created_at) VALUES
+			(1, '2026-01-01T00:00:00Z'),
+			(2, '2026-01-02T00:00:00Z')`, testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE INDEX %s ON %s(created_at)`, indexName, testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`ALTER TABLE %s CLUSTER ON %s`, testTable, indexName))
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"public.*"}),
+		Processor: testPostgresProcessorCfg(),
+	}
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	var clustered bool
+	err = targetConn.QueryRow(ctx, []any{&clustered}, `
+		SELECT i.indisclustered
+		FROM pg_index i
+		JOIN pg_class idx ON idx.oid = i.indexrelid
+		JOIN pg_class tbl ON tbl.oid = i.indrelid
+		JOIN pg_namespace nsp ON nsp.oid = tbl.relnamespace
+		WHERE nsp.nspname = 'public'
+		  AND tbl.relname = $1
+		  AND idx.relname = $2
+	`, testTable, indexName)
+	require.NoError(t, err)
+	require.True(t, clustered)
+}
+
 // Test_SnapshotToPostgres_IdentityAndGeneratedColumns verifies that identity
 // columns have their values preserved while generated (stored) columns are
 // correctly excluded from inserts and recomputed by the target database.
