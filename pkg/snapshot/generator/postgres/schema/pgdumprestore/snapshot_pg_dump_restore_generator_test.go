@@ -39,6 +39,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	excludedTable := "excluded_test_table"
 	excludedTable2 := "excluded_test_table_2"
 	excludedSchema := "excluded_test_schema"
+	excludedSchemas := []string{pglib.QuoteIdentifier(excludedSchema), "pg_temp_*", "pg_toast_temp_*"}
+	pgstreamExcludedSchemas := []string{`"pgstream"`, "pg_temp_*", "pg_toast_temp_*"}
 	errTest := errors.New("oh noes")
 	testSequence := pglib.QuoteQualifiedIdentifier("test", "test_sequence")
 	testRole := "test_role"
@@ -181,7 +183,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						SchemaOnly:       true,
-						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
+						ExcludeSchemas:   excludedSchemas,
 						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
 						Role:             testRole,
 						NoOwner:          true,
@@ -238,7 +240,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						SchemaOnly:       true,
-						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
+						ExcludeSchemas:   excludedSchemas,
 						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
 						Role:             testRole,
 						NoOwner:          true,
@@ -346,7 +348,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						SchemaOnly:       true,
-						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
+						ExcludeSchemas:   excludedSchemas,
 						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
 					}, po)
 					return schemaDumpNoSequences, nil
@@ -403,7 +405,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						SchemaOnly:       true,
-						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
+						ExcludeSchemas:   excludedSchemas,
 						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
 					}, po)
 					return schemaDump, nil
@@ -461,7 +463,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						SchemaOnly:       true,
-						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
+						ExcludeSchemas:   excludedSchemas,
 					}, po)
 					return schemaDump, nil
 				case 2:
@@ -510,7 +512,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						SchemaOnly:       true,
-						ExcludeSchemas:   []string{`"pgstream"`},
+						ExcludeSchemas:   pgstreamExcludedSchemas,
 						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable), pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable2)},
 					}, po)
 					return schemaDump, nil
@@ -557,7 +559,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						SchemaOnly:       true,
-						ExcludeSchemas:   []string{`"pgstream"`},
+						ExcludeSchemas:   pgstreamExcludedSchemas,
 					}, po)
 					return schemaDump, nil
 				case 2:
@@ -604,7 +606,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						SchemaOnly:       true,
-						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
+						ExcludeSchemas:   excludedSchemas,
 					}, po)
 					return schemaDump, nil
 				case 2:
@@ -670,7 +672,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						SchemaOnly:       true,
-						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
+						ExcludeSchemas:   excludedSchemas,
 					}, po)
 					return schemaDump, nil
 				case 2:
@@ -719,7 +721,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						Format:           "p",
 						SchemaOnly:       true,
 						Clean:            false,
-						ExcludeSchemas:   []string{`"pgstream"`},
+						ExcludeSchemas:   pgstreamExcludedSchemas,
 					}, po)
 					return schemaDump, nil
 				case 2:
@@ -728,7 +730,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						Format:           "p",
 						SchemaOnly:       true,
 						Clean:            true,
-						ExcludeSchemas:   []string{`"pgstream"`},
+						ExcludeSchemas:   pgstreamExcludedSchemas,
 					}, po)
 					return append(cleanupDump, schemaDump...), nil
 				case 3:
@@ -1052,7 +1054,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						SchemaOnly:       true,
-						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
+						ExcludeSchemas:   excludedSchemas,
 						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
 					}, po)
 					return schemaDump, nil
@@ -1120,7 +1122,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						ConnectionString: "source-url",
 						Format:           "p",
 						SchemaOnly:       true,
-						ExcludeSchemas:   []string{pglib.QuoteIdentifier(excludedSchema)},
+						ExcludeSchemas:   excludedSchemas,
 						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
 					}, po)
 					return schemaDump, nil
