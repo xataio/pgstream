@@ -106,6 +106,64 @@ func Test_SnapshotToPostgres(t *testing.T) {
 	})
 }
 
+// Test_SnapshotToPostgres_SelectedParentTableDoesNotCopyInheritedRows verifies
+// that snapshotting a selected parent table does not copy rows stored in child
+// tables through PostgreSQL inheritance.
+func Test_SnapshotToPostgres_SelectedParentTableDoesNotCopyInheritedRows(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	suffix := time.Now().UnixNano()
+	parentTable := fmt.Sprintf("snapshot_parent_only_%d", suffix)
+	childTable := fmt.Sprintf("snapshot_child_inherits_%d", suffix)
+
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s(id INTEGER PRIMARY KEY, name TEXT NOT NULL)`, parentTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s() INHERITS (%s)`, childTable, parentTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(id, name) VALUES (1, 'parent-row')`, parentTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(id, name) VALUES (2, 'child-row')`, childTable))
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{parentTable}),
+		Processor: testPostgresProcessorCfg(),
+	}
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	rows, err := targetConn.Query(ctx, fmt.Sprintf("SELECT id, name FROM %s ORDER BY id", parentTable))
+	require.NoError(t, err)
+	defer rows.Close()
+
+	type parentRow struct {
+		id   int
+		name string
+	}
+
+	got := []parentRow{}
+	for rows.Next() {
+		var r parentRow
+		require.NoError(t, rows.Scan(&r.id, &r.name))
+		got = append(got, r)
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, []parentRow{{id: 1, name: "parent-row"}}, got)
+}
+
 // Test_SnapshotToPostgres_IdentityOnlyTable verifies that tables where the only
 // column is an identity column (e.g. id-only lookup tables) are correctly
 // snapshotted, and that their values are preserved so that foreign key
