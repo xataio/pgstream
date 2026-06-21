@@ -436,6 +436,70 @@ func Test_SnapshotToPostgres_LtreeColumns(t *testing.T) {
 	})
 }
 
+// Test_SnapshotToPostgres_SkipsLegacyPLPGSQLHandlers verifies that legacy
+// public PL/pgSQL handler functions from a source dump are not restored as
+// ordinary user functions, while normal user-defined functions are preserved.
+func Test_SnapshotToPostgres_SkipsLegacyPLPGSQLHandlers(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	suffix := time.Now().UnixNano()
+	testTable := fmt.Sprintf("legacy_plpgsql_snapshot_%d", suffix)
+	regularFunction := fmt.Sprintf("snapshot_regular_fn_%d", suffix)
+
+	execQueryWithURL(t, ctx, snapshotPGURL, `
+		CREATE FUNCTION public.plpgsql_call_handler() RETURNS language_handler
+		AS '$libdir/plpgsql', 'plpgsql_call_handler'
+		LANGUAGE C`)
+	execQueryWithURL(t, ctx, snapshotPGURL, `
+		CREATE FUNCTION public.plpgsql_validator(oid) RETURNS void
+		AS '$libdir/plpgsql', 'plpgsql_validator'
+		LANGUAGE C`)
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE FUNCTION public.%s() RETURNS integer
+		LANGUAGE plpgsql
+		AS $$ BEGIN RETURN 42; END $$`, regularFunction))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s(id integer PRIMARY KEY)`, testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(id) VALUES (1)`, testTable))
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"public.*"}),
+		Processor: testPostgresProcessorCfg(),
+	}
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	var legacyHandlerCount int
+	err = targetConn.QueryRow(ctx, []any{&legacyHandlerCount}, `
+		SELECT count(*)
+		FROM pg_proc p
+		JOIN pg_namespace n ON n.oid = p.pronamespace
+		WHERE n.nspname = 'public'
+		  AND p.proname IN ('plpgsql_call_handler', 'plpgsql_validator')
+	`)
+	require.NoError(t, err)
+	require.Zero(t, legacyHandlerCount)
+
+	var got int
+	err = targetConn.QueryRow(ctx, []any{&got}, fmt.Sprintf("SELECT public.%s()", regularFunction))
+	require.NoError(t, err)
+	require.Equal(t, 42, got)
+}
+
 // Test_SnapshotToPostgres_IdentityAndGeneratedColumns verifies that identity
 // columns have their values preserved while generated (stored) columns are
 // correctly excluded from inserts and recomputed by the target database.
