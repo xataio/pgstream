@@ -227,7 +227,7 @@ func registerWithCodec(name string, codec pgtype.Codec) func(ctx context.Context
 	}
 }
 
-const DiscoverAllSchemasQuery = "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')"
+const DiscoverAllSchemasQuery = "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream') AND nspname NOT LIKE 'pg_temp_%' AND nspname NOT LIKE 'pg_toast_temp_%'"
 
 func DiscoverAllSchemas(ctx context.Context, conn Querier) ([]string, error) {
 	rows, err := conn.Query(ctx, DiscoverAllSchemasQuery)
