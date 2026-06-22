@@ -71,23 +71,40 @@ func TestRun_EmptyChecksProducesEmptyReport(t *testing.T) {
 	require.False(t, report.HasErrors())
 }
 
-func TestReport_PrettyPrint(t *testing.T) {
+func TestReportPrinter_PrettyPrint(t *testing.T) {
 	t.Parallel()
 
-	report := Report{
+	printer := ReportPrinter{Report: Report{
 		Results: []CheckResult{
 			{Name: "clean"},
 			{Name: "with-findings", Findings: []Finding{{Message: "broken"}}},
 			{Name: "check-failed", Err: errors.New("boom")},
 		},
-	}
+	}}
 
-	out := report.PrettyPrint()
+	out := printer.PrettyPrint()
 
 	require.Contains(t, out, "✔ clean\n")
 	require.Contains(t, out, "✘ with-findings: broken\n")
 	require.Contains(t, out, "✘ check-failed: check failed: boom\n")
 	require.Contains(t, out, "ran 3 checks\n")
+}
+
+func TestReportPrinter_MarshalJSONDelegatesToReport(t *testing.T) {
+	t.Parallel()
+
+	report := Report{
+		Results: []CheckResult{
+			{Name: "a", Findings: []Finding{{Message: "broken"}}},
+		},
+	}
+
+	viaReport, err := json.Marshal(report)
+	require.NoError(t, err)
+	viaPrinter, err := json.Marshal(ReportPrinter{Report: report})
+	require.NoError(t, err)
+
+	require.JSONEq(t, string(viaReport), string(viaPrinter))
 }
 
 func TestReport_JSONMarshal(t *testing.T) {

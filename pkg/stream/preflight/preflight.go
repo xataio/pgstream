@@ -5,8 +5,6 @@ package preflight
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
 )
 
 // Category groups checks of the same concern so callers can opt in by
@@ -110,23 +108,4 @@ func (r Report) HasErrors() bool {
 		}
 	}
 	return false
-}
-
-// PrettyPrint renders the report as a human-readable string.
-func (r Report) PrettyPrint() string {
-	var sb strings.Builder
-	for _, res := range r.Results {
-		if res.Err == nil && len(res.Findings) == 0 {
-			fmt.Fprintf(&sb, "✔ %s\n", res.Name)
-			continue
-		}
-		if res.Err != nil {
-			fmt.Fprintf(&sb, "✘ %s: check failed: %v\n", res.Name, res.Err)
-		}
-		for _, f := range res.Findings {
-			fmt.Fprintf(&sb, "✘ %s: %s\n", res.Name, f.Message)
-		}
-	}
-	fmt.Fprintf(&sb, "ran %d checks\n", len(r.Results))
-	return sb.String()
 }

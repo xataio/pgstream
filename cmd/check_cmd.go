@@ -58,7 +58,7 @@ var checkCmd = &cobra.Command{
 				sp.Success("pgstream checks passed")
 			}
 
-			if err := print(cmd, report); err != nil {
+			if err := print(cmd, preflight.ReportPrinter{Report: report}); err != nil {
 				return fmt.Errorf("failed to format check report: %w", err)
 			}
 
