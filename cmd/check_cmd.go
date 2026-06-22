@@ -3,6 +3,8 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
 
 	"github.com/pterm/pterm"
@@ -10,7 +12,22 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/xataio/pgstream/cmd/config"
+	"github.com/xataio/pgstream/pkg/stream/preflight"
 )
+
+var errCheckFailed = errors.New("checks reported errors")
+
+// selectedCategories returns the categories whose CLI flag was set to true.
+// An empty result tells preflight.BuildChecks to run every registered category.
+func selectedCategories(cmd *cobra.Command) []preflight.Category {
+	var selected []preflight.Category
+	for _, b := range preflight.Builders {
+		if on, _ := cmd.Flags().GetBool(b.Flag); on {
+			selected = append(selected, b.Category)
+		}
+	}
+	return selected
+}
 
 var checkCmd = &cobra.Command{
 	Use:     "check",
@@ -24,15 +41,33 @@ var checkCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("parsing stream config: %w", err)
 			}
-			_ = streamConfig
 
-			// TODO: run checks. See https://github.com/xataio/pgstream/issues/897 for the
-			// list of checks to implement.
+			checks := preflight.BuildChecks(streamConfig, selectedCategories(cmd))
+			if len(checks) == 0 {
+				sp.Success("no checks to run")
+				return nil
+			}
 
-			sp.Success("no checks to run")
+			report := preflight.Run(context.Background(), checks, preflight.WithProgress(func(idx, total int, name string) {
+				sp.UpdateText(fmt.Sprintf("running %d/%d checks: %s", idx, total, name))
+			}))
+
+			if report.HasErrors() {
+				sp.Stop()
+			} else {
+				sp.Success("pgstream checks passed")
+			}
+
+			if err := print(cmd, preflight.ReportPrinter{Report: report}); err != nil {
+				return fmt.Errorf("failed to format check report: %w", err)
+			}
+
+			if report.HasErrors() {
+				return errCheckFailed
+			}
 			return nil
 		}()
-		if err != nil {
+		if err != nil && !errors.Is(err, errCheckFailed) {
 			sp.Fail(err.Error())
 		}
 

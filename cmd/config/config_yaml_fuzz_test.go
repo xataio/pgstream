@@ -90,7 +90,8 @@ func FuzzYAMLConfigProperties(f *testing.F) {
 		}()
 
 		cfg := generateYAMLConfigFromProperties(
-			sourceMode, snapshotMode, targetMode, searchEngine, modifiersMode, batchSize, timeout)
+			sourceMode, snapshotMode, targetMode, searchEngine, modifiersMode, batchSize, timeout,
+		)
 
 		// Test marshaling/unmarshaling
 		data, err := yaml.Marshal(cfg)
