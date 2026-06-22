@@ -9,15 +9,6 @@ import (
 	"strings"
 )
 
-// Severity tags a Finding so callers can decide how to react.
-type Severity string
-
-const (
-	SeverityError   Severity = "error"
-	SeverityWarning Severity = "warning"
-	SeverityInfo    Severity = "info"
-)
-
 // Category groups checks of the same concern so callers can opt in by
 // category via CLI flags. New categories are added as new check sets land —
 // see docs/migration_preflight_issue.md for the planned ones.
@@ -27,10 +18,10 @@ const (
 	CategoryConnectivity Category = "connectivity"
 )
 
-// Finding describes a single issue detected by a Check.
+// Finding describes a single issue detected by a Check. Every finding is an
+// error — a check that finds nothing wrong returns no findings at all.
 type Finding struct {
-	Severity Severity `json:"severity"`
-	Message  string   `json:"message"`
+	Message string `json:"message"`
 }
 
 // Check is the minimal contract every preflight check must satisfy. Run returns
@@ -111,17 +102,11 @@ func Run(ctx context.Context, checks []Check, opts ...RunOption) Report {
 	return Report{Results: results}
 }
 
-// HasErrors reports whether any check produced an error-tier finding or failed
-// to complete.
+// HasErrors reports whether any check produced findings or failed to complete.
 func (r Report) HasErrors() bool {
 	for _, res := range r.Results {
-		if res.Err != nil {
+		if res.Err != nil || len(res.Findings) > 0 {
 			return true
-		}
-		for _, f := range res.Findings {
-			if f.Severity == SeverityError {
-				return true
-			}
 		}
 	}
 	return false
@@ -131,40 +116,17 @@ func (r Report) HasErrors() bool {
 func (r Report) PrettyPrint() string {
 	var sb strings.Builder
 	for _, res := range r.Results {
-		passed := res.Err == nil && !hasBlockingFindings(res.Findings)
-		switch {
-		case passed && len(res.Findings) == 0:
+		if res.Err == nil && len(res.Findings) == 0 {
 			fmt.Fprintf(&sb, "✔ %s\n", res.Name)
-		case passed:
-			fmt.Fprintf(&sb, "✔ %s (with notes)\n", res.Name)
+			continue
 		}
 		if res.Err != nil {
 			fmt.Fprintf(&sb, "✘ %s: check failed: %v\n", res.Name, res.Err)
 		}
 		for _, f := range res.Findings {
-			fmt.Fprintf(&sb, "%s %s: %s\n", severityMarker(f.Severity), res.Name, f.Message)
+			fmt.Fprintf(&sb, "✘ %s: %s\n", res.Name, f.Message)
 		}
 	}
 	fmt.Fprintf(&sb, "ran %d checks\n", len(r.Results))
 	return sb.String()
-}
-
-func hasBlockingFindings(findings []Finding) bool {
-	for _, f := range findings {
-		if f.Severity == SeverityError || f.Severity == SeverityWarning {
-			return true
-		}
-	}
-	return false
-}
-
-func severityMarker(s Severity) string {
-	switch s {
-	case SeverityError:
-		return "✘"
-	case SeverityWarning:
-		return "⚠"
-	default:
-		return "ℹ"
-	}
 }

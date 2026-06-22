@@ -35,7 +35,7 @@ func TestRun_RunsAllChecksEvenWhenSomeFail(t *testing.T) {
 
 	checks := []Check{
 		&stubCheck{name: "a", ran: &ranA, err: checkErr},
-		&stubCheck{name: "b", ran: &ranB, findings: []Finding{{Severity: SeverityError, Message: "broken"}}},
+		&stubCheck{name: "b", ran: &ranB, findings: []Finding{{Message: "broken"}}},
 		&stubCheck{name: "c", ran: &ranC},
 	}
 
@@ -53,26 +53,13 @@ func TestRun_RunsAllChecksEvenWhenSomeFail(t *testing.T) {
 
 	require.Equal(t, "b", report.Results[1].Name)
 	require.NoError(t, report.Results[1].Err)
-	require.Equal(t, []Finding{{Severity: SeverityError, Message: "broken"}}, report.Results[1].Findings)
+	require.Equal(t, []Finding{{Message: "broken"}}, report.Results[1].Findings)
 
 	require.Equal(t, "c", report.Results[2].Name)
 	require.NoError(t, report.Results[2].Err)
 	require.Empty(t, report.Results[2].Findings)
 
 	require.True(t, report.HasErrors())
-}
-
-func TestRun_HasErrorsFalseWhenOnlyWarningsAndInfo(t *testing.T) {
-	t.Parallel()
-
-	checks := []Check{
-		&stubCheck{name: "warn", findings: []Finding{{Severity: SeverityWarning, Message: "heads up"}}},
-		&stubCheck{name: "info", findings: []Finding{{Severity: SeverityInfo, Message: "fyi"}}},
-	}
-
-	report := Run(context.Background(), checks)
-
-	require.False(t, report.HasErrors())
 }
 
 func TestRun_EmptyChecksProducesEmptyReport(t *testing.T) {
@@ -84,24 +71,23 @@ func TestRun_EmptyChecksProducesEmptyReport(t *testing.T) {
 	require.False(t, report.HasErrors())
 }
 
-func TestReport_PrettyPrint_InfoOnlyShowsAsPassed(t *testing.T) {
+func TestReport_PrettyPrint(t *testing.T) {
 	t.Parallel()
 
 	report := Report{
 		Results: []CheckResult{
 			{Name: "clean"},
-			{Name: "info-only", Findings: []Finding{{Severity: SeverityInfo, Message: "fyi"}}},
-			{Name: "with-warning", Findings: []Finding{{Severity: SeverityWarning, Message: "heads up"}}},
+			{Name: "with-findings", Findings: []Finding{{Message: "broken"}}},
+			{Name: "check-failed", Err: errors.New("boom")},
 		},
 	}
 
 	out := report.PrettyPrint()
 
 	require.Contains(t, out, "✔ clean\n")
-	require.Contains(t, out, "✔ info-only (with notes)\n")
-	require.Contains(t, out, "ℹ info-only: fyi\n")
-	require.NotContains(t, out, "✔ with-warning")
-	require.Contains(t, out, "⚠ with-warning: heads up\n")
+	require.Contains(t, out, "✘ with-findings: broken\n")
+	require.Contains(t, out, "✘ check-failed: check failed: boom\n")
+	require.Contains(t, out, "ran 3 checks\n")
 }
 
 func TestReport_JSONMarshal(t *testing.T) {
@@ -111,7 +97,7 @@ func TestReport_JSONMarshal(t *testing.T) {
 		Results: []CheckResult{
 			{
 				Name:     "a",
-				Findings: []Finding{{Severity: SeverityError, Message: "broken"}},
+				Findings: []Finding{{Message: "broken"}},
 			},
 			{
 				Name: "b",
@@ -124,7 +110,7 @@ func TestReport_JSONMarshal(t *testing.T) {
 	require.NoError(t, err)
 
 	expected := `{"results":[` +
-		`{"name":"a","findings":[{"severity":"error","message":"broken"}]},` +
+		`{"name":"a","findings":[{"message":"broken"}]},` +
 		`{"name":"b","findings":null,"error":"boom"}` +
 		`]}`
 	require.JSONEq(t, expected, string(data))
