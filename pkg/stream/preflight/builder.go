@@ -36,7 +36,8 @@ func BuildConnectivityChecks(cfg *stream.Config) []Check {
 }
 
 // BuildChecks returns the concrete checks for the selected categories,
-// preserving the registration order in Builders.
+// preserving the registration order in Builders. An empty selection runs every
+// registered category.
 func BuildChecks(cfg *stream.Config, selected []Category) []Check {
 	want := make(map[Category]bool, len(selected))
 	for _, c := range selected {
@@ -44,7 +45,7 @@ func BuildChecks(cfg *stream.Config, selected []Category) []Check {
 	}
 	checks := []Check{}
 	for _, b := range Builders {
-		if want[b.Category] {
+		if len(want) == 0 || want[b.Category] {
 			checks = append(checks, b.Build(cfg)...)
 		}
 	}

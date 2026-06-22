@@ -18,17 +18,11 @@ import (
 var errCheckFailed = errors.New("checks reported errors")
 
 // selectedCategories returns the categories whose CLI flag was set to true.
-// If no category flag was set, every registered category is selected.
+// An empty result tells preflight.BuildChecks to run every registered category.
 func selectedCategories(cmd *cobra.Command) []preflight.Category {
-	selected := []preflight.Category{}
+	var selected []preflight.Category
 	for _, b := range preflight.Builders {
-		on, err := cmd.Flags().GetBool(b.Flag)
-		if err == nil && on {
-			selected = append(selected, b.Category)
-		}
-	}
-	if len(selected) == 0 {
-		for _, b := range preflight.Builders {
+		if on, _ := cmd.Flags().GetBool(b.Flag); on {
 			selected = append(selected, b.Category)
 		}
 	}
