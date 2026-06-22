@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package preflight
+
+import "github.com/xataio/pgstream/pkg/stream"
+
+// Builder turns a stream.Config into the concrete checks for a category. Each
+// new category adds an entry to Builders and a matching CLI flag in
+// cmd/root_cmd.go.
+type Builder struct {
+	Category Category
+	Flag     string
+	Build    func(*stream.Config) []Check
+}
+
+// Builders is the registry of category builders. Adding a new category = one
+// Builder entry here + one flag declaration on checkCmd.
+var Builders = []Builder{
+	{CategoryConnectivity, "connectivity", BuildConnectivityChecks},
+}
+
+// BuildConnectivityChecks returns the connectivity checks applicable to cfg.
+// A source check is added when a source postgres URL is configured; a target
+// check is added when a postgres target is configured.
+func BuildConnectivityChecks(cfg *stream.Config) []Check {
+	checks := []Check{}
+	if url := cfg.SourcePostgresURL(); url != "" {
+		checks = append(checks, &ConnectivityCheck{Label: "source", URL: url})
+	}
+	if cfg.Processor.Postgres != nil {
+		if url := cfg.Processor.Postgres.BatchWriter.URL; url != "" {
+			checks = append(checks, &ConnectivityCheck{Label: "target", URL: url})
+		}
+	}
+	return checks
+}
+
+// BuildChecks returns the concrete checks for the selected categories,
+// preserving the registration order in Builders.
+func BuildChecks(cfg *stream.Config, selected []Category) []Check {
+	want := make(map[Category]bool, len(selected))
+	for _, c := range selected {
+		want[c] = true
+	}
+	checks := []Check{}
+	for _, b := range Builders {
+		if want[b.Category] {
+			checks = append(checks, b.Build(cfg)...)
+		}
+	}
+	return checks
+}
