@@ -7,7 +7,7 @@ Guidance for Claude Code when working inside `pkg/stream/preflight`. The planned
 - `preflight.go` — `Check` interface (`Name()` + `Run(ctx) ([]Finding, error)`), `Finding`, `CheckResult`, `Report`, `Run(ctx, []Check, ...RunOption)` engine.
 - `printer.go` — `ReportPrinter{Report}` is the only thing that formats reports. The `Report` struct itself stays pure data.
 - `builder.go` — `Builder` struct, `Builders` registry slice, per-category builder functions (`BuildConnectivityChecks`, …), `BuildChecks(cfg, selected)`.
-- One file per concrete check (`connectivity.go`, future `wal_level.go`, …).
+- One file per category of concrete checks (`connectivity.go`, `replication.go`, …).
 
 ## Adding a new check
 
