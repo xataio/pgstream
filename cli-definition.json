@@ -24,7 +24,7 @@
         },
         {
           "name": "replication",
-          "description": "Run replication-preflight checks against the source (requires replication slot configured)",
+          "description": "Run replication checks against the source (requires replication slot configured)",
           "default": "false"
         },
         {
