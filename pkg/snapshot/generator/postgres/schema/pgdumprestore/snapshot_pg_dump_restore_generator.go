@@ -44,6 +44,11 @@ type SnapshotGenerator struct {
 	// generator runs. Other indexes and constraints, such as foreign keys, are
 	// still restored after data is inserted.
 	restoreConflictTargetsBeforeData bool
+	// refreshMaterializedViews controls whether materialized views are refreshed
+	// (REFRESH MATERIALIZED VIEW ... WITH DATA) after the table data has been
+	// restored. Disabled by default since refreshing can be expensive on large
+	// views.
+	refreshMaterializedViews bool
 }
 
 type snapshotProgressTracker interface {
@@ -72,6 +77,10 @@ type Config struct {
 	DumpDebugFile string
 	// if set, security label providers that will be excluded from the dump
 	ExcludedSecurityLabels []string
+	// if set to true, materialized views will be refreshed (REFRESH MATERIALIZED
+	// VIEW ... WITH DATA) after the table data has been restored. Disabled by
+	// default since refreshing can be expensive on large views.
+	RefreshMaterializedViews bool
 }
 
 type Option func(s *SnapshotGenerator)
@@ -102,17 +111,18 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 	}
 
 	sg := &SnapshotGenerator{
-		sourceURL:              c.SourcePGURL,
-		targetURL:              c.TargetPGURL,
-		pgDumpFn:               pglib.RunPGDump,
-		pgDumpAllFn:            pglib.RunPGDumpAll,
-		pgRestoreFn:            pglib.RunPGRestore,
-		logger:                 loglib.NewNoopLogger(),
-		dumpDebugFile:          c.DumpDebugFile,
-		excludedSecurityLabels: c.ExcludedSecurityLabels,
-		roleSQLParser:          &roleSQLParser{},
-		sourceQuerier:          sourceConnPool,
-		optionGenerator:        newOptionGenerator(sourceConnPool, c),
+		sourceURL:                c.SourcePGURL,
+		targetURL:                c.TargetPGURL,
+		pgDumpFn:                 pglib.RunPGDump,
+		pgDumpAllFn:              pglib.RunPGDumpAll,
+		pgRestoreFn:              pglib.RunPGRestore,
+		logger:                   loglib.NewNoopLogger(),
+		dumpDebugFile:            c.DumpDebugFile,
+		excludedSecurityLabels:   c.ExcludedSecurityLabels,
+		roleSQLParser:            &roleSQLParser{},
+		sourceQuerier:            sourceConnPool,
+		optionGenerator:          newOptionGenerator(sourceConnPool, c),
+		refreshMaterializedViews: c.RefreshMaterializedViews,
 	}
 
 	for _, opt := range opts {
@@ -275,6 +285,10 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	s.logger.Info("restoring views")
 	if err := s.restoreDump(ctx, dump.views); err != nil {
 		return err
+	}
+
+	if !s.refreshMaterializedViews {
+		return nil
 	}
 
 	s.logger.Info("refreshing materialized views")

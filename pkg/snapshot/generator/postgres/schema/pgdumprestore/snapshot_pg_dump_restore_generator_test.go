@@ -1484,9 +1484,10 @@ CREATE UNIQUE INDEX example_mv_id_idx ON test_schema.example_mv USING btree (id)
 	}
 
 	sg := SnapshotGenerator{
-		sourceURL:     "source-url",
-		targetURL:     "target-url",
-		sourceQuerier: conn,
+		sourceURL:                "source-url",
+		targetURL:                "target-url",
+		sourceQuerier:            conn,
+		refreshMaterializedViews: true,
 		pgDumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
 			require.Equal(t, uint(1), i)
 			require.Equal(t, "source-url", po.ConnectionString)
@@ -1538,6 +1539,81 @@ CREATE UNIQUE INDEX example_mv_id_idx ON test_schema.example_mv USING btree (id)
 
 	require.NoError(t, err)
 	require.Equal(t, 4, restoreCalls)
+}
+
+func TestSnapshotGenerator_CreateSnapshotSkipsMaterializedViewRefreshByDefault(t *testing.T) {
+	t.Parallel()
+
+	testSchema := "test_schema"
+	schemaCreateDump := fmt.Appendf(nil, "CREATE SCHEMA IF NOT EXISTS %s;\n", pglib.QuoteIdentifier(testSchema))
+	schemaDump := []byte(`CREATE TABLE test_schema.example_source (
+    id bigint NOT NULL
+);
+
+CREATE MATERIALIZED VIEW test_schema.example_mv AS
+ SELECT id
+   FROM test_schema.example_source
+WITH NO DATA;
+
+CREATE UNIQUE INDEX example_mv_id_idx ON test_schema.example_mv USING btree (id);
+`)
+	restoreCalls := 0
+	conn := &mocks.Querier{
+		CloseFn: func(context.Context) error {
+			return nil
+		},
+	}
+
+	sg := SnapshotGenerator{
+		sourceURL:     "source-url",
+		targetURL:     "target-url",
+		sourceQuerier: conn,
+		// refreshMaterializedViews defaults to false
+		pgDumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
+			require.Equal(t, uint(1), i)
+			require.Equal(t, "source-url", po.ConnectionString)
+			require.True(t, po.SchemaOnly)
+			require.Equal(t, []string{pglib.QuoteIdentifier(testSchema)}, po.Schemas)
+			return schemaDump, nil
+		}),
+		pgDumpAllFn: func(context.Context, pglib.PGDumpAllOptions) ([]byte, error) {
+			return nil, fmt.Errorf("pg_dumpall should not be called")
+		},
+		pgRestoreFn: func(_ context.Context, po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			restoreCalls++
+			require.NotContains(t, string(dump), "REFRESH MATERIALIZED VIEW")
+			switch restoreCalls {
+			case 1:
+				require.Equal(t, string(schemaCreateDump), string(dump))
+			case 2:
+				require.Contains(t, string(dump), "CREATE TABLE test_schema.example_source")
+				require.NotContains(t, string(dump), "CREATE MATERIALIZED VIEW")
+			case 3:
+				require.Contains(t, string(dump), "CREATE MATERIALIZED VIEW test_schema.example_mv")
+				require.Contains(t, string(dump), "CREATE UNIQUE INDEX example_mv_id_idx")
+			default:
+				return "", fmt.Errorf("unexpected call to pgrestoreFn: %d", restoreCalls)
+			}
+			return "", nil
+		},
+		logger:        log.NewNoopLogger(),
+		roleSQLParser: &roleSQLParser{},
+		optionGenerator: &optionGenerator{
+			sourceURL:         "source-url",
+			targetURL:         "target-url",
+			rolesSnapshotMode: roleSnapshotDisabled,
+			querier:           conn,
+		},
+	}
+
+	err := sg.CreateSnapshot(context.Background(), &snapshot.Snapshot{
+		SchemaTables: map[string][]string{
+			testSchema: {wildcard},
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 3, restoreCalls)
 }
 
 func TestGetDumpsDiff(t *testing.T) {

@@ -478,6 +478,7 @@ func Test_SnapshotToPostgres_MaterializedViewRefresh(t *testing.T) {
 		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"public.*"}),
 		Processor: testPostgresProcessorCfg(),
 	}
+	cfg.Listener.Postgres.Snapshot.Schema.DumpRestore.RefreshMaterializedViews = true
 	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
 
 	targetConn, err := pglib.NewConn(ctx, targetPGURL)
