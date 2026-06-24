@@ -17,6 +17,7 @@ type Builder struct {
 // Builder entry here + one flag declaration on checkCmd.
 var Builders = []Builder{
 	{CategoryConnectivity, "connectivity", BuildConnectivityChecks},
+	{CategoryReplication, "replication", BuildReplicationChecks},
 }
 
 // BuildConnectivityChecks returns the connectivity checks applicable to cfg.
@@ -33,6 +34,26 @@ func BuildConnectivityChecks(cfg *stream.Config) []Check {
 		}
 	}
 	return checks
+}
+
+// BuildReplicationChecks returns the replication-preflight checks applicable
+// to cfg. Replication checks only apply when the source is configured with a
+// replication slot (i.e. the run is doing logical replication, not a one-shot
+// snapshot).
+func BuildReplicationChecks(cfg *stream.Config) []Check {
+	if cfg.PostgresReplicationSlot() == "" {
+		return nil
+	}
+	url := cfg.SourcePostgresURL()
+	if url == "" {
+		return nil
+	}
+	return []Check{
+		&WALLevelCheck{URL: url},
+		&WAL2JSONCheck{URL: url},
+		&ReplicationSlotHeadroomCheck{URL: url},
+		&ReplicationRoleAttrCheck{URL: url},
+	}
 }
 
 // BuildChecks returns the concrete checks for the selected categories,

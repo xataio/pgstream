@@ -23,6 +23,11 @@
           "default": ""
         },
         {
+          "name": "replication",
+          "description": "Run replication checks against the source (requires replication slot configured)",
+          "default": "false"
+        },
+        {
           "name": "target-url",
           "description": "Target URL to run checks against",
           "default": ""

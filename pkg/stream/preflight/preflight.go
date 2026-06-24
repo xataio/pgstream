@@ -14,6 +14,7 @@ type Category string
 
 const (
 	CategoryConnectivity Category = "connectivity"
+	CategoryReplication  Category = "replication"
 )
 
 // Finding describes a single issue detected by a Check. Every finding is an
