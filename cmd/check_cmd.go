@@ -36,13 +36,19 @@ var checkCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sp, _ := pterm.DefaultSpinner.WithText("running pgstream checks...").Start()
 
-		err := func() error {
+		err := func() (retErr error) {
 			streamConfig, err := config.ParseStreamConfig()
 			if err != nil {
 				return fmt.Errorf("parsing stream config: %w", err)
 			}
 
-			checks := preflight.BuildChecks(streamConfig, selectedCategories(cmd))
+			checks, cleanup := preflight.BuildChecks(streamConfig, selectedCategories(cmd))
+			defer func() {
+				if cerr := cleanup(context.Background()); cerr != nil && retErr == nil {
+					retErr = fmt.Errorf("releasing check resources: %w", cerr)
+				}
+			}()
+
 			if len(checks) == 0 {
 				sp.Success("no checks to run")
 				return nil

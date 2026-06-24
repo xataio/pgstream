@@ -12,17 +12,16 @@ import (
 // WALLevelCheck verifies the source Postgres has `wal_level=logical`, which
 // pgstream's replication path requires.
 type WALLevelCheck struct {
-	URL string
+	Source postgres.AcquireFunc
 }
 
 func (c *WALLevelCheck) Name() string { return "wal_level" }
 
 func (c *WALLevelCheck) Run(ctx context.Context) ([]Finding, error) {
-	conn, err := postgres.NewConn(ctx, c.URL)
+	conn, err := c.Source(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to source: %w", err)
 	}
-	defer conn.Close(ctx)
 
 	var level string
 	if err := conn.QueryRow(ctx, []any{&level}, "SHOW wal_level"); err != nil {
@@ -39,17 +38,16 @@ func (c *WALLevelCheck) Run(ctx context.Context) ([]Finding, error) {
 // WAL2JSONCheck verifies that the wal2json output plugin is installed and
 // loadable on the source. pgstream decodes WAL through wal2json.
 type WAL2JSONCheck struct {
-	URL string
+	Source postgres.AcquireFunc
 }
 
 func (c *WAL2JSONCheck) Name() string { return "wal2json" }
 
 func (c *WAL2JSONCheck) Run(ctx context.Context) ([]Finding, error) {
-	conn, err := postgres.NewConn(ctx, c.URL)
+	conn, err := c.Source(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to source: %w", err)
 	}
-	defer conn.Close(ctx)
 
 	var present int
 	if err := conn.QueryRow(ctx, []any{&present}, "SELECT count(*)::int FROM pg_available_extensions WHERE name = 'wal2json'"); err != nil {
@@ -66,17 +64,16 @@ func (c *WAL2JSONCheck) Run(ctx context.Context) ([]Finding, error) {
 // ReplicationSlotHeadroomCheck reports whether the source has at least one
 // slot still available before max_replication_slots is reached.
 type ReplicationSlotHeadroomCheck struct {
-	URL string
+	Source postgres.AcquireFunc
 }
 
 func (c *ReplicationSlotHeadroomCheck) Name() string { return "replication_slot_headroom" }
 
 func (c *ReplicationSlotHeadroomCheck) Run(ctx context.Context) ([]Finding, error) {
-	conn, err := postgres.NewConn(ctx, c.URL)
+	conn, err := c.Source(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to source: %w", err)
 	}
-	defer conn.Close(ctx)
 
 	var maxSlots, usedSlots int
 	err = conn.QueryRow(ctx, []any{&maxSlots, &usedSlots}, `
@@ -98,17 +95,16 @@ func (c *ReplicationSlotHeadroomCheck) Run(ctx context.Context) ([]Finding, erro
 // ReplicationRoleAttrCheck verifies the current source role has the
 // REPLICATION attribute, which is required to open a logical replication slot.
 type ReplicationRoleAttrCheck struct {
-	URL string
+	Source postgres.AcquireFunc
 }
 
 func (c *ReplicationRoleAttrCheck) Name() string { return "replication_role_attr" }
 
 func (c *ReplicationRoleAttrCheck) Run(ctx context.Context) ([]Finding, error) {
-	conn, err := postgres.NewConn(ctx, c.URL)
+	conn, err := c.Source(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to source: %w", err)
 	}
-	defer conn.Close(ctx)
 
 	var roleName string
 	var hasReplication bool
