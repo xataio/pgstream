@@ -121,6 +121,7 @@ func Prepare() *cobra.Command {
 	checkCmd.Flags().Bool("json", false, "Output the check report in JSON format")
 	checkCmd.Flags().Bool("connectivity", false, "Run connectivity checks against the configured source and target")
 	checkCmd.Flags().Bool("replication", false, "Run replication checks against the source (requires replication slot configured)")
+	checkCmd.Flags().Bool("access", false, "Run access and privilege checks against the source")
 
 	// Flag binding for root cmd
 	rootFlagBinding(rootCmd)

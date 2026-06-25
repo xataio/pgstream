@@ -8,6 +8,11 @@
       "example": "\n\tpgstream check -c pg2pg.env\n\tpgstream check -c pg2pg.yaml --json\n\t",
       "flags": [
         {
+          "name": "access",
+          "description": "Run access and privilege checks against the source",
+          "default": "false"
+        },
+        {
           "name": "connectivity",
           "description": "Run connectivity checks against the configured source and target",
           "default": "false"

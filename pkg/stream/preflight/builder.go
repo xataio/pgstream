@@ -28,6 +28,7 @@ type Builder struct {
 var Builders = []Builder{
 	{CategoryConnectivity, "connectivity", BuildConnectivityChecks},
 	{CategoryReplication, "replication", BuildReplicationChecks},
+	{CategoryAccess, "access", BuildAccessChecks},
 }
 
 // BuildConnectivityChecks returns the connectivity checks applicable to cfg.
@@ -66,6 +67,22 @@ func BuildReplicationChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 		&ReplicationSlotHeadroomCheck{Source: src.Acquire},
 		&ReplicationRoleAttrCheck{Source: src.Acquire},
 	}, src.Close
+}
+
+// BuildAccessChecks returns the access-preflight checks applicable to cfg,
+// plus a cleanup function that closes the shared source connection.
+func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
+	url := cfg.SourcePostgresURL()
+	if url == "" {
+		return nil, nil
+	}
+	src := postgres.NewLazyConn(url)
+	check := &SourceTableSelectPrivilegesCheck{Source: src.Acquire}
+	if cfg.Listener.Postgres != nil && cfg.Listener.Postgres.Snapshot != nil {
+		check.Tables = cfg.Listener.Postgres.Snapshot.Adapter.Tables
+		check.ExcludedTables = cfg.Listener.Postgres.Snapshot.Adapter.ExcludedTables
+	}
+	return []Check{check}, src.Close
 }
 
 // BuildChecks returns the concrete checks for the selected categories,
