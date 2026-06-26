@@ -204,22 +204,23 @@ func TestSourceTableSelectPrivilegeMessage(t *testing.T) {
 	})
 
 	require.Contains(t, msg, `source role "pgstream_user"`)
-	require.Contains(t, msg, `"public"."orders"`)
+	require.Contains(t, msg, "lacks SELECT on public.orders;")
 	require.Contains(t, msg, `GRANT SELECT ON TABLE "public"."orders" TO "pgstream_user"`)
 }
 
-func TestSourceTableSelectPrivilegeMessage_QuotesMixedCaseIdentifiers(t *testing.T) {
+func TestSourceTableSelectPrivilegeMessage_QuotesOnlyRemediation(t *testing.T) {
 	t.Parallel()
 
+	// Descriptive prose stays human-readable (unquoted); the GRANT statement
+	// gets postgres.QuoteIdentifier so it's executable on case-sensitive or
+	// special-character names.
 	msg := sourceTableSelectPrivilegeMessage(sourceTableSelectPrivilegeRow{
 		Role:   "Replicator",
 		Schema: "Reporting",
 		Table:  "DailyRollup",
 	})
 
-	// Without quoting, Postgres folds these to lowercase and the GRANT silently
-	// targets the wrong identifiers (or errors). Quoting keeps the statement
-	// executable on the user's actual objects.
+	require.Contains(t, msg, "lacks SELECT on Reporting.DailyRollup;")
 	require.Contains(t, msg, `GRANT SELECT ON TABLE "Reporting"."DailyRollup" TO "Replicator"`)
 }
 
