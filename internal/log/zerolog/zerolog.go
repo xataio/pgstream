@@ -51,6 +51,9 @@ func (c *Config) Validate() error {
 	default:
 		return fmt.Errorf("invalid log format %q: must be one of console, json", c.LogFormat)
 	}
+	if _, err := zerolog.ParseLevel(c.LogLevel); err != nil {
+		return fmt.Errorf("invalid log level %q: %w", c.LogLevel, err)
+	}
 	if c.NoColor && c.LogFormat == formatJSON {
 		return ErrNoColorUnderJSONFormat
 	}
