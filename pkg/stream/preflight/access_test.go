@@ -47,7 +47,7 @@ func TestSourceTableSelectPrivilegesCheck_Run_MissingSelectReturnsFinding(t *tes
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
 	require.Contains(t, findings[0].Message, `source role "pgstream_user"`)
-	require.Contains(t, findings[0].Message, "public.orders")
+	require.Contains(t, findings[0].Message, `"public"."orders"`)
 	require.Contains(t, findings[0].Message, "GRANT SELECT")
 }
 
@@ -65,8 +65,8 @@ func TestSourceTableSelectPrivilegesCheck_Run_MultipleMissingSelect(t *testing.T
 
 	require.NoError(t, err)
 	require.Len(t, findings, 2)
-	require.Contains(t, findings[0].Message, "billing.invoices")
-	require.Contains(t, findings[1].Message, "public.orders")
+	require.Contains(t, findings[0].Message, `"billing"."invoices"`)
+	require.Contains(t, findings[1].Message, `"public"."orders"`)
 }
 
 func TestSourceTableSelectPrivilegesCheck_Run_SourceAcquireFails(t *testing.T) {
@@ -167,7 +167,7 @@ func TestSourceTableSelectPrivilegesCheck_Run_FiltersTablesByScope(t *testing.T)
 
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
-	require.Contains(t, findings[0].Message, "public.orders")
+	require.Contains(t, findings[0].Message, `"public"."orders"`)
 }
 
 func TestSourceTableSelectPrivilegesCheck_Run_InvalidTableSelection(t *testing.T) {
@@ -194,12 +194,6 @@ func TestSourceTableSelectPrivilegesCheck_Name(t *testing.T) {
 	require.Equal(t, "source_table_select_privileges", (&SourceTableSelectPrivilegesCheck{}).Name())
 }
 
-func TestQualifiedTable(t *testing.T) {
-	t.Parallel()
-
-	require.Equal(t, "public.orders", qualifiedTable("public", "orders"))
-}
-
 func TestSourceTableSelectPrivilegeMessage(t *testing.T) {
 	t.Parallel()
 
@@ -210,8 +204,23 @@ func TestSourceTableSelectPrivilegeMessage(t *testing.T) {
 	})
 
 	require.Contains(t, msg, `source role "pgstream_user"`)
-	require.Contains(t, msg, "public.orders")
-	require.Contains(t, msg, "GRANT SELECT ON TABLE public.orders TO pgstream_user")
+	require.Contains(t, msg, `"public"."orders"`)
+	require.Contains(t, msg, `GRANT SELECT ON TABLE "public"."orders" TO "pgstream_user"`)
+}
+
+func TestSourceTableSelectPrivilegeMessage_QuotesMixedCaseIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	msg := sourceTableSelectPrivilegeMessage(sourceTableSelectPrivilegeRow{
+		Role:   "Replicator",
+		Schema: "Reporting",
+		Table:  "DailyRollup",
+	})
+
+	// Without quoting, Postgres folds these to lowercase and the GRANT silently
+	// targets the wrong identifiers (or errors). Quoting keeps the statement
+	// executable on the user's actual objects.
+	require.Contains(t, msg, `GRANT SELECT ON TABLE "Reporting"."DailyRollup" TO "Replicator"`)
 }
 
 func TestBuildAccessChecks(t *testing.T) {

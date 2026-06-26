@@ -105,10 +105,7 @@ func tableInScope(schema, table string, include, exclude postgres.SchemaTableMap
 }
 
 func sourceTableSelectPrivilegeMessage(row sourceTableSelectPrivilegeRow) string {
-	table := qualifiedTable(row.Schema, row.Table)
-	return fmt.Sprintf("source role %q lacks SELECT on %s; run GRANT SELECT ON TABLE %s TO %s", row.Role, table, table, row.Role)
-}
-
-func qualifiedTable(schema, table string) string {
-	return fmt.Sprintf("%s.%s", schema, table)
+	table := postgres.QuoteIdentifier(row.Schema) + "." + postgres.QuoteIdentifier(row.Table)
+	role := postgres.QuoteIdentifier(row.Role)
+	return fmt.Sprintf("source role %s lacks SELECT on %s; run GRANT SELECT ON TABLE %s TO %s", role, table, table, role)
 }
