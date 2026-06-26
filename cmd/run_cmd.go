@@ -43,6 +43,8 @@ const (
 func run(ctx context.Context) error {
 	logger := zerolog.NewLogger(loggerConfigFromViper())
 	zerolog.SetGlobalLogger(logger)
+	stopLogLevelReload := withLogLevelReload(logger)
+	defer stopLogLevelReload()
 
 	if isSnapshotMode() {
 		return fmt.Errorf("cannot use the 'run' command in snapshot-only mode; please use the 'snapshot' command instead")

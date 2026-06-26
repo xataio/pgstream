@@ -54,7 +54,17 @@ func (c *Config) Validate() error {
 	if c.NoColor && c.LogFormat == formatJSON {
 		return ErrNoColorUnderJSONFormat
 	}
+	if _, err := parseLevel(c.LogLevel); err != nil {
+		return fmt.Errorf("invalid log level %q: must be one of trace, debug, info, warn, error, fatal, panic, disabled", c.LogLevel)
+	}
 	return nil
+}
+
+func parseLevel(level string) (zerolog.Level, error) {
+	if level == "" {
+		return zerolog.NoLevel, nil
+	}
+	return zerolog.ParseLevel(level)
 }
 
 // init sets some zerolog global defaults we want to keep throughout the project.
@@ -101,7 +111,7 @@ func NewStdLogger(l *zerolog.Logger) loglib.Logger {
 // per minute is reached.
 func NewLogger(config *Config) *zerolog.Logger {
 	// ignore the error, it defaults to no level
-	level, _ := zerolog.ParseLevel(config.LogLevel)
+	level, _ := parseLevel(config.LogLevel)
 
 	var out io.Writer
 	if config.LogFormat == formatJSON {

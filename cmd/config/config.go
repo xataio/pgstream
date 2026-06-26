@@ -25,14 +25,25 @@ const (
 )
 
 func Load() error {
-	return LoadFile(viper.GetString("config"))
+	return loadFile(viper.GetString("config"), true)
+}
+
+// Reload re-reads the configured file without writing startup messages.
+func Reload() error {
+	return loadFile(viper.GetString("config"), false)
 }
 
 func LoadFile(file string) error {
+	return loadFile(file, true)
+}
+
+func loadFile(file string, announce bool) error {
 	if file == "" {
 		return nil
 	}
-	fmt.Printf("using config file: %s\n", file) //nolint:forbidigo //logger hasn't been configured yet
+	if announce {
+		fmt.Printf("using config file: %s\n", file) //nolint:forbidigo //logger hasn't been configured yet
+	}
 	buf, err := os.ReadFile(file)
 	if err != nil {
 		return fmt.Errorf("reading config file: %w", err)

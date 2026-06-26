@@ -12,6 +12,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	zerologlib "github.com/rs/zerolog"
+
 	"github.com/xataio/pgstream/cmd/config"
 	"github.com/xataio/pgstream/internal/log/zerolog"
 	"github.com/xataio/pgstream/internal/profiling"
@@ -149,7 +151,6 @@ func withSignalWatcher(fn func(ctx context.Context) error) func(cmd *cobra.Comma
 
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc,
-		syscall.SIGHUP,
 		syscall.SIGINT,
 		syscall.SIGTERM,
 		syscall.SIGQUIT)
@@ -188,6 +189,67 @@ func withProfiling(fn func(cmd *cobra.Command, args []string) error) func(cmd *c
 
 		return fn(cmd, args)
 	}
+}
+
+func withLogLevelReload(logger *zerologlib.Logger) func() {
+	sigc := make(chan os.Signal, 1)
+	done := make(chan struct{})
+	signal.Notify(sigc, syscall.SIGHUP)
+
+	go func() {
+		defer close(done)
+		for range sigc {
+			reloadLogLevel(logger)
+		}
+	}()
+
+	return func() {
+		signal.Stop(sigc)
+		close(sigc)
+		<-done
+	}
+}
+
+func reloadLogLevel(logger *zerologlib.Logger) {
+	if err := config.Reload(); err != nil {
+		logger.WithLevel(zerologlib.NoLevel).Err(err).Msg("Failed to reload log level")
+		return
+	}
+
+	applyLogLevelFromConfig(logger)
+}
+
+func applyLogLevelFromConfig(logger *zerologlib.Logger) {
+	cfg := loggerConfigFromViper()
+	if err := cfg.Validate(); err != nil {
+		logger.WithLevel(zerologlib.NoLevel).Err(err).Msg("Rejected log level reload")
+		return
+	}
+
+	level, err := parseLogLevel(cfg.LogLevel)
+	if err != nil {
+		logger.WithLevel(zerologlib.NoLevel).Err(err).Msg("Rejected log level reload")
+		return
+	}
+
+	previousLevel := logger.GetLevel()
+	if previousLevel == level {
+		return
+	}
+
+	updatedLogger := logger.Level(level)
+	*logger = updatedLogger
+	logger.WithLevel(zerologlib.NoLevel).
+		Str("previous_level", previousLevel.String()).
+		Str("new_level", level.String()).
+		Msg("Reloaded log level")
+}
+
+func parseLogLevel(level string) (zerologlib.Level, error) {
+	if level == "" {
+		return zerologlib.NoLevel, nil
+	}
+	return zerologlib.ParseLevel(level)
 }
 
 func loggerConfigFromViper() *zerolog.Config {
