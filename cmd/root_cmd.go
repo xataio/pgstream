@@ -202,7 +202,7 @@ func logLevelReloads(ctx context.Context) <-chan os.Signal {
 }
 
 func reloadLogLevel(logger *rszerolog.Logger) error {
-	if err := config.Load(); err != nil {
+	if err := config.LoadQuiet(); err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
 
@@ -215,12 +215,11 @@ func reloadLogLevel(logger *rszerolog.Logger) error {
 	if err != nil {
 		return err
 	}
-	if logger.GetLevel() == level {
+	if rszerolog.GlobalLevel() == level {
 		return nil
 	}
 
-	*logger = logger.Level(level)
-	zerolog.SetGlobalLogger(logger)
+	rszerolog.SetGlobalLevel(level)
 	logger.WithLevel(rszerolog.NoLevel).Str("level", level.String()).Msg("reloaded log level after SIGHUP")
 	return nil
 }

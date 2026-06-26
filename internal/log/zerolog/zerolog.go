@@ -105,6 +105,7 @@ func NewStdLogger(l *zerolog.Logger) loglib.Logger {
 func NewLogger(config *Config) *zerolog.Logger {
 	// ignore the error, it defaults to no level
 	level, _ := zerolog.ParseLevel(config.LogLevel)
+	zerolog.SetGlobalLevel(level)
 
 	var out io.Writer
 	if config.LogFormat == formatJSON {
@@ -134,7 +135,7 @@ func NewLogger(config *Config) *zerolog.Logger {
 		Caller().
 		Stack().
 		Logger().
-		Level(level)
+		Level(zerolog.TraceLevel)
 
 	return &logger
 }
