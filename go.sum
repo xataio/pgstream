@@ -443,8 +443,8 @@ github.com/subosito/gotenv v1.6.0 h1:9NlTDc1FTs4qu0DDq7AEtTPNw6SVm7uBMsUCUjABIf8
 github.com/subosito/gotenv v1.6.0/go.mod h1:Dk4QP5c2W3ibzajGcXpNraDfq2IrhjMIvMSWPKKo0FU=
 github.com/testcontainers/testcontainers-go v0.43.0 h1:oEQx5MW2DGd9z3AeEQfB2lPM0eLs7ztyaGRu75bFo5A=
 github.com/testcontainers/testcontainers-go v0.43.0/go.mod h1:+VxkT2NQnKOZPKi6praMuMKYHYyOGXr0XSBSlSMCzFo=
-github.com/testcontainers/testcontainers-go/modules/elasticsearch v0.42.0 h1:GzdsTn4x0wTkdmRl2EFk0IniDGRoPCKPW/NWi9EmKs8=
-github.com/testcontainers/testcontainers-go/modules/elasticsearch v0.42.0/go.mod h1:5GEeZpWraS5ewjGXpMYbFodJjT+vWxuKRZ3fNXQOGRA=
+github.com/testcontainers/testcontainers-go/modules/elasticsearch v0.43.0 h1:YvBC+Qm+69e9t72fCxdyxHH9bpLEYRtG8gsxCWt1vrE=
+github.com/testcontainers/testcontainers-go/modules/elasticsearch v0.43.0/go.mod h1:bfMgY6Hf0Qadce+fC6SZqtBMC53EWn52o2BWRKoEn4c=
 github.com/testcontainers/testcontainers-go/modules/kafka v0.43.0 h1:m9/gBKYmYfOuZ+2yUxPcAvyKSDoJjJRLtjD6u+m5kgo=
 github.com/testcontainers/testcontainers-go/modules/kafka v0.43.0/go.mod h1:iS7LQrOG4GG8b0L1U1sf/CltP5e2h6CNJjBTn+mmUac=
 github.com/testcontainers/testcontainers-go/modules/opensearch v0.43.0 h1:a1ipjF7d/VxPX1dgVPIk4F+t6YkgMbE2OtBuRQCHJt8=
