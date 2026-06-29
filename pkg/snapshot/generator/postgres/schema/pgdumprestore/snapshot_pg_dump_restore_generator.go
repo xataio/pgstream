@@ -500,9 +500,18 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	alterTable := ""
 	createEventTrigger := ""
 	createView := ""
+	skipLegacyPLPGSQLHandlerFunction := false
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
+		case skipLegacyPLPGSQLHandlerFunction:
+			if strings.HasSuffix(line, ";") {
+				skipLegacyPLPGSQLHandlerFunction = false
+			}
+			continue
+		case isLegacyPLPGSQLHandlerFunctionStart(line):
+			skipLegacyPLPGSQLHandlerFunction = !strings.HasSuffix(line, ";")
+			continue
 		case strings.HasPrefix(line, "SECURITY LABEL") &&
 			isSecurityLabelForExcludedProvider(line, s.excludedSecurityLabels):
 			// skip security labels if configured to do so for the specified providers
@@ -626,6 +635,11 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		roles:                 dumpRoles,
 		eventTriggers:         []byte(eventTriggersDump.String()),
 	}
+}
+
+func isLegacyPLPGSQLHandlerFunctionStart(line string) bool {
+	return strings.HasPrefix(line, "CREATE FUNCTION public.plpgsql_call_handler() RETURNS language_handler") ||
+		strings.HasPrefix(line, "CREATE FUNCTION public.plpgsql_validator(oid) RETURNS void")
 }
 
 func (s *SnapshotGenerator) filterTriggers(eventTriggersDump []byte, excludedSchemas []string) []byte {
