@@ -7,14 +7,14 @@ import (
 	"fmt"
 
 	"github.com/xataio/pgstream/internal/postgres"
+	"github.com/xataio/pgstream/pkg/stream"
 )
 
 // SourceTableSelectPrivilegesCheck verifies that the source Postgres role can
 // read every table pgstream may need to snapshot or replicate.
 type SourceTableSelectPrivilegesCheck struct {
-	Source         postgres.AcquireFunc
-	Tables         []string
-	ExcludedTables []string
+	Source    postgres.AcquireFunc
+	Selection stream.TableSelection
 }
 
 func (c *SourceTableSelectPrivilegesCheck) Name() string {
@@ -36,11 +36,6 @@ ORDER BY n.nspname, c.relname
 `
 
 func (c *SourceTableSelectPrivilegesCheck) Run(ctx context.Context) ([]Finding, error) {
-	include, exclude, err := c.scopeMaps()
-	if err != nil {
-		return nil, fmt.Errorf("parsing table selection: %w", err)
-	}
-
 	conn, err := c.Source(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to source: %w", err)
@@ -58,7 +53,7 @@ func (c *SourceTableSelectPrivilegesCheck) Run(ctx context.Context) ([]Finding, 
 		if err := rows.Scan(&row.Role, &row.Schema, &row.Table, &row.HasSelect); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
-		if !tableInScope(row.Schema, row.Table, include, exclude) {
+		if !c.Selection.IsTableInScope(row.Schema, row.Table) {
 			continue
 		}
 		if !row.HasSelect {
@@ -76,32 +71,6 @@ type sourceTableSelectPrivilegeRow struct {
 	Schema    string
 	Table     string
 	HasSelect bool
-}
-
-func (c *SourceTableSelectPrivilegesCheck) scopeMaps() (include, exclude postgres.SchemaTableMap, err error) {
-	if len(c.Tables) > 0 {
-		include, err = postgres.NewSchemaTableMap(c.Tables)
-		if err != nil {
-			return nil, nil, fmt.Errorf("include: %w", err)
-		}
-	}
-	if len(c.ExcludedTables) > 0 {
-		exclude, err = postgres.NewSchemaTableMap(c.ExcludedTables)
-		if err != nil {
-			return nil, nil, fmt.Errorf("exclude: %w", err)
-		}
-	}
-	return include, exclude, nil
-}
-
-func tableInScope(schema, table string, include, exclude postgres.SchemaTableMap) bool {
-	if exclude != nil && exclude.ContainsSchemaTable(schema, table) {
-		return false
-	}
-	if include != nil {
-		return include.ContainsSchemaTable(schema, table)
-	}
-	return true
 }
 
 func sourceTableSelectPrivilegeMessage(row sourceTableSelectPrivilegeRow) string {
