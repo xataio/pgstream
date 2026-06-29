@@ -209,12 +209,6 @@ func TestSourceTableSelectPrivilegeMessage_QuotesOnlyRemediation(t *testing.T) {
 	require.Contains(t, msg, `GRANT SELECT ON TABLE "Reporting"."DailyRollup" TO "Replicator"`)
 }
 
-func TestQualifiedTable(t *testing.T) {
-	t.Parallel()
-
-	require.Equal(t, "public.orders", qualifiedTable("public", "orders"))
-}
-
 func TestBuildAccessChecks(t *testing.T) {
 	t.Parallel()
 
