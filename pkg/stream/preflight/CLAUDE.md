@@ -6,8 +6,10 @@ Guidance for Claude Code when working inside `pkg/stream/preflight`. The planned
 
 - `preflight.go` — `Check` interface (`Name()` + `Run(ctx) ([]Finding, error)`), `Finding`, `CheckResult`, `Report`, `Run(ctx, []Check, ...RunOption)` engine.
 - `printer.go` — `ReportPrinter{Report}` is the only thing that formats reports. The `Report` struct itself stays pure data.
-- `builder.go` — `Builder` struct, `Builders` registry slice, per-category builder functions (`BuildConnectivityChecks`, …), `BuildChecks(cfg, selected)`.
-- One file per concrete check (`connectivity.go`, future `wal_level.go`, …).
+- `builder.go` — `Builder` struct (returns `[]Check` + optional cleanup), `Builders` registry slice, per-category builder functions (`BuildConnectivityChecks`, …), `BuildChecks(cfg, selected)`.
+- One file per category of concrete checks (`connectivity.go`, `replication.go`, …).
+
+The shared-conn primitive lives one floor down at `internal/postgres.LazyConn` so other callers can reuse it.
 
 ## Adding a new check
 
@@ -21,6 +23,7 @@ Adding a check is meant to be a small, mechanical edit. Keep it that way.
    - **Return `error` only when the check itself couldn't run** (timeout, internal bug, malformed input). A detected problem is a `Finding`, not an error.
    - **Put remediation in `Finding.Message`** — the user should be able to act on it without reading source.
 3. **Materialise instances in the category builder** (e.g. `BuildConnectivityChecks`). The builder is the applicability gate: it reads `*stream.Config` and decides which instances are relevant. Inapplicable checks are silently omitted today; an explicit "skipped: <reason>" mechanism is deferred (see `docs/migration_preflight_issue.md` "Architecture decisions" #6).
+   - **If checks in the category share a Postgres connection**, call `postgres.NewLazyConn(url)` in the builder, hand `src.Acquire` (a `postgres.AcquireFunc`) to every check, and return `src.Close` as the cleanup. See `BuildReplicationChecks` for the pattern. The engine runs sequentially, so the first check to call `Source(ctx)` opens the conn and the rest reuse it. A failed dial is memoised too — only one connection attempt happens, even if every check reports its own check error.
 4. **Tests.** Unit-test the check directly against mocked dependencies (`internal/postgres/mocks` has the postgres conn mock). For new categories, exercise the builder selection path through the cmd layer too.
 
 ## Do not

@@ -1439,6 +1439,29 @@ ALTER TABLE public.example_table CLUSTER ON example_table_created_at_idx;
 		strings.Index(string(dump.indicesAndConstraints), "CLUSTER ON example_table_created_at_idx"))
 }
 
+func TestSnapshotGenerator_parseDumpSkipsLegacyPublicPLPGSQLHandlers(t *testing.T) {
+	t.Parallel()
+
+	dumpBytes := []byte(`CREATE FUNCTION public.plpgsql_call_handler() RETURNS language_handler
+    LANGUAGE c
+    AS '$libdir/plpgsql', 'plpgsql_call_handler';
+
+CREATE FUNCTION public.plpgsql_validator(oid) RETURNS void
+    LANGUAGE c
+    AS '$libdir/plpgsql', 'plpgsql_validator';
+
+CREATE FUNCTION public.keep_me() RETURNS integer
+    LANGUAGE sql
+    AS $$ SELECT 1 $$;
+`)
+
+	dump := (&SnapshotGenerator{}).parseDump(dumpBytes)
+
+	require.NotContains(t, string(dump.filtered), "CREATE FUNCTION public.plpgsql_call_handler()")
+	require.NotContains(t, string(dump.filtered), "CREATE FUNCTION public.plpgsql_validator(oid)")
+	require.Contains(t, string(dump.filtered), "CREATE FUNCTION public.keep_me() RETURNS integer")
+}
+
 func TestGetDumpsDiff(t *testing.T) {
 	t.Parallel()
 
