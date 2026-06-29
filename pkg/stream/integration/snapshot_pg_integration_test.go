@@ -494,6 +494,64 @@ func Test_SnapshotToPostgres_ClusteredIndex(t *testing.T) {
 	require.True(t, clustered)
 }
 
+// Test_SnapshotToPostgres_MaterializedViewRefresh verifies that materialized
+// views restored from a schema-only dump are refreshed after pgstream copies
+// the base table data.
+func Test_SnapshotToPostgres_MaterializedViewRefresh(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	suffix := time.Now().UnixNano()
+	baseTable := fmt.Sprintf("mv_base_%d", suffix)
+	viewName := fmt.Sprintf("mv_summary_%d", suffix)
+	indexName := fmt.Sprintf("mv_summary_idx_%d", suffix)
+
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s(
+			id integer PRIMARY KEY,
+			name text NOT NULL
+		)`, baseTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(id, name) VALUES
+			(1, 'alpha'),
+			(2, 'beta')`, baseTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE MATERIALIZED VIEW %s AS
+			SELECT id, upper(name) AS display_name
+			FROM %s
+			WITH NO DATA`, viewName, baseTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE UNIQUE INDEX %s ON %s(id)`, indexName, viewName))
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"public.*"}),
+		Processor: testPostgresProcessorCfg(),
+	}
+	cfg.Listener.Postgres.Snapshot.Schema.DumpRestore.RefreshMaterializedViews = true
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	var count int
+	err = targetConn.QueryRow(ctx, []any{&count}, fmt.Sprintf("SELECT count(*) FROM %s", viewName))
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+
+	indexes := getTableIndexes(t, ctx, targetConn, "public", viewName)
+	require.Contains(t, indexes, indexName)
+}
+
 // Test_SnapshotToPostgres_SkipsLegacyPLPGSQLHandlers verifies that legacy
 // public PL/pgSQL handler functions from a source dump are not restored as
 // ordinary user functions, while normal user-defined functions are preserved.
