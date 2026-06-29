@@ -66,6 +66,7 @@ func BuildReplicationChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 		&WAL2JSONCheck{Source: src.Acquire},
 		&ReplicationSlotHeadroomCheck{Source: src.Acquire},
 		&ReplicationRoleAttrCheck{Source: src.Acquire},
+		&ReplicaIdentityCheck{Source: src.Acquire, Selection: cfg.ReplicationTableSelection()},
 	}, src.Close
 }
 
