@@ -340,6 +340,7 @@ func TestSourceSequenceSelectPrivilegesCheck_Name(t *testing.T) {
 
 	require.Equal(t, "source_sequence_select_privileges", (&SourceSequenceSelectPrivilegesCheck{}).Name())
 }
+
 func TestSourceTableSelectPrivilegeMessage(t *testing.T) {
 	t.Parallel()
 
