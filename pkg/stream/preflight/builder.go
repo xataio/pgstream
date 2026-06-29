@@ -66,6 +66,7 @@ func BuildReplicationChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 		&WAL2JSONCheck{Source: src.Acquire},
 		&ReplicationSlotHeadroomCheck{Source: src.Acquire},
 		&ReplicationRoleAttrCheck{Source: src.Acquire},
+		&ReplicaIdentityCheck{Source: src.Acquire, Selection: cfg.ReplicationTableSelection()},
 	}, src.Close
 }
 
@@ -77,12 +78,12 @@ func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 		return nil, nil
 	}
 	src := postgres.NewLazyConn(url)
-	check := &SourceTableSelectPrivilegesCheck{Source: src.Acquire}
-	if cfg.Listener.Postgres != nil && cfg.Listener.Postgres.Snapshot != nil {
-		check.Tables = cfg.Listener.Postgres.Snapshot.Adapter.Tables
-		check.ExcludedTables = cfg.Listener.Postgres.Snapshot.Adapter.ExcludedTables
-	}
-	return []Check{check}, src.Close
+	return []Check{
+		&SourceTableSelectPrivilegesCheck{
+			Source:    src.Acquire,
+			Selection: cfg.AccessTableSelection(),
+		},
+	}, src.Close
 }
 
 // BuildChecks returns the concrete checks for the selected categories,

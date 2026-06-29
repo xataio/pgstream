@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
@@ -94,8 +95,10 @@ func (c *Config) IsValid() error {
 	if err := c.Listener.IsValid(); err != nil {
 		return err
 	}
-
-	return c.Processor.IsValid()
+	if err := c.Processor.IsValid(); err != nil {
+		return err
+	}
+	return c.validateTableSelections()
 }
 
 func (c *ListenerConfig) IsValid() error {
@@ -147,6 +150,22 @@ func (c *ProcessorConfig) IsValid() error {
 		// More than one processor is configured, return an error
 		return fmt.Errorf("only one processor can be configured at a time, found %d", processorCount)
 	}
+}
+
+func (c *Config) validateTableSelections() error {
+	if c.Listener.Postgres != nil && c.Listener.Postgres.Snapshot != nil {
+		adapter := c.Listener.Postgres.Snapshot.Adapter
+		if _, err := NewTableSelection(adapter.Tables, adapter.ExcludedTables); err != nil {
+			return fmt.Errorf("snapshot table selection: %w", err)
+		}
+	}
+	if c.Processor.Filter != nil {
+		filter := c.Processor.Filter
+		if _, err := NewTableSelection(filter.IncludeTables, filter.ExcludeTables); err != nil {
+			return fmt.Errorf("replication table selection: %w", err)
+		}
+	}
+	return nil
 }
 
 func (c *Config) SourcePostgresURL() string {
@@ -201,6 +220,126 @@ func (c *Config) RequiredTables() []string {
 			requiredTables = append(requiredTables, c.Listener.Postgres.Snapshot.Adapter.Tables...)
 		}
 	}
-	// TODO: add included tables for the replication case as well
 	return requiredTables
+}
+
+// TableSelection captures the include/exclude filter pgstream applies to the
+// WAL stream. Empty include means "every user table is in scope"; exclude
+// names tables to skip. Include and exclude are mutually exclusive at the
+// source-config level (validated by the filter package).
+type TableSelection struct {
+	include    []string
+	exclude    []string
+	includeMap pglib.SchemaTableMap
+	excludeMap pglib.SchemaTableMap
+}
+
+func NewTableSelection(include, exclude []string) (TableSelection, error) {
+	s := TableSelection{include: include, exclude: exclude}
+	var err error
+	if len(include) > 0 {
+		s.includeMap, err = pglib.NewSchemaTableMap(include)
+		if err != nil {
+			return TableSelection{}, fmt.Errorf("include: %w", err)
+		}
+	}
+	if len(exclude) > 0 {
+		s.excludeMap, err = pglib.NewSchemaTableMap(exclude)
+		if err != nil {
+			return TableSelection{}, fmt.Errorf("exclude: %w", err)
+		}
+	}
+	return s, nil
+}
+
+func (s TableSelection) IsUnfiltered() bool {
+	return len(s.include) == 0 && len(s.exclude) == 0
+}
+
+func (s TableSelection) IsTableInScope(schema, table string) bool {
+	if s.excludeMap != nil && s.excludeMap.ContainsSchemaTable(schema, table) {
+		return false
+	}
+	if s.includeMap == nil {
+		return true
+	}
+	return s.includeMap.ContainsSchemaTable(schema, table)
+}
+
+func (s TableSelection) Include() []string { return s.include }
+
+func (s TableSelection) Exclude() []string { return s.exclude }
+
+func (c *Config) SnapshotTableSelection() TableSelection {
+	if c.Listener.Postgres == nil || c.Listener.Postgres.Snapshot == nil {
+		return TableSelection{}
+	}
+	// IsValid is the gate that catches malformed entries; if a caller skipped
+	// it the constructor error is swallowed and the lazy fallback in
+	// IsTableInScope produces a defined (over-permissive) answer.
+	sel, _ := NewTableSelection(c.Listener.Postgres.Snapshot.Adapter.Tables, c.Listener.Postgres.Snapshot.Adapter.ExcludedTables)
+	return sel
+}
+
+func (c *Config) ReplicationTableSelection() TableSelection {
+	if c.Processor.Filter == nil {
+		return TableSelection{}
+	}
+	// IsValid is the gate that catches malformed entries; if a caller skipped
+	// it the constructor error is swallowed and the lazy fallback in
+	// IsTableInScope produces a defined (over-permissive) answer.
+	sel, _ := NewTableSelection(c.Processor.Filter.IncludeTables, c.Processor.Filter.ExcludeTables)
+	return sel
+}
+
+func (c *Config) AccessTableSelection() TableSelection {
+	snap := c.SnapshotTableSelection()
+	rep := c.ReplicationTableSelection()
+
+	if snap.IsUnfiltered() || rep.IsUnfiltered() {
+		return TableSelection{}
+	}
+
+	switch {
+	case len(snap.include) > 0 && len(rep.include) > 0:
+		sel, _ := NewTableSelection(dedupUnion(snap.include, rep.include), nil)
+		return sel
+	case len(snap.exclude) > 0 && len(rep.exclude) > 0:
+		sel, _ := NewTableSelection(nil, intersection(snap.exclude, rep.exclude))
+		return sel
+	default:
+		return TableSelection{}
+	}
+}
+
+func dedupUnion(a, b []string) []string {
+	seen := make(map[string]struct{}, len(a)+len(b))
+	for _, s := range a {
+		seen[s] = struct{}{}
+	}
+	for _, s := range b {
+		seen[s] = struct{}{}
+	}
+	out := make([]string, 0, len(seen))
+	for s := range seen {
+		out = append(out, s)
+	}
+	return out
+}
+
+func intersection(a, b []string) []string {
+	if len(a) == 0 || len(b) == 0 {
+		return nil
+	}
+	aSet := make(map[string]struct{}, len(a))
+	for _, s := range a {
+		aSet[s] = struct{}{}
+	}
+	var out []string
+	for _, s := range b {
+		if _, ok := aSet[s]; ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
