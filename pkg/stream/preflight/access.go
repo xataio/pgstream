@@ -74,10 +74,10 @@ type sourceTableSelectPrivilegeRow struct {
 }
 
 func sourceTableSelectPrivilegeMessage(row sourceTableSelectPrivilegeRow) string {
-	table := qualifiedTable(row.Schema, row.Table)
-	return fmt.Sprintf("source role %q lacks SELECT on %s; run GRANT SELECT ON TABLE %s TO %s", row.Role, table, table, row.Role)
-}
-
-func qualifiedTable(schema, table string) string {
-	return fmt.Sprintf("%s.%s", schema, table)
+	quotedTable := postgres.QuoteIdentifier(row.Schema) + "." + postgres.QuoteIdentifier(row.Table)
+	quotedRole := postgres.QuoteIdentifier(row.Role)
+	return fmt.Sprintf(
+		"source role %q lacks SELECT on %s.%s; run GRANT SELECT ON TABLE %s TO %s",
+		row.Role, row.Schema, row.Table, quotedTable, quotedRole,
+	)
 }
