@@ -67,6 +67,9 @@ func TestSchemaTypeCompatibilityCheck_Run_PgstreamExtraTypesPass(t *testing.T) {
 			{Schema: "public", Table: "t", Column: "v", BaseOID: 16410, TypeName: "vector", TypeKind: "b"},
 			{Schema: "public", Table: "t", Column: "hv", BaseOID: 16420, TypeName: "halfvec", TypeKind: "b"},
 			{Schema: "public", Table: "t", Column: "sv", BaseOID: 16430, TypeName: "sparsevec", TypeKind: "b"},
+			{Schema: "public", Table: "t", Column: "va", BaseOID: 16440, TypeName: "_vector", TypeKind: "b"},
+			{Schema: "public", Table: "t", Column: "hva", BaseOID: 16450, TypeName: "_halfvec", TypeKind: "b"},
+			{Schema: "public", Table: "t", Column: "sva", BaseOID: 16460, TypeName: "_sparsevec", TypeKind: "b"},
 			{Schema: "public", Table: "t", Column: "c", BaseOID: 16500, TypeName: "cube", TypeKind: "b"},
 			{Schema: "public", Table: "t", Column: "l", BaseOID: 16510, TypeName: "ltree", TypeKind: "b"},
 			{Schema: "public", Table: "t", Column: "g", BaseOID: 16600, TypeName: "geometry", TypeKind: "b"},
@@ -77,20 +80,31 @@ func TestSchemaTypeCompatibilityCheck_Run_PgstreamExtraTypesPass(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
-	require.Contains(t, findings[0].Message, `"public"."t"."g": type "geometry" is not supported`)
+	require.Contains(t, findings[0].Message, `"public"."t"."g"`)
+	require.Contains(t, findings[0].Message, `type "geometry"`)
 }
 
 func TestPgstreamSupportedTypesMatchesRegistry(t *testing.T) {
 	t.Parallel()
 
-	// The check's supported set must equal pgstream's actual extension-type
-	// registry, so it can't silently drift.
-	for _, n := range postgres.ExtensionTypeNames() {
-		_, ok := pgstreamSupportedTypes[n]
-		require.Truef(t, ok, "registered extension type %q missing from pgstreamSupportedTypes", n)
+	// Every extension type pgstream registers must be accepted by the check (no
+	// finding), so the check can't drift from the registry. Exercised
+	// behaviourally — with a synthetic non-builtin OID per type — so it doesn't
+	// couple to the internal representation of the supported set.
+	names := postgres.ExtensionTypeNames()
+	require.Contains(t, names, "hstore")
+	require.Contains(t, names, "vector")
+
+	rows := make([]schemaColumnRow, len(names))
+	for i, n := range names {
+		rows[i] = schemaColumnRow{Schema: "public", Table: "t", Column: n, BaseOID: int64(20000 + i), TypeName: n, TypeKind: "b"}
 	}
-	require.Contains(t, postgres.ExtensionTypeNames(), "hstore")
-	require.Contains(t, postgres.ExtensionTypeNames(), "vector")
+	check := &SchemaTypeCompatibilityCheck{Source: sourceWithColumns(t, rows)}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Emptyf(t, findings, "registered extension types should all be supported, got: %v", findings)
 }
 
 func TestSchemaTypeCompatibilityCheck_Run_FiltersTablesByScope(t *testing.T) {
@@ -232,7 +246,8 @@ func TestUnsupportedColumnTypeMessage_BaseTypeOmitsKindNoun(t *testing.T) {
 	msg := unsupportedColumnTypeMessage(schemaColumnRow{
 		Schema: "public", Table: "t", Column: "relid", TypeName: "regclass", TypeKind: "b",
 	})
-	require.Contains(t, msg, `"public"."t"."relid": type "regclass" is not supported`)
+	require.Contains(t, msg, `"public"."t"."relid": type "regclass"`)
+	require.NotContains(t, msg, "user-defined type")
 }
 
 func TestPostgresRangeTypeCheck_Run_SupportedRangesPass(t *testing.T) {
@@ -269,7 +284,8 @@ func TestPostgresRangeTypeCheck_Run_UnsupportedRangesReturnFindings(t *testing.T
 
 	require.NoError(t, err)
 	require.Len(t, findings, 3)
-	require.Contains(t, findings[0].Message, `"public"."t"."n": range type "numrange" cannot be written to a Postgres target`)
+	require.Contains(t, findings[0].Message, `"public"."t"."n"`)
+	require.Contains(t, findings[0].Message, `range type "numrange"`)
 	require.Contains(t, findings[1].Message, `range type "daterange"`)
 	require.Contains(t, findings[2].Message, `multirange type "int4multirange"`)
 }

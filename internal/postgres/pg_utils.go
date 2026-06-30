@@ -174,8 +174,9 @@ var extensionTypes = []extensionType{
 	{name: "jsonb", register: registerWithCodec("jsonb", &pgtype.JSONBCodec{Marshal: pgjson.Marshal, Unmarshal: pgjson.UnmarshalUseInt64})},
 
 	{name: "hstore", register: registerWithCodec("hstore", pgtype.HstoreCodec{})},
-	{name: "vector", extraNames: []string{"halfvec", "sparsevec"}, register: func(ctx context.Context, conn *pgx.Conn, _ uint32) error {
-		// pgxvec registers vector, halfvec and sparsevec in one call —
+	{name: "vector", extraNames: []string{"halfvec", "sparsevec", "_vector", "_halfvec", "_sparsevec"}, register: func(ctx context.Context, conn *pgx.Conn, _ uint32) error {
+		// pgxvec registers the vector, halfvec and sparsevec scalar types and
+		// their array variants (_vector, _halfvec, _sparsevec) in one call —
 		// the OID lookup above is just a gate to skip when pgvector is
 		// not installed.
 		if err := pgxvec.RegisterTypes(ctx, conn); err != nil {

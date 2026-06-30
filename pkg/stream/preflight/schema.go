@@ -15,14 +15,7 @@ import (
 // SchemaTypeCompatibilityCheck verifies that pgstream can decode every column of
 // every in-scope table. A column type is considered supported when either pgx's
 // static type map natively handles it, or pgstream adds its own handling on top
-// of pgx (pgstreamSupportedTypes). Any other type has no guaranteed
-// encode/decode path — its values may be dropped or fail to write to the target
-// — and is reported as a blocking finding.
-//
-// Domains are resolved to their underlying base type before the check, so a
-// domain over a supported built-in (the common case) is not flagged. The check
-// inspects only the tables that pass the user's include/exclude filter
-// (TableSelection) so unrelated tables don't pollute the report.
+// of pgx (pgstreamSupportedTypes).
 type SchemaTypeCompatibilityCheck struct {
 	Source    postgres.AcquireFunc
 	Selection stream.TableSelection
@@ -30,26 +23,8 @@ type SchemaTypeCompatibilityCheck struct {
 
 func (c *SchemaTypeCompatibilityCheck) Name() string { return "schema_type_compatibility" }
 
-// pgstreamSupportedTypes is the set of PostgreSQL types that pgx's static type
-// map has no codec for out of the box, but that pgstream still supports because
-// it registers a codec for them on every connection (hstore, pgvector's
-// vector/halfvec/sparsevec, cube, ltree, …). It is derived from the canonical
-// registry in internal/postgres so it can never drift from what pgstream
-// actually registers.
-var pgstreamSupportedTypes = func() map[string]struct{} {
-	names := postgres.ExtensionTypeNames()
-	m := make(map[string]struct{}, len(names))
-	for _, n := range names {
-		m[n] = struct{}{}
-	}
-	return m
-}()
-
 // schemaColumnTypesQuery lists every column of every user table together with
-// the resolved base type of the column. The recursive CTE walks domain chains
-// (domain over domain over … over base) down to the first non-domain type, so
-// the reported OID/name/kind always describe a concrete type pgstream would have
-// to decode.
+// the resolved base type of the column.
 const schemaColumnTypesQuery = `
 WITH RECURSIVE type_resolved AS (
     SELECT oid AS source_oid, oid AS resolved_oid, typtype, typbasetype, typname
@@ -90,9 +65,8 @@ func (c *SchemaTypeCompatibilityCheck) Run(ctx context.Context) ([]Finding, erro
 	}
 	defer rows.Close()
 
-	// pgx's static type map is the source of truth for what pgstream can encode
-	// and decode; it's resolved in-memory, so no further queries are needed.
 	typeMap := pgtype.NewMap()
+	pgstreamSupportedTypes := pgstreamSupportedTypes()
 
 	var findings []Finding
 	for rows.Next() {
@@ -117,6 +91,18 @@ func (c *SchemaTypeCompatibilityCheck) Run(ctx context.Context) ([]Finding, erro
 	return findings, nil
 }
 
+// pgstreamSupportedTypes is the set of PostgreSQL types that pgx's static type
+// map has no codec for out of the box, but that pgstream still supports because
+// it registers a codec for them on every connection.
+func pgstreamSupportedTypes() map[string]struct{} {
+	names := postgres.ExtensionTypeNames()
+	m := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		m[n] = struct{}{}
+	}
+	return m
+}
+
 type schemaColumnRow struct {
 	Schema   string
 	Table    string
@@ -133,20 +119,13 @@ func unsupportedColumnTypeMessage(row schemaColumnRow) string {
 		desc = fmt.Sprintf("%s %q", kind, row.TypeName)
 	}
 	return fmt.Sprintf(
-		"%s: %s is not supported by pgstream's value pipeline; pgstream relies on pgx to encode and decode column values and has no native handling for it — cast the column to a supported built-in type or exclude the table from the migration",
+		"%s: %s unknown type; Cast the column to a supported type or exclude the table from the migration. To request support, open an issue in the repo: https://github.com/xataio/pgstream/issues/new",
 		col, desc,
 	)
 }
 
 // PostgresRangeTypeCheck verifies that every in-scope range/multirange column
 // uses a range type pgstream's Postgres target writer can actually encode.
-// pgstream normalizes only int4range, int8range, and tstzrange values before
-// INSERT/COPY (getTypedRangeValue in the postgres processor); every other range
-// type (numrange, tsrange, daterange, …) and all multirange types reach pgx as
-// an untyped pgtype.Range[any], which pgx cannot encode to the target column, so
-// the write fails. This is a Postgres-target-specific limitation, so the builder
-// only wires this check in when the target is Postgres. It shares the column
-// query (and domain resolution) with SchemaTypeCompatibilityCheck.
 type PostgresRangeTypeCheck struct {
 	Source    postgres.AcquireFunc
 	Selection stream.TableSelection
@@ -194,10 +173,6 @@ func (c *PostgresRangeTypeCheck) Run(ctx context.Context) ([]Finding, error) {
 	return findings, nil
 }
 
-// unsupportedRangeTypeMessage returns a finding message when the column is a
-// range/multirange type the Postgres target writer can't encode, or "" when the
-// column is fine (not a range, or one of the supported range types). Kept pure
-// for cheap unit testing.
 func unsupportedRangeTypeMessage(row schemaColumnRow) string {
 	switch row.TypeKind {
 	case "r", "m": // range, multirange
@@ -209,14 +184,11 @@ func unsupportedRangeTypeMessage(row schemaColumnRow) string {
 	}
 	col := postgres.QuoteIdentifier(row.Schema) + "." + postgres.QuoteIdentifier(row.Table) + "." + postgres.QuoteIdentifier(row.Column)
 	return fmt.Sprintf(
-		"%s: %s %q cannot be written to a Postgres target; pgstream only encodes int4range, int8range, and tstzrange values, so other range and multirange types fail on INSERT/COPY — cast the column to a supported range type or exclude the table from the migration",
+		"%s: %s %q unknown type; pgstream only encodes int4range, int8range, and tstzrange values. Cast the column to a supported type or exclude the table from the migration. To request support, open an issue in the repo: https://github.com/xataio/pgstream/issues/new",
 		col, typeKindLabel(row.TypeKind), row.TypeName,
 	)
 }
 
-// typeKindLabel turns a pg_type.typtype code into a human-readable noun for the
-// finding message, or "" for an ordinary base type (where the bare type name
-// reads better, e.g. a built-in system type pgx doesn't register like regclass).
 func typeKindLabel(typtype string) string {
 	switch typtype {
 	case "c":
