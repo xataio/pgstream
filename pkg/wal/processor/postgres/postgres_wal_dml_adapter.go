@@ -304,6 +304,7 @@ func (a *dmlAdapter) filterRowColumnsForAction(cols []wal.Column, schemaInfo sch
 		val := c.Value
 
 		val = serializeJSONBValue(c.Type, val)
+		val = getTypedRangeValue(c.Type, val)
 
 		if a.forCopy {
 			val = a.updateValueForCopy(val, c.Type)
@@ -402,6 +403,71 @@ func getTypedTSTZRange(value any) any {
 	return pgtype.Range[time.Time]{
 		Lower:     lower,
 		Upper:     upper,
+		LowerType: v.LowerType,
+		UpperType: v.UpperType,
+		Valid:     v.Valid,
+	}
+}
+
+func getTypedRangeValue(colType string, value any) any {
+	switch colType {
+	case "int4range":
+		return getTypedInt4Range(value)
+	case "int8range":
+		return getTypedInt8Range(value)
+	case "tstzrange":
+		return getTypedTSTZRange(value)
+	default:
+		return value
+	}
+}
+
+func getTypedInt4Range(value any) any {
+	v, ok := value.(pgtype.Range[any])
+	if !ok {
+		return value
+	}
+
+	lower, lowerOk := toInt64(v.Lower)
+	upper, upperOk := toInt64(v.Upper)
+
+	var typedLower, typedUpper int32
+	if lowerOk {
+		typedLower = int32(lower)
+	}
+	if upperOk {
+		typedUpper = int32(upper)
+	}
+
+	return pgtype.Range[int32]{
+		Lower:     typedLower,
+		Upper:     typedUpper,
+		LowerType: v.LowerType,
+		UpperType: v.UpperType,
+		Valid:     v.Valid,
+	}
+}
+
+func getTypedInt8Range(value any) any {
+	v, ok := value.(pgtype.Range[any])
+	if !ok {
+		return value
+	}
+
+	lower, lowerOk := toInt64(v.Lower)
+	upper, upperOk := toInt64(v.Upper)
+
+	var typedLower, typedUpper int64
+	if lowerOk {
+		typedLower = lower
+	}
+	if upperOk {
+		typedUpper = upper
+	}
+
+	return pgtype.Range[int64]{
+		Lower:     typedLower,
+		Upper:     typedUpper,
 		LowerType: v.LowerType,
 		UpperType: v.UpperType,
 		Valid:     v.Valid,
