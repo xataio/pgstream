@@ -13,11 +13,11 @@ import (
 )
 
 // SchemaTypeCompatibilityCheck verifies that pgstream can decode every column of
-// every in-scope table. pgstream moves column values through pgx's type system
-// (for both snapshot COPY and WAL replication) and has no bespoke handling for
-// user-defined types, so a column whose type pgx does not natively recognize has
-// no guaranteed encode/decode path — its values may be dropped or fail to write
-// to the target. Such columns are reported as blocking findings.
+// every in-scope table. A column type is considered supported when either pgx's
+// static type map natively handles it, or pgstream adds its own handling on top
+// of pgx (pgstreamSupportedTypes). Any other type has no guaranteed
+// encode/decode path — its values may be dropped or fail to write to the target
+// — and is reported as a blocking finding.
 //
 // Domains are resolved to their underlying base type before the check, so a
 // domain over a supported built-in (the common case) is not flagged. The check
@@ -29,6 +29,21 @@ type SchemaTypeCompatibilityCheck struct {
 }
 
 func (c *SchemaTypeCompatibilityCheck) Name() string { return "schema_type_compatibility" }
+
+// pgstreamSupportedTypes is the set of PostgreSQL types that pgx's static type
+// map has no codec for out of the box, but that pgstream still supports because
+// it registers a codec for them on every connection (hstore, pgvector's
+// vector/halfvec/sparsevec, cube, ltree, …). It is derived from the canonical
+// registry in internal/postgres so it can never drift from what pgstream
+// actually registers.
+var pgstreamSupportedTypes = func() map[string]struct{} {
+	names := postgres.ExtensionTypeNames()
+	m := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		m[n] = struct{}{}
+	}
+	return m
+}()
 
 // schemaColumnTypesQuery lists every column of every user table together with
 // the resolved base type of the column. The recursive CTE walks domain chains
@@ -89,6 +104,9 @@ func (c *SchemaTypeCompatibilityCheck) Run(ctx context.Context) ([]Finding, erro
 			continue
 		}
 		if _, ok := typeMap.TypeForOID(uint32(row.BaseOID)); ok {
+			continue
+		}
+		if _, ok := pgstreamSupportedTypes[row.TypeName]; ok {
 			continue
 		}
 		findings = append(findings, Finding{Message: unsupportedColumnTypeMessage(row)})

@@ -55,6 +55,44 @@ func TestSchemaTypeCompatibilityCheck_Run_UserDefinedTypeReturnsFinding(t *testi
 	require.Contains(t, findings[0].Message, "exclude the table")
 }
 
+func TestSchemaTypeCompatibilityCheck_Run_PgstreamExtraTypesPass(t *testing.T) {
+	t.Parallel()
+
+	// hstore, pgvector (vector/halfvec/sparsevec), cube and ltree are extension
+	// types pgx has no codec for, but pgstream registers them on every connection
+	// so they are supported; a genuinely unsupported extension type still flags.
+	check := &SchemaTypeCompatibilityCheck{
+		Source: sourceWithColumns(t, []schemaColumnRow{
+			{Schema: "public", Table: "t", Column: "h", BaseOID: 16400, TypeName: "hstore", TypeKind: "b"},
+			{Schema: "public", Table: "t", Column: "v", BaseOID: 16410, TypeName: "vector", TypeKind: "b"},
+			{Schema: "public", Table: "t", Column: "hv", BaseOID: 16420, TypeName: "halfvec", TypeKind: "b"},
+			{Schema: "public", Table: "t", Column: "sv", BaseOID: 16430, TypeName: "sparsevec", TypeKind: "b"},
+			{Schema: "public", Table: "t", Column: "c", BaseOID: 16500, TypeName: "cube", TypeKind: "b"},
+			{Schema: "public", Table: "t", Column: "l", BaseOID: 16510, TypeName: "ltree", TypeKind: "b"},
+			{Schema: "public", Table: "t", Column: "g", BaseOID: 16600, TypeName: "geometry", TypeKind: "b"},
+		}),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	require.Contains(t, findings[0].Message, `"public"."t"."g": type "geometry" is not supported`)
+}
+
+func TestPgstreamSupportedTypesMatchesRegistry(t *testing.T) {
+	t.Parallel()
+
+	// The check's supported set must equal pgstream's actual extension-type
+	// registry, so it can't silently drift.
+	for _, n := range postgres.ExtensionTypeNames() {
+		_, ok := pgstreamSupportedTypes[n]
+		require.Truef(t, ok, "registered extension type %q missing from pgstreamSupportedTypes", n)
+	}
+	require.Contains(t, postgres.ExtensionTypeNames(), "hstore")
+	require.Contains(t, postgres.ExtensionTypeNames(), "vector")
+}
+
 func TestSchemaTypeCompatibilityCheck_Run_FiltersTablesByScope(t *testing.T) {
 	t.Parallel()
 
