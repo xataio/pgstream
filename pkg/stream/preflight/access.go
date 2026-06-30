@@ -57,13 +57,12 @@ SELECT
 FROM pg_class t
 JOIN pg_namespace tn ON tn.oid = t.relnamespace
 JOIN pg_attribute a ON a.attrelid = t.oid
-JOIN pg_attrdef ad ON ad.adrelid = t.oid AND ad.adnum = a.attnum
 JOIN pg_depend d ON d.refobjid = t.oid AND d.refobjsubid = a.attnum
 JOIN pg_class s ON s.oid = d.objid
 JOIN pg_namespace sn ON sn.oid = s.relnamespace
 WHERE t.relkind IN ('r', 'p')
   AND s.relkind = 'S'
-  AND d.deptype = 'a'
+  AND d.deptype IN ('a', 'i')
   AND tn.nspname NOT IN ('pg_catalog', 'information_schema', 'pgstream')
   AND tn.nspname NOT LIKE 'pg_toast%'
   AND a.attnum > 0
