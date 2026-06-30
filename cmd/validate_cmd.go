@@ -22,7 +22,10 @@ var validateCmd = &cobra.Command{
 	Short: "Validate different parts of the pgstream configuration",
 }
 
-var errNoPostgresURL = errors.New("postgres URL is required for validation")
+var (
+	errNoPostgresURL    = errors.New("postgres URL is required for validation")
+	errValidationFailed = errors.New("validation check identified issues")
+)
 
 var validateRulesCmd = &cobra.Command{
 	Use:     "rules",
@@ -76,9 +79,13 @@ var validateRulesCmd = &cobra.Command{
 				return fmt.Errorf("failed to format pgstream validation status: %w", err)
 			}
 
+			if rulesStatus != nil && len(rulesStatus.Errors) > 0 {
+				return errValidationFailed
+			}
+
 			return nil
 		}()
-		if err != nil {
+		if err != nil && !errors.Is(err, errValidationFailed) {
 			sp.Fail(err.Error())
 		}
 
@@ -125,9 +132,13 @@ var validateSchemaCmd = &cobra.Command{
 				return fmt.Errorf("failed to format pgstream schema compatibility status: %w", err)
 			}
 
+			if schemaStatus != nil && len(schemaStatus.GetErrors()) > 0 {
+				return errValidationFailed
+			}
+
 			return nil
 		}()
-		if err != nil {
+		if err != nil && !errors.Is(err, errValidationFailed) {
 			sp.Fail(err.Error())
 		}
 

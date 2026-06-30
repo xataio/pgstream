@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -429,6 +430,63 @@ func TestBuildBulkInsertQueries_SplitAtLimit(t *testing.T) {
 
 	queries := adapter.buildBulkInsertQueries(events, si)
 	require.Greater(t, len(queries), 1, "should split into multiple INSERT queries")
+}
+
+func TestBuildBulkInsertQueries_TypesIntRangeArgs(t *testing.T) {
+	t.Parallel()
+
+	adapter := newTestDMLAdapter(t)
+	events := []*wal.Data{
+		{
+			Action: "I",
+			Schema: "public",
+			Table:  "range_example",
+			Columns: []wal.Column{
+				{Name: "id", Type: "int4", Value: int32(1)},
+				{
+					Name: "small_range",
+					Type: "int4range",
+					Value: pgtype.Range[any]{
+						Lower:     int64(7),
+						Upper:     int64(11),
+						LowerType: pgtype.Inclusive,
+						UpperType: pgtype.Exclusive,
+						Valid:     true,
+					},
+				},
+				{
+					Name: "large_range",
+					Type: "int8range",
+					Value: pgtype.Range[any]{
+						Lower:     int64(13275),
+						Upper:     int64(13279),
+						LowerType: pgtype.Inclusive,
+						UpperType: pgtype.Exclusive,
+						Valid:     true,
+					},
+				},
+			},
+		},
+	}
+
+	queries := adapter.buildBulkInsertQueries(events, schemaInfo{})
+	require.Len(t, queries, 1)
+	require.IsType(t, pgtype.Range[int32]{}, queries[0].args[1])
+	require.Equal(t, pgtype.Range[int32]{
+		Lower:     7,
+		Upper:     11,
+		LowerType: pgtype.Inclusive,
+		UpperType: pgtype.Exclusive,
+		Valid:     true,
+	}, queries[0].args[1])
+	require.IsType(t, pgtype.Range[int64]{}, queries[0].args[2])
+	require.Equal(t, pgtype.Range[int64]{
+		Lower:     13275,
+		Upper:     13279,
+		LowerType: pgtype.Inclusive,
+		UpperType: pgtype.Exclusive,
+		Valid:     true,
+	}, queries[0].args[2])
 }
 
 func deleteEvent(schema, table, colName, colType string, colValue any) *wal.Data {

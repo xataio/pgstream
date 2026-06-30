@@ -68,6 +68,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_NO_OWNER")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_NO_PRIVILEGES")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_SECURITY_LABELS")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_REFRESH_MATERIALIZED_VIEWS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_DISABLE_PROGRESS_TRACKING")
 
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_TARGET_URL")
@@ -327,17 +328,18 @@ func parseSchemaSnapshotConfig(pgurl string) (*snapshotbuilder.SchemaSnapshotCon
 	}
 	return &snapshotbuilder.SchemaSnapshotConfig{
 		DumpRestore: &pgdumprestore.Config{
-			SourcePGURL:            pgurl,
-			TargetPGURL:            pgTargetURL,
-			CleanTargetDB:          viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB"),
-			CreateTargetDB:         viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB"),
-			IncludeGlobalDBObjects: viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS"),
-			Role:                   viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_ROLE"),
-			RolesSnapshotMode:      rolesSnapshotConfig,
-			DumpDebugFile:          viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE"),
-			NoOwner:                viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_NO_OWNER"),
-			NoPrivileges:           viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_NO_PRIVILEGES"),
-			ExcludedSecurityLabels: viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_SECURITY_LABELS"),
+			SourcePGURL:              pgurl,
+			TargetPGURL:              pgTargetURL,
+			CleanTargetDB:            viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB"),
+			CreateTargetDB:           viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB"),
+			IncludeGlobalDBObjects:   viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS"),
+			Role:                     viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_ROLE"),
+			RolesSnapshotMode:        rolesSnapshotConfig,
+			DumpDebugFile:            viper.GetString("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE"),
+			NoOwner:                  viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_NO_OWNER"),
+			NoPrivileges:             viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_NO_PRIVILEGES"),
+			ExcludedSecurityLabels:   viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_SECURITY_LABELS"),
+			RefreshMaterializedViews: viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_REFRESH_MATERIALIZED_VIEWS"),
 		},
 	}, nil
 }

@@ -44,6 +44,11 @@ type SnapshotGenerator struct {
 	// generator runs. Other indexes and constraints, such as foreign keys, are
 	// still restored after data is inserted.
 	restoreConflictTargetsBeforeData bool
+	// refreshMaterializedViews controls whether materialized views are refreshed
+	// (REFRESH MATERIALIZED VIEW ... WITH DATA) after the table data has been
+	// restored. Disabled by default since refreshing can be expensive on large
+	// views.
+	refreshMaterializedViews bool
 }
 
 type snapshotProgressTracker interface {
@@ -72,19 +77,24 @@ type Config struct {
 	DumpDebugFile string
 	// if set, security label providers that will be excluded from the dump
 	ExcludedSecurityLabels []string
+	// if set to true, materialized views will be refreshed (REFRESH MATERIALIZED
+	// VIEW ... WITH DATA) after the table data has been restored. Disabled by
+	// default since refreshing can be expensive on large views.
+	RefreshMaterializedViews bool
 }
 
 type Option func(s *SnapshotGenerator)
 
 type dump struct {
-	full                  []byte
-	filtered              []byte
-	cleanupPart           []byte
-	indicesAndConstraints []byte
-	views                 []byte
-	sequences             []string
-	roles                 map[string]role
-	eventTriggers         []byte
+	full                      []byte
+	filtered                  []byte
+	cleanupPart               []byte
+	indicesAndConstraints     []byte
+	views                     []byte
+	materializedViewRefreshes []byte
+	sequences                 []string
+	roles                     map[string]role
+	eventTriggers             []byte
 }
 
 const (
@@ -101,17 +111,18 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 	}
 
 	sg := &SnapshotGenerator{
-		sourceURL:              c.SourcePGURL,
-		targetURL:              c.TargetPGURL,
-		pgDumpFn:               pglib.RunPGDump,
-		pgDumpAllFn:            pglib.RunPGDumpAll,
-		pgRestoreFn:            pglib.RunPGRestore,
-		logger:                 loglib.NewNoopLogger(),
-		dumpDebugFile:          c.DumpDebugFile,
-		excludedSecurityLabels: c.ExcludedSecurityLabels,
-		roleSQLParser:          &roleSQLParser{},
-		sourceQuerier:          sourceConnPool,
-		optionGenerator:        newOptionGenerator(sourceConnPool, c),
+		sourceURL:                c.SourcePGURL,
+		targetURL:                c.TargetPGURL,
+		pgDumpFn:                 pglib.RunPGDump,
+		pgDumpAllFn:              pglib.RunPGDumpAll,
+		pgRestoreFn:              pglib.RunPGRestore,
+		logger:                   loglib.NewNoopLogger(),
+		dumpDebugFile:            c.DumpDebugFile,
+		excludedSecurityLabels:   c.ExcludedSecurityLabels,
+		roleSQLParser:            &roleSQLParser{},
+		sourceQuerier:            sourceConnPool,
+		optionGenerator:          newOptionGenerator(sourceConnPool, c),
+		refreshMaterializedViews: c.RefreshMaterializedViews,
 	}
 
 	for _, opt := range opts {
@@ -272,7 +283,16 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	}
 
 	s.logger.Info("restoring views")
-	return s.restoreDump(ctx, dump.views)
+	if err := s.restoreDump(ctx, dump.views); err != nil {
+		return err
+	}
+
+	if !s.refreshMaterializedViews {
+		return nil
+	}
+
+	s.logger.Info("refreshing materialized views")
+	return s.restoreDump(ctx, dump.materializedViewRefreshes)
 }
 
 func splitConflictTargetConstraints(d []byte) ([]byte, []byte) {
@@ -497,9 +517,12 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	viewsDump := strings.Builder{}
 	sequenceNames := []string{}
 	dumpRoles := make(map[string]role)
+	connectStatements := []string{}
+	materializedViews := []string{}
 	alterTable := ""
 	createEventTrigger := ""
 	createView := ""
+	materializedViewNames := map[string]struct{}{}
 	skipLegacyPLPGSQLHandlerFunction := false
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -518,7 +541,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			continue
 		case alterTable != "":
 			// check if the previous alter table line is split in two lines and matches a constraint
-			if strings.Contains(line, "ADD CONSTRAINT") {
+			if strings.Contains(line, "ADD CONSTRAINT") || isClusterOnAlterTable(line) {
 				indicesAndConstraints.WriteString(alterTable)
 				indicesAndConstraints.WriteString("\n")
 				indicesAndConstraints.WriteString(line)
@@ -547,6 +570,10 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 
 		case strings.HasPrefix(line, "CREATE VIEW"),
 			strings.HasPrefix(line, "CREATE MATERIALIZED VIEW"):
+			if name, ok := materializedViewName(line); ok {
+				materializedViewNames[name] = struct{}{}
+				materializedViews = append(materializedViews, name)
+			}
 			createView = line
 			fallthrough
 		case createView != "":
@@ -560,14 +587,17 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			viewsDump.WriteString("\n")
 
 		case strings.Contains(line, `\connect`):
+			connectStatements = append(connectStatements, line)
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
 			filteredDump.WriteString(line)
 			filteredDump.WriteString("\n")
 			viewsDump.WriteString(line)
 			viewsDump.WriteString("\n\n")
-		case strings.HasPrefix(line, "CREATE INDEX"),
-			strings.HasPrefix(line, "CREATE UNIQUE INDEX"),
+		case isIndexStatement(line) && isIndexOnMaterializedView(line, materializedViewNames):
+			viewsDump.WriteString(line)
+			viewsDump.WriteString("\n\n")
+		case isIndexStatement(line),
 			strings.HasPrefix(line, "CREATE CONSTRAINT"),
 			strings.HasPrefix(line, "CREATE TRIGGER"),
 			strings.HasPrefix(line, "COMMENT ON CONSTRAINT"),
@@ -577,6 +607,9 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			indicesAndConstraints.WriteString("\n\n")
 		case strings.HasPrefix(line, "ALTER TABLE") && strings.Contains(line, "ADD CONSTRAINT"):
 			indicesAndConstraints.WriteString(line)
+		case strings.HasPrefix(line, "ALTER TABLE") && isClusterOnAlterTable(line):
+			indicesAndConstraints.WriteString(line)
+			indicesAndConstraints.WriteString("\n\n")
 		case strings.HasPrefix(line, "ALTER TABLE") && strings.Contains(line, "REPLICA IDENTITY"):
 			// REPLICA IDENTITY lines should be in the indicesAndConstraints section
 			// since they reference constraints/indices that are also there
@@ -627,19 +660,76 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	}
 
 	return &dump{
-		full:                  d,
-		filtered:              []byte(filteredDump.String()),
-		indicesAndConstraints: []byte(indicesAndConstraints.String()),
-		views:                 []byte(viewsDump.String()),
-		sequences:             sequenceNames,
-		roles:                 dumpRoles,
-		eventTriggers:         []byte(eventTriggersDump.String()),
+		full:                      d,
+		filtered:                  []byte(filteredDump.String()),
+		indicesAndConstraints:     []byte(indicesAndConstraints.String()),
+		views:                     []byte(viewsDump.String()),
+		materializedViewRefreshes: materializedViewRefreshDump(connectStatements, materializedViews),
+		sequences:                 sequenceNames,
+		roles:                     dumpRoles,
+		eventTriggers:             []byte(eventTriggersDump.String()),
 	}
+}
+
+func isClusterOnAlterTable(line string) bool {
+	return strings.Contains(line, " CLUSTER ON ")
 }
 
 func isLegacyPLPGSQLHandlerFunctionStart(line string) bool {
 	return strings.HasPrefix(line, "CREATE FUNCTION public.plpgsql_call_handler() RETURNS language_handler") ||
 		strings.HasPrefix(line, "CREATE FUNCTION public.plpgsql_validator(oid) RETURNS void")
+}
+
+func materializedViewRefreshDump(connectStatements, materializedViews []string) []byte {
+	if len(materializedViews) == 0 {
+		return nil
+	}
+
+	refreshDump := strings.Builder{}
+	for _, statement := range connectStatements {
+		refreshDump.WriteString(statement)
+		refreshDump.WriteString("\n\n")
+	}
+	for _, view := range materializedViews {
+		fmt.Fprintf(&refreshDump, "REFRESH MATERIALIZED VIEW %s WITH DATA;\n\n", view)
+	}
+	return []byte(refreshDump.String())
+}
+
+func isIndexStatement(line string) bool {
+	return strings.HasPrefix(line, "CREATE INDEX") ||
+		strings.HasPrefix(line, "CREATE UNIQUE INDEX")
+}
+
+func materializedViewName(line string) (string, bool) {
+	if !strings.HasPrefix(line, "CREATE MATERIALIZED VIEW ") {
+		return "", false
+	}
+
+	name := strings.TrimPrefix(line, "CREATE MATERIALIZED VIEW ")
+	if idx := strings.Index(name, " AS"); idx >= 0 {
+		return strings.TrimSpace(name[:idx]), true
+	}
+	return "", false
+}
+
+func isIndexOnMaterializedView(line string, materializedViewNames map[string]struct{}) bool {
+	if len(materializedViewNames) == 0 {
+		return false
+	}
+
+	onIdx := strings.Index(line, " ON ")
+	if onIdx < 0 {
+		return false
+	}
+	rest := line[onIdx+len(" ON "):]
+	usingIdx := strings.Index(rest, " USING ")
+	if usingIdx < 0 {
+		return false
+	}
+
+	_, ok := materializedViewNames[strings.TrimSpace(rest[:usingIdx])]
+	return ok
 }
 
 func (s *SnapshotGenerator) filterTriggers(eventTriggersDump []byte, excludedSchemas []string) []byte {
