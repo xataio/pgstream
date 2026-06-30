@@ -90,19 +90,28 @@ func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 // BuildSchemaChecks returns the schema-preflight checks applicable to cfg,
 // plus a cleanup function that closes the shared source connection. Schema
 // checks cover every table pgstream reads (snapshot and replication), so they
-// use the combined access table selection.
+// use the combined access table selection. The range-type check is target
+// specific and is only added when the target is Postgres.
 func BuildSchemaChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 	url := cfg.SourcePostgresURL()
 	if url == "" {
 		return nil, nil
 	}
 	src := postgres.NewLazyConn(url)
-	return []Check{
+	selection := cfg.AccessTableSelection()
+	checks := []Check{
 		&SchemaTypeCompatibilityCheck{
 			Source:    src.Acquire,
-			Selection: cfg.AccessTableSelection(),
+			Selection: selection,
 		},
-	}, src.Close
+	}
+	if cfg.Processor.Postgres != nil {
+		checks = append(checks, &PostgresRangeTypeCheck{
+			Source:    src.Acquire,
+			Selection: selection,
+		})
+	}
+	return checks, src.Close
 }
 
 // BuildChecks returns the concrete checks for the selected categories,

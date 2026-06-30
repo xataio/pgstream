@@ -15,19 +15,19 @@ import (
 )
 
 const (
-	oidInt4    = 23 // resolvable via the pgx static type map (no DB lookup)
-	oidText    = 25
-	oidUnknown = 999999 // not in the static map; forces a pg_type lookup
+	oidInt4    = 23     // resolvable via the pgx static type map (built-in)
+	oidText    = 25     // built-in
+	oidUnknown = 999999 // not a built-in type; pgx cannot encode/decode it
 )
 
-func TestSchemaTypeCompatibilityCheck_Run_AllTypesResolvable(t *testing.T) {
+func TestSchemaTypeCompatibilityCheck_Run_AllTypesBuiltIn(t *testing.T) {
 	t.Parallel()
 
 	check := &SchemaTypeCompatibilityCheck{
 		Source: sourceWithColumns(t, []schemaColumnRow{
-			{Schema: "public", Table: "orders", Column: "id", TypeOID: oidInt4},
-			{Schema: "public", Table: "orders", Column: "name", TypeOID: oidText},
-		}, nil),
+			{Schema: "public", Table: "orders", Column: "id", BaseOID: oidInt4, TypeName: "int4", TypeKind: "b"},
+			{Schema: "public", Table: "orders", Column: "name", BaseOID: oidText, TypeName: "text", TypeKind: "b"},
+		}),
 	}
 
 	findings, err := check.Run(context.Background())
@@ -36,22 +36,23 @@ func TestSchemaTypeCompatibilityCheck_Run_AllTypesResolvable(t *testing.T) {
 	require.Empty(t, findings)
 }
 
-func TestSchemaTypeCompatibilityCheck_Run_UnresolvableTypeReturnsFinding(t *testing.T) {
+func TestSchemaTypeCompatibilityCheck_Run_UserDefinedTypeReturnsFinding(t *testing.T) {
 	t.Parallel()
 
 	check := &SchemaTypeCompatibilityCheck{
 		Source: sourceWithColumns(t, []schemaColumnRow{
-			{Schema: "public", Table: "orders", Column: "id", TypeOID: oidInt4},
-			{Schema: "public", Table: "orders", Column: "weird", TypeOID: oidUnknown},
-		}, errors.New("no rows")),
+			{Schema: "public", Table: "orders", Column: "id", BaseOID: oidInt4, TypeName: "int4", TypeKind: "b"},
+			{Schema: "public", Table: "orders", Column: "status", BaseOID: oidUnknown, TypeName: "order_status", TypeKind: "e"},
+		}),
 	}
 
 	findings, err := check.Run(context.Background())
 
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
-	require.Contains(t, findings[0].Message, "column public.orders.weird")
-	require.Contains(t, findings[0].Message, "unsupported type OID 999999")
+	require.Contains(t, findings[0].Message, `"public"."orders"."status"`)
+	require.Contains(t, findings[0].Message, `enum type "order_status"`)
+	require.Contains(t, findings[0].Message, "exclude the table")
 }
 
 func TestSchemaTypeCompatibilityCheck_Run_FiltersTablesByScope(t *testing.T) {
@@ -63,17 +64,18 @@ func TestSchemaTypeCompatibilityCheck_Run_FiltersTablesByScope(t *testing.T) {
 	check := &SchemaTypeCompatibilityCheck{
 		Selection: sel,
 		Source: sourceWithColumns(t, []schemaColumnRow{
-			{Schema: "billing", Table: "invoices", Column: "c", TypeOID: oidUnknown},
-			{Schema: "public", Table: "audit_log", Column: "c", TypeOID: oidUnknown},
-			{Schema: "public", Table: "orders", Column: "c", TypeOID: oidUnknown},
-		}, errors.New("no rows")),
+			{Schema: "billing", Table: "invoices", Column: "c", BaseOID: oidUnknown, TypeName: "money_amount", TypeKind: "c"},
+			{Schema: "public", Table: "audit_log", Column: "c", BaseOID: oidUnknown, TypeName: "money_amount", TypeKind: "c"},
+			{Schema: "public", Table: "orders", Column: "c", BaseOID: oidUnknown, TypeName: "money_amount", TypeKind: "c"},
+		}),
 	}
 
 	findings, err := check.Run(context.Background())
 
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
-	require.Contains(t, findings[0].Message, "column public.orders.c")
+	require.Contains(t, findings[0].Message, `"public"."orders"."c"`)
+	require.Contains(t, findings[0].Message, "composite type")
 }
 
 func TestSchemaTypeCompatibilityCheck_Run_SourceAcquireFails(t *testing.T) {
@@ -173,26 +175,139 @@ func TestSchemaTypeCompatibilityCheck_Name(t *testing.T) {
 	require.Equal(t, "schema_type_compatibility", (&SchemaTypeCompatibilityCheck{}).Name())
 }
 
+func TestTypeKindLabel(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "composite type", typeKindLabel("c"))
+	require.Equal(t, "enum type", typeKindLabel("e"))
+	require.Equal(t, "range type", typeKindLabel("r"))
+	require.Equal(t, "multirange type", typeKindLabel("m"))
+	require.Equal(t, "pseudo-type", typeKindLabel("p"))
+	require.Equal(t, "", typeKindLabel("b"))
+}
+
+func TestUnsupportedColumnTypeMessage_BaseTypeOmitsKindNoun(t *testing.T) {
+	t.Parallel()
+
+	// A built-in system type pgx doesn't register (typtype 'b') should read as a
+	// bare type name, not be mislabelled as a "user-defined type".
+	msg := unsupportedColumnTypeMessage(schemaColumnRow{
+		Schema: "public", Table: "t", Column: "relid", TypeName: "regclass", TypeKind: "b",
+	})
+	require.Contains(t, msg, `"public"."t"."relid": type "regclass" is not supported`)
+}
+
+func TestPostgresRangeTypeCheck_Run_SupportedRangesPass(t *testing.T) {
+	t.Parallel()
+
+	check := &PostgresRangeTypeCheck{
+		Source: sourceWithColumns(t, []schemaColumnRow{
+			{Schema: "public", Table: "t", Column: "a", BaseOID: oidInt4, TypeName: "int4", TypeKind: "b"},
+			{Schema: "public", Table: "t", Column: "b", BaseOID: 3904, TypeName: "int4range", TypeKind: "r"},
+			{Schema: "public", Table: "t", Column: "c", BaseOID: 3926, TypeName: "int8range", TypeKind: "r"},
+			{Schema: "public", Table: "t", Column: "d", BaseOID: 3910, TypeName: "tstzrange", TypeKind: "r"},
+		}),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Empty(t, findings)
+}
+
+func TestPostgresRangeTypeCheck_Run_UnsupportedRangesReturnFindings(t *testing.T) {
+	t.Parallel()
+
+	check := &PostgresRangeTypeCheck{
+		Source: sourceWithColumns(t, []schemaColumnRow{
+			{Schema: "public", Table: "t", Column: "n", BaseOID: 3906, TypeName: "numrange", TypeKind: "r"},
+			{Schema: "public", Table: "t", Column: "d", BaseOID: 3912, TypeName: "daterange", TypeKind: "r"},
+			{Schema: "public", Table: "t", Column: "m", BaseOID: 4451, TypeName: "int4multirange", TypeKind: "m"},
+			{Schema: "public", Table: "t", Column: "ok", BaseOID: 3904, TypeName: "int4range", TypeKind: "r"},
+		}),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, findings, 3)
+	require.Contains(t, findings[0].Message, `"public"."t"."n": range type "numrange" cannot be written to a Postgres target`)
+	require.Contains(t, findings[1].Message, `range type "daterange"`)
+	require.Contains(t, findings[2].Message, `multirange type "int4multirange"`)
+}
+
+func TestPostgresRangeTypeCheck_Run_FiltersTablesByScope(t *testing.T) {
+	t.Parallel()
+
+	sel, err := stream.NewTableSelection([]string{"public.orders"}, nil)
+	require.NoError(t, err)
+
+	check := &PostgresRangeTypeCheck{
+		Selection: sel,
+		Source: sourceWithColumns(t, []schemaColumnRow{
+			{Schema: "public", Table: "events", Column: "r", BaseOID: 3906, TypeName: "numrange", TypeKind: "r"},
+			{Schema: "public", Table: "orders", Column: "r", BaseOID: 3906, TypeName: "numrange", TypeKind: "r"},
+		}),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	require.Contains(t, findings[0].Message, `"public"."orders"."r"`)
+}
+
+func TestPostgresRangeTypeCheck_Name(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "postgres_range_type_support", (&PostgresRangeTypeCheck{}).Name())
+}
+
+func TestUnsupportedRangeTypeMessage(t *testing.T) {
+	t.Parallel()
+
+	// non-range types and supported ranges produce nothing
+	require.Empty(t, unsupportedRangeTypeMessage(schemaColumnRow{TypeName: "text", TypeKind: "b"}))
+	require.Empty(t, unsupportedRangeTypeMessage(schemaColumnRow{TypeName: "int4range", TypeKind: "r"}))
+	require.Empty(t, unsupportedRangeTypeMessage(schemaColumnRow{TypeName: "tstzrange", TypeKind: "r"}))
+
+	// unsupported range/multirange types produce a finding
+	require.NotEmpty(t, unsupportedRangeTypeMessage(schemaColumnRow{TypeName: "numrange", TypeKind: "r"}))
+	require.NotEmpty(t, unsupportedRangeTypeMessage(schemaColumnRow{TypeName: "tstzmultirange", TypeKind: "m"}))
+}
+
 func TestBuildSchemaChecks(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		cfg        *stream.Config
-		wantChecks int
+		name      string
+		cfg       *stream.Config
+		wantNames []string
 	}{
 		{
 			name: "no source postgres url returns no checks",
 			cfg:  &stream.Config{},
 		},
 		{
-			name: "source postgres url returns schema type compatibility check",
+			name: "non-postgres target returns only the type compatibility check",
 			cfg: &stream.Config{
 				Listener: stream.ListenerConfig{
 					Postgres: &stream.PostgresListenerConfig{URL: "postgres://source"},
 				},
 			},
-			wantChecks: 1,
+			wantNames: []string{"schema_type_compatibility"},
+		},
+		{
+			name: "postgres target also returns the range type check",
+			cfg: &stream.Config{
+				Listener: stream.ListenerConfig{
+					Postgres: &stream.PostgresListenerConfig{URL: "postgres://source"},
+				},
+				Processor: stream.ProcessorConfig{
+					Postgres: &stream.PostgresProcessorConfig{},
+				},
+			},
+			wantNames: []string{"schema_type_compatibility", "postgres_range_type_support"},
 		},
 	}
 
@@ -202,14 +317,17 @@ func TestBuildSchemaChecks(t *testing.T) {
 
 			checks, cleanup := BuildSchemaChecks(tc.cfg)
 
-			require.Len(t, checks, tc.wantChecks)
-			if tc.wantChecks == 0 {
+			require.Len(t, checks, len(tc.wantNames))
+			if len(tc.wantNames) == 0 {
 				require.Nil(t, cleanup)
 				return
 			}
 			require.NotNil(t, cleanup)
-			_, ok := checks[0].(*SchemaTypeCompatibilityCheck)
-			require.True(t, ok)
+			gotNames := make([]string, len(checks))
+			for i, c := range checks {
+				gotNames[i] = c.Name()
+			}
+			require.Equal(t, tc.wantNames, gotNames)
 		})
 	}
 }
@@ -233,22 +351,13 @@ func TestBuildChecks_SelectedSchemaOnly(t *testing.T) {
 }
 
 // sourceWithColumns returns an AcquireFunc whose Querier serves the given column
-// rows from Query and answers the mapper's pg_type lookups from QueryRow. A
-// non-nil queryRowErr makes every type lookup fail, simulating an unresolvable
-// OID; standard OIDs are resolved by the pgx static map and never reach it.
-func sourceWithColumns(t *testing.T, rows []schemaColumnRow, queryRowErr error) postgres.AcquireFunc {
+// rows from Query.
+func sourceWithColumns(t *testing.T, rows []schemaColumnRow) postgres.AcquireFunc {
 	t.Helper()
 	return func(context.Context) (postgres.Querier, error) {
 		return &mocks.Querier{
 			QueryFn: func(context.Context, uint, string, ...any) (postgres.Rows, error) {
 				return schemaColumnRows(t, rows), nil
-			},
-			QueryRowFn: func(_ context.Context, dest []any, _ string, _ ...any) error {
-				if queryRowErr != nil {
-					return queryRowErr
-				}
-				t.Fatal("unexpected pg_type lookup")
-				return nil
 			},
 		}, nil
 	}
@@ -261,7 +370,7 @@ func schemaColumnRows(t *testing.T, rows []schemaColumnRow) postgres.Rows {
 			return int(i) <= len(rows)
 		},
 		ScanFn: func(i uint, dest ...any) error {
-			require.Len(t, dest, 4)
+			require.Len(t, dest, 6)
 			row := rows[i-1]
 			schema, ok := dest[0].(*string)
 			require.True(t, ok)
@@ -269,12 +378,18 @@ func schemaColumnRows(t *testing.T, rows []schemaColumnRow) postgres.Rows {
 			require.True(t, ok)
 			column, ok := dest[2].(*string)
 			require.True(t, ok)
-			typeOID, ok := dest[3].(*int64)
+			baseOID, ok := dest[3].(*int64)
+			require.True(t, ok)
+			typeName, ok := dest[4].(*string)
+			require.True(t, ok)
+			typeKind, ok := dest[5].(*string)
 			require.True(t, ok)
 			*schema = row.Schema
 			*table = row.Table
 			*column = row.Column
-			*typeOID = row.TypeOID
+			*baseOID = row.BaseOID
+			*typeName = row.TypeName
+			*typeKind = row.TypeKind
 			return nil
 		},
 		ErrFn: func() error { return nil },
