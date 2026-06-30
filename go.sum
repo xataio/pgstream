@@ -449,8 +449,8 @@ github.com/testcontainers/testcontainers-go/modules/kafka v0.43.0 h1:m9/gBKYmYfO
 github.com/testcontainers/testcontainers-go/modules/kafka v0.43.0/go.mod h1:iS7LQrOG4GG8b0L1U1sf/CltP5e2h6CNJjBTn+mmUac=
 github.com/testcontainers/testcontainers-go/modules/opensearch v0.42.0 h1:lXPr5NypYR0O8qcej+JQfsQTOTc3CRv+c4wz3VbBFLI=
 github.com/testcontainers/testcontainers-go/modules/opensearch v0.42.0/go.mod h1:KJ+m9onB785g9VDRDuhvUvsbkRjnFp3Uz+CHoHpPieA=
-github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0 h1:GCbb1ndrF7OTDiIvxXyItaDab4qkzTFJ48LKFdM7EIo=
-github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0/go.mod h1:IRPBaI8jXdrNfD0e4Zm7Fbcgaz5shKxOQv4axiL09xs=
+github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0 h1:ShNOFYAF4lKHvdIG258hi69bSxC88uXnxJkJvNs/IVs=
+github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0/go.mod h1:vdq5/RqmGfWeefzyfcVI/pID1rzmc1TDvqXa15bPJks=
 github.com/tidwall/gjson v1.14.2/go.mod h1:/wbyibRr2FHMks5tjHJ5F8dMZh3AcwJEMf5vlfC0lxk=
 github.com/tidwall/gjson v1.19.0 h1:xwxm7n691Uf3u5OFjzngavjGTh55KX5q/9w9xHW88JU=
 github.com/tidwall/gjson v1.19.0/go.mod h1:V37/opeE/JbLUOfH0QTXiNez2l0RUjYUhpT4szFQAfc=
