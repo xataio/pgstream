@@ -29,6 +29,7 @@ var Builders = []Builder{
 	{CategoryConnectivity, "connectivity", BuildConnectivityChecks},
 	{CategoryReplication, "replication", BuildReplicationChecks},
 	{CategoryAccess, "access", BuildAccessChecks},
+	{CategorySchema, "schema", BuildSchemaChecks},
 }
 
 // BuildConnectivityChecks returns the connectivity checks applicable to cfg.
@@ -80,6 +81,24 @@ func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 	src := postgres.NewLazyConn(url)
 	return []Check{
 		&SourceTableSelectPrivilegesCheck{
+			Source:    src.Acquire,
+			Selection: cfg.AccessTableSelection(),
+		},
+	}, src.Close
+}
+
+// BuildSchemaChecks returns the schema-preflight checks applicable to cfg,
+// plus a cleanup function that closes the shared source connection. Schema
+// checks cover every table pgstream reads (snapshot and replication), so they
+// use the combined access table selection.
+func BuildSchemaChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
+	url := cfg.SourcePostgresURL()
+	if url == "" {
+		return nil, nil
+	}
+	src := postgres.NewLazyConn(url)
+	return []Check{
+		&SchemaTypeCompatibilityCheck{
 			Source:    src.Acquire,
 			Selection: cfg.AccessTableSelection(),
 		},
