@@ -44,6 +44,8 @@ func TestSourceSequenceSelectPrivilegesCheck_Run_IdentityColumnsAreChecked(t *te
 	require.NoError(t, err)
 	_, err = adminConn.Exec(ctx, `GRANT SELECT ON TABLE public.identity_orders TO identity_reader`)
 	require.NoError(t, err)
+	_, err = adminConn.Exec(ctx, `CREATE SEQUENCE public.free_standing_seq`)
+	require.NoError(t, err)
 
 	var sequenceName string
 	err = adminConn.QueryRow(ctx, []any{&sequenceName}, `SELECT pg_get_serial_sequence('public.identity_orders', 'id')`)
@@ -60,10 +62,13 @@ func TestSourceSequenceSelectPrivilegesCheck_Run_IdentityColumnsAreChecked(t *te
 	findings, err := check.Run(ctx)
 
 	require.NoError(t, err)
-	require.Len(t, findings, 1)
-	require.Contains(t, findings[0].Message, "public.identity_orders_id_seq")
-	require.Contains(t, findings[0].Message, `source role "identity_reader"`)
-	require.Contains(t, findings[0].Message, `GRANT SELECT ON SEQUENCE "public"."identity_orders_id_seq" TO "identity_reader"`)
+	require.Len(t, findings, 2)
+	allMessages := findings[0].Message + findings[1].Message
+	require.Contains(t, allMessages, "public.identity_orders_id_seq")
+	require.Contains(t, allMessages, "public.free_standing_seq")
+	require.Contains(t, allMessages, `source role "identity_reader"`)
+	require.Contains(t, allMessages, `GRANT SELECT ON SEQUENCE "public"."identity_orders_id_seq" TO "identity_reader"`)
+	require.Contains(t, allMessages, `GRANT SELECT ON SEQUENCE "public"."free_standing_seq" TO "identity_reader"`)
 }
 
 func mustRewritePGUser(t *testing.T, rawURL, user, password string) string {

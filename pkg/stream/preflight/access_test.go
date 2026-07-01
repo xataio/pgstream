@@ -335,6 +335,67 @@ func TestSourceSequenceSelectPrivilegesCheck_Run_FiltersTablesByScope(t *testing
 	require.Contains(t, findings[0].Message, "public.orders_id_seq")
 }
 
+func TestSourceSequenceSelectPrivilegesCheck_Run_IncludesStandaloneSequencesForWildcardSchemas(t *testing.T) {
+	t.Parallel()
+
+	sel, err := stream.NewTableSelection([]string{"public.*"}, nil)
+	require.NoError(t, err)
+
+	check := &SourceSequenceSelectPrivilegesCheck{
+		Selection: sel,
+		Source: sourceWithSequenceRows(t, []sourceSequenceSelectPrivilegeRow{
+			{Role: "pgstream_user", TableSchema: "public", Table: "", SequenceSchema: "public", Sequence: "free_standing_seq", HasSelect: false, IsStandalone: true},
+			{Role: "pgstream_user", TableSchema: "billing", Table: "", SequenceSchema: "billing", Sequence: "billing_seq", HasSelect: false, IsStandalone: true},
+		}),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	require.Contains(t, findings[0].Message, "public.free_standing_seq")
+}
+
+func TestSourceSequenceSelectPrivilegesCheck_Run_ExcludesStandaloneSequencesForTableOnlySelection(t *testing.T) {
+	t.Parallel()
+
+	sel, err := stream.NewTableSelection([]string{"public.orders"}, nil)
+	require.NoError(t, err)
+
+	check := &SourceSequenceSelectPrivilegesCheck{
+		Selection: sel,
+		Source: sourceWithSequenceRows(t, []sourceSequenceSelectPrivilegeRow{
+			{Role: "pgstream_user", TableSchema: "public", Table: "", SequenceSchema: "public", Sequence: "free_standing_seq", HasSelect: false, IsStandalone: true},
+		}),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Empty(t, findings)
+}
+
+func TestSourceSequenceSelectPrivilegesCheck_Run_ExcludesStandaloneSequencesForExcludedSchema(t *testing.T) {
+	t.Parallel()
+
+	sel, err := stream.NewTableSelection(nil, []string{"public.*"})
+	require.NoError(t, err)
+
+	check := &SourceSequenceSelectPrivilegesCheck{
+		Selection: sel,
+		Source: sourceWithSequenceRows(t, []sourceSequenceSelectPrivilegeRow{
+			{Role: "pgstream_user", TableSchema: "public", Table: "", SequenceSchema: "public", Sequence: "free_standing_seq", HasSelect: false, IsStandalone: true},
+			{Role: "pgstream_user", TableSchema: "billing", Table: "", SequenceSchema: "billing", Sequence: "billing_seq", HasSelect: false, IsStandalone: true},
+		}),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	require.Contains(t, findings[0].Message, "billing.billing_seq")
+}
+
 func TestSourceSequenceSelectPrivilegesCheck_Name(t *testing.T) {
 	t.Parallel()
 
@@ -529,7 +590,7 @@ func sequencePrivilegeRows(t *testing.T, rows []sourceSequenceSelectPrivilegeRow
 			return int(i) <= len(rows)
 		},
 		ScanFn: func(i uint, dest ...any) error {
-			require.Len(t, dest, 6)
+			require.Len(t, dest, 7)
 			row := rows[i-1]
 			role, ok := dest[0].(*string)
 			require.True(t, ok)
@@ -543,12 +604,15 @@ func sequencePrivilegeRows(t *testing.T, rows []sourceSequenceSelectPrivilegeRow
 			require.True(t, ok)
 			hasSelect, ok := dest[5].(*bool)
 			require.True(t, ok)
+			isStandalone, ok := dest[6].(*bool)
+			require.True(t, ok)
 			*role = row.Role
 			*tableSchema = row.TableSchema
 			*table = row.Table
 			*sequenceSchema = row.SequenceSchema
 			*sequence = row.Sequence
 			*hasSelect = row.HasSelect
+			*isStandalone = row.IsStandalone
 			return nil
 		},
 		ErrFn: func() error { return nil },

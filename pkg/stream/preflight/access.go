@@ -53,7 +53,8 @@ SELECT
   t.relname AS table_name,
   sn.nspname AS sequence_schema,
   s.relname AS sequence_name,
-  has_sequence_privilege(s.oid, 'SELECT') AS has_select
+  has_sequence_privilege(s.oid, 'SELECT') AS has_select,
+  false AS is_standalone
 FROM pg_class t
 JOIN pg_namespace tn ON tn.oid = t.relnamespace
 JOIN pg_attribute a ON a.attrelid = t.oid
@@ -67,7 +68,30 @@ WHERE t.relkind IN ('r', 'p')
   AND tn.nspname NOT LIKE 'pg_toast%'
   AND a.attnum > 0
   AND NOT a.attisdropped
-ORDER BY tn.nspname, t.relname, sn.nspname, s.relname
+UNION ALL
+SELECT
+  current_user,
+  n.nspname AS table_schema,
+  '' AS table_name,
+  n.nspname AS sequence_schema,
+  c.relname AS sequence_name,
+  has_sequence_privilege(c.oid, 'SELECT') AS has_select,
+  true AS is_standalone
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind = 'S'
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pgstream')
+  AND n.nspname NOT LIKE 'pg_toast%'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM pg_depend d
+    JOIN pg_class t ON t.oid = d.refobjid
+    WHERE d.objid = c.oid
+      AND d.refobjsubid > 0
+      AND d.deptype IN ('a', 'i')
+      AND t.relkind IN ('r', 'p')
+  )
+ORDER BY table_schema, table_name, sequence_schema, sequence_name
 `
 
 func (c *SourceTableSelectPrivilegesCheck) Run(ctx context.Context) ([]Finding, error) {
@@ -102,6 +126,11 @@ func (c *SourceTableSelectPrivilegesCheck) Run(ctx context.Context) ([]Finding, 
 }
 
 func (c *SourceSequenceSelectPrivilegesCheck) Run(ctx context.Context) ([]Finding, error) {
+	include, exclude, err := selectionMaps(c.Selection)
+	if err != nil {
+		return nil, fmt.Errorf("parsing table selection: %w", err)
+	}
+
 	conn, err := c.Source(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to source: %w", err)
@@ -116,10 +145,10 @@ func (c *SourceSequenceSelectPrivilegesCheck) Run(ctx context.Context) ([]Findin
 	var findings []Finding
 	for rows.Next() {
 		var row sourceSequenceSelectPrivilegeRow
-		if err := rows.Scan(&row.Role, &row.TableSchema, &row.Table, &row.SequenceSchema, &row.Sequence, &row.HasSelect); err != nil {
+		if err := rows.Scan(&row.Role, &row.TableSchema, &row.Table, &row.SequenceSchema, &row.Sequence, &row.HasSelect, &row.IsStandalone); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
-		if !c.Selection.IsTableInScope(row.TableSchema, row.Table) {
+		if !sequenceInScope(row, c.Selection, include, exclude) {
 			continue
 		}
 		if !row.HasSelect {
@@ -146,6 +175,52 @@ type sourceSequenceSelectPrivilegeRow struct {
 	SequenceSchema string
 	Sequence       string
 	HasSelect      bool
+	IsStandalone   bool
+}
+
+func selectionMaps(selection stream.TableSelection) (include, exclude postgres.SchemaTableMap, err error) {
+	if len(selection.Include()) > 0 {
+		include, err = postgres.NewSchemaTableMap(selection.Include())
+		if err != nil {
+			return nil, nil, fmt.Errorf("include: %w", err)
+		}
+	}
+	if len(selection.Exclude()) > 0 {
+		exclude, err = postgres.NewSchemaTableMap(selection.Exclude())
+		if err != nil {
+			return nil, nil, fmt.Errorf("exclude: %w", err)
+		}
+	}
+	return include, exclude, nil
+}
+
+func sequenceInScope(row sourceSequenceSelectPrivilegeRow, selection stream.TableSelection, include, exclude postgres.SchemaTableMap) bool {
+	if !row.IsStandalone {
+		return selection.IsTableInScope(row.TableSchema, row.Table)
+	}
+	return standaloneSequenceSchemaInScope(row.SequenceSchema, selection, include, exclude)
+}
+
+func standaloneSequenceSchemaInScope(schema string, selection stream.TableSelection, include, exclude postgres.SchemaTableMap) bool {
+	if selection.IsUnfiltered() {
+		return true
+	}
+	if include != nil {
+		return schemaHasWildcard(include, schema)
+	}
+	if exclude != nil {
+		return !schemaHasWildcard(exclude, schema)
+	}
+	return true
+}
+
+func schemaHasWildcard(tables postgres.SchemaTableMap, schema string) bool {
+	schemaTables := tables.GetSchemaTables(schema)
+	if len(schemaTables) == 0 {
+		return false
+	}
+	_, found := schemaTables["*"]
+	return found
 }
 
 func sourceTableSelectPrivilegeMessage(row sourceTableSelectPrivilegeRow) string {
