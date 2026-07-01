@@ -206,10 +206,15 @@ func unsupportedRangeTypeMessage(row schemaColumnRow) string {
 // the source database is also installed on the Postgres target. pgstream
 // replicates the schema and data of objects that depend on extensions (custom
 // types, functions, operators, index access methods), but it never installs the
-// extensions themselves.
+// extensions themselves. It reports the full set of source extensions it
+// inspected via Details (source_extensions), regardless of the outcome.
 type SchemaExtensionCompatibilityCheck struct {
 	Source postgres.AcquireFunc
 	Target postgres.AcquireFunc
+
+	// sourceExtensions is the set of extensions installed on the source, captured
+	// during Run and surfaced through Details.
+	sourceExtensions []string
 }
 
 func (c *SchemaExtensionCompatibilityCheck) Name() string { return "schema_extension_compatibility" }
@@ -240,6 +245,7 @@ func (c *SchemaExtensionCompatibilityCheck) Run(ctx context.Context) ([]Finding,
 		if err := rows.Scan(&ext.name, &ext.schema); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
+		c.sourceExtensions = append(c.sourceExtensions, ext.name)
 		if _, ok := targetExtensions[ext.name]; ok {
 			continue
 		}
@@ -252,6 +258,17 @@ func (c *SchemaExtensionCompatibilityCheck) Run(ctx context.Context) ([]Finding,
 		return nil, nil
 	}
 	return []Finding{{Message: missingExtensionsMessage(missing)}}, nil
+}
+
+// Details exposes every extension installed on the source as a string array
+// under source_extensions, so the report records what was inspected even when
+// nothing is missing.
+func (c *SchemaExtensionCompatibilityCheck) Details() map[string]any {
+	names := c.sourceExtensions
+	if names == nil {
+		names = []string{}
+	}
+	return map[string]any{"source_extensions": names}
 }
 
 func (c *SchemaExtensionCompatibilityCheck) installedTargetExtensions(ctx context.Context, target postgres.Querier) (map[string]struct{}, error) {

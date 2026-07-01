@@ -4,6 +4,7 @@ package preflight
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -346,6 +347,21 @@ func TestSchemaExtensionCompatibilityCheck_Run_AllPresentOnTarget(t *testing.T) 
 
 	require.NoError(t, err)
 	require.Empty(t, findings)
+	// even when nothing is missing, the report records every source extension
+	require.Equal(t, map[string]any{"source_extensions": []string{"hstore", "postgis"}}, check.Details())
+}
+
+func TestSchemaExtensionCompatibilityCheck_Details_EmptyWhenNoExtensions(t *testing.T) {
+	t.Parallel()
+
+	check := &SchemaExtensionCompatibilityCheck{}
+
+	// before Run (or with no source extensions) it is an empty array, never nil,
+	// so the JSON report always renders source_extensions as [].
+	require.Equal(t, map[string]any{"source_extensions": []string{}}, check.Details())
+	data, err := json.Marshal(CheckResult{Name: "x", Details: check.Details()})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"name":"x","findings":null,"source_extensions":[]}`, string(data))
 }
 
 func TestSchemaExtensionCompatibilityCheck_Run_MissingExtensionReturnsFinding(t *testing.T) {
@@ -389,6 +405,7 @@ func TestSchemaExtensionCompatibilityCheck_Run_MultipleMissingCollectedInOneFind
 	require.Contains(t, findings[0].Message, `"pg_trgm" (source schema "public")`)
 	require.Contains(t, findings[0].Message, `CREATE EXTENSION IF NOT EXISTS "postgis";`)
 	require.Contains(t, findings[0].Message, `CREATE EXTENSION IF NOT EXISTS "pg_trgm";`)
+	require.Equal(t, []string{"hstore", "postgis", "pg_trgm"}, check.Details()["source_extensions"])
 }
 
 func TestSchemaExtensionCompatibilityCheck_Run_TargetAcquireFails(t *testing.T) {
