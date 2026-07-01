@@ -216,7 +216,8 @@ For more advanced usage, implementation details, and detailed configuration sett
    - [AWS](docs/aws.md)
    - [GCP CloudSQL](docs/gcp_cloudsql.md)
    - [Neon](docs/neon.md)
-8. [Glossary](docs/glossary.md)
+8. [Container image](docs/container_image.md)
+9. [Glossary](docs/glossary.md)
 
 ## Benchmarks
 
