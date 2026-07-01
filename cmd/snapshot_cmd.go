@@ -30,6 +30,7 @@ var snapshotCmd = &cobra.Command{
 func snapshot(ctx context.Context) error {
 	logger := zerolog.NewLogger(loggerConfigFromViper())
 	zerolog.SetGlobalLogger(logger)
+	watchLogLevelReloads(ctx, logger)
 
 	streamConfig, err := config.ParseStreamConfig()
 	if err != nil {
