@@ -113,11 +113,6 @@ func Prepare() *cobra.Command {
 	validateRulesCmd.Flags().Bool("json", false, "Output the validation status in JSON format")
 	validateCmd.AddCommand(validateRulesCmd)
 
-	// validate schema cmd
-	validateSchemaCmd.Flags().String("postgres-url", "", "Source postgres URL to validate the schema against")
-	validateSchemaCmd.Flags().Bool("json", false, "Output the validation status in JSON format")
-	validateCmd.AddCommand(validateSchemaCmd)
-
 	// check cmd
 	checkCmd.Flags().String("postgres-url", "", "Source postgres URL to run checks against")
 	checkCmd.Flags().String("target-url", "", "Target URL to run checks against")
@@ -125,6 +120,7 @@ func Prepare() *cobra.Command {
 	checkCmd.Flags().Bool("connectivity", false, "Run connectivity checks against the configured source and target")
 	checkCmd.Flags().Bool("replication", false, "Run replication checks against the source (requires replication slot configured)")
 	checkCmd.Flags().Bool("access", false, "Run access and privilege checks against the source")
+	checkCmd.Flags().Bool("schema", false, "Run schema compatibility checks against the source")
 
 	// Flag binding for root cmd
 	rootFlagBinding(rootCmd)
