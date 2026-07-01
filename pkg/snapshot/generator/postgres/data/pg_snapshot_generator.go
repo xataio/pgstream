@@ -344,7 +344,10 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID 
 		}
 		defer rows.Close()
 
-		fieldDescriptions := rows.FieldDescriptions()
+		// resolve the column metadata (names/types) and timestamp once per page
+		// range, since the field descriptions are identical for every row in the
+		// result set.
+		rowAdapter := sg.adapter.newRowEventAdapter(ctx, table.schema, table.name, rows.FieldDescriptions())
 		rowCount := uint(0)
 		for rows.Next() {
 			rowCount++
@@ -357,7 +360,7 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID 
 					return fmt.Errorf("retrieving rows values: %w", err)
 				}
 
-				event := sg.adapter.rowToWalEvent(ctx, table.schema, table.name, fieldDescriptions, values)
+				event := rowAdapter.rowToWalEvent(values)
 				if event == nil {
 					continue
 				}
