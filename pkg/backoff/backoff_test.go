@@ -18,7 +18,7 @@ func TestNewExponentialBackoff_MaxIntervalCapsPerRetryInterval(t *testing.T) {
 	cfg := &ExponentialConfig{
 		InitialInterval: 5 * time.Millisecond,
 		MaxInterval:     maxInterval,
-		MaxRetries: 8,
+		MaxRetries:      8,
 	}
 
 	bo := NewExponentialBackoff(context.Background(), cfg)

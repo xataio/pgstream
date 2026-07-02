@@ -28,9 +28,9 @@ type Config struct {
 
 type ExponentialConfig struct {
 	InitialInterval time.Duration
-	MaxInterval time.Duration
-	MaxElapsedTime time.Duration
-	MaxRetries     uint
+	MaxInterval     time.Duration
+	MaxElapsedTime  time.Duration
+	MaxRetries      uint
 }
 
 type ConstantConfig struct {
