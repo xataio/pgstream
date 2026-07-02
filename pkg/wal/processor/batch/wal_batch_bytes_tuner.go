@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	mathlib "github.com/xataio/pgstream/internal/math"
@@ -21,6 +22,7 @@ type batchBytesTuner[T Message] struct {
 	// can be mocked for testing to generate desired throughput curves
 	calculateThroughputFn func(time.Duration, int64) float64
 
+	mu                        sync.Mutex
 	maxBatchBytes             int64
 	minBatchBytes             int64
 	convergenceThreshold      int64
@@ -152,10 +154,16 @@ func (t *batchBytesTuner[T]) sendBatch(ctx context.Context, batch *Batch[T]) err
 	}
 
 	start := time.Now()
-	defer func() {
-		t.recordMeasurementAndCalculateNext(start)
-	}()
-	return t.sendFn(ctx, batch)
+	if err := t.sendFn(ctx, batch); err != nil {
+		// Only record throughput measurements for successful sends. Recording
+		// on failure would pollute the tuning signal with error latencies.
+		return err
+	}
+
+	t.mu.Lock()
+	t.recordMeasurementAndCalculateNext(start)
+	t.mu.Unlock()
+	return nil
 }
 
 // recordMeasurementAndCalculateNext records the throughput measurement and
@@ -275,7 +283,28 @@ func (t *batchBytesTuner[T]) calculateNextSetting() *batchBytesSetting {
 	return newMeasurementSetting
 }
 
+// currentMaxBatchBytes returns the max batch bytes the batching goroutine
+// should currently use, reading the tuner state under the mutex. It returns the
+// provided fallback if the tuner has errored out or has no setting yet.
+func (t *batchBytesTuner[T]) currentMaxBatchBytes(fallback int64) int64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.hasError() {
+		return fallback
+	}
+	switch {
+	case t.hasConverged() && t.candidateSetting != nil:
+		return t.candidateSetting.value
+	case t.measurementSetting != nil:
+		return t.measurementSetting.value
+	}
+	return fallback
+}
+
 func (t *batchBytesTuner[T]) close() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.logDebugMeasurements()
 }
 

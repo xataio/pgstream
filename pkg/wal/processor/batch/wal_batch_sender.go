@@ -235,13 +235,8 @@ func (s *Sender[T]) Close() {
 }
 
 func (s *Sender[T]) getMaxBatchBytes() int64 {
-	if s.batchBytesTuner != nil && !s.batchBytesTuner.hasError() {
-		switch {
-		case s.batchBytesTuner.hasConverged() && s.batchBytesTuner.candidateSetting != nil:
-			return s.batchBytesTuner.candidateSetting.value
-		case s.batchBytesTuner.measurementSetting != nil:
-			return s.batchBytesTuner.measurementSetting.value
-		}
+	if s.batchBytesTuner != nil {
+		return s.batchBytesTuner.currentMaxBatchBytes(s.maxBatchBytes)
 	}
 	return s.maxBatchBytes
 }
