@@ -123,7 +123,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 			conn: &pgmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					switch query {
-					case "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')":
+					case "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream') AND nspname NOT LIKE 'pg_temp_%' AND nspname NOT LIKE 'pg_toast_temp_%'":
 						require.Empty(t, args)
 						return &pgmocks.Rows{
 							ScanFn: func(i uint, dest ...any) error {
@@ -178,7 +178,7 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 			conn: &pgmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					switch query {
-					case "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')":
+					case "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream') AND nspname NOT LIKE 'pg_temp_%' AND nspname NOT LIKE 'pg_toast_temp_%'":
 						require.Empty(t, args)
 						return &pgmocks.Rows{
 							ScanFn: func(i uint, dest ...any) error {

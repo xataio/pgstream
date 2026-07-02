@@ -413,7 +413,7 @@ func TestOptionsGenerator_pgdumpOptions(t *testing.T) {
 			wantOpts: &pglib.PGDumpOptions{
 				ConnectionString: "source-url",
 				Format:           "p",
-				ExcludeSchemas:   []string{`"pgstream"`},
+				ExcludeSchemas:   []string{`"pgstream"`, "pg_temp_*", "pg_toast_temp_*"},
 				SchemaOnly:       true,
 			},
 			wantErr: nil,
@@ -468,7 +468,7 @@ func TestOptionsGenerator_pgdumpOptions(t *testing.T) {
 			wantOpts: &pglib.PGDumpOptions{
 				ConnectionString: "source-url",
 				Format:           "p",
-				ExcludeSchemas:   []string{`"excluded_schema"`},
+				ExcludeSchemas:   []string{`"excluded_schema"`, "pg_temp_*", "pg_toast_temp_*"},
 				SchemaOnly:       true,
 				ExcludeTables:    []string{`"public"."table3"`},
 			},
