@@ -55,8 +55,16 @@ func (d *Data) IsDDLEvent() bool {
 	return d.Action == LogicalMessageAction && d.Prefix == DDLPrefix
 }
 
-// WalDataToDDLEvent parses the wal data content field as a DDL event
+// WalDataToDDLEvent parses the wal data content field as a DDL event.
+// The parsed result (or error) is cached on the Data value.
 func WalDataToDDLEvent(d *Data) (*DDLEvent, error) {
+	d.ddlEventOnce.Do(func() {
+		d.ddlEvent, d.ddlEventErr = parseDDLEvent(d)
+	})
+	return d.ddlEvent, d.ddlEventErr
+}
+
+func parseDDLEvent(d *Data) (*DDLEvent, error) {
 	if !d.IsDDLEvent() {
 		return nil, fmt.Errorf("%w: action=%s, prefix=%s", ErrNotDDLEvent, d.Action, d.Prefix)
 	}
