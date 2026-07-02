@@ -604,13 +604,15 @@ func parseBackoffConfig(prefix string) backoff.Config {
 func parseExponentialBackoffConfig(prefix string) *backoff.ExponentialConfig {
 	initialInterval := viper.GetDuration(fmt.Sprintf("%s_EXP_BACKOFF_INITIAL_INTERVAL", prefix))
 	maxInterval := viper.GetDuration(fmt.Sprintf("%s_EXP_BACKOFF_MAX_INTERVAL", prefix))
+	maxElapsedTime := viper.GetDuration(fmt.Sprintf("%s_EXP_BACKOFF_MAX_ELAPSED_TIME", prefix))
 	maxRetries := viper.GetUint(fmt.Sprintf("%s_EXP_BACKOFF_MAX_RETRIES", prefix))
-	if initialInterval == 0 && maxInterval == 0 && maxRetries == 0 {
+	if initialInterval == 0 && maxInterval == 0 && maxElapsedTime == 0 && maxRetries == 0 {
 		return nil
 	}
 	return &backoff.ExponentialConfig{
 		InitialInterval: initialInterval,
 		MaxInterval:     maxInterval,
+		MaxElapsedTime:  maxElapsedTime,
 		MaxRetries:      maxRetries,
 	}
 }
