@@ -160,18 +160,21 @@ func (t *batchBytesTuner[T]) sendBatch(ctx context.Context, batch *Batch[T]) err
 		return err
 	}
 
-	t.recordMeasurementAndCalculateNext(start)
+	// Snapshot the send duration before contending for the mutex, so that any
+	// time spent waiting to acquire the lock is not counted as part of the
+	// measured send latency.
+	t.recordMeasurementAndCalculateNext(time.Since(start))
 	return nil
 }
 
 // recordMeasurementAndCalculateNext records the throughput measurement and
 // calculates the next measurement setting once we have enough samples for a
 // measurement, and they are stable enough to be representative.
-func (t *batchBytesTuner[T]) recordMeasurementAndCalculateNext(start time.Time) {
+func (t *batchBytesTuner[T]) recordMeasurementAndCalculateNext(elapsed time.Duration) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	throughput := t.calculateThroughputFn(time.Since(start), t.measurementSetting.value)
+	throughput := t.calculateThroughputFn(elapsed, t.measurementSetting.value)
 	t.measurementSetting.addThroughput(throughput)
 
 	// not enough samples yet, continue with the same measurement
