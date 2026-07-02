@@ -17,6 +17,7 @@ type Config struct {
 	BulkIngestEnabled bool
 	RetryPolicy       backoff.Config
 	IgnoreDDL         bool
+	StrictMode        bool
 }
 
 const (
