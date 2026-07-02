@@ -160,9 +160,7 @@ func (t *batchBytesTuner[T]) sendBatch(ctx context.Context, batch *Batch[T]) err
 		return err
 	}
 
-	t.mu.Lock()
 	t.recordMeasurementAndCalculateNext(start)
-	t.mu.Unlock()
 	return nil
 }
 
@@ -170,6 +168,9 @@ func (t *batchBytesTuner[T]) sendBatch(ctx context.Context, batch *Batch[T]) err
 // calculates the next measurement setting once we have enough samples for a
 // measurement, and they are stable enough to be representative.
 func (t *batchBytesTuner[T]) recordMeasurementAndCalculateNext(start time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	throughput := t.calculateThroughputFn(time.Since(start), t.measurementSetting.value)
 	t.measurementSetting.addThroughput(throughput)
 
