@@ -16,6 +16,7 @@ const (
 	CategoryConnectivity Category = "connectivity"
 	CategoryReplication  Category = "replication"
 	CategoryAccess       Category = "access"
+	CategorySchema       Category = "schema"
 )
 
 // Finding describes a single issue detected by a Check. Every finding is an

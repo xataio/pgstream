@@ -63,11 +63,11 @@ func (l *Logger) WithFields(fields loglib.Fields) loglib.Logger {
 }
 
 func (l *Logger) IsDebugEnabled() bool {
-	return l.zerologger.GetLevel() <= zerolog.DebugLevel
+	return zerolog.GlobalLevel() <= zerolog.DebugLevel && l.zerologger.GetLevel() <= zerolog.DebugLevel
 }
 
 func (l *Logger) IsTraceEnabled() bool {
-	return l.zerologger.GetLevel() <= zerolog.TraceLevel
+	return zerolog.GlobalLevel() <= zerolog.TraceLevel && l.zerologger.GetLevel() <= zerolog.TraceLevel
 }
 
 func withFields(event *zerolog.Event, fieldMaps ...loglib.Fields) *zerolog.Event {

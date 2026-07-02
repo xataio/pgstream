@@ -14,17 +14,6 @@ type Status struct {
 	Source              *SourceStatus
 }
 
-type SchemaCompatibilityStatus struct {
-	Valid  bool
-	Tables []SchemaTableStatus
-}
-
-type SchemaTableStatus struct {
-	Schema string
-	Table  string
-	Errors []string
-}
-
 type ConfigStatus struct {
 	Valid  bool
 	Errors []string
@@ -115,42 +104,6 @@ func (s *Status) PrettyPrint() string {
 	prettyPrint.WriteString(s.Source.PrettyPrint())
 
 	return prettyPrint.String()
-}
-
-func (s *SchemaCompatibilityStatus) GetErrors() []string {
-	if s == nil {
-		return nil
-	}
-
-	errors := []string{}
-	for _, table := range s.Tables {
-		if len(table.Errors) == 0 {
-			continue
-		}
-		errors = append(errors, table.Errors...)
-	}
-
-	return errors
-}
-
-func (s *SchemaCompatibilityStatus) PrettyPrint() string {
-	if s == nil {
-		return ""
-	}
-
-	var prettyPrint strings.Builder
-	prettyPrint.WriteString("Schema compatibility status:\n")
-	fmt.Fprintf(&prettyPrint, " - Valid: %t\n", s.Valid)
-
-	for _, table := range s.Tables {
-		if len(table.Errors) == 0 {
-			continue
-		}
-		fmt.Fprintf(&prettyPrint, " - Table %s.%s\n", table.Schema, table.Table)
-		fmt.Fprintf(&prettyPrint, "   - Errors: [%s]\n", strings.Join(table.Errors, "; "))
-	}
-
-	return strings.TrimSuffix(prettyPrint.String(), "\n")
 }
 
 // GetErrors aggregates all errors from the initialisation status.
