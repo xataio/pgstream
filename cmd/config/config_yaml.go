@@ -305,6 +305,7 @@ type TransformationsConfig struct {
 	DumpInferredRules       bool                      `mapstructure:"dump_inferred_rules" yaml:"dump_inferred_rules"`
 	TransformerRules        []TableTransformersConfig `mapstructure:"table_transformers" yaml:"table_transformers"`
 	ValidationMode          string                    `mapstructure:"validation_mode" yaml:"validation_mode"`
+	OnError                 string                    `mapstructure:"on_error" yaml:"on_error"`
 }
 type TableTransformersConfig struct {
 	Schema         string                              `mapstructure:"schema" yaml:"schema"`
@@ -353,11 +354,19 @@ const (
 	relaxedValidationMode    = "relaxed"
 )
 
+// transformer on-error policies
+const (
+	failOnError        = transformer.OnErrorFail
+	passThroughOnError = transformer.OnErrorPassThrough
+	nullOnError        = transformer.OnErrorNull
+)
+
 var (
 	errUnsupportedSnapshotMode                 = errors.New("unsupported snapshot mode, must be one of 'full', 'schema' or 'data'")
 	errUnsupportedPostgresSourceMode           = errors.New("unsupported postgres source mode, must be one of 'replication', 'snapshot' or 'snapshot_and_replication'")
 	errUnsupportedTransformationValidationMode = errors.New("unsupported transformation validation mode, must be one of 'strict', 'table_level' or 'relaxed'")
 	errUnsupportedTableValidationMode          = errors.New("unsupported table level validation mode, must be either 'strict' or 'relaxed'")
+	errUnsupportedTransformationOnError        = errors.New("unsupported transformation on_error policy, must be one of 'fail', 'pass-through' or 'null'")
 	errTableTransformersNotProvided            = errors.New("table_transformers must be provided when transformation config is set")
 	errInvalidTableValidationConfig            = errors.New("table level validation mode should be used when transformation validation mode is set to 'table_level'")
 	errUnsupportedSearchEngine                 = errors.New("unsupported search engine, must be one of 'opensearch' or 'elasticsearch'")
@@ -798,12 +807,23 @@ func (c TransformationsConfig) parseTransformationConfig() (*transformer.Config,
 		return nil, errUnsupportedTransformationValidationMode
 	}
 
+	var onError string
+	switch c.OnError {
+	case failOnError, passThroughOnError, nullOnError:
+		onError = c.OnError
+	case "":
+		onError = nullOnError
+	default:
+		return nil, errUnsupportedTransformationOnError
+	}
+
 	if c.InferFromSecurityLabels {
 		return &transformer.Config{
 			InferFromSecurityLabels: true,
 			DumpInferredRules:       c.DumpInferredRules,
 			TransformerRules:        nil,
 			ValidationMode:          globalValidationMode,
+			OnError:                 onError,
 		}, nil
 	}
 
@@ -849,6 +869,7 @@ func (c TransformationsConfig) parseTransformationConfig() (*transformer.Config,
 	return &transformer.Config{
 		TransformerRules: rules,
 		ValidationMode:   globalValidationMode,
+		OnError:          onError,
 	}, nil
 }
 

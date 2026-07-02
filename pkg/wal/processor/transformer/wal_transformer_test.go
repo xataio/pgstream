@@ -83,6 +83,7 @@ func TestTransformer_New(t *testing.T) {
 				transformerMap:       testTransformerMap,
 				validationMode:       validationModeStrict,
 				tableValidationModes: map[string]string{},
+				onError:              OnErrorNull,
 			},
 			wantErr: nil,
 		},
@@ -124,6 +125,7 @@ func TestTransformer_New(t *testing.T) {
 					"\"public\".\"test1\"": validationModeStrict,
 					"\"test\".\"test2\"":   validationModeRelaxed,
 				},
+				onError: OnErrorNull,
 			},
 			wantErr: nil,
 		},
@@ -211,6 +213,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 		processor            processor.Processor
 		transformerMap       *TransformerMap
 		validationMode       string
+		onError              string
 		ddlEventToSchemaDiff func(ddlEvent *wal.DDLEvent) (*wal.SchemaDiff, error)
 
 		wantErr error
@@ -385,7 +388,32 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "error - transforming",
+			name: "error - transforming, fail policy stops the pipeline",
+			event: newTestEvent([]wal.Column{
+				{Name: "column_1", Type: "text", Value: "one"},
+				{Name: "column_2", Type: "int", Value: 1},
+			}),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					return errors.New("ProcessWALEvent should not be called when transformation fails")
+				},
+			},
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					testKey: {
+						"column_1": &transformermocks.Transformer{
+							TransformFn: func(a transformers.Value) (any, error) {
+								return nil, errTest
+							},
+						},
+					},
+				},
+			},
+			onError: OnErrorFail,
+			wantErr: errTest,
+		},
+		{
+			name: "error - transforming, default (null) policy writes NULL",
 			event: newTestEvent([]wal.Column{
 				{Name: "column_1", Type: "text", Value: "one"},
 				{Name: "column_2", Type: "int", Value: 1},
@@ -411,6 +439,37 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 					},
 				},
 			},
+			// onError left empty to exercise the default (null) policy.
+			wantErr: nil,
+		},
+		{
+			name: "error - transforming, pass-through policy keeps original value",
+			event: newTestEvent([]wal.Column{
+				{Name: "column_1", Type: "text", Value: "one"},
+				{Name: "column_2", Type: "int", Value: 1},
+			}),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					wantEvent := newTestEvent([]wal.Column{
+						{Name: "column_1", Type: "text", Value: "one"},
+						{Name: "column_2", Type: "int", Value: 1},
+					})
+					require.Equal(t, wantEvent, walEvent)
+					return nil
+				},
+			},
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					testKey: {
+						"column_1": &transformermocks.Transformer{
+							TransformFn: func(a transformers.Value) (any, error) {
+								return nil, errTest
+							},
+						},
+					},
+				},
+			},
+			onError: OnErrorPassThrough,
 
 			wantErr: nil,
 		},
@@ -450,6 +509,7 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 				transformerMap:       tc.transformerMap,
 				processor:            tc.processor,
 				validationMode:       validationModeRelaxed,
+				onError:              tc.onError,
 				walDataToDDLEvent:    func(data *wal.Data) (*wal.DDLEvent, error) { return &wal.DDLEvent{}, nil },
 				ddlEventToSchemaDiff: tc.ddlEventToSchemaDiff,
 			}
