@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
@@ -61,6 +62,10 @@ const (
 	logSystemID    = "system_id"
 )
 
+func escapeReplicationOptionValue(s string) string {
+	return strings.ReplaceAll(s, `'`, `''`)
+}
+
 var defaultPluginArguments = []string{
 	`"include-timestamp" '1'`,
 	`"format-version" '2'`,
@@ -84,6 +89,9 @@ func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, erro
 	replicationSlotName := cfg.ReplicationSlotName
 	if replicationSlotName == "" {
 		replicationSlotName = pglib.DefaultReplicationSlotName(sysID.DBName)
+	}
+	if err := pglib.IsValidReplicationSlotName(replicationSlotName); err != nil {
+		return nil, err
 	}
 
 	connBuilder := func() (pglib.Querier, error) {
@@ -113,10 +121,10 @@ func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, erro
 		h.pluginArguments = append(h.pluginArguments, `"include-xids" '1'`)
 	}
 	if cfg.PluginArguments.AddTables != "" {
-		h.pluginArguments = append(h.pluginArguments, fmt.Sprintf(`"add-tables" '%s'`, cfg.PluginArguments.AddTables))
+		h.pluginArguments = append(h.pluginArguments, fmt.Sprintf(`"add-tables" '%s'`, escapeReplicationOptionValue(cfg.PluginArguments.AddTables)))
 	}
 	if cfg.PluginArguments.FilterTables != "" {
-		h.pluginArguments = append(h.pluginArguments, fmt.Sprintf(`"filter-tables" '%s'`, cfg.PluginArguments.FilterTables))
+		h.pluginArguments = append(h.pluginArguments, fmt.Sprintf(`"filter-tables" '%s'`, escapeReplicationOptionValue(cfg.PluginArguments.FilterTables)))
 	}
 
 	if len(cfg.IncludeTables) > 0 {

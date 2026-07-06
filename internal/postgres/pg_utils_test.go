@@ -147,6 +147,21 @@ func Test_QuoteIdentifier(t *testing.T) {
 			input:    "",
 			expected: `""`,
 		},
+		{
+			name:     "malicious lookalike quoted identifier is escaped, not trusted",
+			input:    `"a" ; DROP TABLE users; --"`,
+			expected: `"""a"" ; DROP TABLE users; --"""`,
+		},
+		{
+			name:     "already quoted identifier with escaped inner quote",
+			input:    `"my""table"`,
+			expected: `"my""table"`,
+		},
+		{
+			name:     "well-formed quoted identifier with doubled inner quotes is trusted",
+			input:    `"a""; DROP TABLE users; --"`,
+			expected: `"a""; DROP TABLE users; --"`,
+		},
 	}
 
 	for _, tc := range tests {
@@ -305,6 +320,16 @@ func Test_IsQuotedIdentifier(t *testing.T) {
 		{
 			name:     "three characters with quotes",
 			input:    `"a"`,
+			expected: true,
+		},
+		{
+			name:     "starts/ends with quote but has an unpaired inner quote - not well-formed",
+			input:    `"a" ; DROP TABLE users; --"`,
+			expected: false,
+		},
+		{
+			name:     "well-formed with doubled inner quotes",
+			input:    `"my""table"`,
 			expected: true,
 		},
 	}
@@ -562,9 +587,9 @@ func Test_UnquoteIdentifier(t *testing.T) {
 			expected: `""`,
 		},
 		{
-			name:     "three quotes - empty after unquoting",
+			name:     "three quotes - malformed (unpaired), returned as-is",
 			input:    `"""`,
-			expected: `"`,
+			expected: `"""`,
 		},
 		{
 			name:     "quoted with special characters",
@@ -585,6 +610,21 @@ func Test_UnquoteIdentifier(t *testing.T) {
 			name:     "quoted with multiple embedded escaped quotes",
 			input:    `"my""table""name"`,
 			expected: `my"table"name`,
+		},
+		{
+			// starts/ends with a quote but the inner quotes are unpaired, so it
+			// is not a well-formed quoted identifier - returned untouched rather
+			// than stripped into a mangled fragment.
+			name:     "malicious lookalike is not unquoted, returned as-is",
+			input:    `"a" ; DROP TABLE users; --"`,
+			expected: `"a" ; DROP TABLE users; --"`,
+		},
+		{
+			// every inner quote is doubled, so this IS a well-formed quoted
+			// identifier: outer quotes stripped and "" collapsed to ".
+			name:     "well-formed quoted identifier with doubled inner quotes is unquoted",
+			input:    `"a""; DROP TABLE users; --"`,
+			expected: `a"; DROP TABLE users; --`,
 		},
 		{
 			name:     "quoted empty string",
