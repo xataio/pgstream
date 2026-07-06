@@ -148,25 +148,16 @@ func Test_QuoteIdentifier(t *testing.T) {
 			expected: `""`,
 		},
 		{
-			// starts and ends with a double quote but is not a well-formed
-			// quoted identifier (the inner quote is unpaired) - must be
-			// re-quoted/escaped, not trusted verbatim, or it would allow
-			// SQL injection via a crafted "identifier".
 			name:     "malicious lookalike quoted identifier is escaped, not trusted",
 			input:    `"a" ; DROP TABLE users; --"`,
 			expected: `"""a"" ; DROP TABLE users; --"""`,
 		},
 		{
-			// already well-formed: the inner quote is doubled, so it is a
-			// genuine quoted identifier and is trusted verbatim.
 			name:     "already quoted identifier with escaped inner quote",
 			input:    `"my""table"`,
 			expected: `"my""table"`,
 		},
 		{
-			// injection-looking payload, but every inner quote is doubled, so
-			// it IS a well-formed quoted identifier and is returned as-is
-			// (the ";" and "--" are just part of the identifier's name).
 			name:     "well-formed quoted identifier with doubled inner quotes is trusted",
 			input:    `"a""; DROP TABLE users; --"`,
 			expected: `"a""; DROP TABLE users; --"`,
