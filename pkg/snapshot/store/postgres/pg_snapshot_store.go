@@ -64,8 +64,8 @@ func (s *Store) UpdateSnapshotRequest(ctx context.Context, req *snapshot.Request
 
 func (s *Store) GetSnapshotRequestsByStatus(ctx context.Context, status snapshot.Status) ([]*snapshot.Request, error) {
 	query := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
-	WHERE status = '%s' ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), status, queryLimit)
-	rows, err := s.conn.Query(ctx, query)
+	WHERE status = $1 ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), queryLimit)
+	rows, err := s.conn.Query(ctx, query, status)
 	if err != nil {
 		return nil, fmt.Errorf("error getting snapshot requests by status: %w", err)
 	}
