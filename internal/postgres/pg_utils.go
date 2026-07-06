@@ -73,7 +73,21 @@ func QuoteQualifiedIdentifier(schema, table string) string {
 }
 
 func IsQuotedIdentifier(s string) bool {
-	return len(s) > 2 && strings.HasPrefix(s, `"`) && strings.HasSuffix(s, `"`)
+	if len(s) <= 2 || !strings.HasPrefix(s, `"`) || !strings.HasSuffix(s, `"`) {
+		return false
+	}
+	inner := s[1 : len(s)-1]
+	for i := 0; i < len(inner); i++ {
+		if inner[i] != '"' {
+			continue
+		}
+		if i+1 < len(inner) && inner[i+1] == '"' {
+			i++
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 type (

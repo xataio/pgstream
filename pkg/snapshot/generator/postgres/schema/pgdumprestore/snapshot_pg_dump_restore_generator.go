@@ -717,7 +717,7 @@ func (s *SnapshotGenerator) removeRestrictedRoleAttributes(line string) string {
 	if len(roles) == 0 {
 		return line
 	}
-	line += fmt.Sprintf("\nGRANT rds_replication TO %s;", roles[0].name)
+	line += fmt.Sprintf("\nGRANT rds_replication TO %s;", pglib.QuoteIdentifier(roles[0].name))
 	return line
 }
 
