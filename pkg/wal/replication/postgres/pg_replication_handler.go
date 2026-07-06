@@ -75,6 +75,9 @@ func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, erro
 	if replicationSlotName == "" {
 		replicationSlotName = pglib.DefaultReplicationSlotName(sysID.DBName)
 	}
+	if err := pglib.IsValidReplicationSlotName(replicationSlotName); err != nil {
+		return nil, err
+	}
 
 	connBuilder := func() (pglib.Querier, error) {
 		return pglib.NewConn(ctx, cfg.PostgresURL)
