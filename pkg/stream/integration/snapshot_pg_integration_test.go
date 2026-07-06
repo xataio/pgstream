@@ -106,6 +106,64 @@ func Test_SnapshotToPostgres(t *testing.T) {
 	})
 }
 
+// Test_SnapshotToPostgres_SelectedParentTableDoesNotCopyInheritedRows verifies
+// that snapshotting a selected parent table does not copy rows stored in child
+// tables through PostgreSQL inheritance.
+func Test_SnapshotToPostgres_SelectedParentTableDoesNotCopyInheritedRows(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	suffix := time.Now().UnixNano()
+	parentTable := fmt.Sprintf("snapshot_parent_only_%d", suffix)
+	childTable := fmt.Sprintf("snapshot_child_inherits_%d", suffix)
+
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s(id INTEGER PRIMARY KEY, name TEXT NOT NULL)`, parentTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s() INHERITS (%s)`, childTable, parentTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(id, name) VALUES (1, 'parent-row')`, parentTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(id, name) VALUES (2, 'child-row')`, childTable))
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{parentTable}),
+		Processor: testPostgresProcessorCfg(),
+	}
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	rows, err := targetConn.Query(ctx, fmt.Sprintf("SELECT id, name FROM %s ORDER BY id", parentTable))
+	require.NoError(t, err)
+	defer rows.Close()
+
+	type parentRow struct {
+		id   int
+		name string
+	}
+
+	got := []parentRow{}
+	for rows.Next() {
+		var r parentRow
+		require.NoError(t, rows.Scan(&r.id, &r.name))
+		got = append(got, r)
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, []parentRow{{id: 1, name: "parent-row"}}, got)
+}
+
 // Test_SnapshotToPostgres_IdentityOnlyTable verifies that tables where the only
 // column is an identity column (e.g. id-only lookup tables) are correctly
 // snapshotted, and that their values are preserved so that foreign key
@@ -434,6 +492,186 @@ func Test_SnapshotToPostgres_LtreeColumns(t *testing.T) {
 	t.Run("batch writer", func(t *testing.T) {
 		run("batch")
 	})
+}
+
+// Test_SnapshotToPostgres_ClusteredIndex verifies that ALTER TABLE ... CLUSTER
+// ON ... is restored after its referenced index exists.
+func Test_SnapshotToPostgres_ClusteredIndex(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	suffix := time.Now().UnixNano()
+	testTable := fmt.Sprintf("clustered_snapshot_%d", suffix)
+	indexName := fmt.Sprintf("clustered_snapshot_idx_%d", suffix)
+
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s(
+			id integer PRIMARY KEY,
+			created_at timestamptz NOT NULL
+		)`, testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(id, created_at) VALUES
+			(1, '2026-01-01T00:00:00Z'),
+			(2, '2026-01-02T00:00:00Z')`, testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE INDEX %s ON %s(created_at)`, indexName, testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`ALTER TABLE %s CLUSTER ON %s`, testTable, indexName))
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"public.*"}),
+		Processor: testPostgresProcessorCfg(),
+	}
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	var clustered bool
+	err = targetConn.QueryRow(ctx, []any{&clustered}, `
+		SELECT i.indisclustered
+		FROM pg_index i
+		JOIN pg_class idx ON idx.oid = i.indexrelid
+		JOIN pg_class tbl ON tbl.oid = i.indrelid
+		JOIN pg_namespace nsp ON nsp.oid = tbl.relnamespace
+		WHERE nsp.nspname = 'public'
+		  AND tbl.relname = $1
+		  AND idx.relname = $2
+	`, testTable, indexName)
+	require.NoError(t, err)
+	require.True(t, clustered)
+}
+
+// Test_SnapshotToPostgres_MaterializedViewRefresh verifies that materialized
+// views restored from a schema-only dump are refreshed after pgstream copies
+// the base table data.
+func Test_SnapshotToPostgres_MaterializedViewRefresh(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	suffix := time.Now().UnixNano()
+	baseTable := fmt.Sprintf("mv_base_%d", suffix)
+	viewName := fmt.Sprintf("mv_summary_%d", suffix)
+	indexName := fmt.Sprintf("mv_summary_idx_%d", suffix)
+
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s(
+			id integer PRIMARY KEY,
+			name text NOT NULL
+		)`, baseTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(id, name) VALUES
+			(1, 'alpha'),
+			(2, 'beta')`, baseTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE MATERIALIZED VIEW %s AS
+			SELECT id, upper(name) AS display_name
+			FROM %s
+			WITH NO DATA`, viewName, baseTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE UNIQUE INDEX %s ON %s(id)`, indexName, viewName))
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"public.*"}),
+		Processor: testPostgresProcessorCfg(),
+	}
+	cfg.Listener.Postgres.Snapshot.Schema.DumpRestore.RefreshMaterializedViews = true
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	var count int
+	err = targetConn.QueryRow(ctx, []any{&count}, fmt.Sprintf("SELECT count(*) FROM %s", viewName))
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+
+	indexes := getTableIndexes(t, ctx, targetConn, "public", viewName)
+	require.Contains(t, indexes, indexName)
+}
+
+// Test_SnapshotToPostgres_SkipsLegacyPLPGSQLHandlers verifies that legacy
+// public PL/pgSQL handler functions from a source dump are not restored as
+// ordinary user functions, while normal user-defined functions are preserved.
+func Test_SnapshotToPostgres_SkipsLegacyPLPGSQLHandlers(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	suffix := time.Now().UnixNano()
+	testTable := fmt.Sprintf("legacy_plpgsql_snapshot_%d", suffix)
+	regularFunction := fmt.Sprintf("snapshot_regular_fn_%d", suffix)
+
+	execQueryWithURL(t, ctx, snapshotPGURL, `
+		CREATE FUNCTION public.plpgsql_call_handler() RETURNS language_handler
+		AS '$libdir/plpgsql', 'plpgsql_call_handler'
+		LANGUAGE C`)
+	execQueryWithURL(t, ctx, snapshotPGURL, `
+		CREATE FUNCTION public.plpgsql_validator(oid) RETURNS void
+		AS '$libdir/plpgsql', 'plpgsql_validator'
+		LANGUAGE C`)
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE FUNCTION public.%s() RETURNS integer
+		LANGUAGE plpgsql
+		AS $$ BEGIN RETURN 42; END $$`, regularFunction))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s(id integer PRIMARY KEY)`, testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(id) VALUES (1)`, testTable))
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"public.*"}),
+		Processor: testPostgresProcessorCfg(),
+	}
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	var legacyHandlerCount int
+	err = targetConn.QueryRow(ctx, []any{&legacyHandlerCount}, `
+		SELECT count(*)
+		FROM pg_proc p
+		JOIN pg_namespace n ON n.oid = p.pronamespace
+		WHERE n.nspname = 'public'
+		  AND p.proname IN ('plpgsql_call_handler', 'plpgsql_validator')
+	`)
+	require.NoError(t, err)
+	require.Zero(t, legacyHandlerCount)
+
+	var got int
+	err = targetConn.QueryRow(ctx, []any{&got}, fmt.Sprintf("SELECT public.%s()", regularFunction))
+	require.NoError(t, err)
+	require.Equal(t, 42, got)
 }
 
 // Test_SnapshotToPostgres_IdentityAndGeneratedColumns verifies that identity
