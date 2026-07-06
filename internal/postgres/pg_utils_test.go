@@ -109,8 +109,70 @@ func Test_QuoteIdentifier(t *testing.T) {
 	require.Equal(t, `"table"`, QuoteIdentifier("table"))
 	require.Equal(t, `"schema"`, QuoteIdentifier("schema"))
 
-	// Test with already quoted identifier
-	require.Equal(t, `"quoted"`, QuoteIdentifier(`"quoted"`))
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple identifier",
+			input:    "table",
+			expected: `"table"`,
+		},
+		{
+			name:     "schema name",
+			input:    "schema",
+			expected: `"schema"`,
+		},
+		{
+			name:     "already quoted identifier",
+			input:    `"quoted"`,
+			expected: `"quoted"`,
+		},
+		{
+			name:     "identifier with underscore",
+			input:    "my_table",
+			expected: `"my_table"`,
+		},
+		{
+			name:     "identifier with numbers",
+			input:    "table123",
+			expected: `"table123"`,
+		},
+		{
+			name:     "identifier with embedded quote needs escaping",
+			input:    `my"table`,
+			expected: `"my""table"`,
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: `""`,
+		},
+		{
+			name:     "malicious lookalike quoted identifier is escaped, not trusted",
+			input:    `"a" ; DROP TABLE users; --"`,
+			expected: `"""a"" ; DROP TABLE users; --"""`,
+		},
+		{
+			name:     "already quoted identifier with escaped inner quote",
+			input:    `"my""table"`,
+			expected: `"my""table"`,
+		},
+		{
+			name:     "well-formed quoted identifier with doubled inner quotes is trusted",
+			input:    `"a""; DROP TABLE users; --"`,
+			expected: `"a""; DROP TABLE users; --"`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := QuoteIdentifier(tc.input)
+			require.Equal(t, tc.expected, got)
+		})
+	}
 }
 
 func Test_QuoteQualifiedIdentifier(t *testing.T) {
@@ -219,6 +281,16 @@ func Test_IsQuotedIdentifier(t *testing.T) {
 		{
 			name:     "three characters with quotes",
 			input:    `"a"`,
+			expected: true,
+		},
+		{
+			name:     "starts/ends with quote but has an unpaired inner quote - not well-formed",
+			input:    `"a" ; DROP TABLE users; --"`,
+			expected: false,
+		},
+		{
+			name:     "well-formed with doubled inner quotes",
+			input:    `"my""table"`,
 			expected: true,
 		},
 	}

@@ -307,8 +307,9 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 			querier: &postgresmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
-	WHERE status = '%s' ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), snapshot.StatusInProgress, queryLimit)
+	WHERE status = $1 ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), queryLimit)
 					require.Equal(t, wantQuery, query)
+					require.Equal(t, []any{snapshot.StatusInProgress}, args)
 					return &postgresmocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(_ uint) bool { return false },
@@ -324,8 +325,9 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 			querier: &postgresmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
-	WHERE status = '%s' ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), snapshot.StatusInProgress, queryLimit)
+	WHERE status = $1 ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), queryLimit)
 					require.Equal(t, wantQuery, query)
+					require.Equal(t, []any{snapshot.StatusInProgress}, args)
 					return &postgresmocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
@@ -373,8 +375,9 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 			querier: &postgresmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
-	WHERE status = '%s' ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), snapshot.StatusInProgress, queryLimit)
+	WHERE status = $1 ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), queryLimit)
 					require.Equal(t, wantQuery, query)
+					require.Equal(t, []any{snapshot.StatusInProgress}, args)
 					return &postgresmocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
