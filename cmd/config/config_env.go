@@ -583,6 +583,7 @@ func parsePostgresProcessorConfig() (*stream.PostgresProcessorConfig, error) {
 			BulkIngestEnabled: bulkIngestEnabled,
 			RetryPolicy:       parseBackoffConfig("PGSTREAM_POSTGRES_WRITER"),
 			IgnoreDDL:         viper.GetBool("PGSTREAM_POSTGRES_WRITER_IGNORE_DDL"),
+			StrictMode:        viper.GetBool("PGSTREAM_POSTGRES_WRITER_STRICT_MODE"),
 		},
 	}
 
