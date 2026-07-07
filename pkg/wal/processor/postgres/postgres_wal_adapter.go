@@ -46,6 +46,8 @@ type adapter struct {
 	schemaObserver schemaObserver
 }
 
+const pgstreamSchemaName = "pgstream"
+
 type (
 	ddlEventAdapter func(*wal.Data) (*wal.DDLEvent, error)
 )
@@ -77,8 +79,10 @@ func newAdapter(ctx context.Context, logger loglib.Logger, ignoreDDL bool, pgURL
 func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query, error) {
 	switch {
 	case e.Data == nil,
+		isInternalPgstreamDML(e.Data),
 		a.schemaObserver.isMaterializedView(ctx, e.Data.Schema, e.Data.Table):
-		// skip DML processing for materialized views (read only)
+		// skip DML processing for materialized views (read only) and
+		// pgstream internal metadata tables.
 		return []*query{{}}, nil
 
 	case e.Data.IsDDLEvent():
@@ -127,6 +131,7 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 func (a *adapter) walEventToMessage(ctx context.Context, e *wal.Event) (*walMessage, error) {
 	switch {
 	case e.Data == nil,
+		isInternalPgstreamDML(e.Data),
 		a.schemaObserver.isMaterializedView(ctx, e.Data.Schema, e.Data.Table):
 		return &walMessage{}, nil
 
@@ -172,4 +177,8 @@ func (a *adapter) walEventToMessage(ctx context.Context, e *wal.Event) (*walMess
 
 func (a *adapter) close() error {
 	return a.schemaObserver.close()
+}
+
+func isInternalPgstreamDML(data *wal.Data) bool {
+	return data != nil && !data.IsDDLEvent() && data.Schema == pgstreamSchemaName
 }
