@@ -34,7 +34,7 @@ type Option func(*BatchIndexer)
 
 type batchSender interface {
 	SendMessage(context.Context, *batch.WALMessage[*msg]) error
-	Close()
+	Close() error
 }
 
 // NewBatchIndexer returns a processor of wal events that indexes data into the
@@ -120,8 +120,7 @@ func (i *BatchIndexer) Name() string {
 }
 
 func (i *BatchIndexer) Close() error {
-	i.batchSender.Close()
-	return nil
+	return i.batchSender.Close()
 }
 
 func (i *BatchIndexer) sendBatch(ctx context.Context, batch *batch.Batch[*msg]) error {
