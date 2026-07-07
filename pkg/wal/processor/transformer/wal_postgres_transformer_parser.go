@@ -213,7 +213,7 @@ func (v *PostgresTransformerParser) getAllSchemaTables(ctx context.Context, sche
 }
 
 func (v *PostgresTransformerParser) getAllSchemaNames(ctx context.Context) ([]string, error) {
-	const query = "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')"
+	const query = "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream') AND nspname NOT LIKE 'pg_temp_%' AND nspname NOT LIKE 'pg_toast_temp_%'"
 	rows, err := v.conn.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("discovering all schemas for wildcard: %w", err)

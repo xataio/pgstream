@@ -79,10 +79,15 @@ func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 		return nil, nil
 	}
 	src := postgres.NewLazyConn(url)
+	selection := cfg.AccessTableSelection()
 	return []Check{
 		&SourceTableSelectPrivilegesCheck{
 			Source:    src.Acquire,
-			Selection: cfg.AccessTableSelection(),
+			Selection: selection,
+		},
+		&SourceSequenceSelectPrivilegesCheck{
+			Source:    src.Acquire,
+			Selection: selection,
 		},
 	}, src.Close
 }

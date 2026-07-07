@@ -29,6 +29,8 @@ const (
 	pgstreamSchema          = "pgstream"
 )
 
+var postgresTempSchemaPatterns = []string{"pg_temp_*", "pg_toast_temp_*"}
+
 func newOptionGenerator(querier pglib.Querier, cfg *Config) *optionGenerator {
 	return &optionGenerator{
 		sourceURL:              cfg.SourcePGURL,
@@ -124,6 +126,10 @@ func (o *optionGenerator) pgdumpOptions(ctx context.Context, schemaTables map[st
 		opts.Schemas = nil
 	}
 
+	if opts.Schemas == nil {
+		opts.ExcludeSchemas = appendMissing(opts.ExcludeSchemas, postgresTempSchemaPatterns...)
+	}
+
 	// we use the excluded tables flag to make sure we still dump non table
 	// objects for the schema in question. If we use the tables filter, only
 	// those tables are dumped, and any related non table objects will not be
@@ -154,6 +160,15 @@ func (o *optionGenerator) pgdumpOptions(ctx context.Context, schemaTables map[st
 	}
 
 	return opts, nil
+}
+
+func appendMissing(values []string, candidates ...string) []string {
+	for _, candidate := range candidates {
+		if !slices.Contains(values, candidate) {
+			values = append(values, candidate)
+		}
+	}
+	return values
 }
 
 const (
