@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	rszerolog "github.com/rs/zerolog"
 	"github.com/xataio/pgstream/cmd/config"
 	"github.com/xataio/pgstream/internal/log/zerolog"
 	"github.com/xataio/pgstream/internal/profiling"
@@ -25,6 +26,8 @@ var (
 )
 
 const trueStr = "true"
+
+type sighupReloadsContextKey struct{}
 
 func Prepare() *cobra.Command {
 	rootCmd := &cobra.Command{
@@ -110,11 +113,6 @@ func Prepare() *cobra.Command {
 	validateRulesCmd.Flags().Bool("json", false, "Output the validation status in JSON format")
 	validateCmd.AddCommand(validateRulesCmd)
 
-	// validate schema cmd
-	validateSchemaCmd.Flags().String("postgres-url", "", "Source postgres URL to validate the schema against")
-	validateSchemaCmd.Flags().Bool("json", false, "Output the validation status in JSON format")
-	validateCmd.AddCommand(validateSchemaCmd)
-
 	// check cmd
 	checkCmd.Flags().String("postgres-url", "", "Source postgres URL to run checks against")
 	checkCmd.Flags().String("target-url", "", "Target URL to run checks against")
@@ -122,6 +120,7 @@ func Prepare() *cobra.Command {
 	checkCmd.Flags().Bool("connectivity", false, "Run connectivity checks against the configured source and target")
 	checkCmd.Flags().Bool("replication", false, "Run replication checks against the source (requires replication slot configured)")
 	checkCmd.Flags().Bool("access", false, "Run access and privilege checks against the source")
+	checkCmd.Flags().Bool("schema", false, "Run schema compatibility checks against the source")
 
 	// Flag binding for root cmd
 	rootFlagBinding(rootCmd)
@@ -147,21 +146,78 @@ func Execute() error {
 func withSignalWatcher(fn func(ctx context.Context) error) func(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	sigc := make(chan os.Signal, 1)
-	signal.Notify(sigc,
-		syscall.SIGHUP,
+	shutdownc := make(chan os.Signal, 1)
+	signal.Notify(shutdownc,
 		syscall.SIGINT,
 		syscall.SIGTERM,
 		syscall.SIGQUIT)
+
+	reloadc := make(chan os.Signal, 1)
+	signal.Notify(reloadc, syscall.SIGHUP)
+	ctx = context.WithValue(ctx, sighupReloadsContextKey{}, (<-chan os.Signal)(reloadc))
+
 	go func() {
-		<-sigc
-		cancel()
+		select {
+		case <-shutdownc:
+			cancel()
+		case <-ctx.Done():
+		}
 	}()
 
 	return func(cmd *cobra.Command, args []string) error {
+		defer signal.Stop(shutdownc)
+		defer signal.Stop(reloadc)
 		defer cancel()
 		return fn(ctx)
 	}
+}
+
+func watchLogLevelReloads(ctx context.Context, logger *rszerolog.Logger) {
+	reloads := logLevelReloads(ctx)
+	if reloads == nil {
+		return
+	}
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-reloads:
+				if err := reloadLogLevel(logger); err != nil {
+					logger.WithLevel(rszerolog.NoLevel).Err(err).Msg("failed to reload log level after SIGHUP")
+				}
+			}
+		}
+	}()
+}
+
+func logLevelReloads(ctx context.Context) <-chan os.Signal {
+	reloads, _ := ctx.Value(sighupReloadsContextKey{}).(<-chan os.Signal)
+	return reloads
+}
+
+func reloadLogLevel(logger *rszerolog.Logger) error {
+	if err := config.LoadQuiet(); err != nil {
+		return fmt.Errorf("loading configuration: %w", err)
+	}
+
+	cfg := loggerConfigFromViper()
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+
+	level, err := rszerolog.ParseLevel(cfg.LogLevel)
+	if err != nil {
+		return err
+	}
+	if rszerolog.GlobalLevel() == level {
+		return nil
+	}
+
+	rszerolog.SetGlobalLevel(level)
+	logger.WithLevel(rszerolog.NoLevel).Str("level", level.String()).Msg("reloaded log level after SIGHUP")
+	return nil
 }
 
 func withProfiling(fn func(cmd *cobra.Command, args []string) error) func(cmd *cobra.Command, args []string) (err error) {

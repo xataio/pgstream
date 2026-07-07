@@ -16,6 +16,7 @@ const (
 	CategoryConnectivity Category = "connectivity"
 	CategoryReplication  Category = "replication"
 	CategoryAccess       Category = "access"
+	CategorySchema       Category = "schema"
 )
 
 // Finding describes a single issue detected by a Check. Every finding is an
@@ -32,26 +33,40 @@ type Check interface {
 	Run(ctx context.Context) ([]Finding, error)
 }
 
+// Detailer is an optional interface a Check may implement to attach structured,
+// non-finding context to its result (e.g. the set of extensions it inspected).
+// The engine calls Details after Run, so a check populates it from state it
+// gathered while running. Each key is merged into the check's JSON object; it is
+// only surfaced in the JSON report, not the human-readable one.
+type Detailer interface {
+	Details() map[string]any
+}
+
 // CheckResult bundles a check's name with whatever it produced.
 type CheckResult struct {
 	Name     string    `json:"name"`
 	Findings []Finding `json:"findings"`
 	Err      error     `json:"-"`
+	// Details holds optional structured context from a Detailer check. Keys are
+	// merged into the result's JSON object alongside name/findings/error.
+	Details map[string]any `json:"-"`
 }
 
 // MarshalJSON renders Err as a string so the report is consumable from a
-// non-Go process. The default error marshaling drops the message.
+// non-Go process (the default error marshaling drops the message), and merges
+// any Details keys into the object.
 func (r CheckResult) MarshalJSON() ([]byte, error) {
-	out := struct {
-		Name     string    `json:"name"`
-		Findings []Finding `json:"findings"`
-		Error    string    `json:"error,omitempty"`
-	}{
-		Name:     r.Name,
-		Findings: r.Findings,
+	out := map[string]any{
+		"name":     r.Name,
+		"findings": r.Findings,
 	}
 	if r.Err != nil {
-		out.Error = r.Err.Error()
+		out["error"] = r.Err.Error()
+	}
+	for k, v := range r.Details {
+		if _, taken := out[k]; !taken {
+			out[k] = v
+		}
 	}
 	return json.Marshal(out)
 }
@@ -93,11 +108,15 @@ func Run(ctx context.Context, checks []Check, opts ...RunOption) Report {
 			ro.progress(i+1, total, c.Name())
 		}
 		findings, err := c.Run(ctx)
-		results = append(results, CheckResult{
+		res := CheckResult{
 			Name:     c.Name(),
 			Findings: findings,
 			Err:      err,
-		})
+		}
+		if d, ok := c.(Detailer); ok {
+			res.Details = d.Details()
+		}
+		results = append(results, res)
 	}
 	return Report{Results: results}
 }

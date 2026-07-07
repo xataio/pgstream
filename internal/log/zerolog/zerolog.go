@@ -51,6 +51,9 @@ func (c *Config) Validate() error {
 	default:
 		return fmt.Errorf("invalid log format %q: must be one of console, json", c.LogFormat)
 	}
+	if _, err := zerolog.ParseLevel(c.LogLevel); err != nil {
+		return fmt.Errorf("invalid log level %q: %w", c.LogLevel, err)
+	}
 	if c.NoColor && c.LogFormat == formatJSON {
 		return ErrNoColorUnderJSONFormat
 	}
@@ -102,6 +105,7 @@ func NewStdLogger(l *zerolog.Logger) loglib.Logger {
 func NewLogger(config *Config) *zerolog.Logger {
 	// ignore the error, it defaults to no level
 	level, _ := zerolog.ParseLevel(config.LogLevel)
+	zerolog.SetGlobalLevel(level)
 
 	var out io.Writer
 	if config.LogFormat == formatJSON {
@@ -131,7 +135,7 @@ func NewLogger(config *Config) *zerolog.Logger {
 		Caller().
 		Stack().
 		Logger().
-		Level(level)
+		Level(zerolog.TraceLevel)
 
 	return &logger
 }

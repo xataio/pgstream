@@ -97,7 +97,21 @@ func QuoteQualifiedIdentifier(schema, table string) string {
 }
 
 func IsQuotedIdentifier(s string) bool {
-	return len(s) > 2 && strings.HasPrefix(s, `"`) && strings.HasSuffix(s, `"`)
+	if len(s) <= 2 || !strings.HasPrefix(s, `"`) || !strings.HasSuffix(s, `"`) {
+		return false
+	}
+	inner := s[1 : len(s)-1]
+	for i := 0; i < len(inner); i++ {
+		if inner[i] != '"' {
+			continue
+		}
+		if i+1 < len(inner) && inner[i+1] == '"' {
+			i++
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 type (
@@ -157,6 +171,11 @@ func extractDatabase(url string) (string, error) {
 type extensionType struct {
 	// name is the unqualified type name as it appears to `to_regtype`
 	name string
+	// extraNames lists additional type names registered by the same register
+	// call, beyond name (e.g. pgvector's "vector" entry also registers halfvec
+	// and sparsevec). Used by ExtensionTypeNames so callers see every type the
+	// entry covers.
+	extraNames []string
 	// register is invoked with the resolved OID once the type has been found
 	// in pg_type. Implementations are free to register additional related types.
 	register func(ctx context.Context, conn *pgx.Conn, oid uint32) error
@@ -169,8 +188,9 @@ var extensionTypes = []extensionType{
 	{name: "jsonb", register: registerWithCodec("jsonb", &pgtype.JSONBCodec{Marshal: pgjson.Marshal, Unmarshal: pgjson.UnmarshalUseInt64})},
 
 	{name: "hstore", register: registerWithCodec("hstore", pgtype.HstoreCodec{})},
-	{name: "vector", register: func(ctx context.Context, conn *pgx.Conn, _ uint32) error {
-		// pgxvec registers vector, halfvec and sparsevec in one call —
+	{name: "vector", extraNames: []string{"halfvec", "sparsevec", "_vector", "_halfvec", "_sparsevec"}, register: func(ctx context.Context, conn *pgx.Conn, _ uint32) error {
+		// pgxvec registers the vector, halfvec and sparsevec scalar types and
+		// their array variants (_vector, _halfvec, _sparsevec) in one call —
 		// the OID lookup above is just a gate to skip when pgvector is
 		// not installed.
 		if err := pgxvec.RegisterTypes(ctx, conn); err != nil {
@@ -180,6 +200,21 @@ var extensionTypes = []extensionType{
 	}},
 	{name: "cube", register: registerWithCodec("cube", pgtype.TextCodec{})},
 	{name: "ltree", register: registerWithCodec("ltree", pgtype.TextCodec{})},
+}
+
+// ExtensionTypeNames returns the names of every postgres extension type
+// pgstream teaches pgx about on each connection (see extensionTypes), including
+// the additional types a single entry registers (e.g. pgvector's halfvec and
+// sparsevec). Callers that need to know whether pgstream can handle a type
+// beyond pgx's built-in set — such as the preflight schema compatibility check
+// — consult this list so it stays in sync with what pgstream actually registers.
+func ExtensionTypeNames() []string {
+	names := make([]string, 0, len(extensionTypes))
+	for _, ext := range extensionTypes {
+		names = append(names, ext.name)
+		names = append(names, ext.extraNames...)
+	}
+	return names
 }
 
 // registerTypesToConnMap teaches pgx about the postgres extension types
@@ -227,7 +262,7 @@ func registerWithCodec(name string, codec pgtype.Codec) func(ctx context.Context
 	}
 }
 
-const DiscoverAllSchemasQuery = "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')"
+const DiscoverAllSchemasQuery = "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream') AND nspname NOT LIKE 'pg_temp_%' AND nspname NOT LIKE 'pg_toast_temp_%'"
 
 func DiscoverAllSchemas(ctx context.Context, conn Querier) ([]string, error) {
 	rows, err := conn.Query(ctx, DiscoverAllSchemasQuery)

@@ -41,6 +41,9 @@ var checkCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("parsing stream config: %w", err)
 			}
+			if err := streamConfig.IsValid(); err != nil {
+				return fmt.Errorf("validating stream config: %w", err)
+			}
 
 			checks, cleanup := preflight.BuildChecks(streamConfig, selectedCategories(cmd))
 			defer func() {

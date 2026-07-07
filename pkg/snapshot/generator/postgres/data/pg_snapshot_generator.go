@@ -329,7 +329,7 @@ func (sg *SnapshotGenerator) snapshotTableRangeWorker(ctx context.Context, snaps
 	return nil
 }
 
-var pageRangeQuery = "SELECT * FROM %s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'"
+var pageRangeQuery = "SELECT * FROM ONLY %s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'"
 
 func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID string, table *table, pageRange pageRange) error {
 	return sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
@@ -344,7 +344,10 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID 
 		}
 		defer rows.Close()
 
-		fieldDescriptions := rows.FieldDescriptions()
+		// resolve the column metadata (names/types) and timestamp once per page
+		// range, since the field descriptions are identical for every row in the
+		// result set.
+		rowAdapter := sg.adapter.newRowEventAdapter(ctx, table.schema, table.name, rows.FieldDescriptions())
 		rowCount := uint(0)
 		for rows.Next() {
 			rowCount++
@@ -357,7 +360,7 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID 
 					return fmt.Errorf("retrieving rows values: %w", err)
 				}
 
-				event := sg.adapter.rowToWalEvent(ctx, table.schema, table.name, fieldDescriptions, values)
+				event := rowAdapter.rowToWalEvent(values)
 				if event == nil {
 					continue
 				}
@@ -423,7 +426,7 @@ WHERE
 
 	// select the max page for the relation instead of using pg_class.relpages, it may not contain an accurate value if
 	// the table is small, the table has active inserts, or the database has not been vacuumed/analyzed recently.
-	maxPageQuery = `SELECT MAX(ctid) FROM %s;`
+	maxPageQuery = `SELECT MAX(ctid) FROM ONLY %s;`
 )
 
 func (sg *SnapshotGenerator) getTableInfo(ctx context.Context, schemaName, tableName, snapshotID string) (*tableInfo, error) {

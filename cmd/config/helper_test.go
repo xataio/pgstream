@@ -69,17 +69,18 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 					},
 					Schema: &builder.SchemaSnapshotConfig{
 						DumpRestore: &pgdumprestore.Config{
-							SourcePGURL:            "postgresql://user:password@localhost:5432/mydatabase",
-							TargetPGURL:            "postgresql://user:password@localhost:5432/mytargetdatabase",
-							CleanTargetDB:          true,
-							CreateTargetDB:         true,
-							IncludeGlobalDBObjects: true,
-							RolesSnapshotMode:      "disabled",
-							Role:                   "test-role",
-							NoOwner:                true,
-							NoPrivileges:           true,
-							DumpDebugFile:          "pg_dump.sql",
-							ExcludedSecurityLabels: []string{"anon"},
+							SourcePGURL:              "postgresql://user:password@localhost:5432/mydatabase",
+							TargetPGURL:              "postgresql://user:password@localhost:5432/mytargetdatabase",
+							CleanTargetDB:            true,
+							CreateTargetDB:           true,
+							IncludeGlobalDBObjects:   true,
+							RolesSnapshotMode:        "disabled",
+							Role:                     "test-role",
+							NoOwner:                  true,
+							NoPrivileges:             true,
+							DumpDebugFile:            "pg_dump.sql",
+							ExcludedSecurityLabels:   []string{"anon"},
+							RefreshMaterializedViews: true,
 						},
 					},
 					Recorder: &builder.SnapshotRecorderConfig{
@@ -223,6 +224,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 				InferFromSecurityLabels: false,
 				DumpInferredRules:       false,
 				ValidationMode:          "relaxed",
+				OnError:                 "null",
 				TransformerRules: []transformer.TableRules{
 					{
 						Schema:         "public",

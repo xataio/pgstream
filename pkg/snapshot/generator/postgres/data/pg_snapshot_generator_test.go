@@ -1258,6 +1258,13 @@ func TestTablePageInfo_calculateBatchPageSize(t *testing.T) {
 	}
 }
 
+func TestSnapshotQueriesDoNotIncludeInheritedRows(t *testing.T) {
+	t.Parallel()
+
+	require.Contains(t, pageRangeQuery, " FROM ONLY %s ")
+	require.Contains(t, maxPageQuery, " FROM ONLY %s")
+}
+
 func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 	t.Parallel()
 

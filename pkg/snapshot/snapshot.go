@@ -40,8 +40,8 @@ func (s *Snapshot) GetTables() []string {
 	}
 
 	tables := []string{}
-	for schema, tables := range s.SchemaTables {
-		for _, table := range tables {
+	for schema, schemaTables := range s.SchemaTables {
+		for _, table := range schemaTables {
 			tables = append(tables, schema+"."+table)
 		}
 	}
