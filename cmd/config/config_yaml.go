@@ -179,6 +179,7 @@ type ExponentialBackoffConfig struct {
 	MaxRetries      int `mapstructure:"max_retries" yaml:"max_retries"`
 	InitialInterval int `mapstructure:"initial_interval" yaml:"initial_interval"`
 	MaxInterval     int `mapstructure:"max_interval" yaml:"max_interval"`
+	MaxElapsedTime  int `mapstructure:"max_elapsed_time" yaml:"max_elapsed_time"`
 }
 
 type ConstantBackoffConfig struct {
@@ -194,6 +195,7 @@ type PostgresTargetConfig struct {
 	OnConflictAction string            `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
 	RetryPolicy      BackoffConfig     `mapstructure:"retry_policy" yaml:"retry_policy"`
 	IgnoreDDL        bool              `mapstructure:"ignore_ddl" yaml:"ignore_ddl"`
+	StrictMode       bool              `mapstructure:"strict_mode" yaml:"strict_mode"`
 }
 
 type KafkaTargetConfig struct {
@@ -685,6 +687,7 @@ func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorCon
 			OnConflictAction: c.Target.Postgres.OnConflictAction,
 			RetryPolicy:      c.Target.Postgres.RetryPolicy.parseBackoffConfig(),
 			IgnoreDDL:        c.Target.Postgres.IgnoreDDL,
+			StrictMode:       c.Target.Postgres.StrictMode,
 		},
 	}
 
@@ -933,6 +936,7 @@ func (bo *BackoffConfig) parseExponentialBackoffConfig() *backoff.ExponentialCon
 	return &backoff.ExponentialConfig{
 		InitialInterval: time.Duration(bo.Exponential.InitialInterval) * time.Millisecond,
 		MaxInterval:     time.Duration(bo.Exponential.MaxInterval) * time.Millisecond,
+		MaxElapsedTime:  time.Duration(bo.Exponential.MaxElapsedTime) * time.Millisecond,
 		MaxRetries:      uint(bo.Exponential.MaxRetries),
 	}
 }
