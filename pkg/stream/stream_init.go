@@ -204,7 +204,7 @@ func dropMigrationTables(ctx context.Context, conn *pgx.Conn, migrationAssets []
 }
 
 func createReplicationSlot(ctx context.Context, conn *pgx.Conn, slotName string) error {
-	_, err := conn.Exec(ctx, fmt.Sprintf(`SELECT 'init' FROM pg_create_logical_replication_slot ('%s', 'wal2json')`, slotName))
+	_, err := conn.Exec(ctx, `SELECT 'init' FROM pg_create_logical_replication_slot($1, 'wal2json')`, slotName)
 	if err != nil && !isDuplicateObject(err) {
 		return err
 	}
@@ -212,7 +212,7 @@ func createReplicationSlot(ctx context.Context, conn *pgx.Conn, slotName string)
 }
 
 func dropReplicationSlot(ctx context.Context, conn *pgx.Conn, slotName string) error {
-	_, err := conn.Exec(ctx, fmt.Sprintf(`SELECT pg_drop_replication_slot('%[1]s') from pg_replication_slots where slot_name = '%[1]s'`, slotName))
+	_, err := conn.Exec(ctx, `SELECT pg_drop_replication_slot(slot_name) from pg_replication_slots where slot_name = $1`, slotName)
 	return err
 }
 
@@ -296,7 +296,7 @@ func cleanupV09xState(ctx context.Context, conn *pgx.Conn) error {
 		return fmt.Errorf("iterating event triggers: %w", err)
 	}
 	for _, name := range triggers {
-		if _, err := conn.Exec(ctx, fmt.Sprintf("DROP EVENT TRIGGER IF EXISTS %s", name)); err != nil {
+		if _, err := conn.Exec(ctx, fmt.Sprintf("DROP EVENT TRIGGER IF EXISTS %s", pglib.QuoteIdentifier(name))); err != nil {
 			return fmt.Errorf("dropping event trigger %s: %w", name, err)
 		}
 	}
