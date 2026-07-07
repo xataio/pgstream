@@ -90,6 +90,58 @@ func TestReportPrinter_PrettyPrint(t *testing.T) {
 	require.Contains(t, out, "ran 3 checks\n")
 }
 
+type stubDetailerCheck struct {
+	stubCheck
+	details map[string]any
+}
+
+func (s *stubDetailerCheck) Details() map[string]any { return s.details }
+
+func TestRun_CapturesDetailsFromDetailerChecks(t *testing.T) {
+	t.Parallel()
+
+	checks := []Check{
+		&stubDetailerCheck{
+			stubCheck: stubCheck{name: "with-details"},
+			details:   map[string]any{"source_extensions": []string{"hstore", "postgis"}},
+		},
+		&stubCheck{name: "no-details"},
+	}
+
+	report := Run(context.Background(), checks)
+
+	require.Equal(t, map[string]any{"source_extensions": []string{"hstore", "postgis"}}, report.Results[0].Details)
+	require.Nil(t, report.Results[1].Details)
+}
+
+func TestCheckResult_JSONMarshalMergesDetails(t *testing.T) {
+	t.Parallel()
+
+	res := CheckResult{
+		Name:    "schema_extension_compatibility",
+		Details: map[string]any{"source_extensions": []string{"hstore", "postgis"}},
+	}
+
+	data, err := json.Marshal(res)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"name":"schema_extension_compatibility","findings":null,"source_extensions":["hstore","postgis"]}`, string(data))
+}
+
+func TestReportPrinter_PrettyPrintOmitsDetails(t *testing.T) {
+	t.Parallel()
+
+	printer := ReportPrinter{Report: Report{
+		Results: []CheckResult{
+			{Name: "clean", Details: map[string]any{"source_extensions": []string{"hstore", "postgis"}}},
+		},
+	}}
+
+	out := printer.PrettyPrint()
+
+	// details are JSON-only; the human report never mentions them
+	require.Equal(t, "✔ clean\nran 1 checks\n", out)
+}
+
 func TestReportPrinter_MarshalJSONDelegatesToReport(t *testing.T) {
 	t.Parallel()
 
