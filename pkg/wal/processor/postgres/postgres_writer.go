@@ -49,7 +49,7 @@ func newWriter(ctx context.Context, config *Config, writerType string, opts ...W
 		logger:          loglib.NewNoopLogger(),
 		writerType:      writerType,
 		disableTriggers: config.DisableTriggers,
-		strictMode:      config.StrictMode,
+		strictMode:      config.strictModeEnabled(),
 	}
 
 	for _, opt := range opts {

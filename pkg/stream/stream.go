@@ -187,8 +187,11 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 }
 
 func postgresWriterConfigForProcessor(config pgwriter.Config, processorType processorType) pgwriter.Config {
-	if processorType == processorTypeSnapshot {
-		config.StrictMode = true
+	// snapshots default to strict mode so dropped writes fail the snapshot
+	// instead of being silently logged, unless explicitly disabled.
+	if processorType == processorTypeSnapshot && config.StrictMode == nil {
+		strictMode := true
+		config.StrictMode = &strictMode
 	}
 	return config
 }

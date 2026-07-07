@@ -39,7 +39,7 @@ func Test_SnapshotToPostgres(t *testing.T) {
 		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf("grant select on %s to test_role_%s", testTable, testTable))
 
 		cfg := &stream.Config{
-			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
 			Processor: testPostgresProcessorCfg(opts...),
 		}
 		initStream(t, ctx, snapshotPGURL)
@@ -294,7 +294,7 @@ func Test_SnapshotToPostgres_IdentityOnlyTable(t *testing.T) {
 			`INSERT INTO %s(id, parent_id, name) VALUES (1, 100, 'a'),(2, 200, 'b'),(3, 300, 'c')`, childTable))
 
 		cfg := &stream.Config{
-			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{parentTable, childTable}),
 			Processor: testPostgresProcessorCfg(opts...),
 		}
 		initStream(t, ctx, snapshotPGURL)
@@ -396,7 +396,7 @@ func Test_SnapshotToPostgres_CubeColumns(t *testing.T) {
 			testTable))
 
 		cfg := &stream.Config{
-			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
 			Processor: testPostgresProcessorCfg(opts...),
 		}
 		initStream(t, ctx, snapshotPGURL)
@@ -511,7 +511,7 @@ func Test_SnapshotToPostgres_LtreeColumns(t *testing.T) {
 			testTable))
 
 		cfg := &stream.Config{
-			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
 			Processor: testPostgresProcessorCfg(opts...),
 		}
 		initStream(t, ctx, snapshotPGURL)
@@ -796,7 +796,7 @@ func Test_SnapshotToPostgres_IdentityAndGeneratedColumns(t *testing.T) {
 			`INSERT INTO %s(id, name) VALUES (10, 'alpha'),(20, 'beta'),(30, 'gamma')`, testTable))
 
 		cfg := &stream.Config{
-			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
 			Processor: testPostgresProcessorCfg(opts...),
 		}
 		initStream(t, ctx, snapshotPGURL)
@@ -887,7 +887,7 @@ func Test_SnapshotToPostgres_LargeIntegerPrecision(t *testing.T) {
 			testTable))
 
 		cfg := &stream.Config{
-			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
 			Processor: testPostgresProcessorCfg(opts...),
 		}
 		initStream(t, ctx, snapshotPGURL)

@@ -562,6 +562,12 @@ func parsePostgresProcessorConfig() (*stream.PostgresProcessorConfig, error) {
 		return nil, err
 	}
 
+	var strictMode *bool
+	if viper.IsSet("PGSTREAM_POSTGRES_WRITER_STRICT_MODE") {
+		strictModeVal := viper.GetBool("PGSTREAM_POSTGRES_WRITER_STRICT_MODE")
+		strictMode = &strictModeVal
+	}
+
 	bulkIngestEnabled := viper.GetBool("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED")
 	cfg := &stream.PostgresProcessorConfig{
 		BatchWriter: postgres.Config{
@@ -584,7 +590,7 @@ func parsePostgresProcessorConfig() (*stream.PostgresProcessorConfig, error) {
 			BulkIngestEnabled: bulkIngestEnabled,
 			RetryPolicy:       parseBackoffConfig("PGSTREAM_POSTGRES_WRITER"),
 			IgnoreDDL:         viper.GetBool("PGSTREAM_POSTGRES_WRITER_IGNORE_DDL"),
-			StrictMode:        viper.GetBool("PGSTREAM_POSTGRES_WRITER_STRICT_MODE"),
+			StrictMode:        strictMode,
 		},
 	}
 
