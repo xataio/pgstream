@@ -4,6 +4,7 @@ package preflight
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/internal/postgres/mocks"
 	"github.com/xataio/pgstream/pkg/stream"
+	pgprocessor "github.com/xataio/pgstream/pkg/wal/processor/postgres"
 )
 
 const (
@@ -330,6 +332,146 @@ func TestUnsupportedRangeTypeMessage(t *testing.T) {
 	require.NotEmpty(t, unsupportedRangeTypeMessage(schemaColumnRow{TypeName: "tstzmultirange", TypeKind: "m"}))
 }
 
+func TestSchemaExtensionCompatibilityCheck_Run_AllPresentOnTarget(t *testing.T) {
+	t.Parallel()
+
+	check := &SchemaExtensionCompatibilityCheck{
+		Source: extensionSource(t, []sourceExtensionRow{
+			{Name: "hstore", Schema: "public"},
+			{Name: "postgis", Schema: "public"},
+		}),
+		Target: extensionTarget(t, []string{"hstore", "postgis", "pg_stat_statements"}),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Empty(t, findings)
+	// even when nothing is missing, the report records every source extension
+	require.Equal(t, map[string]any{"source_extensions": []string{"hstore", "postgis"}}, check.Details())
+}
+
+func TestSchemaExtensionCompatibilityCheck_Details_EmptyWhenNoExtensions(t *testing.T) {
+	t.Parallel()
+
+	check := &SchemaExtensionCompatibilityCheck{}
+
+	// before Run (or with no source extensions) it is an empty array, never nil,
+	// so the JSON report always renders source_extensions as [].
+	require.Equal(t, map[string]any{"source_extensions": []string{}}, check.Details())
+	data, err := json.Marshal(CheckResult{Name: "x", Details: check.Details()})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"name":"x","findings":null,"source_extensions":[]}`, string(data))
+}
+
+func TestSchemaExtensionCompatibilityCheck_Run_MissingExtensionReturnsFinding(t *testing.T) {
+	t.Parallel()
+
+	check := &SchemaExtensionCompatibilityCheck{
+		Source: extensionSource(t, []sourceExtensionRow{
+			{Name: "hstore", Schema: "public"},
+			{Name: "postgis", Schema: "gis"},
+		}),
+		Target: extensionTarget(t, []string{"hstore"}),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	require.Contains(t, findings[0].Message, "1 extension installed on source")
+	require.Contains(t, findings[0].Message, `"postgis" (source schema "gis")`)
+	require.Contains(t, findings[0].Message, `CREATE EXTENSION IF NOT EXISTS "postgis";`)
+}
+
+func TestSchemaExtensionCompatibilityCheck_Run_MultipleMissingCollectedInOneFinding(t *testing.T) {
+	t.Parallel()
+
+	check := &SchemaExtensionCompatibilityCheck{
+		Source: extensionSource(t, []sourceExtensionRow{
+			{Name: "hstore", Schema: "public"},
+			{Name: "postgis", Schema: "gis"},
+			{Name: "pg_trgm", Schema: "public"},
+		}),
+		Target: extensionTarget(t, []string{"hstore"}),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	require.Contains(t, findings[0].Message, "2 extensions installed on source")
+	require.Contains(t, findings[0].Message, `"postgis" (source schema "gis")`)
+	require.Contains(t, findings[0].Message, `"pg_trgm" (source schema "public")`)
+	require.Contains(t, findings[0].Message, `CREATE EXTENSION IF NOT EXISTS "postgis";`)
+	require.Contains(t, findings[0].Message, `CREATE EXTENSION IF NOT EXISTS "pg_trgm";`)
+	require.Equal(t, []string{"hstore", "postgis", "pg_trgm"}, check.Details()["source_extensions"])
+}
+
+func TestSchemaExtensionCompatibilityCheck_Run_TargetAcquireFails(t *testing.T) {
+	t.Parallel()
+
+	checkErr := errors.New("boom")
+	check := &SchemaExtensionCompatibilityCheck{
+		Source: extensionSource(t, nil),
+		Target: func(context.Context) (postgres.Querier, error) {
+			return nil, checkErr
+		},
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.Nil(t, findings)
+	require.ErrorIs(t, err, checkErr)
+	require.ErrorContains(t, err, "connecting to target")
+}
+
+func TestSchemaExtensionCompatibilityCheck_Run_TargetQueryFails(t *testing.T) {
+	t.Parallel()
+
+	queryErr := errors.New("query failed")
+	check := &SchemaExtensionCompatibilityCheck{
+		Source: extensionSource(t, nil),
+		Target: func(context.Context) (postgres.Querier, error) {
+			return &mocks.Querier{
+				QueryFn: func(context.Context, uint, string, ...any) (postgres.Rows, error) {
+					return nil, queryErr
+				},
+			}, nil
+		},
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.Nil(t, findings)
+	require.ErrorIs(t, err, queryErr)
+	require.ErrorContains(t, err, "querying target extensions")
+}
+
+func TestSchemaExtensionCompatibilityCheck_Run_SourceAcquireFails(t *testing.T) {
+	t.Parallel()
+
+	checkErr := errors.New("boom")
+	check := &SchemaExtensionCompatibilityCheck{
+		Source: func(context.Context) (postgres.Querier, error) {
+			return nil, checkErr
+		},
+		Target: extensionTarget(t, []string{"hstore"}),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.Nil(t, findings)
+	require.ErrorIs(t, err, checkErr)
+	require.ErrorContains(t, err, "connecting to source")
+}
+
+func TestSchemaExtensionCompatibilityCheck_Name(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "schema_extension_compatibility", (&SchemaExtensionCompatibilityCheck{}).Name())
+}
+
 func TestBuildSchemaChecks(t *testing.T) {
 	t.Parallel()
 
@@ -362,6 +504,20 @@ func TestBuildSchemaChecks(t *testing.T) {
 				},
 			},
 			wantNames: []string{"schema_type_compatibility", "postgres_range_type_support"},
+		},
+		{
+			name: "postgres target with url also returns the extension check",
+			cfg: &stream.Config{
+				Listener: stream.ListenerConfig{
+					Postgres: &stream.PostgresListenerConfig{URL: "postgres://source"},
+				},
+				Processor: stream.ProcessorConfig{
+					Postgres: &stream.PostgresProcessorConfig{
+						BatchWriter: pgprocessor.Config{URL: "postgres://target"},
+					},
+				},
+			},
+			wantNames: []string{"schema_type_compatibility", "postgres_range_type_support", "schema_extension_compatibility"},
 		},
 	}
 
@@ -402,6 +558,60 @@ func TestBuildChecks_SelectedSchemaOnly(t *testing.T) {
 	require.NotNil(t, cleanup)
 	require.Len(t, checks, 1)
 	require.Equal(t, "schema_type_compatibility", checks[0].Name())
+}
+
+type sourceExtensionRow struct {
+	Name   string
+	Schema string
+}
+
+// extensionSource returns an AcquireFunc whose Querier serves the given
+// extension rows (name, schema) from Query.
+func extensionSource(t *testing.T, rows []sourceExtensionRow) postgres.AcquireFunc {
+	t.Helper()
+	return func(context.Context) (postgres.Querier, error) {
+		return &mocks.Querier{
+			QueryFn: func(context.Context, uint, string, ...any) (postgres.Rows, error) {
+				return &mocks.Rows{
+					NextFn: func(i uint) bool { return int(i) <= len(rows) },
+					ScanFn: func(i uint, dest ...any) error {
+						require.Len(t, dest, 2)
+						name, ok := dest[0].(*string)
+						require.True(t, ok)
+						schema, ok := dest[1].(*string)
+						require.True(t, ok)
+						*name = rows[i-1].Name
+						*schema = rows[i-1].Schema
+						return nil
+					},
+					ErrFn: func() error { return nil },
+				}, nil
+			},
+		}, nil
+	}
+}
+
+// extensionTarget returns an AcquireFunc whose Querier serves the given
+// extension names (single column) from Query.
+func extensionTarget(t *testing.T, names []string) postgres.AcquireFunc {
+	t.Helper()
+	return func(context.Context) (postgres.Querier, error) {
+		return &mocks.Querier{
+			QueryFn: func(context.Context, uint, string, ...any) (postgres.Rows, error) {
+				return &mocks.Rows{
+					NextFn: func(i uint) bool { return int(i) <= len(names) },
+					ScanFn: func(i uint, dest ...any) error {
+						require.Len(t, dest, 1)
+						name, ok := dest[0].(*string)
+						require.True(t, ok)
+						*name = names[i-1]
+						return nil
+					},
+					ErrFn: func() error { return nil },
+				}, nil
+			},
+		}, nil
+	}
 }
 
 // sourceWithColumns returns an AcquireFunc whose Querier serves the given column
