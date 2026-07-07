@@ -553,6 +553,70 @@ func TestBatchWriter_flushQueries(t *testing.T) {
 	}
 }
 
+func TestBatchWriter_execQueries_strictMode(t *testing.T) {
+	t.Parallel()
+
+	testQuerySQL := "INSERT INTO test(id, name) VALUES($1, $2)"
+	testQuery := func(args []any) *query {
+		return &query{sql: testQuerySQL, args: args}
+	}
+
+	// pgConn where the first query succeeds and the second fails with a
+	// non-internal (DATALOSS) constraint violation.
+	newPgConn := func() *pgmocks.Querier {
+		return &pgmocks.Querier{
+			ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+				mockTx := pgmocks.Tx{
+					ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
+						if i == 1 {
+							return pglib.CommandTag{}, nil
+						}
+						return pglib.CommandTag{}, &pglib.ErrConstraintViolation{}
+					},
+				}
+				return f(&mockTx)
+			},
+		}
+	}
+
+	queries := []*query{testQuery([]any{1, "alice"}), testQuery([]any{2, "bob"})}
+
+	t.Run("default mode drops and continues", func(t *testing.T) {
+		t.Parallel()
+		bw := &BatchWriter{
+			Writer: &Writer{
+				logger: loglib.NewNoopLogger(),
+				pgConn: newPgConn(),
+			},
+		}
+
+		retry, err := bw.execQueries(context.Background(), queries)
+		require.NoError(t, err)
+		// the failing query is dropped, the succeeding one is returned for retry
+		require.Len(t, retry, 1)
+		require.Equal(t, []any{1, "alice"}, retry[0].args)
+		require.Equal(t, uint64(1), bw.DroppedQueries())
+	})
+
+	t.Run("strict mode returns the error", func(t *testing.T) {
+		t.Parallel()
+		bw := &BatchWriter{
+			Writer: &Writer{
+				logger:     loglib.NewNoopLogger(),
+				pgConn:     newPgConn(),
+				strictMode: true,
+			},
+		}
+
+		retry, err := bw.execQueries(context.Background(), queries)
+		require.Error(t, err)
+		var cv *pglib.ErrConstraintViolation
+		require.ErrorAs(t, err, &cv)
+		require.Nil(t, retry)
+		require.Equal(t, uint64(0), bw.DroppedQueries())
+	})
+}
+
 func mustNewDMLAdapter(t *testing.T) *dmlAdapter {
 	t.Helper()
 	a, err := newDMLAdapter("", false, loglib.NewNoopLogger())

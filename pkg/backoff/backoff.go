@@ -29,6 +29,7 @@ type Config struct {
 type ExponentialConfig struct {
 	InitialInterval time.Duration
 	MaxInterval     time.Duration
+	MaxElapsedTime  time.Duration
 	MaxRetries      uint
 }
 
@@ -68,7 +69,8 @@ func NewProvider(cfg *Config) Provider {
 func NewExponentialBackoff(ctx context.Context, cfg *ExponentialConfig) *ExponentialBackoff {
 	exp := backoff.NewExponentialBackOff(
 		backoff.WithInitialInterval(cfg.InitialInterval),
-		backoff.WithMaxElapsedTime(cfg.MaxInterval))
+		backoff.WithMaxInterval(cfg.MaxInterval),
+		backoff.WithMaxElapsedTime(cfg.MaxElapsedTime))
 
 	var bo backoff.BackOff = exp
 	if cfg.MaxRetries > 0 {
