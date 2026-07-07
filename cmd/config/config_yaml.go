@@ -179,6 +179,7 @@ type ExponentialBackoffConfig struct {
 	MaxRetries      int `mapstructure:"max_retries" yaml:"max_retries"`
 	InitialInterval int `mapstructure:"initial_interval" yaml:"initial_interval"`
 	MaxInterval     int `mapstructure:"max_interval" yaml:"max_interval"`
+	MaxElapsedTime  int `mapstructure:"max_elapsed_time" yaml:"max_elapsed_time"`
 }
 
 type ConstantBackoffConfig struct {
@@ -914,6 +915,7 @@ func (bo *BackoffConfig) parseExponentialBackoffConfig() *backoff.ExponentialCon
 	return &backoff.ExponentialConfig{
 		InitialInterval: time.Duration(bo.Exponential.InitialInterval) * time.Millisecond,
 		MaxInterval:     time.Duration(bo.Exponential.MaxInterval) * time.Millisecond,
+		MaxElapsedTime:  time.Duration(bo.Exponential.MaxElapsedTime) * time.Millisecond,
 		MaxRetries:      uint(bo.Exponential.MaxRetries),
 	}
 }
