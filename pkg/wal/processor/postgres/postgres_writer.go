@@ -5,6 +5,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibretrier "github.com/xataio/pgstream/internal/postgres/retrier"
@@ -12,6 +13,9 @@ import (
 	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 type Writer struct {
@@ -21,6 +25,11 @@ type Writer struct {
 	checkpointer    checkpointer.Checkpoint
 	writerType      string
 	disableTriggers bool
+	strictMode      bool
+
+	droppedQueries       atomic.Uint64
+	instrumentation      *otel.Instrumentation
+	droppedQueriesMetric metric.Int64ObservableCounter
 }
 
 type queryBatchSender interface {
@@ -40,6 +49,7 @@ func newWriter(ctx context.Context, config *Config, writerType string, opts ...W
 		logger:          loglib.NewNoopLogger(),
 		writerType:      writerType,
 		disableTriggers: config.DisableTriggers,
+		strictMode:      config.StrictMode,
 	}
 
 	for _, opt := range opts {
@@ -67,7 +77,64 @@ func newWriter(ctx context.Context, config *Config, writerType string, opts ...W
 		return nil, err
 	}
 
+	if w.instrumentation.IsEnabled() {
+		w.adapter = newInstrumentedWalAdapter(w.adapter, w.instrumentation)
+		if err := w.initMetrics(); err != nil {
+			return nil, fmt.Errorf("initialising postgres writer metrics: %w", err)
+		}
+	}
+
 	return w, nil
+}
+
+// DroppedQueries returns the total number of queries that have been silently
+// dropped due to non-internal (DATALOSS) failures while running in the default
+// drop-and-continue mode. It stays at zero when strict mode is enabled.
+func (w *Writer) DroppedQueries() uint64 {
+	return w.droppedQueries.Load()
+}
+
+const droppedQueriesMetricName = "pgstream.postgres.writer.dropped_queries"
+
+func (w *Writer) initMetrics() error {
+	if w.instrumentation == nil || w.instrumentation.Meter == nil {
+		return nil
+	}
+	meter := w.instrumentation.Meter
+
+	var err error
+	w.droppedQueriesMetric, err = meter.Int64ObservableCounter(droppedQueriesMetricName,
+		metric.WithUnit("{query}"),
+		metric.WithDescription("Number of queries silently dropped due to non-internal (DATALOSS) failures while running in drop-and-continue mode"))
+	if err != nil {
+		return err
+	}
+
+	_, err = meter.RegisterCallback(
+		func(_ context.Context, o metric.Observer) error {
+			o.ObserveInt64(w.droppedQueriesMetric, int64(w.droppedQueries.Load()),
+				metric.WithAttributes(attribute.String("writer_type", w.writerType)))
+			return nil
+		},
+		w.droppedQueriesMetric,
+	)
+	if err != nil {
+		return fmt.Errorf("registering postgres writer metric callbacks: %w", err)
+	}
+
+	return nil
+}
+
+// recordDroppedQuery accounts for a single query dropped due to a non-internal
+// (DATALOSS) failure and logs the divergence prominently.
+func (w *Writer) recordDroppedQuery(q *query) {
+	dropped := w.droppedQueries.Add(1)
+	w.logger.Warn(nil, "dropping failed query and advancing checkpoint, replica may diverge", loglib.Fields{
+		"sql":             q.sql,
+		"args":            q.args,
+		"severity":        "DATALOSS",
+		"dropped_queries": dropped,
+	})
 }
 
 func (w *Writer) close() error {
@@ -93,7 +160,7 @@ func WithCheckpoint(c checkpointer.Checkpoint) WriterOption {
 
 func WithInstrumentation(i *otel.Instrumentation) WriterOption {
 	return func(w *Writer) {
-		w.adapter = newInstrumentedWalAdapter(w.adapter, i)
+		w.instrumentation = i
 	}
 }
 
