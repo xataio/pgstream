@@ -30,8 +30,6 @@ import (
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
-func boolPtr(b bool) *bool { return &b }
-
 // this function validates the stream configuration produced from the test
 // configuration in the test directory.
 func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
@@ -151,7 +149,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 						},
 					},
 					IgnoreDDL:  true,
-					StrictMode: boolPtr(true),
+					StrictMode: true,
 				},
 			},
 			Kafka: &stream.KafkaProcessorConfig{

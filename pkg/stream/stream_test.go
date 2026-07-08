@@ -12,41 +12,32 @@ import (
 func TestPostgresWriterConfigForProcessor_StrictMode(t *testing.T) {
 	t.Parallel()
 
-	boolPtr := func(b bool) *bool { return &b }
-
 	tests := []struct {
 		name          string
 		processorType processorType
-		strictMode    *bool
-		want          *bool
+		strictMode    bool
+		want          bool
 	}{
 		{
 			name:          "replication keeps default disabled",
 			processorType: processorTypeReplication,
-			want:          nil,
 		},
 		{
 			name:          "replication preserves configured strict mode",
 			processorType: processorTypeReplication,
-			strictMode:    boolPtr(true),
-			want:          boolPtr(true),
+			strictMode:    true,
+			want:          true,
 		},
 		{
 			name:          "snapshot enables strict mode by default",
 			processorType: processorTypeSnapshot,
-			want:          boolPtr(true),
+			want:          true,
 		},
 		{
 			name:          "snapshot keeps strict mode enabled when configured",
 			processorType: processorTypeSnapshot,
-			strictMode:    boolPtr(true),
-			want:          boolPtr(true),
-		},
-		{
-			name:          "snapshot honors explicitly disabled strict mode",
-			processorType: processorTypeSnapshot,
-			strictMode:    boolPtr(false),
-			want:          boolPtr(false),
+			strictMode:    true,
+			want:          true,
 		},
 	}
 

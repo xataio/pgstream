@@ -17,14 +17,7 @@ type Config struct {
 	BulkIngestEnabled bool
 	RetryPolicy       backoff.Config
 	IgnoreDDL         bool
-	// StrictMode stops processing on non-internal query failures instead of
-	// dropping them and continuing. When nil, it defaults to disabled for
-	// replication and enabled for snapshots.
-	StrictMode *bool
-}
-
-func (c *Config) strictModeEnabled() bool {
-	return c.StrictMode != nil && *c.StrictMode
+	StrictMode        bool
 }
 
 const (
