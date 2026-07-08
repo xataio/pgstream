@@ -167,8 +167,8 @@ func Test_SnapshotToPostgres_SelectedParentTableDoesNotCopyInheritedRows(t *test
 // Test_SnapshotToPostgres_CoalescedInheritedChildInsertReportsRowLoss is a
 // synthetic regression for silent row loss during snapshot writes. The target
 // has a stale conflicting row in the inherited child table. The batch writer
-// coalesces the source child rows into one INSERT; snapshot mode should run
-// the writer in strict mode so the failed INSERT is reported to the caller.
+// coalesces the source child rows into one INSERT; with strict mode enabled
+// the failed INSERT is reported to the caller instead of being dropped.
 func Test_SnapshotToPostgres_CoalescedInheritedChildInsertReportsRowLoss(t *testing.T) {
 	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
 		t.Skip("skipping integration test...")
@@ -219,7 +219,7 @@ func Test_SnapshotToPostgres_CoalescedInheritedChildInsertReportsRowLoss(t *test
 
 	cfg := &stream.Config{
 		Listener:  testPostgresListenerCfgWithSnapshot(sourceURL, targetURL, []string{parentTable, childTable}),
-		Processor: testPostgresProcessorCfgWithTargetURL(targetURL, withBatchSize(100)),
+		Processor: testPostgresProcessorCfgWithTargetURL(targetURL, withBatchSize(100), withStrictMode()),
 	}
 	err = stream.Snapshot(ctx, testLogger(), cfg, nil)
 

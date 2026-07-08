@@ -231,6 +231,14 @@ func withBulkIngestionEnabled() option {
 	}
 }
 
+func withStrictMode() option {
+	return func(cfg *stream.ProcessorConfig) {
+		if cfg.Postgres != nil {
+			cfg.Postgres.BatchWriter.StrictMode = true
+		}
+	}
+}
+
 func withBatchSize(maxBatchSize int64) option {
 	return func(cfg *stream.ProcessorConfig) {
 		if cfg.Postgres != nil {

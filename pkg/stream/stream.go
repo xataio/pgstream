@@ -154,17 +154,16 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 			opts = append(opts, pgwriter.WithInstrumentation(instrumentation))
 		}
 
-		writerCfg := postgresWriterConfigForProcessor(config.Postgres.BatchWriter, processorType)
-		if processorType == processorTypeSnapshot && writerCfg.BulkIngestEnabled {
+		if processorType == processorTypeSnapshot && config.Postgres.BatchWriter.BulkIngestEnabled {
 			logger.Info("postgres bulk ingest writer enabled")
-			bulkIngestWriter, err := pgwriter.NewBulkIngestWriter(ctx, &writerCfg, opts...)
+			bulkIngestWriter, err := pgwriter.NewBulkIngestWriter(ctx, &config.Postgres.BatchWriter, opts...)
 			if err != nil {
 				return nil, err
 			}
 			processor = bulkIngestWriter
 		} else {
 			opts := append(opts, pgwriter.WithCheckpoint(checkpoint))
-			pgBatchWriter, err := pgwriter.NewBatchWriter(ctx, &writerCfg, opts...)
+			pgBatchWriter, err := pgwriter.NewBatchWriter(ctx, &config.Postgres.BatchWriter, opts...)
 			if err != nil {
 				return nil, fmt.Errorf("target postgres: %w", err)
 			}
@@ -184,13 +183,6 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 	}
 
 	return processor, nil
-}
-
-func postgresWriterConfigForProcessor(config pgwriter.Config, processorType processorType) pgwriter.Config {
-	if processorType == processorTypeSnapshot {
-		config.StrictMode = true
-	}
-	return config
 }
 
 func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Logger, processor processor.Processor, instrumentation *otel.Instrumentation) (processor.Processor, closerFn, error) {
