@@ -33,6 +33,11 @@
           "default": "false"
         },
         {
+          "name": "resources",
+          "description": "Run resource capacity checks against the source (snapshot connection headroom vs max_connections)",
+          "default": "false"
+        },
+        {
           "name": "schema",
           "description": "Run schema compatibility checks against the source",
           "default": "false"
