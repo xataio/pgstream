@@ -38,16 +38,6 @@ func TestAdapter_walEventToMessage(t *testing.T) {
 		},
 	}
 
-	testPgstreamDDLWalEvent := &wal.Event{
-		Data: &wal.Data{
-			Schema:  pgstreamSchemaName,
-			Table:   "schema_log",
-			Action:  wal.LogicalMessageAction,
-			Prefix:  wal.DDLPrefix,
-			Content: string(testDDLEventJSON),
-		},
-	}
-
 	errTest := errors.New("oh noes")
 
 	testGeneratedCols := map[string]struct{}{"gen": {}}
@@ -91,24 +81,6 @@ func TestAdapter_walEventToMessage(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "pgstream internal dml event",
-			event: &wal.Event{
-				Data: &wal.Data{
-					Schema: pgstreamSchemaName,
-					Table:  "table_ids",
-					Action: "I",
-				},
-			},
-			schemaObserver: &mockSchemaObserver{
-				isMaterializedViewFn: func(schema, table string) bool {
-					panic("pgstream internal DML should not inspect schema")
-				},
-			},
-
-			wantMsg: &walMessage{},
-			wantErr: nil,
-		},
-		{
 			name:  "ddl event with ddl adapter",
 			event: testDDLWalEvent,
 			schemaObserver: &mockSchemaObserver{
@@ -121,21 +93,6 @@ func TestAdapter_walEventToMessage(t *testing.T) {
 			ddlAdapter: &mockDDLAdapter{},
 
 			wantMsg: &walMessage{data: testDDLWalEvent.Data, isDDL: true},
-			wantErr: nil,
-		},
-		{
-			name:  "pgstream schema ddl event with ddl adapter",
-			event: testPgstreamDDLWalEvent,
-			schemaObserver: &mockSchemaObserver{
-				isMaterializedViewFn: func(schema, table string) bool { return false },
-				updateFn:             func(ddlEvent *wal.DDLEvent) {},
-			},
-			ddlEventAdapter: func(d *wal.Data) (*wal.DDLEvent, error) {
-				return &testDDLEvent, nil
-			},
-			ddlAdapter: &mockDDLAdapter{},
-
-			wantMsg: &walMessage{data: testPgstreamDDLWalEvent.Data, isDDL: true},
 			wantErr: nil,
 		},
 		{
@@ -313,16 +270,6 @@ func TestAdapter_walEventToQueries(t *testing.T) {
 		},
 	}
 
-	testPgstreamDDLWalEvent := &wal.Event{
-		Data: &wal.Data{
-			Schema:  pgstreamSchemaName,
-			Table:   "schema_log",
-			Action:  wal.LogicalMessageAction,
-			Prefix:  wal.DDLPrefix,
-			Content: string(testDDLEventJSON),
-		},
-	}
-
 	errTest := errors.New("oh noes")
 
 	tests := []struct {
@@ -368,26 +315,6 @@ func TestAdapter_walEventToQueries(t *testing.T) {
 			wantErr:     nil,
 		},
 		{
-			name: "pgstream internal dml event",
-			event: &wal.Event{
-				Data: &wal.Data{
-					Schema: pgstreamSchemaName,
-					Table:  "table_ids",
-					Action: "I",
-				},
-			},
-			schemaObserver: &mockSchemaObserver{
-				isMaterializedViewFn: func(schema, table string) bool {
-					panic("pgstream internal DML should not inspect schema")
-				},
-			},
-			dmlAdapter: testDMLAdapter,
-			ddlAdapter: testDDLAdapter,
-
-			wantQueries: []*query{{}},
-			wantErr:     nil,
-		},
-		{
 			name:  "ddl event with ddl adapter",
 			event: testDDLWalEvent,
 
@@ -397,25 +324,6 @@ func TestAdapter_walEventToQueries(t *testing.T) {
 			},
 			ddlEventAdapter: func(d *wal.Data) (*wal.DDLEvent, error) {
 				require.Equal(t, testDDLWalEvent.Data, d)
-				return &testDDLEvent, nil
-			},
-
-			dmlAdapter: testDMLAdapter,
-			ddlAdapter: testDDLAdapter,
-
-			wantQueries: []*query{testDDLQuery},
-			wantErr:     nil,
-		},
-		{
-			name:  "pgstream schema ddl event with ddl adapter",
-			event: testPgstreamDDLWalEvent,
-
-			schemaObserver: &mockSchemaObserver{
-				isMaterializedViewFn: func(schema, table string) bool { return false },
-				updateFn:             func(ddlEvent *wal.DDLEvent) {},
-			},
-			ddlEventAdapter: func(d *wal.Data) (*wal.DDLEvent, error) {
-				require.Equal(t, testPgstreamDDLWalEvent.Data, d)
 				return &testDDLEvent, nil
 			},
 

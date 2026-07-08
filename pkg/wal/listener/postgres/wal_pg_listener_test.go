@@ -185,6 +185,93 @@ func TestListener_Listen(t *testing.T) {
 			wantErr: context.Canceled,
 		},
 		{
+			name: "ok - pgstream internal dml becomes keep alive",
+			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
+				h := newMockReplicationHandler()
+				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (*replication.Message, error) {
+					defer func() {
+						if i == 1 {
+							doneChan <- struct{}{}
+						}
+					}()
+					switch i {
+					case 1:
+						return newMockMessage(), nil
+					default:
+						return emptyMessage, nil
+					}
+				}
+				return h
+			},
+			processEventFn: func(_ context.Context, data *wal.Event) error {
+				require.Equal(t, &wal.Event{
+					CommitPosition: wal.CommitPosition(testLSNStr),
+				}, data)
+				return nil
+			},
+			deserialiser: func(_ []byte, out any) error {
+				data, ok := out.(*wal.Data)
+				if !ok {
+					return fmt.Errorf("unexpected wal data type: %T", out)
+				}
+				*data = wal.Data{
+					Action: "I",
+					Schema: pgstreamSchemaName,
+					Table:  "table_ids",
+				}
+				return nil
+			},
+
+			wantErr: context.Canceled,
+		},
+		{
+			name: "ok - pgstream schema ddl is processed",
+			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
+				h := newMockReplicationHandler()
+				h.ReceiveMessageFn = func(ctx context.Context, i uint64) (*replication.Message, error) {
+					defer func() {
+						if i == 1 {
+							doneChan <- struct{}{}
+						}
+					}()
+					switch i {
+					case 1:
+						return newMockMessage(), nil
+					default:
+						return emptyMessage, nil
+					}
+				}
+				return h
+			},
+			processEventFn: func(_ context.Context, data *wal.Event) error {
+				require.Equal(t, &wal.Event{
+					Data: &wal.Data{
+						Action: wal.LogicalMessageAction,
+						Schema: pgstreamSchemaName,
+						Table:  "schema_log",
+						Prefix: wal.DDLPrefix,
+					},
+					CommitPosition: wal.CommitPosition(testLSNStr),
+				}, data)
+				return nil
+			},
+			deserialiser: func(_ []byte, out any) error {
+				data, ok := out.(*wal.Data)
+				if !ok {
+					return fmt.Errorf("unexpected wal data type: %T", out)
+				}
+				*data = wal.Data{
+					Action: wal.LogicalMessageAction,
+					Schema: pgstreamSchemaName,
+					Table:  "schema_log",
+					Prefix: wal.DDLPrefix,
+				}
+				return nil
+			},
+
+			wantErr: context.Canceled,
+		},
+		{
 			name: "error - starting replication",
 			replicationHandler: func(doneChan chan struct{}) *replicationmocks.Handler {
 				h := newMockReplicationHandler()
