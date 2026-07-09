@@ -131,7 +131,7 @@ func Test_PostgresToSearch(t *testing.T) {
 
 	t.Run("postgres to opensearch", func(t *testing.T) {
 		cfg := &stream.Config{
-			Listener: testPostgresListenerCfg(),
+			Listener: testPostgresListenerCfg(t),
 			Processor: testSearchProcessorCfg(store.Config{
 				OpenSearchURL: opensearchURL,
 			}),
@@ -145,7 +145,7 @@ func Test_PostgresToSearch(t *testing.T) {
 
 	t.Run("postgres to elasticsearch", func(t *testing.T) {
 		cfg := &stream.Config{
-			Listener: testPostgresListenerCfg(),
+			Listener: testPostgresListenerCfg(t),
 			Processor: testSearchProcessorCfg(store.Config{
 				ElasticsearchURL: elasticsearchURL,
 			}),
@@ -162,7 +162,7 @@ func Test_PostgresToSearch(t *testing.T) {
 
 		cfg := testSearchProcessorCfg(store.Config{ElasticsearchURL: elasticsearchURL})
 		cfg.Search.Indexer = search.IndexerConfig{HashDocIDs: true}
-		runStream(t, ctx, &stream.Config{Listener: testPostgresListenerCfg(), Processor: cfg})
+		runStream(t, ctx, &stream.Config{Listener: testPostgresListenerCfg(t), Processor: cfg})
 
 		client, err := elasticsearch.NewClient(elasticsearchURL)
 		require.NoError(t, err)

@@ -81,6 +81,7 @@ target:
         initial_interval: 1000 # initial interval in milliseconds
         max_interval: 60000 # maximum interval in milliseconds
     ignore_ddl: true # whether to ignore DDL events on the target database
+    strict_mode: true # whether to stop on non-internal query failures instead of dropping them
   kafka:
     servers: ["localhost:9092"]
     topic:

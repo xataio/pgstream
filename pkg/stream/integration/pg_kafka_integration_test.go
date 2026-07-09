@@ -26,7 +26,7 @@ func Test_PostgresToKafka(t *testing.T) {
 	}
 
 	cfg := &stream.Config{
-		Listener:  testPostgresListenerCfg(),
+		Listener:  testPostgresListenerCfg(t),
 		Processor: testKafkaProcessorCfg(),
 	}
 
