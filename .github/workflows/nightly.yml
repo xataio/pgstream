@@ -127,9 +127,26 @@ jobs:
         run: |
           set -euo pipefail
           git push --force origin "HEAD:refs/tags/nightly"
+
+          mkdir -p dist/release
+          jq -r '.[]
+                 | select((.type // "") | ascii_downcase | gsub(" "; "") == "uploadablebinary")
+                 | [.path, .name] | @tsv' \
+            dist/artifacts.json \
+            | while IFS=$'\t' read -r path name; do
+                cp "$path" "dist/release/$name"
+              done
+          [ -n "$(ls -A dist/release)" ] || { echo "no binaries to publish"; exit 1; }
+
+          version="$(jq -r '.version' dist/metadata.json)"
+          ( cd dist/release && sha256sum pgstream.* > "pgstream_${version}_checksums.txt" )
+
+          echo "release assets:"
+          ls -1 dist/release
+
           gh release delete nightly --yes || true
           gh release create nightly \
             --prerelease \
             --title "Nightly build" \
             --notes "Automated nightly build from \`main\` (${GITHUB_SHA:0:7}). These artifacts are unstable and intended for testing only." \
-            dist/pgstream.*
+            dist/release/*
