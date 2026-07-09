@@ -24,8 +24,8 @@ func TestMain(m *testing.M) {
 
 		if err := stream.Init(ctx, &stream.InitConfig{
 			PostgresURL:               pgurl,
-			ReplicationSlotName:       "",
 			InjectorMigrationsEnabled: true,
+			MigrationsOnly:            true,
 		}); err != nil {
 			log.Fatal(err)
 		}

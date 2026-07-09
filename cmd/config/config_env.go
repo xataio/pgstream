@@ -91,6 +91,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BACKOFF_MAX_RETRIES")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_DISABLE_RETRIES")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_IGNORE_DDL")
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_STRICT_MODE")
 
 	viper.BindEnv("PGSTREAM_KAFKA_READER_SERVERS")
 	viper.BindEnv("PGSTREAM_KAFKA_WRITER_SERVERS")
@@ -583,6 +584,7 @@ func parsePostgresProcessorConfig() (*stream.PostgresProcessorConfig, error) {
 			BulkIngestEnabled: bulkIngestEnabled,
 			RetryPolicy:       parseBackoffConfig("PGSTREAM_POSTGRES_WRITER"),
 			IgnoreDDL:         viper.GetBool("PGSTREAM_POSTGRES_WRITER_IGNORE_DDL"),
+			StrictMode:        viper.GetBool("PGSTREAM_POSTGRES_WRITER_STRICT_MODE"),
 		},
 	}
 
@@ -604,13 +606,15 @@ func parseBackoffConfig(prefix string) backoff.Config {
 func parseExponentialBackoffConfig(prefix string) *backoff.ExponentialConfig {
 	initialInterval := viper.GetDuration(fmt.Sprintf("%s_EXP_BACKOFF_INITIAL_INTERVAL", prefix))
 	maxInterval := viper.GetDuration(fmt.Sprintf("%s_EXP_BACKOFF_MAX_INTERVAL", prefix))
+	maxElapsedTime := viper.GetDuration(fmt.Sprintf("%s_EXP_BACKOFF_MAX_ELAPSED_TIME", prefix))
 	maxRetries := viper.GetUint(fmt.Sprintf("%s_EXP_BACKOFF_MAX_RETRIES", prefix))
-	if initialInterval == 0 && maxInterval == 0 && maxRetries == 0 {
+	if initialInterval == 0 && maxInterval == 0 && maxElapsedTime == 0 && maxRetries == 0 {
 		return nil
 	}
 	return &backoff.ExponentialConfig{
 		InitialInterval: initialInterval,
 		MaxInterval:     maxInterval,
+		MaxElapsedTime:  maxElapsedTime,
 		MaxRetries:      maxRetries,
 	}
 }

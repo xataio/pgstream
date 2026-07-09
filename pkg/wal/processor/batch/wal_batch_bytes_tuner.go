@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	mathlib "github.com/xataio/pgstream/internal/math"
@@ -21,6 +22,7 @@ type batchBytesTuner[T Message] struct {
 	// can be mocked for testing to generate desired throughput curves
 	calculateThroughputFn func(time.Duration, int64) float64
 
+	mu                        sync.Mutex
 	maxBatchBytes             int64
 	minBatchBytes             int64
 	convergenceThreshold      int64
@@ -152,17 +154,27 @@ func (t *batchBytesTuner[T]) sendBatch(ctx context.Context, batch *Batch[T]) err
 	}
 
 	start := time.Now()
-	defer func() {
-		t.recordMeasurementAndCalculateNext(start)
-	}()
-	return t.sendFn(ctx, batch)
+	if err := t.sendFn(ctx, batch); err != nil {
+		// Only record throughput measurements for successful sends. Recording
+		// on failure would pollute the tuning signal with error latencies.
+		return err
+	}
+
+	// Snapshot the send duration before contending for the mutex, so that any
+	// time spent waiting to acquire the lock is not counted as part of the
+	// measured send latency.
+	t.recordMeasurementAndCalculateNext(time.Since(start))
+	return nil
 }
 
 // recordMeasurementAndCalculateNext records the throughput measurement and
 // calculates the next measurement setting once we have enough samples for a
 // measurement, and they are stable enough to be representative.
-func (t *batchBytesTuner[T]) recordMeasurementAndCalculateNext(start time.Time) {
-	throughput := t.calculateThroughputFn(time.Since(start), t.measurementSetting.value)
+func (t *batchBytesTuner[T]) recordMeasurementAndCalculateNext(elapsed time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	throughput := t.calculateThroughputFn(elapsed, t.measurementSetting.value)
 	t.measurementSetting.addThroughput(throughput)
 
 	// not enough samples yet, continue with the same measurement
@@ -275,7 +287,28 @@ func (t *batchBytesTuner[T]) calculateNextSetting() *batchBytesSetting {
 	return newMeasurementSetting
 }
 
+// currentMaxBatchBytes returns the max batch bytes the batching goroutine
+// should currently use, reading the tuner state under the mutex. It returns the
+// provided fallback if the tuner has errored out or has no setting yet.
+func (t *batchBytesTuner[T]) currentMaxBatchBytes(fallback int64) int64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.hasError() {
+		return fallback
+	}
+	switch {
+	case t.hasConverged() && t.candidateSetting != nil:
+		return t.candidateSetting.value
+	case t.measurementSetting != nil:
+		return t.measurementSetting.value
+	}
+	return fallback
+}
+
 func (t *batchBytesTuner[T]) close() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.logDebugMeasurements()
 }
 

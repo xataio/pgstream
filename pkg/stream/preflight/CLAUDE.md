@@ -4,7 +4,7 @@ Guidance for Claude Code when working inside `pkg/stream/preflight`. The planned
 
 ## Package shape
 
-- `preflight.go` — `Check` interface (`Name()` + `Run(ctx) ([]Finding, error)`), `Finding`, `CheckResult`, `Report`, `Run(ctx, []Check, ...RunOption)` engine.
+- `preflight.go` — `Check` interface (`Name()` + `Run(ctx) ([]Finding, error)`), optional `Detailer` interface (`Details() map[string]any` — structured, non-finding context the engine merges into the result's JSON only; not shown in the human report), `Finding`, `CheckResult`, `Report`, `Run(ctx, []Check, ...RunOption)` engine.
 - `printer.go` — `ReportPrinter{Report}` is the only thing that formats reports. The `Report` struct itself stays pure data.
 - `builder.go` — `Builder` struct (returns `[]Check` + optional cleanup), `Builders` registry slice, per-category builder functions (`BuildConnectivityChecks`, …), `BuildChecks(cfg, selected)`.
 - One file per category of concrete checks (`connectivity.go`, `replication.go`, …).

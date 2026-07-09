@@ -30,6 +30,27 @@ var Builders = []Builder{
 	{CategoryReplication, "replication", BuildReplicationChecks},
 	{CategoryAccess, "access", BuildAccessChecks},
 	{CategorySchema, "schema", BuildSchemaChecks},
+	{CategoryResources, "resources", BuildResourcesChecks},
+}
+
+// BuildResourcesChecks returns the resource-capacity preflight checks
+// applicable to cfg, plus a cleanup function that closes the shared source
+// connection. The snapshot connection-headroom check only applies when a data
+// snapshot is configured (it sizes snapshot_workers × table_workers against the
+// source's max_connections).
+func BuildResourcesChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
+	url := cfg.SourcePostgresURL()
+	if url == "" {
+		return nil, nil
+	}
+	demand, ok := cfg.SnapshotConnectionDemand()
+	if !ok {
+		return nil, nil
+	}
+	src := postgres.NewLazyConn(url)
+	return []Check{
+		&SnapshotConnectionsCheck{Source: src.Acquire, Demand: demand},
+	}, src.Close
 }
 
 // BuildConnectivityChecks returns the connectivity checks applicable to cfg.
@@ -93,10 +114,11 @@ func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 }
 
 // BuildSchemaChecks returns the schema-preflight checks applicable to cfg,
-// plus a cleanup function that closes the shared source connection. Schema
-// checks cover every table pgstream reads (snapshot and replication), so they
-// use the combined access table selection. The range-type check is target
-// specific and is only added when the target is Postgres.
+// plus a cleanup function that closes the shared source (and, when the target
+// is Postgres, target) connection. Schema checks cover every table pgstream
+// reads (snapshot and replication), so they use the combined access table
+// selection. The range-type and extension checks are target specific and are
+// only added when the target is Postgres.
 func BuildSchemaChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 	url := cfg.SourcePostgresURL()
 	if url == "" {
@@ -110,13 +132,36 @@ func BuildSchemaChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 			Selection: selection,
 		},
 	}
+	cleanups := []CleanupFunc{src.Close}
 	if cfg.Processor.Postgres != nil {
 		checks = append(checks, &PostgresRangeTypeCheck{
 			Source:    src.Acquire,
 			Selection: selection,
 		})
+		if targetURL := cfg.Processor.Postgres.BatchWriter.URL; targetURL != "" {
+			tgt := postgres.NewLazyConn(targetURL)
+			cleanups = append(cleanups, tgt.Close)
+			checks = append(checks, &SchemaExtensionCompatibilityCheck{
+				Source: src.Acquire,
+				Target: tgt.Acquire,
+			})
+		}
 	}
-	return checks, src.Close
+	return checks, joinCleanups(cleanups)
+}
+
+// joinCleanups returns a single CleanupFunc that runs each cleanup in order and
+// returns the first error encountered (still running the rest).
+func joinCleanups(cleanups []CleanupFunc) CleanupFunc {
+	return func(ctx context.Context) error {
+		var firstErr error
+		for _, c := range cleanups {
+			if err := c(ctx); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		return firstErr
+	}
 }
 
 // BuildChecks returns the concrete checks for the selected categories,
@@ -140,13 +185,5 @@ func BuildChecks(cfg *stream.Config, selected []Category) ([]Check, CleanupFunc)
 			}
 		}
 	}
-	return checks, func(ctx context.Context) error {
-		var firstErr error
-		for _, c := range cleanups {
-			if err := c(ctx); err != nil && firstErr == nil {
-				firstErr = err
-			}
-		}
-		return firstErr
-	}
+	return checks, joinCleanups(cleanups)
 }

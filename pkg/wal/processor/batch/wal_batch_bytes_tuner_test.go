@@ -4,6 +4,8 @@ package batch
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -179,6 +181,106 @@ func TestBatchBytesTuner_sendBatch(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBatchBytesTuner_concurrentAccess exercises the tuner from two goroutines
+// concurrently (the writer goroutine driving sendBatch, and the batching
+// goroutine reading currentMaxBatchBytes) to ensure the shared state is
+// properly synchronised. Run with -race to detect data races.
+func TestBatchBytesTuner_concurrentAccess(t *testing.T) {
+	t.Parallel()
+
+	testLogger := zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
+		LogLevel: "error",
+	}))
+
+	sendFn := func(ctx context.Context, b *Batch[*mockMessage]) error { return nil }
+
+	tuner, err := newBatchBytesTuner(AutoTuneConfig{
+		Enabled:              true,
+		MinBatchBytes:        1,
+		MaxBatchBytes:        1000,
+		ConvergenceThreshold: 0.01,
+	}, sendFn, testLogger)
+	require.NoError(t, err)
+	defer tuner.close()
+
+	tuner.batchBytesToleranceFactor = 0.0
+	tuner.minSamples = 1
+	tuner.calculateThroughputFn = func(duration time.Duration, batchBytes int64) float64 {
+		optimal := int64(500)
+		distance := float64(batchBytes - optimal)
+		throughput := 1000.0 - (distance * distance * 0.001)
+		if throughput < 0 {
+			return 0
+		}
+		return throughput
+	}
+
+	ctx := context.Background()
+	var wg sync.WaitGroup
+
+	// writer goroutine: drives the tuning by sending batches sized to the
+	// current measurement setting.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for range 500 {
+			batch := &Batch[*mockMessage]{}
+			batch.totalBytes = int(tuner.currentMaxBatchBytes(1000))
+			_ = tuner.sendBatch(ctx, batch)
+		}
+	}()
+
+	// reader goroutines: mimic the batching goroutine reading the current max
+	// batch bytes.
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 500 {
+				_ = tuner.currentMaxBatchBytes(1000)
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+// TestBatchBytesTuner_failedSendNotRecorded verifies that failed sends do not
+// contribute throughput measurements to the tuning signal.
+func TestBatchBytesTuner_failedSendNotRecorded(t *testing.T) {
+	t.Parallel()
+
+	testLogger := zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
+		LogLevel: "error",
+	}))
+
+	errSend := errors.New("send failed")
+	sendFn := func(ctx context.Context, b *Batch[*mockMessage]) error { return errSend }
+
+	tuner, err := newBatchBytesTuner(AutoTuneConfig{
+		Enabled:              true,
+		MinBatchBytes:        1,
+		MaxBatchBytes:        100,
+		ConvergenceThreshold: 0.01,
+	}, sendFn, testLogger)
+	require.NoError(t, err)
+
+	tuner.batchBytesToleranceFactor = 0.0
+	tuner.minSamples = 1
+	tuner.calculateThroughputFn = func(duration time.Duration, batchBytes int64) float64 { return 1000.0 }
+
+	batch := &Batch[*mockMessage]{}
+	batch.totalBytes = int(tuner.measurementSetting.value)
+
+	// A failing send must return the error and must not record a measurement.
+	for range 5 {
+		require.ErrorIs(t, tuner.sendBatch(context.Background(), batch), errSend)
+	}
+
+	require.Empty(t, tuner.measurementSetting.throughputs)
+	require.Nil(t, tuner.candidateSetting)
 }
 
 func Test_calculateThroughput(t *testing.T) {

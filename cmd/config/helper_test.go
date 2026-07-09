@@ -148,7 +148,8 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 							MaxInterval:     60 * time.Second,
 						},
 					},
-					IgnoreDDL: true,
+					IgnoreDDL:  true,
+					StrictMode: true,
 				},
 			},
 			Kafka: &stream.KafkaProcessorConfig{
@@ -224,6 +225,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 				InferFromSecurityLabels: false,
 				DumpInferredRules:       false,
 				ValidationMode:          "relaxed",
+				OnError:                 "null",
 				TransformerRules: []transformer.TableRules{
 					{
 						Schema:         "public",

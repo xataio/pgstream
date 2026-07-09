@@ -39,7 +39,7 @@ func Test_SnapshotToPostgres(t *testing.T) {
 		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf("grant select on %s to test_role_%s", testTable, testTable))
 
 		cfg := &stream.Config{
-			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
 			Processor: testPostgresProcessorCfg(opts...),
 		}
 		initStream(t, ctx, snapshotPGURL)
@@ -164,6 +164,96 @@ func Test_SnapshotToPostgres_SelectedParentTableDoesNotCopyInheritedRows(t *test
 	require.Equal(t, []parentRow{{id: 1, name: "parent-row"}}, got)
 }
 
+// Test_SnapshotToPostgres_CoalescedInheritedChildInsertReportsRowLoss is a
+// synthetic regression for silent row loss during snapshot writes. The target
+// has a stale conflicting row in the inherited child table. The batch writer
+// coalesces the source child rows into one INSERT; with strict mode enabled
+// the failed INSERT is reported to the caller instead of being dropped.
+func Test_SnapshotToPostgres_CoalescedInheritedChildInsertReportsRowLoss(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var sourceURL string
+	sourceCleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &sourceURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer sourceCleanup()
+
+	var targetURL string
+	targetCleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &targetURL, testcontainers.Postgres17)
+	require.NoError(t, err)
+	defer targetCleanup()
+
+	suffix := time.Now().UnixNano()
+	parentTable := fmt.Sprintf("snapshot_parent_loss_%d", suffix)
+	childTable := fmt.Sprintf("snapshot_child_loss_%d", suffix)
+	childPK := fmt.Sprintf("%s_pkey", childTable)
+
+	createSchema := func(url string) {
+		execQueryWithURL(t, ctx, url, fmt.Sprintf(
+			`CREATE TABLE %s(
+				id integer NOT NULL,
+				message text NOT NULL
+			)`, parentTable))
+		execQueryWithURL(t, ctx, url, fmt.Sprintf(
+			`CREATE TABLE %s(
+				child_note text NOT NULL
+			) INHERITS (%s)`, childTable, parentTable))
+		execQueryWithURL(t, ctx, url, fmt.Sprintf(
+			`ALTER TABLE ONLY %s ADD CONSTRAINT %s PRIMARY KEY (id)`, childTable, childPK))
+	}
+
+	createSchema(sourceURL)
+	execQueryWithURL(t, ctx, sourceURL, fmt.Sprintf(
+		`INSERT INTO %s(id, message, child_note) VALUES
+			(1, 'source-one', 'child-a'),
+			(2, 'source-two', 'child-b')`, childTable))
+
+	createSchema(targetURL)
+	execQueryWithURL(t, ctx, targetURL, fmt.Sprintf(
+		`INSERT INTO %s(id, message, child_note) VALUES
+			(1, 'stale-target-row', 'stale-child')`, childTable))
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfgWithSnapshot(sourceURL, targetURL, []string{parentTable, childTable}),
+		Processor: testPostgresProcessorCfgWithTargetURL(targetURL, withBatchSize(100), withStrictMode()),
+	}
+	err = stream.Snapshot(ctx, testLogger(), cfg, nil)
+
+	type childRow struct {
+		id        int
+		message   string
+		childNote string
+	}
+	fetchRows := func(url string) []childRow {
+		conn, err := pglib.NewConn(ctx, url)
+		require.NoError(t, err)
+		defer conn.Close(ctx)
+
+		rows, err := conn.Query(ctx, fmt.Sprintf(
+			`SELECT id, message, child_note FROM ONLY %s ORDER BY id`, childTable))
+		require.NoError(t, err)
+		defer rows.Close()
+
+		out := []childRow{}
+		for rows.Next() {
+			var r childRow
+			require.NoError(t, rows.Scan(&r.id, &r.message, &r.childNote))
+			out = append(out, r)
+		}
+		require.NoError(t, rows.Err())
+		return out
+	}
+
+	sourceRows := fetchRows(sourceURL)
+	targetRows := fetchRows(targetURL)
+	require.ErrorContains(t, err, "strict mode: stopping on non-internal query failure",
+		"snapshot should report dropped rows; source=%v target=%v", sourceRows, targetRows)
+}
+
 // Test_SnapshotToPostgres_IdentityOnlyTable verifies that tables where the only
 // column is an identity column (e.g. id-only lookup tables) are correctly
 // snapshotted, and that their values are preserved so that foreign key
@@ -204,7 +294,7 @@ func Test_SnapshotToPostgres_IdentityOnlyTable(t *testing.T) {
 			`INSERT INTO %s(id, parent_id, name) VALUES (1, 100, 'a'),(2, 200, 'b'),(3, 300, 'c')`, childTable))
 
 		cfg := &stream.Config{
-			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{parentTable, childTable}),
 			Processor: testPostgresProcessorCfg(opts...),
 		}
 		initStream(t, ctx, snapshotPGURL)
@@ -306,7 +396,7 @@ func Test_SnapshotToPostgres_CubeColumns(t *testing.T) {
 			testTable))
 
 		cfg := &stream.Config{
-			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
 			Processor: testPostgresProcessorCfg(opts...),
 		}
 		initStream(t, ctx, snapshotPGURL)
@@ -421,7 +511,7 @@ func Test_SnapshotToPostgres_LtreeColumns(t *testing.T) {
 			testTable))
 
 		cfg := &stream.Config{
-			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
 			Processor: testPostgresProcessorCfg(opts...),
 		}
 		initStream(t, ctx, snapshotPGURL)
@@ -706,7 +796,7 @@ func Test_SnapshotToPostgres_IdentityAndGeneratedColumns(t *testing.T) {
 			`INSERT INTO %s(id, name) VALUES (10, 'alpha'),(20, 'beta'),(30, 'gamma')`, testTable))
 
 		cfg := &stream.Config{
-			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
 			Processor: testPostgresProcessorCfg(opts...),
 		}
 		initStream(t, ctx, snapshotPGURL)
@@ -797,7 +887,7 @@ func Test_SnapshotToPostgres_LargeIntegerPrecision(t *testing.T) {
 			testTable))
 
 		cfg := &stream.Config{
-			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
 			Processor: testPostgresProcessorCfg(opts...),
 		}
 		initStream(t, ctx, snapshotPGURL)

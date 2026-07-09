@@ -5,6 +5,7 @@ package transformer
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/transformers"
@@ -25,6 +26,7 @@ type Transformer struct {
 
 	validationMode       string
 	tableValidationModes map[string]string
+	onError              string
 }
 
 type ParseFn func(ctx context.Context, rules Rules) (*TransformerMap, error)
@@ -41,6 +43,10 @@ const (
 	validationModeStrict     = "strict"
 	validationModeRelaxed    = "relaxed"
 	validationModeTableLevel = "table_level"
+
+	OnErrorFail        = "fail"
+	OnErrorPassThrough = "pass-through"
+	OnErrorNull        = "null"
 )
 
 var (
@@ -60,6 +66,7 @@ func New(ctx context.Context, cfg *Config, processor processor.Processor, builde
 		ddlEventToSchemaDiff: wal.DDLEventToSchemaDiff,
 		validationMode:       validationMode,
 		tableValidationModes: map[string]string{},
+		onError:              cfg.onError(),
 	}
 
 	for _, opt := range opts {
@@ -155,13 +162,27 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 
 		newValue, err := columnTransformer.Transform(ctx, transformers.NewValue(col.Value, col.Type, dynamicValues))
 		if err != nil {
-			t.logger.Error(err, "transforming column", loglib.Fields{
-				"severity":    "DATALOSS",
-				"column_name": col.Name,
-				"schema":      event.Data.Schema,
-				"table":       event.Data.Table,
-			})
-			newValue = nil
+			switch t.onError {
+			case OnErrorFail:
+				return fmt.Errorf("transforming column %q in %s.%s: %w", col.Name, event.Data.Schema, event.Data.Table, err)
+			case OnErrorPassThrough:
+				t.logger.Warn(err, "transforming column, passing through original value", loglib.Fields{
+					"on_error":    OnErrorPassThrough,
+					"column_name": col.Name,
+					"schema":      event.Data.Schema,
+					"table":       event.Data.Table,
+				})
+				newValue = col.Value
+			default:
+				t.logger.Error(err, "transforming column", loglib.Fields{
+					"severity":    "DATALOSS",
+					"on_error":    OnErrorNull,
+					"column_name": col.Name,
+					"schema":      event.Data.Schema,
+					"table":       event.Data.Table,
+				})
+				newValue = nil
+			}
 		}
 		// avoid logging large values on the hot path unless trace is enabled
 		if t.logger.IsTraceEnabled() {
