@@ -53,7 +53,7 @@ func Test_PostgresToPostgres_Transformer(t *testing.T) {
 	}
 
 	cfg := &stream.Config{
-		Listener:  testPostgresListenerCfg(),
+		Listener:  testPostgresListenerCfg(t),
 		Processor: testPostgresProcessorCfgWithTransformer(pgurl),
 	}
 

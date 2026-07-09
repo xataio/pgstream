@@ -69,13 +69,15 @@ func (r *Reader) Listen(ctx context.Context) error {
 				return fmt.Errorf("reading from kafka: %w", err)
 			}
 
-			r.logger.Trace("received", loglib.Fields{
-				"topic":     msg.Topic,
-				"partition": msg.Partition,
-				"offset":    msg.Offset,
-				"key":       msg.Key,
-				"wal_data":  msg.Value,
-			})
+			if r.logger.IsTraceEnabled() {
+				r.logger.Trace("received", loglib.Fields{
+					"topic":     msg.Topic,
+					"partition": msg.Partition,
+					"offset":    msg.Offset,
+					"key":       msg.Key,
+					"wal_data":  msg.Value,
+				})
+			}
 
 			offset := &kafka.Offset{
 				Topic:     msg.Topic,

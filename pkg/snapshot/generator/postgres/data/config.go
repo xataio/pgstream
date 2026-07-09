@@ -60,6 +60,14 @@ func (c *Config) snapshotWorkers() uint {
 	return defaultSnapshotWorkers
 }
 
+// EffectiveSnapshotWorkers returns the number of snapshots processed
+// concurrently once the default is applied.
+func (c *Config) EffectiveSnapshotWorkers() uint { return c.snapshotWorkers() }
+
+// EffectiveTableWorkers returns the number of concurrent workers per table once
+// the default is applied.
+func (c *Config) EffectiveTableWorkers() uint { return c.tableWorkers() }
+
 func (c *Config) maxConnections() uint {
 	if c.MaxConnections > 0 {
 		return c.MaxConnections

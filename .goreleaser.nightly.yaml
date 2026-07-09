@@ -1,3 +1,4 @@
+version: 2
 project_name: pgstream
 
 before:
@@ -5,7 +6,7 @@ before:
     - go mod tidy
 
 snapshot:
-  name_template: "nightly-{{ .Now.Format \"20060102\" }}-{{ .ShortCommit }}"
+  version_template: "nightly-{{ .Now.Format \"20060102\" }}-{{ .ShortCommit }}"
 
 builds:
   - id: build_noncgo
@@ -26,7 +27,7 @@ builds:
         goarch: arm64
 
 archives:
-  - format: binary
+  - formats: [binary]
     name_template: >-
       {{ .ProjectName }}.{{ if eq .Os "windows" }}win{{ else if eq .Os "darwin" }}macos{{ else }}{{ .Os }}{{ end }}.{{ .Arch }}
     files:

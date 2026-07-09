@@ -10,7 +10,7 @@ import (
 
 type BatchSender[T batch.Message] struct {
 	SendMessageFn func(context.Context, *batch.WALMessage[T]) error
-	CloseFn       func()
+	CloseFn       func() error
 	msgChan       chan *batch.WALMessage[T]
 }
 
@@ -29,11 +29,12 @@ func (m *BatchSender[T]) SendMessage(ctx context.Context, msg *batch.WALMessage[
 	return nil
 }
 
-func (m *BatchSender[T]) Close() {
+func (m *BatchSender[T]) Close() error {
 	close(m.msgChan)
 	if m.CloseFn != nil {
-		m.CloseFn()
+		return m.CloseFn()
 	}
+	return nil
 }
 
 func (m *BatchSender[T]) GetWALMessages() []*batch.WALMessage[T] {

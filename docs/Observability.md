@@ -126,6 +126,18 @@ All metrics follow the `pgstream.*` naming convention and include relevant attri
 
 **Usage:** Monitor database performance and identify slow queries.
 
+#### Writer Metrics
+
+| Metric                                    | Type              | Unit    | Description                                                                                          |
+| ----------------------------------------- | ----------------- | ------- | -------------------------------------------------------------------------------------------------- |
+| `pgstream.postgres.writer.dropped_queries` | ObservableCounter | queries | Number of queries silently dropped due to non-internal (DATALOSS) failures in drop-and-continue mode |
+
+**Attributes:**
+
+- `writer_type`: The postgres writer that dropped the query (one of "postgres_batch_writer", "postgres_bulk_ingest_writer")
+
+**Usage:** Alert on any non-zero value: each drop means a failing change was skipped and the checkpoint advanced past it, so the target replica may have diverged from the source. Enable `strict_mode` (`PGSTREAM_POSTGRES_WRITER_STRICT_MODE`) to make such failures stop the pipeline instead of being dropped.
+
 ### Search Operations
 
 | Metric                             | Type    | Unit   | Description                                  |

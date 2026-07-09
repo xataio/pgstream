@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -49,6 +50,8 @@ var (
 const (
 	withGeneratedColumn = true
 )
+
+var integrationReplicationSlotCounter uint64
 
 type mockProcessor struct {
 	eventChan   chan *wal.Event
@@ -93,19 +96,39 @@ func (m *mockWebhookServer) close() {
 }
 
 func runStream(t *testing.T, ctx context.Context, cfg *stream.Config) {
-	// start the configured stream listener/processor
+	t.Helper()
+
+	done := make(chan error, 1)
 	go func() {
-		err := stream.Run(ctx, testLogger(), cfg, false, nil)
-		require.NoError(t, err)
+		done <- stream.Run(ctx, testLogger(), cfg, false, nil)
 	}()
+
+	t.Cleanup(func() {
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(10 * time.Second):
+			t.Error("timeout waiting for stream to stop")
+		}
+	})
 }
 
 func runSnapshot(t *testing.T, ctx context.Context, cfg *stream.Config) {
-	// start the configured stream listener/processor
+	t.Helper()
+
+	done := make(chan error, 1)
 	go func() {
-		err := stream.Snapshot(ctx, testLogger(), cfg, nil)
-		require.NoError(t, err)
+		done <- stream.Snapshot(ctx, testLogger(), cfg, nil)
 	}()
+
+	t.Cleanup(func() {
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(10 * time.Second):
+			t.Error("timeout waiting for snapshot to stop")
+		}
+	})
 }
 
 func initStream(t *testing.T, ctx context.Context, url string) {
@@ -135,15 +158,53 @@ func testLogger() loglib.Logger {
 	}))
 }
 
-func testPostgresListenerCfg() stream.ListenerConfig {
+func testPostgresListenerCfg(t *testing.T) stream.ListenerConfig {
+	t.Helper()
+
+	slotName := initReplicationSlotForTest(t, pgurl)
 	return stream.ListenerConfig{
 		Postgres: &stream.PostgresListenerConfig{
 			URL: pgurl,
 			Replication: pgreplication.Config{
-				PostgresURL: pgurl,
+				PostgresURL:         pgurl,
+				ReplicationSlotName: slotName,
 			},
 		},
 	}
+}
+
+func initReplicationSlotForTest(t *testing.T, url string) string {
+	t.Helper()
+
+	slotName := fmt.Sprintf("pgstream_it_%d_%d", time.Now().UnixNano(), atomic.AddUint64(&integrationReplicationSlotCounter, 1))
+	require.NoError(t, stream.Init(context.Background(), &stream.InitConfig{
+		PostgresURL:         url,
+		ReplicationSlotName: slotName,
+	}))
+
+	t.Cleanup(func() {
+		dropReplicationSlotForTest(t, url, slotName)
+	})
+
+	return slotName
+}
+
+func dropReplicationSlotForTest(t *testing.T, url, slotName string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		conn, err := pglib.NewConn(ctx, url)
+		if err != nil {
+			return false
+		}
+		defer conn.Close(ctx)
+
+		_, err = conn.Exec(ctx, `SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1`, slotName)
+		return err == nil
+	}, 10*time.Second, 200*time.Millisecond, "replication slot %s was not dropped", slotName)
 }
 
 func testPostgresListenerCfgWithSnapshot(sourceURL, targetURL string, tables []string) stream.ListenerConfig {
@@ -231,11 +292,31 @@ func withBulkIngestionEnabled() option {
 	}
 }
 
+func withStrictMode() option {
+	return func(cfg *stream.ProcessorConfig) {
+		if cfg.Postgres != nil {
+			cfg.Postgres.BatchWriter.StrictMode = true
+		}
+	}
+}
+
+func withBatchSize(maxBatchSize int64) option {
+	return func(cfg *stream.ProcessorConfig) {
+		if cfg.Postgres != nil {
+			cfg.Postgres.BatchWriter.BatchConfig.MaxBatchSize = maxBatchSize
+		}
+	}
+}
+
 func testPostgresProcessorCfg(opts ...option) stream.ProcessorConfig {
+	return testPostgresProcessorCfgWithTargetURL(targetPGURL, opts...)
+}
+
+func testPostgresProcessorCfgWithTargetURL(targetURL string, opts ...option) stream.ProcessorConfig {
 	cfg := stream.ProcessorConfig{
 		Postgres: &stream.PostgresProcessorConfig{
 			BatchWriter: postgres.Config{
-				URL: targetPGURL,
+				URL: targetURL,
 				BatchConfig: batch.Config{
 					MaxBatchSize: 1,
 					// BatchTimeout: 50 * time.Millisecond,

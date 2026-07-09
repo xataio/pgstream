@@ -179,6 +179,7 @@ type ExponentialBackoffConfig struct {
 	MaxRetries      int `mapstructure:"max_retries" yaml:"max_retries"`
 	InitialInterval int `mapstructure:"initial_interval" yaml:"initial_interval"`
 	MaxInterval     int `mapstructure:"max_interval" yaml:"max_interval"`
+	MaxElapsedTime  int `mapstructure:"max_elapsed_time" yaml:"max_elapsed_time"`
 }
 
 type ConstantBackoffConfig struct {
@@ -194,6 +195,7 @@ type PostgresTargetConfig struct {
 	OnConflictAction string            `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
 	RetryPolicy      BackoffConfig     `mapstructure:"retry_policy" yaml:"retry_policy"`
 	IgnoreDDL        bool              `mapstructure:"ignore_ddl" yaml:"ignore_ddl"`
+	StrictMode       bool              `mapstructure:"strict_mode" yaml:"strict_mode"`
 }
 
 type KafkaTargetConfig struct {
@@ -305,6 +307,7 @@ type TransformationsConfig struct {
 	DumpInferredRules       bool                      `mapstructure:"dump_inferred_rules" yaml:"dump_inferred_rules"`
 	TransformerRules        []TableTransformersConfig `mapstructure:"table_transformers" yaml:"table_transformers"`
 	ValidationMode          string                    `mapstructure:"validation_mode" yaml:"validation_mode"`
+	OnError                 string                    `mapstructure:"on_error" yaml:"on_error"`
 }
 type TableTransformersConfig struct {
 	Schema         string                              `mapstructure:"schema" yaml:"schema"`
@@ -353,11 +356,19 @@ const (
 	relaxedValidationMode    = "relaxed"
 )
 
+// transformer on-error policies
+const (
+	failOnError        = transformer.OnErrorFail
+	passThroughOnError = transformer.OnErrorPassThrough
+	nullOnError        = transformer.OnErrorNull
+)
+
 var (
 	errUnsupportedSnapshotMode                 = errors.New("unsupported snapshot mode, must be one of 'full', 'schema' or 'data'")
 	errUnsupportedPostgresSourceMode           = errors.New("unsupported postgres source mode, must be one of 'replication', 'snapshot' or 'snapshot_and_replication'")
 	errUnsupportedTransformationValidationMode = errors.New("unsupported transformation validation mode, must be one of 'strict', 'table_level' or 'relaxed'")
 	errUnsupportedTableValidationMode          = errors.New("unsupported table level validation mode, must be either 'strict' or 'relaxed'")
+	errUnsupportedTransformationOnError        = errors.New("unsupported transformation on_error policy, must be one of 'fail', 'pass-through' or 'null'")
 	errTableTransformersNotProvided            = errors.New("table_transformers must be provided when transformation config is set")
 	errInvalidTableValidationConfig            = errors.New("table level validation mode should be used when transformation validation mode is set to 'table_level'")
 	errUnsupportedSearchEngine                 = errors.New("unsupported search engine, must be one of 'opensearch' or 'elasticsearch'")
@@ -676,6 +687,7 @@ func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorCon
 			OnConflictAction: c.Target.Postgres.OnConflictAction,
 			RetryPolicy:      c.Target.Postgres.RetryPolicy.parseBackoffConfig(),
 			IgnoreDDL:        c.Target.Postgres.IgnoreDDL,
+			StrictMode:       c.Target.Postgres.StrictMode,
 		},
 	}
 
@@ -798,12 +810,23 @@ func (c TransformationsConfig) parseTransformationConfig() (*transformer.Config,
 		return nil, errUnsupportedTransformationValidationMode
 	}
 
+	var onError string
+	switch c.OnError {
+	case failOnError, passThroughOnError, nullOnError:
+		onError = c.OnError
+	case "":
+		onError = nullOnError
+	default:
+		return nil, errUnsupportedTransformationOnError
+	}
+
 	if c.InferFromSecurityLabels {
 		return &transformer.Config{
 			InferFromSecurityLabels: true,
 			DumpInferredRules:       c.DumpInferredRules,
 			TransformerRules:        nil,
 			ValidationMode:          globalValidationMode,
+			OnError:                 onError,
 		}, nil
 	}
 
@@ -849,6 +872,7 @@ func (c TransformationsConfig) parseTransformationConfig() (*transformer.Config,
 	return &transformer.Config{
 		TransformerRules: rules,
 		ValidationMode:   globalValidationMode,
+		OnError:          onError,
 	}, nil
 }
 
@@ -912,6 +936,7 @@ func (bo *BackoffConfig) parseExponentialBackoffConfig() *backoff.ExponentialCon
 	return &backoff.ExponentialConfig{
 		InitialInterval: time.Duration(bo.Exponential.InitialInterval) * time.Millisecond,
 		MaxInterval:     time.Duration(bo.Exponential.MaxInterval) * time.Millisecond,
+		MaxElapsedTime:  time.Duration(bo.Exponential.MaxElapsedTime) * time.Millisecond,
 		MaxRetries:      uint(bo.Exponential.MaxRetries),
 	}
 }

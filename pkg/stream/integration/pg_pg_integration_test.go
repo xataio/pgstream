@@ -39,7 +39,7 @@ func Test_PostgresToPostgres(t *testing.T) {
 	}
 
 	cfg := &stream.Config{
-		Listener:  testPostgresListenerCfg(),
+		Listener:  testPostgresListenerCfg(t),
 		Processor: testPostgresProcessorCfg(),
 	}
 
@@ -315,7 +315,7 @@ func Test_PostgresToPostgres_IndexesAndConstraints(t *testing.T) {
 	}
 
 	cfg := &stream.Config{
-		Listener:  testPostgresListenerCfg(),
+		Listener:  testPostgresListenerCfg(t),
 		Processor: testPostgresProcessorCfg(),
 	}
 
@@ -423,7 +423,7 @@ func Test_PostgresToPostgres_IdentityColumns(t *testing.T) {
 	}
 
 	cfg := &stream.Config{
-		Listener:  testPostgresListenerCfg(),
+		Listener:  testPostgresListenerCfg(t),
 		Processor: testPostgresProcessorCfg(),
 	}
 
@@ -571,7 +571,7 @@ func Test_PostgresToPostgres_AlwaysIdentityUpdate(t *testing.T) {
 	}
 
 	cfg := &stream.Config{
-		Listener:  testPostgresListenerCfg(),
+		Listener:  testPostgresListenerCfg(t),
 		Processor: testPostgresProcessorCfg(),
 	}
 
@@ -653,7 +653,7 @@ func Test_PostgresToPostgres_Sequences(t *testing.T) {
 	}
 
 	cfg := &stream.Config{
-		Listener:  testPostgresListenerCfg(),
+		Listener:  testPostgresListenerCfg(t),
 		Processor: testPostgresProcessorCfg(),
 	}
 
@@ -962,7 +962,7 @@ func Test_PostgresToPostgres_LargeIntegerPrecisionWAL(t *testing.T) {
 	}
 
 	cfg := &stream.Config{
-		Listener:  testPostgresListenerCfg(),
+		Listener:  testPostgresListenerCfg(t),
 		Processor: testPostgresProcessorCfg(),
 	}
 
