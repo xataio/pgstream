@@ -139,7 +139,7 @@ func TestSender_SendMessage(t *testing.T) {
 			if tc.sendDone {
 				// Simulate the post-fix shape: send() publishes the error
 				// into the shared field before closing sendDone.
-				batchSender.sendErr = errSendStopped
+				batchSender.recordSendErr(errSendStopped)
 				close(batchSender.sendDone)
 			}
 
@@ -537,5 +537,42 @@ func TestSender_ConcurrentSendErrorPropagation(t *testing.T) {
 		require.ErrorIsf(t, err, errSendStopped, "worker %d: missing errSendStopped", i)
 		require.ErrorIsf(t, err, errTest, "worker %d: missing underlying send error", i)
 		require.NotContainsf(t, err.Error(), "%!w(<nil>)", "worker %d: nil error wrapping leaked through", i)
+	}
+}
+
+func TestSender_CloseAfterSendFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	errTest := errors.New("oh noes")
+	testCommitPos := wal.CommitPosition("1")
+
+	// When a batch send fails, the writer goroutine exits early and Close()
+	// can end up closing the message channel while the batch message loop is
+	// still selecting on it. The closed channel must stop the loop instead of
+	// dereferencing a nil message, and Close must return the recorded send
+	// error. Repeat to give the racing select a chance to pick the closed
+	// message channel case.
+	for i := 0; i < 50; i++ {
+		sendFn := func(ctx context.Context, b *Batch[*mockMessage]) error {
+			return errTest
+		}
+		sender, err := NewSender(ctx, &Config{
+			BatchTimeout: 100 * time.Millisecond,
+			MaxBatchSize: 1,
+		}, sendFn, log.NewNoopLogger())
+		require.NoError(t, err)
+
+		require.NoError(t, sender.SendMessage(ctx, NewWALMessage(&mockMessage{id: 1}, testCommitPos)))
+
+		// wait for the writer goroutine to record the send failure before
+		// closing, so Close's wg.Wait returns while the batch message loop
+		// may still be running
+		require.Eventually(t, func() bool {
+			return errors.Is(sender.getSendErr(), errTest)
+		}, 5*time.Second, 100*time.Microsecond)
+
+		require.ErrorIs(t, sender.Close(), errTest)
 	}
 }

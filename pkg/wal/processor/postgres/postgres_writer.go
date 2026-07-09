@@ -34,12 +34,12 @@ type Writer struct {
 
 type queryBatchSender interface {
 	SendMessage(context.Context, *batch.WALMessage[*query]) error
-	Close()
+	Close() error
 }
 
 type walMessageBatchSender interface {
 	SendMessage(context.Context, *batch.WALMessage[*walMessage]) error
-	Close()
+	Close() error
 }
 
 type WriterOption func(*Writer)

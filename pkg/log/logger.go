@@ -11,6 +11,7 @@ type Logger interface {
 	Panic(msg string, fields ...Fields)
 	WithFields(fields Fields) Logger
 	IsTraceEnabled() bool
+	IsDebugEnabled() bool
 }
 
 type Fields map[string]any
@@ -28,6 +29,10 @@ func (l *NoopLogger) WithFields(fields Fields) Logger {
 }
 
 func (l *NoopLogger) IsTraceEnabled() bool {
+	return false
+}
+
+func (l *NoopLogger) IsDebugEnabled() bool {
 	return false
 }
 

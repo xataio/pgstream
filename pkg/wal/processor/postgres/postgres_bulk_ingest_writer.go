@@ -116,15 +116,10 @@ func (w *BulkIngestWriter) Close() error {
 	eg := errgroup.Group{}
 	for _, sender := range w.batchSenderMap.GetMap() {
 		eg.Go(func() error {
-			sender.Close()
-			return nil
+			return sender.Close()
 		})
 	}
-	if err := eg.Wait(); err != nil {
-		w.logger.Error(err, "closing batch senders")
-	}
-
-	return w.close()
+	return errors.Join(eg.Wait(), w.close())
 }
 
 func (w *BulkIngestWriter) getBatchSender(ctx context.Context, schema, table string) (queryBatchSender, error) {

@@ -23,6 +23,7 @@ type Sender[T Message] struct {
 	msgChan          chan (*WALMessage[T])
 	once             *sync.Once
 	sendDone         chan struct{}
+	sendErrMu        sync.RWMutex
 	sendErr          error
 	ignoreSendErrors bool
 
@@ -75,7 +76,7 @@ func NewSender[T Message](ctx context.Context, config *Config, sendfn sendBatchF
 		ctx, s.cancelFn = context.WithCancel(ctx)
 		defer s.cancelFn()
 
-		if err := s.send(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		if err := s.send(ctx); err != nil && !isBenignShutdownErr(err) {
 			s.logger.Error(err, "sending stopped")
 		}
 	}()
@@ -107,12 +108,11 @@ func (s *Sender[T]) SendMessage(ctx context.Context, msg *WALMessage[T]) error {
 	select {
 	case s.msgChan <- msg:
 	case <-s.sendDone:
-		// s.sendErr is set by send() before closing s.sendDone, so it is safe
-		// to read here from any number of concurrent callers. It is always
-		// non-nil — every return path of batchMsgLoop carries an error
-		// (ctx.Err, sendErrChan, or a non-nil drainBatch result).
-		s.logger.Error(s.sendErr, "stop processing, sending has stopped")
-		return fmt.Errorf("%w: %w", errSendStopped, s.sendErr)
+		// sendErr is published before sendDone is closed, so any number of
+		// concurrent callers can observe the underlying stop reason.
+		sendErr := s.getSendErr()
+		s.logger.Error(sendErr, "stop processing, sending has stopped")
+		return fmt.Errorf("%w: %w", errSendStopped, sendErr)
 	}
 
 	return nil
@@ -141,6 +141,7 @@ func (s *Sender[T]) send(ctx context.Context) error {
 				if s.ignoreSendErrors {
 					continue
 				}
+				s.recordSendErr(err)
 				sendErrChan <- err
 				return
 			}
@@ -184,7 +185,14 @@ func (s *Sender[T]) send(ctx context.Context) error {
 						return err
 					}
 				}
-			case msg := <-s.msgChan:
+			case msg, ok := <-s.msgChan:
+				if !ok {
+					// Close() only closes the message channel once the writer
+					// goroutine has exited, which can happen while this loop is
+					// still running if a batch send failed. The send error has
+					// already been recorded by the writer goroutine.
+					return errSendStopped
+				}
 				if !msg.message.IsEmpty() && msgBatch.maxBatchBytesReached(s.getMaxBatchBytes(), msg.message) {
 					if err := drainBatch(msgBatch); err != nil {
 						return err
@@ -207,19 +215,19 @@ func (s *Sender[T]) send(ctx context.Context) error {
 	}
 
 	err := batchMsgLoop()
-	if err != nil && !errors.Is(err, context.Canceled) {
+	if err != nil && !isBenignShutdownErr(err) {
 		s.logger.Error(err, "sending stopped")
 	}
 	// publish the send error before signalling shutdown so any goroutines
 	// waiting in SendMessage can observe it after the channel is closed.
-	s.sendErr = err
+	s.recordSendErr(err)
 	close(s.sendDone)
 	return err
 }
 
 // Close will stop the sending, and wait for all ongoing batches to finish. It
 // is safe to call multiple times.
-func (s *Sender[T]) Close() {
+func (s *Sender[T]) Close() error {
 	s.once.Do(func() {
 		s.logger.Trace("closing batch sender")
 		s.cancelFn()
@@ -232,6 +240,38 @@ func (s *Sender[T]) Close() {
 			s.batchBytesTuner.close()
 		}
 	})
+
+	sendErr := s.getSendErr()
+	if isBenignShutdownErr(sendErr) {
+		return nil
+	}
+	return sendErr
+}
+
+func (s *Sender[T]) recordSendErr(err error) {
+	if err == nil {
+		return
+	}
+
+	s.sendErrMu.Lock()
+	defer s.sendErrMu.Unlock()
+	if s.sendErr == nil || isBenignShutdownErr(s.sendErr) {
+		s.sendErr = err
+	}
+}
+
+// isBenignShutdownErr reports whether err is expected as part of a clean
+// shutdown and should not be surfaced as a sender failure. It is the single
+// classification point used for log suppression, send error recording
+// priority and the Close return value.
+func isBenignShutdownErr(err error) bool {
+	return errors.Is(err, context.Canceled)
+}
+
+func (s *Sender[T]) getSendErr() error {
+	s.sendErrMu.RLock()
+	defer s.sendErrMu.RUnlock()
+	return s.sendErr
 }
 
 func (s *Sender[T]) getMaxBatchBytes() int64 {

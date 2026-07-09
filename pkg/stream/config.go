@@ -213,6 +213,22 @@ func (c *Config) GetInitConfig(opts ...InitOption) *InitConfig {
 	return initConfig
 }
 
+// SnapshotConnectionDemand reports the peak number of concurrent source
+// connections the data snapshot will open (snapshot_workers × table_workers,
+// with defaults applied), and whether a data snapshot is configured at all.
+// Callers use ok to gate the resources preflight check: there's no demand to
+// size when no data snapshot runs.
+func (c *Config) SnapshotConnectionDemand() (demand uint, ok bool) {
+	if c.Listener.Postgres == nil || c.Listener.Postgres.Snapshot == nil {
+		return 0, false
+	}
+	data := c.Listener.Postgres.Snapshot.Data
+	if data == nil {
+		return 0, false
+	}
+	return data.EffectiveSnapshotWorkers() * data.EffectiveTableWorkers(), true
+}
+
 func (c *Config) RequiredTables() []string {
 	requiredTables := []string{}
 	if c.Listener.Postgres != nil {

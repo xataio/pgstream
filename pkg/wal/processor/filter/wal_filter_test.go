@@ -200,11 +200,9 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 			},
 			processor: &mocks.Processor{
 				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
-					require.Equal(t, &wal.Data{
-						Action:  wal.LogicalMessageAction,
-						Prefix:  wal.DDLPrefix,
-						Content: string(ddlEventBytes),
-					}, walEvent.Data)
+					require.Equal(t, wal.LogicalMessageAction, walEvent.Data.Action)
+					require.Equal(t, wal.DDLPrefix, walEvent.Data.Prefix)
+					require.Equal(t, string(ddlEventBytes), walEvent.Data.Content)
 					return nil
 				},
 			},
