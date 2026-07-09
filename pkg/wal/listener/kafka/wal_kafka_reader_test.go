@@ -44,7 +44,12 @@ func TestReader_Listen(t *testing.T) {
 		require.Equal(t, []byte("test-value"), b)
 		data, ok := a.(*wal.Data)
 		require.True(t, ok)
-		*data = *testWalEvent.Data
+		// assign fields individually rather than copying the struct by value:
+		// wal.Data holds a sync.Once for DDL-event memoisation and must not be
+		// copied (this mirrors how the real deserialiser populates fields).
+		data.Action = testWalEvent.Data.Action
+		data.Schema = testWalEvent.Data.Schema
+		data.Table = testWalEvent.Data.Table
 		return nil
 	}
 
