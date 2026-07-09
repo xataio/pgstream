@@ -220,11 +220,13 @@ func (in *Injector) injectColumnIDs(event *wal.Data, tbl *wal.DDLObject) error {
 	for i, col := range event.Columns {
 		schemaCol, found := tbl.GetColumnByName(col.Name)
 		if !found {
-			in.logger.Debug("column not found in table object", loglib.Fields{
-				"column": col.Name,
-				"table":  tbl.Identity,
-				"object": tbl,
-			})
+			if in.logger.IsDebugEnabled() {
+				in.logger.Debug("column not found in table object", loglib.Fields{
+					"column": col.Name,
+					"table":  tbl.Identity,
+					"object": tbl,
+				})
+			}
 			err = errors.Join(err, fmt.Errorf("failed to find column %q in table %s: %w", col.Name, tbl.Identity, processor.ErrColumnNotFound))
 			continue
 		}
@@ -234,11 +236,13 @@ func (in *Injector) injectColumnIDs(event *wal.Data, tbl *wal.DDLObject) error {
 	for i, col := range event.Identity { // should only be filled if event.Type is "D" or "U"
 		schemaCol, found := tbl.GetColumnByName(col.Name)
 		if !found {
-			in.logger.Debug("column not found in table object", loglib.Fields{
-				"column": col.Name,
-				"table":  tbl.Identity,
-				"object": tbl,
-			})
+			if in.logger.IsDebugEnabled() {
+				in.logger.Debug("column not found in table object", loglib.Fields{
+					"column": col.Name,
+					"table":  tbl.Identity,
+					"object": tbl,
+				})
+			}
 			err = errors.Join(err, fmt.Errorf("failed to find column %q in table %s: %w", col.Name, tbl.Identity, processor.ErrColumnNotFound))
 			continue
 		}

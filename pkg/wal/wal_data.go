@@ -5,6 +5,7 @@ package wal
 import (
 	"errors"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/rs/xid"
@@ -33,6 +34,10 @@ type Data struct {
 	Content string `json:"content,omitempty"`
 	// pgstream specific metadata
 	Metadata Metadata `json:"metadata"`
+
+	ddlEventOnce sync.Once
+	ddlEvent     *DDLEvent
+	ddlEventErr  error
 }
 
 // Metadata is pgstream specific properties to help identify the id/version
