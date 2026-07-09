@@ -38,7 +38,7 @@ type Option func(*BatchWriter)
 
 type batchSender interface {
 	SendMessage(context.Context, *batch.WALMessage[kafka.Message]) error
-	Close()
+	Close() error
 }
 
 var errRecordTooLarge = errors.New("record too large")
@@ -160,8 +160,7 @@ func (w *BatchWriter) Name() string {
 }
 
 func (w *BatchWriter) Close() error {
-	w.batchSender.Close()
-	return w.writer.Close()
+	return errors.Join(w.batchSender.Close(), w.writer.Close())
 }
 
 func (w *BatchWriter) sendBatch(ctx context.Context, batch *batch.Batch[kafka.Message]) error {

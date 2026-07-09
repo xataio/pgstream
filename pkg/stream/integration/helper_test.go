@@ -231,11 +231,31 @@ func withBulkIngestionEnabled() option {
 	}
 }
 
+func withStrictMode() option {
+	return func(cfg *stream.ProcessorConfig) {
+		if cfg.Postgres != nil {
+			cfg.Postgres.BatchWriter.StrictMode = true
+		}
+	}
+}
+
+func withBatchSize(maxBatchSize int64) option {
+	return func(cfg *stream.ProcessorConfig) {
+		if cfg.Postgres != nil {
+			cfg.Postgres.BatchWriter.BatchConfig.MaxBatchSize = maxBatchSize
+		}
+	}
+}
+
 func testPostgresProcessorCfg(opts ...option) stream.ProcessorConfig {
+	return testPostgresProcessorCfgWithTargetURL(targetPGURL, opts...)
+}
+
+func testPostgresProcessorCfgWithTargetURL(targetURL string, opts ...option) stream.ProcessorConfig {
 	cfg := stream.ProcessorConfig{
 		Postgres: &stream.PostgresProcessorConfig{
 			BatchWriter: postgres.Config{
-				URL: targetPGURL,
+				URL: targetURL,
 				BatchConfig: batch.Config{
 					MaxBatchSize: 1,
 					// BatchTimeout: 50 * time.Millisecond,
