@@ -130,13 +130,17 @@ jobs:
 
           mkdir -p dist/release
           jq -r '.[]
-                 | select((.type // "") | ascii_downcase | gsub(" "; "") == "uploadablebinary")
+                 | select(.name | test("^pgstream\\.[a-z]+\\."))
                  | [.path, .name] | @tsv' \
             dist/artifacts.json \
             | while IFS=$'\t' read -r path name; do
                 cp "$path" "dist/release/$name"
               done
-          [ -n "$(ls -A dist/release)" ] || { echo "no binaries to publish"; exit 1; }
+          if [ -z "$(ls -A dist/release)" ]; then
+            echo "no binaries matched; artifacts.json contained:"
+            jq -r '.[] | "\(.type)\t\(.name)"' dist/artifacts.json
+            exit 1
+          fi
 
           version="$(jq -r '.version' dist/metadata.json)"
           ( cd dist/release && sha256sum pgstream.* > "pgstream_${version}_checksums.txt" )
