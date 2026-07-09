@@ -45,6 +45,8 @@ type listenerProcessWalEvent func(context.Context, *wal.Event) error
 
 type Option func(l *Listener)
 
+const pgstreamSchemaName = "pgstream"
+
 func New(handler replicationHandler, processEvent listenerProcessWalEvent, opts ...Option) *Listener {
 	l := &Listener{
 		logger:              loglib.NewNoopLogger(),
@@ -161,6 +163,18 @@ func (l *Listener) processWALEvent(ctx context.Context, msg *replication.Message
 		}
 	}
 	event.CommitPosition = wal.CommitPosition(l.lsnParser.ToString(msg.LSN))
+	if isInternalPgstreamDML(event.Data) {
+		l.logger.Trace("skipping pgstream internal DML event", loglib.Fields{
+			"schema": event.Data.Schema,
+			"table":  event.Data.Table,
+			"action": event.Data.Action,
+		})
+		event.Data = nil
+	}
 
 	return l.processEvent(ctx, event)
+}
+
+func isInternalPgstreamDML(data *wal.Data) bool {
+	return data != nil && data.Schema == pgstreamSchemaName && !data.IsDDLEvent()
 }
