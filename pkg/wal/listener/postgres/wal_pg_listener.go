@@ -131,11 +131,13 @@ func (l *Listener) listen(ctx context.Context) error {
 				continue
 			}
 
-			l.logger.Trace("", loglib.Fields{
-				"wal_end":     l.lsnParser.ToString(msg.LSN),
-				"server_time": msg.ServerTime,
-				"wal_data":    msg.Data,
-			})
+			if l.logger.IsTraceEnabled() {
+				l.logger.Trace("", loglib.Fields{
+					"wal_end":     l.lsnParser.ToString(msg.LSN),
+					"server_time": msg.ServerTime,
+					"wal_data":    msg.Data,
+				})
+			}
 
 			if err := l.processWALEvent(ctx, msg); err != nil {
 				return err

@@ -121,6 +121,7 @@ func Prepare() *cobra.Command {
 	checkCmd.Flags().Bool("replication", false, "Run replication checks against the source (requires replication slot configured)")
 	checkCmd.Flags().Bool("access", false, "Run access and privilege checks against the source")
 	checkCmd.Flags().Bool("schema", false, "Run schema compatibility checks against the source")
+	checkCmd.Flags().Bool("resources", false, "Run resource capacity checks against the source (snapshot connection headroom vs max_connections)")
 
 	// Flag binding for root cmd
 	rootFlagBinding(rootCmd)

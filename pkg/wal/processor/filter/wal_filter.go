@@ -119,7 +119,9 @@ func (f *Filter) ProcessWALEvent(ctx context.Context, event *wal.Event) error {
 	default:
 		// data events
 		if f.skipEvent(event) {
-			f.logger.Trace("skipping event", loglib.Fields{"schema": event.Data.Schema, "table": event.Data.Table})
+			if f.logger.IsTraceEnabled() {
+				f.logger.Trace("skipping event", loglib.Fields{"schema": event.Data.Schema, "table": event.Data.Table})
+			}
 			return nil
 		}
 	}
