@@ -88,6 +88,7 @@ target:
     on_conflict_action: "nothing" # options are update, nothing or error. Defaults to error
     bulk_ingest:
       enabled: true # whether to enable bulk ingest on the target postgres, using COPY FROM (supported for insert only workloads)
+      copy_workers: 8 # number of concurrent COPY streams per table when bulk ingesting. Defaults to 8. Only applies when bulk_ingest.enabled is true.
   kafka:
     servers: ["localhost:9092"]
     topic:

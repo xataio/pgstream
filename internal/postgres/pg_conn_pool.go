@@ -16,7 +16,10 @@ type Pool struct {
 
 type PoolOption func(*pgxpool.Config)
 
-const maxConns = 50
+// MaxConns is the default maximum number of connections in a Postgres
+// connection pool. It also bounds the global concurrent-COPY budget in the
+// bulk-ingest writer, so the two never drift.
+const MaxConns = 50
 
 func NewConnPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error) {
 	escapedURL, err := escapeConnectionURL(url)
@@ -27,7 +30,7 @@ func NewConnPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, er
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing postgres connection string: %w", MapError(err))
 	}
-	pgCfg.MaxConns = maxConns
+	pgCfg.MaxConns = MaxConns
 	pgCfg.AfterConnect = registerTypesToConnMap
 
 	configureTCPKeepalive(pgCfg.ConnConfig)

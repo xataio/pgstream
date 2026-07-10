@@ -248,6 +248,11 @@ type BatchAutoTuneConfig struct {
 
 type BulkIngestConfig struct {
 	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
+	// CopyWorkers is the number of concurrent COPY streams (send drainers) used
+	// per table when bulk ingesting. Defaults to 8. It names the write-side
+	// COPY streams, distinct from snapshot.data.table_workers which is the
+	// read-side page-range reader count.
+	CopyWorkers int `mapstructure:"copy_workers" yaml:"copy_workers"`
 }
 
 type WebhooksConfig struct {
@@ -694,6 +699,7 @@ func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorCon
 	if c.Target.Postgres.BulkIngest != nil {
 		cfg.BatchWriter.BulkIngestEnabled = c.Target.Postgres.BulkIngest.Enabled
 		if cfg.BatchWriter.BulkIngestEnabled {
+			cfg.BatchWriter.BatchConfig.SendConcurrency = c.Target.Postgres.BulkIngest.CopyWorkers
 			applyPostgresBulkBatchDefaults(&cfg.BatchWriter.BatchConfig)
 		}
 	}

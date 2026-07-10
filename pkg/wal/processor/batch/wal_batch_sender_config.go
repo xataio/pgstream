@@ -25,6 +25,12 @@ type Config struct {
 	// not. If set to true, errors will be logged but the batch will continue
 	// processing. Defaults to false.
 	IgnoreSendErrors bool
+	// SendConcurrency is the number of concurrent send goroutines (drainers)
+	// used to send batches. When set to 1 (the default) the sender uses a
+	// single send goroutine, preserving strict ordering. Values greater than 1
+	// are only meaningful for order-independent workloads (e.g. the bulk-ingest
+	// snapshot writer) and are never enabled on the ordered replication path.
+	SendConcurrency int
 
 	AutoTune AutoTuneConfig
 }
@@ -68,6 +74,13 @@ func (c *Config) GetMaxBatchSize() int64 {
 		return c.MaxBatchSize
 	}
 	return defaultMaxBatchSize
+}
+
+func (c *Config) GetSendConcurrency() int {
+	if c.SendConcurrency > 1 {
+		return c.SendConcurrency
+	}
+	return 1
 }
 
 func (c *Config) GetBatchTimeout() time.Duration {
