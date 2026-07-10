@@ -576,3 +576,24 @@ func TestSender_CloseAfterSendFailure(t *testing.T) {
 		require.ErrorIs(t, sender.Close(), errTest)
 	}
 }
+
+// Regression test: constructing a sender and closing it immediately must not
+// race the background send goroutine. Before the fix, s.cancelFn was assigned
+// and s.wg.Add called inside the background goroutine, so an immediate Close
+// could read the placeholder cancelFn and pass wg.Wait before Add ran
+// (Add-after-Wait). Caught by the race detector.
+func TestSender_CloseImmediately(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	noopSendFn := func(context.Context, *Batch[*mockMessage]) error { return nil }
+
+	for i := 0; i < 100; i++ {
+		sender, err := NewSender(ctx, &Config{
+			BatchTimeout: 100 * time.Millisecond,
+			MaxBatchSize: 1,
+		}, noopSendFn, log.NewNoopLogger())
+		require.NoError(t, err)
+		require.NoError(t, sender.Close())
+	}
+}

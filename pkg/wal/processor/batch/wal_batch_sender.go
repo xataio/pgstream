@@ -71,9 +71,16 @@ func NewSender[T Message](ctx context.Context, config *Config, sendfn sendBatchF
 	}
 	s.queueBytesSema = synclib.NewWeightedSemaphore(int64(maxQueueBytes))
 
+	// derive the cancellable context and register the send goroutine on the
+	// wait group synchronously, before NewSender returns. Otherwise a caller
+	// that Closes immediately races the background goroutine writing s.cancelFn
+	// and calling s.wg.Add after Close's s.wg.Wait (an Add-after-Wait bug).
+	ctx, s.cancelFn = context.WithCancel(ctx)
+	s.wg.Add(1)
+
 	// start the send process in the background
 	go func() {
-		ctx, s.cancelFn = context.WithCancel(ctx)
+		defer s.wg.Done()
 		defer s.cancelFn()
 
 		if err := s.send(ctx); err != nil && !isBenignShutdownErr(err) {
