@@ -262,6 +262,39 @@ func registerWithCodec(name string, codec pgtype.Codec) func(ctx context.Context
 	}
 }
 
+// rawJSONTextCodec decodes json/jsonb values as their raw text representation
+// (Go string) instead of unmarshalling them into Go values. Unmarshalling is
+// lossy: the JSON null value ('null'::jsonb) becomes Go nil, indistinguishable
+// from SQL NULL, and re-marshalling can reorder object keys and drop
+// formatting for the json type.
+//
+// It only supports the text format: in binary format the server prefixes jsonb
+// values with a version byte, which would leak into the decoded string when
+// jsonb values are nested inside arrays (pgx fetches array elements in binary
+// when the element codec claims binary support).
+type rawJSONTextCodec struct {
+	pgtype.TextCodec
+}
+
+func (rawJSONTextCodec) FormatSupported(format int16) bool {
+	return format == pgtype.TextFormatCode
+}
+
+// registerRawJSONDecoding rebinds the json/jsonb types (and their arrays) on
+// the connection's type map to rawJSONTextCodec, so their values decode to raw
+// text (string). See WithRawJSONDecoding.
+func registerRawJSONDecoding(conn *pgx.Conn) {
+	typeMap := conn.TypeMap()
+	jsonType := &pgtype.Type{Name: "json", OID: pgtype.JSONOID, Codec: rawJSONTextCodec{}}
+	jsonbType := &pgtype.Type{Name: "jsonb", OID: pgtype.JSONBOID, Codec: rawJSONTextCodec{}}
+	typeMap.RegisterType(jsonType)
+	typeMap.RegisterType(jsonbType)
+	// array types capture their element type at registration, so they must be
+	// re-registered for the element override to apply to them.
+	typeMap.RegisterType(&pgtype.Type{Name: "_json", OID: pgtype.JSONArrayOID, Codec: &pgtype.ArrayCodec{ElementType: jsonType}})
+	typeMap.RegisterType(&pgtype.Type{Name: "_jsonb", OID: pgtype.JSONBArrayOID, Codec: &pgtype.ArrayCodec{ElementType: jsonbType}})
+}
+
 const DiscoverAllSchemasQuery = "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream') AND nspname NOT LIKE 'pg_temp_%' AND nspname NOT LIKE 'pg_toast_temp_%'"
 
 func DiscoverAllSchemas(ctx context.Context, conn Querier) ([]string, error) {
