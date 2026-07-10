@@ -43,6 +43,12 @@ source:
           roles_snapshot_mode: # enabled by default. Can be set to disabled to disable roles snapshotting, or can be set to no_passwords to exclude role passwords
           exclude_security_labels: ["anon"] # list of providers whose security labels will be excluded from the snapshot. Wildcard supported.
           refresh_materialized_views: false # whether to refresh materialized views (REFRESH MATERIALIZED VIEW ... WITH DATA) after the table data has been restored. Defaults to false
+          index_constraint_session_settings: # optional PostgreSQL session settings applied only while restoring indexes and constraints. Unset or empty preserves server defaults
+            maintenance_work_mem: "4GB"
+            max_parallel_maintenance_workers: "4"
+            synchronous_commit: "off"
+            statement_timeout: "0"
+            lock_timeout: "0"
           dump_file: pg_dump.sql # name of the file where the contents of the schema pg_dump command and output will be written for debugging purposes.
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"

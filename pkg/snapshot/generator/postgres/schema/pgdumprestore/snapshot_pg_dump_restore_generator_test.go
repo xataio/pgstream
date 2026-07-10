@@ -1376,6 +1376,142 @@ CREATE INDEX test_table_value_idx ON public.test_table USING btree (value);
 	require.Equal(t, []string{"schema", "conflict targets", "data", "remaining constraints"}, calls)
 }
 
+func TestBuildSessionSettingsDump(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty settings", func(t *testing.T) {
+		t.Parallel()
+
+		dump, err := buildSessionSettingsDump(nil)
+		require.NoError(t, err)
+		require.Nil(t, dump)
+	})
+
+	t.Run("sorted and escaped settings", func(t *testing.T) {
+		t.Parallel()
+
+		dump, err := buildSessionSettingsDump(map[string]string{
+			"statement_timeout":        "0",
+			"maintenance_work_mem":     "4'GB",
+			"pg_hint_plan.enable_hint": "off",
+		})
+
+		require.NoError(t, err)
+		require.Equal(t, `SET maintenance_work_mem = '4''GB';
+SET pg_hint_plan.enable_hint = 'off';
+SET statement_timeout = '0';
+
+`, string(dump))
+	})
+
+	t.Run("invalid setting name", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := buildSessionSettingsDump(map[string]string{
+			"statement_timeout; DROP TABLE users": "0",
+		})
+
+		require.EqualError(t, err, `invalid index/constraint session setting name "statement_timeout; DROP TABLE users"`)
+	})
+}
+
+func TestPrependSessionSettings(t *testing.T) {
+	t.Parallel()
+
+	settings := []byte("SET maintenance_work_mem = '4GB';\n\n")
+	tests := []struct {
+		name     string
+		dump     []byte
+		settings []byte
+		want     []byte
+	}{
+		{
+			name:     "empty dump",
+			settings: settings,
+		},
+		{
+			name: "empty settings",
+			dump: []byte("CREATE INDEX test_idx ON test_table (id);\n"),
+			want: []byte("CREATE INDEX test_idx ON test_table (id);\n"),
+		},
+		{
+			name:     "without connect",
+			dump:     []byte("CREATE INDEX test_idx ON test_table (id);\n"),
+			settings: settings,
+			want:     []byte("SET maintenance_work_mem = '4GB';\n\nCREATE INDEX test_idx ON test_table (id);\n"),
+		},
+		{
+			name:     "after connect",
+			dump:     []byte("\\connect test\n\nCREATE INDEX test_idx ON test_table (id);\n"),
+			settings: settings,
+			want:     []byte("\\connect test\n\nSET maintenance_work_mem = '4GB';\n\nCREATE INDEX test_idx ON test_table (id);\n"),
+		},
+		{
+			name:     "after every connect",
+			dump:     []byte("\\connect first\nCREATE INDEX first_idx ON first_table (id);\n\\connect second\nCREATE INDEX second_idx ON second_table (id);\n"),
+			settings: settings,
+			want:     []byte("\\connect first\nSET maintenance_work_mem = '4GB';\n\nCREATE INDEX first_idx ON first_table (id);\n\\connect second\nSET maintenance_work_mem = '4GB';\n\nCREATE INDEX second_idx ON second_table (id);\n"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tt.want, prependSessionSettings(tt.dump, tt.settings))
+		})
+	}
+}
+
+func TestSnapshotGenerator_restoreIndicesAndConstraintsSessionSettings(t *testing.T) {
+	t.Parallel()
+
+	settings := []byte("SET maintenance_work_mem = '4GB';\n\n")
+	indexDump := []byte("\\connect test\n\nCREATE INDEX test_idx ON test_table (id);\n")
+	tests := []struct {
+		name         string
+		restoreToWAL bool
+		want         []byte
+	}{
+		{
+			name: "postgres restore",
+			want: []byte("\\connect test\n\nSET maintenance_work_mem = '4GB';\n\nCREATE INDEX test_idx ON test_table (id);\n"),
+		},
+		{
+			name:         "WAL restore",
+			restoreToWAL: true,
+			want:         indexDump,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var restoredDump []byte
+			sg := &SnapshotGenerator{
+				indexConstraintSessionSettings: settings,
+				logger:                         log.NewNoopLogger(),
+				optionGenerator: &optionGenerator{
+					targetURL: "target-url",
+				},
+			}
+			if tt.restoreToWAL {
+				WithRestoreToWAL(nil)(sg)
+			}
+			sg.pgRestoreFn = func(_ context.Context, _ pglib.PGRestoreOptions, dump []byte) (string, error) {
+				restoredDump = dump
+				return "", nil
+			}
+
+			err := sg.restoreIndicesAndConstraints(context.Background(), indexDump, &snapshot.Snapshot{})
+
+			require.NoError(t, err)
+			require.Equal(t, tt.want, restoredDump)
+		})
+	}
+}
+
 func TestSnapshotGenerator_parseDump(t *testing.T) {
 	t.Parallel()
 

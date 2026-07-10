@@ -10,10 +10,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 
+	"github.com/lib/pq"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
 	loglib "github.com/xataio/pgstream/pkg/log"
@@ -49,6 +52,12 @@ type SnapshotGenerator struct {
 	// restored. Disabled by default since refreshing can be expensive on large
 	// views.
 	refreshMaterializedViews bool
+	// indexConstraintSessionSettings contains SET statements applied only to
+	// index and constraint restore sessions.
+	indexConstraintSessionSettings []byte
+	// restoreToWAL indicates that pgRestoreFn converts the dump into WAL events
+	// instead of executing it in a PostgreSQL session.
+	restoreToWAL bool
 }
 
 type snapshotProgressTracker interface {
@@ -81,6 +90,9 @@ type Config struct {
 	// VIEW ... WITH DATA) after the table data has been restored. Disabled by
 	// default since refreshing can be expensive on large views.
 	RefreshMaterializedViews bool
+	// Session settings applied only while restoring indexes and constraints.
+	// An empty map preserves PostgreSQL's existing session defaults.
+	IndexConstraintSessionSettings map[string]string
 }
 
 type Option func(s *SnapshotGenerator)
@@ -105,24 +117,30 @@ const (
 // NewSnapshotGenerator will return a postgres schema snapshot generator that
 // uses pg_dump and pg_restore to sync the schema of two postgres databases
 func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*SnapshotGenerator, error) {
+	indexConstraintSessionSettings, err := buildSessionSettingsDump(c.IndexConstraintSessionSettings)
+	if err != nil {
+		return nil, err
+	}
+
 	sourceConnPool, err := pglib.NewConnPool(ctx, c.SourcePGURL)
 	if err != nil {
 		return nil, err
 	}
 
 	sg := &SnapshotGenerator{
-		sourceURL:                c.SourcePGURL,
-		targetURL:                c.TargetPGURL,
-		pgDumpFn:                 pglib.RunPGDump,
-		pgDumpAllFn:              pglib.RunPGDumpAll,
-		pgRestoreFn:              pglib.RunPGRestore,
-		logger:                   loglib.NewNoopLogger(),
-		dumpDebugFile:            c.DumpDebugFile,
-		excludedSecurityLabels:   c.ExcludedSecurityLabels,
-		roleSQLParser:            &roleSQLParser{},
-		sourceQuerier:            sourceConnPool,
-		optionGenerator:          newOptionGenerator(sourceConnPool, c),
-		refreshMaterializedViews: c.RefreshMaterializedViews,
+		sourceURL:                      c.SourcePGURL,
+		targetURL:                      c.TargetPGURL,
+		pgDumpFn:                       pglib.RunPGDump,
+		pgDumpAllFn:                    pglib.RunPGDumpAll,
+		pgRestoreFn:                    pglib.RunPGRestore,
+		logger:                         loglib.NewNoopLogger(),
+		dumpDebugFile:                  c.DumpDebugFile,
+		excludedSecurityLabels:         c.ExcludedSecurityLabels,
+		roleSQLParser:                  &roleSQLParser{},
+		sourceQuerier:                  sourceConnPool,
+		optionGenerator:                newOptionGenerator(sourceConnPool, c),
+		refreshMaterializedViews:       c.RefreshMaterializedViews,
+		indexConstraintSessionSettings: indexConstraintSessionSettings,
 	}
 
 	for _, opt := range opts {
@@ -175,6 +193,7 @@ func WithProgressTracking(ctx context.Context) Option {
 func WithRestoreToWAL(processor processor.Processor) Option {
 	return func(sg *SnapshotGenerator) {
 		sg.pgRestoreFn = newPGSnapshotWALRestore(processor, sg.sourceQuerier).restoreToWAL
+		sg.restoreToWAL = true
 	}
 }
 
@@ -346,10 +365,67 @@ func isConflictTargetConstraint(block string) bool {
 
 func (s *SnapshotGenerator) restoreIndicesAndConstraints(ctx context.Context, dump []byte, ss *snapshot.Snapshot) error {
 	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
+	if !s.restoreToWAL {
+		dump = prependSessionSettings(dump, s.indexConstraintSessionSettings)
+	}
 	if s.snapshotTracker != nil {
 		return s.restoreIndicesWithTracking(ctx, dump)
 	}
 	return s.restoreDump(ctx, dump)
+}
+
+var sessionSettingNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$`)
+
+func buildSessionSettingsDump(settings map[string]string) ([]byte, error) {
+	if len(settings) == 0 {
+		return nil, nil
+	}
+
+	names := make([]string, 0, len(settings))
+	for name := range settings {
+		if !sessionSettingNamePattern.MatchString(name) {
+			return nil, fmt.Errorf("invalid index/constraint session setting name %q", name)
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var dump strings.Builder
+	for _, name := range names {
+		fmt.Fprintf(&dump, "SET %s = %s;\n", name, pq.QuoteLiteral(settings[name]))
+	}
+	dump.WriteString("\n")
+	return []byte(dump.String()), nil
+}
+
+func prependSessionSettings(dump, settings []byte) []byte {
+	if len(dump) == 0 || len(settings) == 0 {
+		return dump
+	}
+
+	lines := bytes.SplitAfter(dump, []byte("\n"))
+	result := make([]byte, 0, len(dump)+len(settings))
+	inserted := false
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		result = append(result, line...)
+		if bytes.HasPrefix(bytes.TrimSpace(line), []byte(`\connect`)) {
+			if !bytes.HasSuffix(line, []byte("\n")) {
+				result = append(result, '\n')
+			}
+			for i+1 < len(lines) && len(bytes.TrimSpace(lines[i+1])) == 0 {
+				i++
+				result = append(result, lines[i]...)
+			}
+			result = append(result, settings...)
+			inserted = true
+		}
+	}
+	if inserted {
+		return result
+	}
+
+	return append(append(make([]byte, 0, len(settings)+len(dump)), settings...), dump...)
 }
 
 func (s *SnapshotGenerator) Close() error {

@@ -51,6 +51,7 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE", "pg_dump.sql")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_NO_OWNER", "true")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_MODE", "full")
+	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_INDEX_CONSTRAINT_SESSION_SETTINGS", `{"maintenance_work_mem":"4GB","max_parallel_maintenance_workers":"4","synchronous_commit":"off","statement_timeout":"0","lock_timeout":"0"}`)
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_DISABLE_PROGRESS_TRACKING", "true")
 
 	os.Setenv("PGSTREAM_KAFKA_READER_SERVERS", "localhost:9092")
