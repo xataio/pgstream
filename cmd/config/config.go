@@ -184,12 +184,18 @@ func applyPostgresBulkBatchDefaults(batchCfg *batch.Config) {
 		// bytes semaphore holds both in-flight and accumulating batches, so a
 		// single large default batch (80MiB vs the 100MiB default queue) would
 		// only ever allow one batch in flight and the send workers could never
-		// run concurrently on tables with large rows. Splitting keeps the
-		// memory footprint unchanged while letting up to SendConcurrency
-		// batches circulate.
+		// run concurrently on tables with large rows.
 		if batchCfg.SendConcurrency > 1 {
 			batchCfg.MaxBatchBytes = defaultPostgresBulkBatchBytes / int64(batchCfg.SendConcurrency)
 		}
+	}
+	if batchCfg.MaxQueueBytes == 0 && batchCfg.SendConcurrency > 1 {
+		// Size the in-flight queue to hold every COPY worker's batch plus one
+		// accumulating batch, so the send-drainer pool is never starved. Since
+		// the batch bytes above are split by SendConcurrency, the total
+		// footprint stays bounded to roughly the pre-parallel default (~80MiB)
+		// regardless of copy_workers, rather than growing with it.
+		batchCfg.MaxQueueBytes = batchCfg.MaxBatchBytes * int64(batchCfg.SendConcurrency+1)
 	}
 	if batchCfg.BatchTimeout == 0 {
 		batchCfg.BatchTimeout = defaultPostgresBulkBatchTimeout
