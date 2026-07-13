@@ -45,7 +45,14 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...WriterOption) (
 		dmlAdapter: dml,
 	}
 
-	bw.batchSender, err = batch.NewSender(ctx, &config.BatchConfig, bw.sendBatch, w.logger)
+	// The ordered batch writer (replication path) must send strictly in order,
+	// so it never uses the send-drainer pool, regardless of the SendConcurrency
+	// carried by the shared Config: in snapshot_and_replication mode the
+	// bulk-ingest snapshot writer and this writer are built from the same
+	// postgres.Config, and bulk ingest defaults SendConcurrency to >1.
+	batchConfig := config.BatchConfig
+	batchConfig.SendConcurrency = 1
+	bw.batchSender, err = batch.NewSender(ctx, &batchConfig, bw.sendBatch, w.logger)
 	if err != nil {
 		return nil, err
 	}

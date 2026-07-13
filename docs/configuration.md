@@ -99,6 +99,7 @@ target:
     strict_mode: false # whether to stop on non-internal query failures instead of dropping them. Defaults to false
     bulk_ingest:
       enabled: true # whether to enable bulk ingest on the target postgres, using COPY FROM (supported for insert only workloads)
+      copy_workers: 8 # number of concurrent COPY streams per table when bulk ingesting. Defaults to 8. Only applies when bulk_ingest.enabled is true.
     retry_policy: # retry policy for postgres connections, one of exponential or constant or disable_retries.
       disable_retries: false
       exponential:
@@ -352,6 +353,7 @@ One of exponential/constant/disable retries backoff policies can be provided for
 | PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION                    | error                           | No       | Action to apply to inserts on conflict. Options are `nothing`, `update` or `error`.                                                                                                                            |
 | PGSTREAM_POSTGRES_WRITER_STRICT_MODE                           | False                           | No       | Whether to stop on non-internal query failures instead of dropping them and continuing. It defaults to false.                                                                                                  |
 | PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED                   | False(run), True(snapshot)      | No       | Whether to use COPY FROM on insert only workloads. It defaults to false when using the run command, and to true when using the snapshot command.                                                               |
+| PGSTREAM_POSTGRES_WRITER_BULK_INGEST_COPY_WORKERS              | 8                               | No       | Number of concurrent COPY streams per table when bulk ingesting. Only applies when bulk ingest is enabled.                                                                                                     |
 | PGSTREAM_POSTGRES_WRITER_EXP_BACKOFF_INITIAL_INTERVAL          | 500ms                           | No       | Initial interval for the exponential backoff policy to be applied to the Postgres connection retries.                                                                                                          |
 | PGSTREAM_POSTGRES_WRITER_EXP_BACKOFF_MAX_INTERVAL              | 10s                             | No       | Max interval for the exponential backoff policy to be applied to the Postgres connection retries.                                                                                                              |
 | PGSTREAM_POSTGRES_WRITER_EXP_BACKOFF_MAX_RETRIES               | 20                              | No       | Max retries for the exponential backoff policy to be applied to the Postgres connection retries.                                                                                                               |
