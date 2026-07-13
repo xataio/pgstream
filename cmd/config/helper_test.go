@@ -56,8 +56,9 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 				},
 				Snapshot: &builder.SnapshotListenerConfig{
 					Adapter: adapter.SnapshotConfig{
-						Tables:         []string{"test", "test_schema.Test", "another_schema.*"},
-						ExcludedTables: []string{"test_schema.Test"},
+						Tables:           []string{"test", "test_schema.Test", "another_schema.*"},
+						ExcludedTables:   []string{"test_schema.Test"},
+						SchemaOnlyTables: []string{"schema_only_test", "schema_only_schema.*"},
 					},
 					Data: &pgsnapshotgenerator.Config{
 						URL:             "postgresql://user:password@localhost:5432/mydatabase",
@@ -246,8 +247,9 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 				},
 			},
 			Filter: &filter.Config{
-				IncludeTables: []string{"test", "test_schema.test", "another_schema.*"},
-				ExcludeTables: []string{"excluded_test", "excluded_schema.test", "another_excluded_schema.*"},
+				IncludeTables:    []string{"test", "test_schema.test", "another_schema.*"},
+				ExcludeTables:    []string{"excluded_test", "excluded_schema.test", "another_excluded_schema.*"},
+				SchemaOnlyTables: []string{"schema_only_test", "schema_only_schema.*"},
 			},
 		},
 	}

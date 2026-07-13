@@ -5,6 +5,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/xataio/pgstream/internal/health"
@@ -96,6 +97,7 @@ type SnapshotConfig struct {
 	Mode                    string                  `mapstructure:"mode" yaml:"mode"`
 	Tables                  []string                `mapstructure:"tables" yaml:"tables"`
 	ExcludedTables          []string                `mapstructure:"excluded_tables" yaml:"excluded_tables"`
+	SchemaOnlyTables        []string                `mapstructure:"schema_only_tables" yaml:"schema_only_tables"`
 	Recorder                *SnapshotRecorderConfig `mapstructure:"recorder" yaml:"recorder"`
 	SnapshotWorkers         int                     `mapstructure:"snapshot_workers" yaml:"snapshot_workers"`
 	Data                    *SnapshotDataConfig     `mapstructure:"data" yaml:"data"`
@@ -303,8 +305,9 @@ type InjectorConfig struct {
 }
 
 type FilterConfig struct {
-	IncludeTables []string `mapstructure:"include_tables" yaml:"include_tables"`
-	ExcludeTables []string `mapstructure:"exclude_tables" yaml:"exclude_tables"`
+	IncludeTables    []string `mapstructure:"include_tables" yaml:"include_tables"`
+	ExcludeTables    []string `mapstructure:"exclude_tables" yaml:"exclude_tables"`
+	SchemaOnlyTables []string `mapstructure:"schema_only_tables" yaml:"schema_only_tables"`
 }
 
 type TransformationsConfig struct {
@@ -382,6 +385,7 @@ var (
 	errInvalidSnapshotRecorderConfig           = errors.New("snapshot recorder config requires a postgres url")
 	errInvalidSampleRatio                      = errors.New("trace sample ratio must be a value between 0.0 and 1.0")
 	errSchemaSnapshotNotConfigured             = errors.New("schema snapshot config must be provided when snapshot mode is 'full' or 'schema'")
+	errSchemaOnlyTablesSnapshotMode            = errors.New("snapshot schema_only_tables can only be used when snapshot mode is 'full' or 'schema'")
 )
 
 func (c *InstrumentationConfig) toHealthConfig() *health.Config {
@@ -516,9 +520,18 @@ func (c *YAMLConfig) parsePostgresListenerConfig() (*stream.PostgresListenerConf
 		}
 	}
 
-	// if there's a filter config, apply it to the replication config
+	// if there's a filter config, apply it to the replication config.
+	// Schema-only tables are added to the exclude list so that their "no
+	// tuple identifier" warnings are suppressed, but only when there's no
+	// include list: an include list already suppresses warnings for anything
+	// not explicitly included, and a schema-only wildcard must not silence
+	// warnings for explicitly included tables.
 	if c.Modifiers.Filter != nil {
-		streamCfg.Replication.ExcludeTables = c.Modifiers.Filter.ExcludeTables
+		excludeTables := c.Modifiers.Filter.ExcludeTables
+		if len(c.Modifiers.Filter.IncludeTables) == 0 {
+			excludeTables = appendTables(excludeTables, c.Modifiers.Filter.SchemaOnlyTables)
+		}
+		streamCfg.Replication.ExcludeTables = excludeTables
 		streamCfg.Replication.IncludeTables = c.Modifiers.Filter.IncludeTables
 	}
 
@@ -533,8 +546,9 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 
 	streamCfg := &snapshotbuilder.SnapshotListenerConfig{
 		Adapter: adapter.SnapshotConfig{
-			Tables:         snapshotConfig.Tables,
-			ExcludedTables: snapshotConfig.ExcludedTables,
+			Tables:           snapshotConfig.Tables,
+			ExcludedTables:   snapshotConfig.ExcludedTables,
+			SchemaOnlyTables: snapshotConfig.SchemaOnlyTables,
 		},
 		DisableProgressTracking: snapshotConfig.DisableProgressTracking,
 	}
@@ -557,6 +571,10 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 		snapshotConfig.Mode = fullSnapshotMode
 	default:
 		return nil, errUnsupportedSnapshotMode
+	}
+
+	if snapshotConfig.Mode == dataSnapshotMode && len(snapshotConfig.SchemaOnlyTables) > 0 {
+		return nil, errSchemaOnlyTablesSnapshotMode
 	}
 
 	if snapshotConfig.Mode == fullSnapshotMode || snapshotConfig.Mode == dataSnapshotMode {
@@ -781,13 +799,26 @@ func (c *YAMLConfig) parseTransformationConfig() (*transformer.Config, error) {
 	return c.Modifiers.Transformations.parseTransformationConfig()
 }
 
+// appendTables returns the deduplicated union of both table lists, without
+// mutating either of them.
+func appendTables(tables, moreTables []string) []string {
+	merged := slices.Clone(tables)
+	for _, table := range moreTables {
+		if !slices.Contains(merged, table) {
+			merged = append(merged, table)
+		}
+	}
+	return merged
+}
+
 func (c YAMLConfig) parseFilterConfig() *filter.Config {
 	if c.Modifiers.Filter == nil {
 		return nil
 	}
 	return &filter.Config{
-		ExcludeTables: c.Modifiers.Filter.ExcludeTables,
-		IncludeTables: c.Modifiers.Filter.IncludeTables,
+		ExcludeTables:    c.Modifiers.Filter.ExcludeTables,
+		IncludeTables:    c.Modifiers.Filter.IncludeTables,
+		SchemaOnlyTables: c.Modifiers.Filter.SchemaOnlyTables,
 	}
 }
 

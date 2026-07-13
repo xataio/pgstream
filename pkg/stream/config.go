@@ -5,6 +5,7 @@ package stream
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -158,11 +159,17 @@ func (c *Config) validateTableSelections() error {
 		if _, err := NewTableSelection(adapter.Tables, adapter.ExcludedTables); err != nil {
 			return fmt.Errorf("snapshot table selection: %w", err)
 		}
+		if _, err := pglib.NewSchemaTableMap(adapter.SchemaOnlyTables); err != nil {
+			return fmt.Errorf("snapshot schema-only table selection: %w", err)
+		}
 	}
 	if c.Processor.Filter != nil {
 		filter := c.Processor.Filter
 		if _, err := NewTableSelection(filter.IncludeTables, filter.ExcludeTables); err != nil {
 			return fmt.Errorf("replication table selection: %w", err)
+		}
+		if _, err := pglib.NewSchemaTableMap(filter.SchemaOnlyTables); err != nil {
+			return fmt.Errorf("replication schema-only table selection: %w", err)
 		}
 	}
 	return nil
@@ -309,7 +316,10 @@ func (c *Config) SnapshotTableSelection() TableSelection {
 	// IsValid is the gate that catches malformed entries; if a caller skipped
 	// it the constructor error is swallowed and the lazy fallback in
 	// IsTableInScope produces a defined (over-permissive) answer.
-	sel, _ := NewTableSelection(c.Listener.Postgres.Snapshot.Adapter.Tables, c.Listener.Postgres.Snapshot.Adapter.ExcludedTables)
+	// Schema-only tables are part of the snapshot scope (pg_dump reads them),
+	// so they are added to the include list.
+	adapter := c.Listener.Postgres.Snapshot.Adapter
+	sel, _ := NewTableSelection(appendTables(adapter.Tables, adapter.SchemaOnlyTables), adapter.ExcludedTables)
 	return sel
 }
 
@@ -320,7 +330,17 @@ func (c *Config) ReplicationTableSelection() TableSelection {
 	// IsValid is the gate that catches malformed entries; if a caller skipped
 	// it the constructor error is swallowed and the lazy fallback in
 	// IsTableInScope produces a defined (over-permissive) answer.
-	sel, _ := NewTableSelection(c.Processor.Filter.IncludeTables, c.Processor.Filter.ExcludeTables)
+	// Schema-only tables have their data events filtered out, so they don't
+	// need a replica identity and are added to the exclude list. When an
+	// include list is configured it already narrows the scope, and a table
+	// explicitly listed in it gets full treatment even if it matches a
+	// schema-only wildcard, so the schema-only list is left out.
+	filter := c.Processor.Filter
+	exclude := filter.ExcludeTables
+	if len(filter.IncludeTables) == 0 {
+		exclude = appendTables(filter.ExcludeTables, filter.SchemaOnlyTables)
+	}
+	sel, _ := NewTableSelection(filter.IncludeTables, exclude)
 	return sel
 }
 
@@ -342,6 +362,18 @@ func (c *Config) AccessTableSelection() TableSelection {
 	default:
 		return TableSelection{}
 	}
+}
+
+// appendTables returns the deduplicated union of both table lists, preserving
+// order and without mutating either of them.
+func appendTables(tables, moreTables []string) []string {
+	merged := slices.Clone(tables)
+	for _, table := range moreTables {
+		if !slices.Contains(merged, table) {
+			merged = append(merged, table)
+		}
+	}
+	return merged
 }
 
 func dedupUnion(a, b []string) []string {

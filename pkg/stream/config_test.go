@@ -49,6 +49,30 @@ func TestConfig_ReplicationTableSelection(t *testing.T) {
 			},
 			wantExclude: []string{"public.audit_log"},
 		},
+		{
+			name: "schema-only tables added to exclude list",
+			cfg: &Config{
+				Processor: ProcessorConfig{
+					Filter: &filter.Config{
+						ExcludeTables:    []string{"public.secrets"},
+						SchemaOnlyTables: []string{"public.audit_log"},
+					},
+				},
+			},
+			wantExclude: []string{"public.secrets", "public.audit_log"},
+		},
+		{
+			name: "schema-only tables left out when include list is configured",
+			cfg: &Config{
+				Processor: ProcessorConfig{
+					Filter: &filter.Config{
+						IncludeTables:    []string{"public.users"},
+						SchemaOnlyTables: []string{"public.*"},
+					},
+				},
+			},
+			wantInclude: []string{"public.users"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -97,6 +121,38 @@ func TestConfig_IsValid_ValidatesTableSelections(t *testing.T) {
 		err := cfg.IsValid()
 		require.Error(t, err)
 		require.ErrorContains(t, err, "replication table selection")
+	})
+
+	t.Run("malformed snapshot adapter SchemaOnlyTables surfaces from IsValid", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Listener: ListenerConfig{
+				Postgres: &PostgresListenerConfig{
+					URL: "postgres://source",
+					Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+						Adapter: adapter.SnapshotConfig{SchemaOnlyTables: []string{"too.many.parts"}},
+					},
+				},
+			},
+			Processor: baseProcessor,
+		}
+		err := cfg.IsValid()
+		require.Error(t, err)
+		require.ErrorContains(t, err, "snapshot schema-only table selection")
+	})
+
+	t.Run("malformed filter SchemaOnlyTables surfaces from IsValid", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Listener: baseListener,
+			Processor: ProcessorConfig{
+				Stdout: &StdoutProcessorConfig{},
+				Filter: &filter.Config{SchemaOnlyTables: []string{"too.many.parts"}},
+			},
+		}
+		err := cfg.IsValid()
+		require.Error(t, err)
+		require.ErrorContains(t, err, "replication schema-only table selection")
 	})
 
 	t.Run("well-formed selections pass IsValid", func(t *testing.T) {
@@ -229,6 +285,22 @@ func TestConfig_SnapshotTableSelection(t *testing.T) {
 			},
 			wantInclude: []string{"public.users"},
 			wantExclude: []string{"public.audit_log"},
+		},
+		{
+			name: "schema-only tables added to include list",
+			cfg: &Config{
+				Listener: ListenerConfig{
+					Postgres: &PostgresListenerConfig{
+						Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+							Adapter: adapter.SnapshotConfig{
+								Tables:           []string{"public.users"},
+								SchemaOnlyTables: []string{"public.audit_log"},
+							},
+						},
+					},
+				},
+			},
+			wantInclude: []string{"public.users", "public.audit_log"},
 		},
 	}
 
