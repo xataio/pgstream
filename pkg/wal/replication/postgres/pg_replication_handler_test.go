@@ -663,3 +663,85 @@ func TestHandler_verifyReplicationSlotExists(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_isExcludedTableError(t *testing.T) {
+	t.Parallel()
+
+	noTupleErr := func(schema, table string) error {
+		return &pglib.Error{
+			Severity: "WARNING",
+			Msg:      fmt.Sprintf("no tuple identifier for UPDATE in table %q.%q", schema, table),
+		}
+	}
+
+	tests := []struct {
+		name             string
+		includeTables    []string
+		excludeTables    []string
+		schemaOnlyTables []string
+		err              error
+
+		wantExcluded bool
+	}{
+		{
+			name:          "excluded table is suppressed",
+			excludeTables: []string{"test_schema.ignore_table"},
+			err:           noTupleErr("test_schema", "ignore_table"),
+			wantExcluded:  true,
+		},
+		{
+			name:          "table not in include list is suppressed",
+			includeTables: []string{"test_schema.test_table"},
+			err:           noTupleErr("test_schema", "other_table"),
+			wantExcluded:  true,
+		},
+		{
+			name:          "included table is not suppressed",
+			includeTables: []string{"test_schema.test_table"},
+			err:           noTupleErr("test_schema", "test_table"),
+			wantExcluded:  false,
+		},
+		{
+			name:             "schema-only table is suppressed",
+			schemaOnlyTables: []string{"test_schema.audit_log"},
+			err:              noTupleErr("test_schema", "audit_log"),
+			wantExcluded:     true,
+		},
+		{
+			name:             "schema-only table beats wildcard include",
+			includeTables:    []string{"test_schema.*"},
+			schemaOnlyTables: []string{"test_schema.audit_log"},
+			err:              noTupleErr("test_schema", "audit_log"),
+			wantExcluded:     true,
+		},
+		{
+			name:             "exact include entry beats schema-only wildcard",
+			includeTables:    []string{"test_schema.test_table"},
+			schemaOnlyTables: []string{"test_schema.*"},
+			err:              noTupleErr("test_schema", "test_table"),
+			wantExcluded:     false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			includeTables, err := pglib.NewSchemaTableMap(tc.includeTables)
+			require.NoError(t, err)
+			excludeTables, err := pglib.NewSchemaTableMap(tc.excludeTables)
+			require.NoError(t, err)
+			schemaOnlyTables, err := pglib.NewSchemaTableMap(tc.schemaOnlyTables)
+			require.NoError(t, err)
+
+			h := Handler{
+				logger:           log.NewNoopLogger(),
+				includedTables:   includeTables,
+				excludedTables:   excludeTables,
+				schemaOnlyTables: schemaOnlyTables,
+			}
+
+			require.Equal(t, tc.wantExcluded, h.isExcludedTableError(tc.err))
+		})
+	}
+}

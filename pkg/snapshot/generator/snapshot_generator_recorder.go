@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/xataio/pgstream/pkg/snapshot"
@@ -50,9 +51,12 @@ func (s *SnapshotRecorder) CreateSnapshot(ctx context.Context, ss *snapshot.Snap
 	if err != nil {
 		return err
 	}
+	ss.SchemaOnlyTables, err = s.filterOutExistingSnapshots(ctx, ss.SchemaOnlyTables)
+	if err != nil {
+		return err
+	}
 
-	// no tables to snapshot; schema-only tables are not recorded as data
-	// snapshot requests, but still need to reach the schema snapshot generator
+	// no tables to snapshot
 	if !ss.HasTables() && !ss.HasSchemaOnlyTables() {
 		return nil
 	}
@@ -74,8 +78,24 @@ func (s *SnapshotRecorder) Close() error {
 }
 
 func (s *SnapshotRecorder) createRequests(ss *snapshot.Snapshot) []*snapshot.Request {
-	requests := make([]*snapshot.Request, 0, len(ss.SchemaTables))
+	// schema-only tables are recorded along with the data snapshot tables so
+	// that completed snapshots can be filtered out on restart
+	schemaTables := make(map[string][]string, len(ss.SchemaTables)+len(ss.SchemaOnlyTables))
 	for schema, tables := range ss.SchemaTables {
+		schemaTables[schema] = tables
+	}
+	for schema, tables := range ss.SchemaOnlyTables {
+		merged := slices.Clone(schemaTables[schema])
+		for _, table := range tables {
+			if !slices.Contains(merged, table) {
+				merged = append(merged, table)
+			}
+		}
+		schemaTables[schema] = merged
+	}
+
+	requests := make([]*snapshot.Request, 0, len(schemaTables))
+	for schema, tables := range schemaTables {
 		req := &snapshot.Request{
 			Schema: schema,
 			Tables: tables,
@@ -149,7 +169,7 @@ func (s *SnapshotRecorder) markSnapshotCompleted(ctx context.Context, requests [
 
 func (s *SnapshotRecorder) filterOutExistingSnapshots(ctx context.Context, schemaTables map[string][]string) (map[string][]string, error) {
 	// if we want to be able to repeat snapshots, we don't filter out existing ones
-	if s.repeatableSnapshots {
+	if s.repeatableSnapshots || len(schemaTables) == 0 {
 		return schemaTables, nil
 	}
 

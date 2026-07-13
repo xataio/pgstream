@@ -5,7 +5,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/xataio/pgstream/internal/health"
@@ -520,19 +519,13 @@ func (c *YAMLConfig) parsePostgresListenerConfig() (*stream.PostgresListenerConf
 		}
 	}
 
-	// if there's a filter config, apply it to the replication config.
-	// Schema-only tables are added to the exclude list so that their "no
-	// tuple identifier" warnings are suppressed, but only when there's no
-	// include list: an include list already suppresses warnings for anything
-	// not explicitly included, and a schema-only wildcard must not silence
-	// warnings for explicitly included tables.
+	// if there's a filter config, apply it to the replication config so that
+	// "no tuple identifier" warnings are suppressed for tables whose data
+	// events are filtered out anyway
 	if c.Modifiers.Filter != nil {
-		excludeTables := c.Modifiers.Filter.ExcludeTables
-		if len(c.Modifiers.Filter.IncludeTables) == 0 {
-			excludeTables = appendTables(excludeTables, c.Modifiers.Filter.SchemaOnlyTables)
-		}
-		streamCfg.Replication.ExcludeTables = excludeTables
+		streamCfg.Replication.ExcludeTables = c.Modifiers.Filter.ExcludeTables
 		streamCfg.Replication.IncludeTables = c.Modifiers.Filter.IncludeTables
+		streamCfg.Replication.SchemaOnlyTables = c.Modifiers.Filter.SchemaOnlyTables
 	}
 
 	return streamCfg, nil
@@ -797,18 +790,6 @@ func (c *YAMLConfig) parseTransformationConfig() (*transformer.Config, error) {
 	}
 
 	return c.Modifiers.Transformations.parseTransformationConfig()
-}
-
-// appendTables returns the deduplicated union of both table lists, without
-// mutating either of them.
-func appendTables(tables, moreTables []string) []string {
-	merged := slices.Clone(tables)
-	for _, table := range moreTables {
-		if !slices.Contains(merged, table) {
-			merged = append(merged, table)
-		}
-	}
-	return merged
 }
 
 func (c YAMLConfig) parseFilterConfig() *filter.Config {

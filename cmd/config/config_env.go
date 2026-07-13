@@ -245,18 +245,13 @@ func parsePostgresListenerConfig() (*stream.PostgresListenerConfig, error) {
 		RetryPolicy: parseBackoffConfig("PGSTREAM_POSTGRES_LISTENER"),
 	}
 
-	// schema-only tables are added to the exclude list so that their "no
-	// tuple identifier" warnings are suppressed, but only when there's no
-	// include list: an include list already suppresses warnings for anything
-	// not explicitly included, and a schema-only wildcard must not silence
-	// warnings for explicitly included tables
+	// if there's a filter config, apply it to the replication config so that
+	// "no tuple identifier" warnings are suppressed for tables whose data
+	// events are filtered out anyway
 	if filterConfig := parseFilterConfig(); filterConfig != nil {
-		excludeTables := filterConfig.ExcludeTables
-		if len(filterConfig.IncludeTables) == 0 {
-			excludeTables = appendTables(excludeTables, filterConfig.SchemaOnlyTables)
-		}
-		cfg.Replication.ExcludeTables = excludeTables
+		cfg.Replication.ExcludeTables = filterConfig.ExcludeTables
 		cfg.Replication.IncludeTables = filterConfig.IncludeTables
+		cfg.Replication.SchemaOnlyTables = filterConfig.SchemaOnlyTables
 	}
 
 	snapshotTables := viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES")

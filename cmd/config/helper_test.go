@@ -42,6 +42,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 					ReplicationSlotName: "pgstream_mydatabase_slot",
 					IncludeTables:       []string{"test", "test_schema.test", "another_schema.*"},
 					ExcludeTables:       []string{"excluded_test", "excluded_schema.test", "another_excluded_schema.*"},
+					SchemaOnlyTables:    []string{"schema_only_test", "schema_only_schema.*"},
 					PluginArguments: pgreplication.PluginArguments{
 						IncludeXIDs: true,
 					},

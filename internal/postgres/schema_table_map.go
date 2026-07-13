@@ -4,6 +4,8 @@ package postgres
 
 import (
 	"errors"
+	"fmt"
+	"maps"
 	"strings"
 )
 
@@ -37,14 +39,12 @@ func (t SchemaTableMap) ContainsSchemaTable(schema, table string) bool {
 		return false
 	}
 
-	tables := t.GetSchemaTables(schema)
-	if len(tables) == 0 {
-		return false
+	containsTable := func(tables map[string]struct{}) bool {
+		_, found := tables[table]
+		_, wildcardFound := tables[wildcard]
+		return found || wildcardFound
 	}
-
-	_, found := tables[table]
-	_, wildcardFound := tables[wildcard]
-	return found || wildcardFound
+	return containsTable(t[schema]) || containsTable(t[wildcard])
 }
 
 // ContainsExactSchemaTable returns true only if the table is listed by its
@@ -60,12 +60,35 @@ func (t SchemaTableMap) GetSchemaTables(schema string) map[string]struct{} {
 		return t[wildcard]
 	}
 
-	// make sure it's merged with the wildcard schema tables if any
-	for table := range t[wildcard] {
-		tables[table] = struct{}{}
+	if len(t[wildcard]) == 0 {
+		return tables
 	}
 
-	return tables
+	// merge with the wildcard schema tables into a copy, so the map itself is
+	// never mutated by lookups
+	merged := make(map[string]struct{}, len(tables)+len(t[wildcard]))
+	maps.Copy(merged, tables)
+	maps.Copy(merged, t[wildcard])
+	return merged
+}
+
+// ValidateWildcardSchema returns an error when the wildcard schema entry lists
+// anything other than the wildcard table ("*.*"): the snapshot generators
+// can't resolve a specific table name across all schemas.
+func (t SchemaTableMap) ValidateWildcardSchema() error {
+	tables, found := t[wildcard]
+	if !found {
+		return nil
+	}
+	_, wildcardTableFound := tables[wildcard]
+	if len(tables) != 1 || !wildcardTableFound {
+		tableNames := make([]string, 0, len(tables))
+		for table := range tables {
+			tableNames = append(tableNames, table)
+		}
+		return fmt.Errorf("wildcard schema must be used with wildcard table, got %q", tableNames)
+	}
+	return nil
 }
 
 func (t SchemaTableMap) Add(table string) error {

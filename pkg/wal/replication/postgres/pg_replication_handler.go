@@ -24,8 +24,9 @@ type Handler struct {
 	pgReplicationConnBuilder func() (pglib.ReplicationQuerier, error)
 	pgConnBuilder            func() (pglib.Querier, error)
 
-	excludedTables pglib.SchemaTableMap
-	includedTables pglib.SchemaTableMap
+	excludedTables   pglib.SchemaTableMap
+	includedTables   pglib.SchemaTableMap
+	schemaOnlyTables pglib.SchemaTableMap
 
 	lsnParser replication.LSNParser
 
@@ -42,6 +43,10 @@ type Config struct {
 	ExcludeTables []string
 	// List of qualified tables included for replication.
 	IncludeTables []string
+	// List of qualified tables whose data events are filtered out downstream
+	// (schema-only tables), for which replication errors should be ignored
+	// unless the table is explicitly listed in IncludeTables.
+	SchemaOnlyTables []string
 	// PluginArguments are arguments to be passed to the logical decoding plugin
 	// (wal2json).
 	PluginArguments PluginArguments
@@ -135,6 +140,12 @@ func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, erro
 	}
 	if len(cfg.ExcludeTables) > 0 {
 		h.excludedTables, err = pglib.NewSchemaTableMap(cfg.ExcludeTables)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(cfg.SchemaOnlyTables) > 0 {
+		h.schemaOnlyTables, err = pglib.NewSchemaTableMap(cfg.SchemaOnlyTables)
 		if err != nil {
 			return nil, err
 		}
@@ -384,10 +395,17 @@ func (h *Handler) isExcludedTableError(err error) bool {
 		if len(matches) == 4 {
 			schema := matches[2]
 			table := matches[3]
-			if len(h.excludedTables) > 0 {
-				if h.excludedTables.ContainsSchemaTable(schema, table) {
-					return true
-				}
+			// mirror the wal filter precedence for data events: exclude beats
+			// everything, an exact include entry beats a schema-only match,
+			// and a schema-only match beats a wildcard include
+			if h.excludedTables.ContainsSchemaTable(schema, table) {
+				return true
+			}
+			if h.includedTables.ContainsExactSchemaTable(schema, table) {
+				return false
+			}
+			if h.schemaOnlyTables.ContainsSchemaTable(schema, table) {
+				return true
 			}
 			if len(h.includedTables) > 0 {
 				if !h.includedTables.ContainsSchemaTable(schema, table) {

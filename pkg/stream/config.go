@@ -159,8 +159,19 @@ func (c *Config) validateTableSelections() error {
 		if _, err := NewTableSelection(adapter.Tables, adapter.ExcludedTables); err != nil {
 			return fmt.Errorf("snapshot table selection: %w", err)
 		}
-		if _, err := pglib.NewSchemaTableMap(adapter.SchemaOnlyTables); err != nil {
+		schemaOnlyMap, err := pglib.NewSchemaTableMap(adapter.SchemaOnlyTables)
+		if err != nil {
 			return fmt.Errorf("snapshot schema-only table selection: %w", err)
+		}
+		// the snapshot generators can't resolve a wildcard schema with a
+		// specific table; reject it up front instead of mid-snapshot
+		if err := schemaOnlyMap.ValidateWildcardSchema(); err != nil {
+			return fmt.Errorf("snapshot schema-only table selection: %w", err)
+		}
+		// schema-only tables are consumed by the schema snapshot layer; without
+		// it they would be silently dropped from the snapshot altogether
+		if len(adapter.SchemaOnlyTables) > 0 && c.Listener.Postgres.Snapshot.Schema == nil {
+			return errors.New("snapshot schema-only tables require a schema snapshot to be configured")
 		}
 	}
 	if c.Processor.Filter != nil {
@@ -267,10 +278,11 @@ func (c *Config) RequiredTables() []string {
 // names tables to skip. Include and exclude are mutually exclusive at the
 // source-config level (validated by the filter package).
 type TableSelection struct {
-	include    []string
-	exclude    []string
-	includeMap pglib.SchemaTableMap
-	excludeMap pglib.SchemaTableMap
+	include       []string
+	exclude       []string
+	includeMap    pglib.SchemaTableMap
+	excludeMap    pglib.SchemaTableMap
+	schemaOnlyMap pglib.SchemaTableMap
 }
 
 func NewTableSelection(include, exclude []string) (TableSelection, error) {
@@ -295,8 +307,17 @@ func (s TableSelection) IsUnfiltered() bool {
 	return len(s.include) == 0 && len(s.exclude) == 0
 }
 
+// IsTableInScope mirrors the precedence the wal filter applies to data (DML)
+// events: exclude beats everything, an exact include entry beats a schema-only
+// match, and a schema-only match beats a wildcard include.
 func (s TableSelection) IsTableInScope(schema, table string) bool {
-	if s.excludeMap != nil && s.excludeMap.ContainsSchemaTable(schema, table) {
+	if s.excludeMap.ContainsSchemaTable(schema, table) {
+		return false
+	}
+	if s.includeMap.ContainsExactSchemaTable(schema, table) {
+		return true
+	}
+	if s.schemaOnlyMap.ContainsSchemaTable(schema, table) {
 		return false
 	}
 	if s.includeMap == nil {
@@ -331,16 +352,11 @@ func (c *Config) ReplicationTableSelection() TableSelection {
 	// it the constructor error is swallowed and the lazy fallback in
 	// IsTableInScope produces a defined (over-permissive) answer.
 	// Schema-only tables have their data events filtered out, so they don't
-	// need a replica identity and are added to the exclude list. When an
-	// include list is configured it already narrows the scope, and a table
-	// explicitly listed in it gets full treatment even if it matches a
-	// schema-only wildcard, so the schema-only list is left out.
+	// need a replica identity; IsTableInScope applies the same per-table
+	// precedence as the wal filter.
 	filter := c.Processor.Filter
-	exclude := filter.ExcludeTables
-	if len(filter.IncludeTables) == 0 {
-		exclude = appendTables(filter.ExcludeTables, filter.SchemaOnlyTables)
-	}
-	sel, _ := NewTableSelection(filter.IncludeTables, exclude)
+	sel, _ := NewTableSelection(filter.IncludeTables, filter.ExcludeTables)
+	sel.schemaOnlyMap, _ = pglib.NewSchemaTableMap(filter.SchemaOnlyTables)
 	return sel
 }
 
@@ -354,7 +370,7 @@ func (c *Config) AccessTableSelection() TableSelection {
 
 	switch {
 	case len(snap.include) > 0 && len(rep.include) > 0:
-		sel, _ := NewTableSelection(dedupUnion(snap.include, rep.include), nil)
+		sel, _ := NewTableSelection(appendTables(snap.include, rep.include), nil)
 		return sel
 	case len(snap.exclude) > 0 && len(rep.exclude) > 0:
 		sel, _ := NewTableSelection(nil, intersection(snap.exclude, rep.exclude))
@@ -374,21 +390,6 @@ func appendTables(tables, moreTables []string) []string {
 		}
 	}
 	return merged
-}
-
-func dedupUnion(a, b []string) []string {
-	seen := make(map[string]struct{}, len(a)+len(b))
-	for _, s := range a {
-		seen[s] = struct{}{}
-	}
-	for _, s := range b {
-		seen[s] = struct{}{}
-	}
-	out := make([]string, 0, len(seen))
-	for s := range seen {
-		out = append(out, s)
-	}
-	return out
 }
 
 func intersection(a, b []string) []string {

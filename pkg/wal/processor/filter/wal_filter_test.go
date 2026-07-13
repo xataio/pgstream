@@ -707,3 +707,37 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 		})
 	}
 }
+
+func TestFilter_ProcessWALEvent_schemaOnlyNotAffectedByWildcardLookups(t *testing.T) {
+	t.Parallel()
+
+	// regression test: a lookup for another table in the same schema used to
+	// merge the wildcard schema include entries into the concrete schema map,
+	// making ContainsExactSchemaTable match "*.audit_log" and leak the
+	// schema-only table's data events from that point on
+	processedTables := []string{}
+	mockProcessor := &mocks.Processor{
+		ProcessWALEventFn: func(ctx context.Context, event *wal.Event) error {
+			processedTables = append(processedTables, event.Data.Schema+"."+event.Data.Table)
+			return nil
+		},
+	}
+
+	f, err := New(mockProcessor, &Config{
+		IncludeTables:    []string{"public.orders", "*.audit_log"},
+		SchemaOnlyTables: []string{"public.audit_log"},
+	})
+	require.NoError(t, err)
+
+	newEvent := func(schema, table string) *wal.Event {
+		return &wal.Event{Data: &wal.Data{Schema: schema, Table: table}}
+	}
+
+	ctx := context.Background()
+	require.NoError(t, f.ProcessWALEvent(ctx, newEvent("public", "audit_log")))
+	// a wildcard include lookup for another table in the same schema
+	require.NoError(t, f.ProcessWALEvent(ctx, newEvent("public", "other_table")))
+	require.NoError(t, f.ProcessWALEvent(ctx, newEvent("public", "audit_log")))
+
+	require.Equal(t, []string{}, processedTables)
+}

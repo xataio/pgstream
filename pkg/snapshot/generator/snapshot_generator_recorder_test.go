@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -404,50 +405,103 @@ func TestSnapshotRecorder_CreateSnapshot_schemaOnlyTables(t *testing.T) {
 	testSchema := "test-schema"
 	testTables := []string{"table1", "table2"}
 
-	// even when all data tables have already been snapshotted, schema-only
-	// tables must still reach the wrapped generator, without being recorded
-	// as data snapshot requests
-	store := &snapshotstoremocks.Store{
-		GetSnapshotRequestsBySchemaFn: func(ctx context.Context, s string) ([]*snapshot.Request, error) {
-			return []*snapshot.Request{
-				{
-					Schema: testSchema,
-					Tables: testTables,
-					Status: snapshot.StatusCompleted,
-				},
-			}, nil
-		},
-		CreateSnapshotRequestFn: func(ctx context.Context, r *snapshot.Request) error {
-			return fmt.Errorf("unexpected call to CreateSnapshotRequestFn: %v", r)
-		},
-	}
+	t.Run("schema-only tables reach the wrapped generator and are recorded", func(t *testing.T) {
+		t.Parallel()
 
-	wrappedCalled := false
-	generator := &mockGenerator{
-		createSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
-			wrappedCalled = true
-			require.Empty(t, ss.SchemaTables)
-			require.Equal(t, map[string][]string{testSchema: {"audit_log"}}, ss.SchemaOnlyTables)
-			return nil
-		},
-	}
+		// even when all data tables have already been snapshotted, schema-only
+		// tables that haven't been recorded yet must still reach the wrapped
+		// generator, and be recorded so that restarts can skip them
+		var recordedRequest *snapshot.Request
+		store := &snapshotstoremocks.Store{
+			GetSnapshotRequestsBySchemaFn: func(ctx context.Context, s string) ([]*snapshot.Request, error) {
+				return []*snapshot.Request{
+					{
+						Schema: testSchema,
+						Tables: testTables,
+						Status: snapshot.StatusCompleted,
+					},
+				}, nil
+			},
+			CreateSnapshotRequestFn: func(ctx context.Context, r *snapshot.Request) error {
+				recordedRequest = r
+				return nil
+			},
+			UpdateSnapshotRequestFn: func(ctx context.Context, _ uint, r *snapshot.Request) error {
+				return nil
+			},
+		}
 
-	sr := NewSnapshotRecorder(&Config{
-		RepeatableSnapshots: false,
-		SnapshotWorkers:     1,
-	}, store, generator)
-	defer sr.Close()
+		wrappedCalled := false
+		generator := &mockGenerator{
+			createSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
+				wrappedCalled = true
+				require.Empty(t, ss.SchemaTables)
+				require.Equal(t, map[string][]string{testSchema: {"audit_log"}}, ss.SchemaOnlyTables)
+				return nil
+			},
+		}
 
-	err := sr.CreateSnapshot(context.Background(), &snapshot.Snapshot{
-		SchemaTables: map[string][]string{
-			testSchema: testTables,
-		},
-		SchemaOnlyTables: map[string][]string{
-			testSchema: {"audit_log"},
-		},
+		sr := NewSnapshotRecorder(&Config{
+			RepeatableSnapshots: false,
+			SnapshotWorkers:     1,
+		}, store, generator)
+		defer sr.Close()
+
+		err := sr.CreateSnapshot(context.Background(), &snapshot.Snapshot{
+			SchemaTables: map[string][]string{
+				testSchema: testTables,
+			},
+			SchemaOnlyTables: map[string][]string{
+				testSchema: {"audit_log"},
+			},
+		})
+		require.NoError(t, err)
+		require.True(t, wrappedCalled)
+		require.NotNil(t, recordedRequest)
+		require.Equal(t, testSchema, recordedRequest.Schema)
+		require.Equal(t, []string{"audit_log"}, recordedRequest.Tables)
 	})
-	require.NoError(t, err)
-	require.True(t, wrappedCalled)
+
+	t.Run("already recorded schema-only tables are skipped on restart", func(t *testing.T) {
+		t.Parallel()
+
+		store := &snapshotstoremocks.Store{
+			GetSnapshotRequestsBySchemaFn: func(ctx context.Context, s string) ([]*snapshot.Request, error) {
+				return []*snapshot.Request{
+					{
+						Schema: testSchema,
+						Tables: append(slices.Clone(testTables), "audit_log"),
+						Status: snapshot.StatusCompleted,
+					},
+				}, nil
+			},
+			CreateSnapshotRequestFn: func(ctx context.Context, r *snapshot.Request) error {
+				return fmt.Errorf("unexpected call to CreateSnapshotRequestFn: %v", r)
+			},
+		}
+
+		generator := &mockGenerator{
+			createSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
+				return fmt.Errorf("unexpected call to wrapped generator: %v", ss)
+			},
+		}
+
+		sr := NewSnapshotRecorder(&Config{
+			RepeatableSnapshots: false,
+			SnapshotWorkers:     1,
+		}, store, generator)
+		defer sr.Close()
+
+		err := sr.CreateSnapshot(context.Background(), &snapshot.Snapshot{
+			SchemaTables: map[string][]string{
+				testSchema: testTables,
+			},
+			SchemaOnlyTables: map[string][]string{
+				testSchema: {"audit_log"},
+			},
+		})
+		require.NoError(t, err)
+	})
 }
 
 func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
