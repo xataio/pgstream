@@ -26,11 +26,12 @@ func Test_New(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		config       *Config
-		wantIncluded pglib.SchemaTableMap
-		wantExcluded pglib.SchemaTableMap
-		wantErr      error
+		name           string
+		config         *Config
+		wantIncluded   pglib.SchemaTableMap
+		wantExcluded   pglib.SchemaTableMap
+		wantSchemaOnly pglib.SchemaTableMap
+		wantErr        error
 	}{
 		{
 			name: "valid included configuration",
@@ -72,6 +73,58 @@ func Test_New(t *testing.T) {
 			wantErr: errIncludeExcludeList,
 		},
 		{
+			name: "valid schema-only configuration",
+			config: &Config{
+				SchemaOnlyTables: []string{"public.audit_log", "reports.*"},
+			},
+			wantSchemaOnly: pglib.SchemaTableMap{
+				"public": map[string]struct{}{
+					"audit_log": {},
+				},
+				"reports": map[string]struct{}{
+					"*": {},
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "valid included and schema-only configuration",
+			config: &Config{
+				IncludeTables:    []string{"public.users"},
+				SchemaOnlyTables: []string{"public.audit_log"},
+			},
+			wantIncluded: pglib.SchemaTableMap{
+				"public": map[string]struct{}{
+					"users":   {},
+					"default": {},
+				},
+			},
+			wantSchemaOnly: pglib.SchemaTableMap{
+				"public": map[string]struct{}{
+					"audit_log": {},
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "valid excluded and schema-only configuration",
+			config: &Config{
+				ExcludeTables:    []string{"public.users"},
+				SchemaOnlyTables: []string{"public.audit_log"},
+			},
+			wantExcluded: pglib.SchemaTableMap{
+				"public": map[string]struct{}{
+					"users": {},
+				},
+			},
+			wantSchemaOnly: pglib.SchemaTableMap{
+				"public": map[string]struct{}{
+					"audit_log": {},
+				},
+			},
+			wantErr: nil,
+		},
+		{
 			name: "invalid table name in included",
 			config: &Config{
 				IncludeTables: []string{"invalid.table.name"},
@@ -82,6 +135,13 @@ func Test_New(t *testing.T) {
 			name: "invalid table name in excluded",
 			config: &Config{
 				ExcludeTables: []string{"invalid.table.name"},
+			},
+			wantErr: pglib.ErrInvalidTableName,
+		},
+		{
+			name: "invalid table name in schema-only",
+			config: &Config{
+				SchemaOnlyTables: []string{"invalid.table.name"},
 			},
 			wantErr: pglib.ErrInvalidTableName,
 		},
@@ -105,6 +165,7 @@ func Test_New(t *testing.T) {
 			}
 			require.Equal(t, tc.wantIncluded, filter.includeTableMap)
 			require.Equal(t, tc.wantExcluded, filter.excludeTableMap)
+			require.Equal(t, tc.wantSchemaOnly, filter.schemaOnlyTableMap)
 		})
 	}
 }
@@ -146,6 +207,37 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 	ddlEventBytes, err := json.Marshal(testDDLEvent)
 	require.NoError(t, err)
 
+	multiTableDDLEvent := &wal.DDLEvent{
+		DDL:        "DROP TABLE test_schema.test_table, test_schema.another_table;",
+		SchemaName: testSchema,
+		CommandTag: "DROP TABLE",
+		Objects: []wal.DDLObject{
+			{
+				Type:     "table",
+				Identity: "test_schema.test_table",
+				Schema:   testSchema,
+			},
+			{
+				Type:     "table",
+				Identity: "test_schema.another_table",
+				Schema:   testSchema,
+			},
+		},
+	}
+
+	multiTableDDLEventBytes, err := json.Marshal(multiTableDDLEvent)
+	require.NoError(t, err)
+
+	newDDLEvent := func(content []byte) *wal.Event {
+		return &wal.Event{
+			Data: &wal.Data{
+				Action:  wal.LogicalMessageAction,
+				Prefix:  wal.DDLPrefix,
+				Content: string(content),
+			},
+		}
+	}
+
 	errTest := errors.New("oh noes")
 
 	tests := []struct {
@@ -153,6 +245,7 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 		processor          *mocks.Processor
 		included           pglib.SchemaTableMap
 		excluded           pglib.SchemaTableMap
+		schemaOnly         pglib.SchemaTableMap
 		event              *wal.Event
 		walEventToDDLEvent func(*wal.Data) (*wal.DDLEvent, error)
 
@@ -406,6 +499,189 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 			wantProcessCalls: 1,
 			wantErr:          nil,
 		},
+		{
+			name:  "event matches schema-only",
+			event: testEvent,
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					return errors.New("ProcessWALEventFn: should not be called")
+				},
+			},
+			schemaOnly: pglib.SchemaTableMap{
+				testSchema: {
+					testTable: struct{}{},
+				},
+			},
+
+			wantProcessCalls: 0,
+			wantErr:          nil,
+		},
+		{
+			name:  "event does not match schema-only",
+			event: testEvent,
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					require.Equal(t, testEvent, walEvent)
+					return nil
+				},
+			},
+			schemaOnly: pglib.SchemaTableMap{
+				testSchema: {
+					"another_table": struct{}{},
+				},
+			},
+
+			wantProcessCalls: 1,
+			wantErr:          nil,
+		},
+		{
+			name:  "event matches schema-only wildcard but is explicitly included",
+			event: testEvent,
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					require.Equal(t, testEvent, walEvent)
+					return nil
+				},
+			},
+			included: pglib.SchemaTableMap{
+				testSchema: {
+					testTable: struct{}{},
+				},
+			},
+			schemaOnly: pglib.SchemaTableMap{
+				testSchema: {
+					"*": struct{}{},
+				},
+			},
+
+			wantProcessCalls: 1,
+			wantErr:          nil,
+		},
+		{
+			name:  "event matches schema-only within included wildcard",
+			event: testEvent,
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					return errors.New("ProcessWALEventFn: should not be called")
+				},
+			},
+			included: pglib.SchemaTableMap{
+				testSchema: {
+					"*": struct{}{},
+				},
+			},
+			schemaOnly: pglib.SchemaTableMap{
+				testSchema: {
+					testTable: struct{}{},
+				},
+			},
+
+			wantProcessCalls: 0,
+			wantErr:          nil,
+		},
+		{
+			name:  "DDL event for schema-only table passes with included list",
+			event: newDDLEvent(ddlEventBytes),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					require.Equal(t, string(ddlEventBytes), walEvent.Data.Content)
+					return nil
+				},
+			},
+			included: pglib.SchemaTableMap{
+				testSchema: {
+					"another_table": struct{}{},
+				},
+			},
+			schemaOnly: pglib.SchemaTableMap{
+				testSchema: {
+					testTable: struct{}{},
+				},
+			},
+
+			wantProcessCalls: 1,
+			wantErr:          nil,
+		},
+		{
+			name:  "DDL event for schema-only table passes without included list",
+			event: newDDLEvent(ddlEventBytes),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					require.Equal(t, string(ddlEventBytes), walEvent.Data.Content)
+					return nil
+				},
+			},
+			schemaOnly: pglib.SchemaTableMap{
+				testSchema: {
+					testTable: struct{}{},
+				},
+			},
+
+			wantProcessCalls: 1,
+			wantErr:          nil,
+		},
+		{
+			name:  "DDL event for excluded table filtered even when schema-only matches",
+			event: newDDLEvent(ddlEventBytes),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					return errors.New("ProcessWALEventFn: should not be called")
+				},
+			},
+			excluded: pglib.SchemaTableMap{
+				testSchema: {
+					testTable: struct{}{},
+				},
+			},
+			schemaOnly: pglib.SchemaTableMap{
+				testSchema: {
+					"*": struct{}{},
+				},
+			},
+
+			wantProcessCalls: 0,
+			wantErr:          nil,
+		},
+		{
+			name:  "multi-table DDL event passes when tables are included and schema-only",
+			event: newDDLEvent(multiTableDDLEventBytes),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					require.Equal(t, string(multiTableDDLEventBytes), walEvent.Data.Content)
+					return nil
+				},
+			},
+			included: pglib.SchemaTableMap{
+				testSchema: {
+					"another_table": struct{}{},
+				},
+			},
+			schemaOnly: pglib.SchemaTableMap{
+				testSchema: {
+					testTable: struct{}{},
+				},
+			},
+
+			wantProcessCalls: 1,
+			wantErr:          nil,
+		},
+		{
+			name:  "multi-table DDL event filtered when any table is not included",
+			event: newDDLEvent(multiTableDDLEventBytes),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					return errors.New("ProcessWALEventFn: should not be called")
+				},
+			},
+			included: pglib.SchemaTableMap{
+				testSchema: {
+					"another_table": struct{}{},
+				},
+			},
+
+			wantProcessCalls: 0,
+			wantErr:          nil,
+		},
 	}
 
 	for _, tc := range tests {
@@ -417,6 +693,7 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 				processor:          tc.processor,
 				excludeTableMap:    tc.excluded,
 				includeTableMap:    tc.included,
+				schemaOnlyTableMap: tc.schemaOnly,
 				walEventToDDLEvent: wal.WalDataToDDLEvent,
 			}
 
