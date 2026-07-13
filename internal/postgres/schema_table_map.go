@@ -47,6 +47,13 @@ func (t SchemaTableMap) ContainsSchemaTable(schema, table string) bool {
 	return found || wildcardFound
 }
 
+// ContainsExactSchemaTable returns true only if the table is listed by its
+// exact name under the exact schema. Wildcard entries do not match.
+func (t SchemaTableMap) ContainsExactSchemaTable(schema, table string) bool {
+	_, found := t[schema][table]
+	return found
+}
+
 func (t SchemaTableMap) GetSchemaTables(schema string) map[string]struct{} {
 	tables, found := t[schema]
 	if !found {
