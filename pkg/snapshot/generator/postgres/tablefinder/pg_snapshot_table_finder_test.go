@@ -231,6 +231,170 @@ func TestSnapshotTableFinder_CreateSnapshot(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - schema-only tables removed from expanded wildcard",
+			conn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname=$1", query)
+					require.Equal(t, []any{testSchema}, args)
+					return &pgmocks.Rows{
+						ScanFn: func(i uint, dest ...any) error {
+							require.Len(t, dest, 1)
+							table, ok := dest[0].(*string)
+							require.True(t, ok)
+							switch i {
+							case 1:
+								*table = "table-1"
+							case 2:
+								*table = "table-2"
+							case 3:
+								*table = "table-3"
+							}
+							return nil
+						},
+						NextFn:  func(i uint) bool { return i <= 3 },
+						CloseFn: func() {},
+						ErrFn:   func() error { return nil },
+					}, nil
+				},
+			},
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {wildcard},
+				},
+				SchemaExcludedTables: map[string][]string{
+					testSchema: {"table-1"},
+				},
+				SchemaOnlyTables: map[string][]string{
+					testSchema: {"table-2"},
+				},
+			},
+			generator: &mocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
+					require.Equal(t, map[string][]string{testSchema: {"table-3"}}, ss.SchemaTables)
+					// schema-only tables are left untouched for the schema snapshot
+					require.Equal(t, map[string][]string{testSchema: {"table-2"}}, ss.SchemaOnlyTables)
+					return nil
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - explicitly listed table kept despite schema-only wildcard",
+			conn: &pgmocks.Querier{},
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {"table-a"},
+				},
+				SchemaOnlyTables: map[string][]string{
+					testSchema: {wildcard},
+				},
+			},
+			generator: &mocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
+					require.Equal(t, map[string][]string{testSchema: {"table-a"}}, ss.SchemaTables)
+					require.Equal(t, map[string][]string{testSchema: {wildcard}}, ss.SchemaOnlyTables)
+					return nil
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - schema removed when all expanded tables are schema-only",
+			conn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname=$1", query)
+					require.Equal(t, []any{testSchema}, args)
+					return &pgmocks.Rows{
+						ScanFn: func(i uint, dest ...any) error {
+							require.Len(t, dest, 1)
+							table, ok := dest[0].(*string)
+							require.True(t, ok)
+							*table = "table-1"
+							return nil
+						},
+						NextFn:  func(i uint) bool { return i == 1 },
+						CloseFn: func() {},
+						ErrFn:   func() error { return nil },
+					}, nil
+				},
+			},
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {wildcard},
+				},
+				SchemaOnlyTables: map[string][]string{
+					testSchema: {wildcard},
+				},
+			},
+			generator: &mocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
+					require.Equal(t, map[string][]string{}, ss.SchemaTables)
+					require.Equal(t, map[string][]string{testSchema: {wildcard}}, ss.SchemaOnlyTables)
+					return nil
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - schema-only wildcard schema removes all non-explicit tables",
+			conn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, "SELECT tablename FROM pg_tables WHERE schemaname=$1", query)
+					require.Equal(t, []any{testSchema}, args)
+					return &pgmocks.Rows{
+						ScanFn: func(i uint, dest ...any) error {
+							require.Len(t, dest, 1)
+							table, ok := dest[0].(*string)
+							require.True(t, ok)
+							*table = "table-1"
+							return nil
+						},
+						NextFn:  func(i uint) bool { return i == 1 },
+						CloseFn: func() {},
+						ErrFn:   func() error { return nil },
+					}, nil
+				},
+			},
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {wildcard},
+				},
+				SchemaOnlyTables: map[string][]string{
+					wildcard: {wildcard},
+				},
+			},
+			generator: &mocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
+					require.Equal(t, map[string][]string{}, ss.SchemaTables)
+					return nil
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "error - schema-only wildcard schema with table name",
+			conn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					t.Fatalf("unexpected query: %s", query)
+					return nil, nil // should not be called
+				},
+			},
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {"table-a"},
+				},
+				SchemaOnlyTables: map[string][]string{
+					wildcard: {"table-1"},
+				},
+			},
+
+			wantErr: errors.New("wildcard schema must be used with wildcard table, got [\"table-1\"]"),
+		},
+		{
 			name: "error - schema wildcard with table name",
 			conn: &pgmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {

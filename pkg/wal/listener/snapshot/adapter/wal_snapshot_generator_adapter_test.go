@@ -20,9 +20,10 @@ func TestSnapshotGeneratorAdapter_CreateSnapshot(t *testing.T) {
 	errTest := errors.New("oh noes")
 
 	tests := []struct {
-		name         string
-		generator    generator.SnapshotGenerator
-		schemaTables map[string][]string
+		name             string
+		generator        generator.SnapshotGenerator
+		schemaTables     map[string][]string
+		schemaOnlyTables map[string][]string
 
 		wantErr error
 	}{
@@ -40,6 +41,30 @@ func TestSnapshotGeneratorAdapter_CreateSnapshot(t *testing.T) {
 			},
 			schemaTables: map[string][]string{
 				publicSchema: {"*"},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - with schema-only tables",
+			generator: &generatormocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
+					require.Equal(t, &snapshot.Snapshot{
+						SchemaTables: map[string][]string{
+							publicSchema: {"users"},
+						},
+						SchemaOnlyTables: map[string][]string{
+							publicSchema: {"audit_log"},
+						},
+					}, ss)
+					return nil
+				},
+			},
+			schemaTables: map[string][]string{
+				publicSchema: {"users"},
+			},
+			schemaOnlyTables: map[string][]string{
+				publicSchema: {"audit_log"},
 			},
 
 			wantErr: nil,
@@ -64,9 +89,10 @@ func TestSnapshotGeneratorAdapter_CreateSnapshot(t *testing.T) {
 			t.Parallel()
 
 			ga := SnapshotGeneratorAdapter{
-				logger:       log.NewNoopLogger(),
-				generator:    tc.generator,
-				schemaTables: tc.schemaTables,
+				logger:           log.NewNoopLogger(),
+				generator:        tc.generator,
+				schemaTables:     tc.schemaTables,
+				schemaOnlyTables: tc.schemaOnlyTables,
 			}
 			defer ga.Close()
 

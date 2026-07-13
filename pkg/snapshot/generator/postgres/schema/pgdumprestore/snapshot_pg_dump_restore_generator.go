@@ -191,14 +191,32 @@ func WithRestoreConflictTargetsBeforeData() Option {
 }
 
 func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) (err error) {
-	s.logger.Info("creating schema snapshot", loglib.Fields{"schemaTables": ss.SchemaTables})
+	s.logger.Info("creating schema snapshot", loglib.Fields{"schemaTables": ss.SchemaTables, "schemaOnlyTables": ss.SchemaOnlyTables})
 
 	// make sure any empty schemas are filtered out
-	dumpSchemas := make(map[string][]string, len(ss.SchemaTables))
+	dataSchemas := make(map[string][]string, len(ss.SchemaTables))
 	for schema, tables := range ss.SchemaTables {
 		if len(tables) > 0 {
-			dumpSchemas[schema] = tables
+			dataSchemas[schema] = tables
 		}
+	}
+	schemaOnly := make(map[string][]string, len(ss.SchemaOnlyTables))
+	for schema, tables := range ss.SchemaOnlyTables {
+		if len(tables) > 0 {
+			schemaOnly[schema] = tables
+		}
+	}
+	if tables, found := schemaOnly[wildcard]; found && !hasWildcardTable(tables) {
+		return fmt.Errorf("wildcard schema must be used with wildcard table, got %q", tables)
+	}
+	// the schema snapshot scope is the union of the data snapshot tables and
+	// the schema-only tables
+	dumpSchemas := make(map[string][]string, len(dataSchemas)+len(schemaOnly))
+	for schema, tables := range dataSchemas {
+		dumpSchemas[schema] = tables
+	}
+	for schema, tables := range schemaOnly {
+		dumpSchemas[schema] = mergeTables(dumpSchemas[schema], tables)
 	}
 	// nothing to dump
 	if len(dumpSchemas) == 0 {
@@ -207,7 +225,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 
 	// DUMP
 
-	dump, err := s.dumpSchema(ctx, dumpSchemas, ss.SchemaExcludedTables)
+	dump, err := s.dumpSchema(ctx, dataSchemas, schemaOnly, ss.SchemaExcludedTables)
 	if err != nil {
 		return err
 	}
@@ -374,8 +392,8 @@ func (s *SnapshotGenerator) Close() error {
 	return nil
 }
 
-func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[string][]string, excludedTables map[string][]string) (*dump, error) {
-	pgdumpOpts, err := s.optionGenerator.pgdumpOptions(ctx, schemaTables, excludedTables)
+func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables, schemaOnlyTables, excludedTables map[string][]string) (*dump, error) {
+	pgdumpOpts, err := s.optionGenerator.pgdumpOptions(ctx, schemaTables, schemaOnlyTables, excludedTables)
 	if err != nil {
 		return nil, fmt.Errorf("preparing pg_dump options: %w", err)
 	}
@@ -875,6 +893,21 @@ func (s *SnapshotGenerator) restoreIndicesWithTracking(ctx context.Context, dump
 
 func hasWildcardTable(tables []string) bool {
 	return slices.Contains(tables, wildcard)
+}
+
+// mergeTables returns the deduplicated union of both table lists, collapsing
+// to the wildcard if either list contains it.
+func mergeTables(t1, t2 []string) []string {
+	if hasWildcardTable(t1) || hasWildcardTable(t2) {
+		return []string{wildcard}
+	}
+	merged := slices.Clone(t1)
+	for _, table := range t2 {
+		if !slices.Contains(merged, table) {
+			merged = append(merged, table)
+		}
+	}
+	return merged
 }
 
 func hasWildcardSchema(schemaTables map[string][]string) bool {

@@ -5,6 +5,11 @@ package snapshot
 type Snapshot struct {
 	SchemaTables         map[string][]string
 	SchemaExcludedTables map[string][]string
+	// SchemaOnlyTables are part of the schema snapshot scope, but their data
+	// is not copied. SchemaTables entries listed by exact name (no wildcards)
+	// take precedence over a schema-only wildcard match, and
+	// SchemaExcludedTables take precedence over the schema-only list.
+	SchemaOnlyTables map[string][]string
 }
 
 type Request struct {
@@ -54,6 +59,19 @@ func (s *Snapshot) HasTables() bool {
 	}
 
 	for _, tables := range s.SchemaTables {
+		if len(tables) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Snapshot) HasSchemaOnlyTables() bool {
+	if s == nil {
+		return false
+	}
+
+	for _, tables := range s.SchemaOnlyTables {
 		if len(tables) > 0 {
 			return true
 		}

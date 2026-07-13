@@ -51,8 +51,9 @@ func (s *SnapshotRecorder) CreateSnapshot(ctx context.Context, ss *snapshot.Snap
 		return err
 	}
 
-	// no tables to snapshot
-	if !ss.HasTables() {
+	// no tables to snapshot; schema-only tables are not recorded as data
+	// snapshot requests, but still need to reach the schema snapshot generator
+	if !ss.HasTables() && !ss.HasSchemaOnlyTables() {
 		return nil
 	}
 
