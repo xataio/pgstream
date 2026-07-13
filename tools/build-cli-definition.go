@@ -20,13 +20,14 @@ type Result struct {
 }
 
 type Command struct {
-	Name        string    `json:"name"`
-	Short       string    `json:"short"`
-	Use         string    `json:"use"`
-	Example     string    `json:"example"`
-	Flags       []Flag    `json:"flags"`
-	Subcommands []Command `json:"subcommands"`
-	Args        []string  `json:"args"`
+	Name        string            `json:"name"`
+	Short       string            `json:"short"`
+	Use         string            `json:"use"`
+	Example     string            `json:"example"`
+	Flags       []Flag            `json:"flags"`
+	Subcommands []Command         `json:"subcommands"`
+	Args        []string          `json:"args"`
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 type Flag struct {
@@ -75,6 +76,7 @@ func processCommand(cmd *cobra.Command) Command {
 		Args:        validateArgs(cmd),
 		Flags:       extractFlags([]*pflag.FlagSet{cmd.Flags(), cmd.PersistentFlags()}),
 		Subcommands: extractCommands(cmd.Commands()),
+		Annotations: cmd.Annotations,
 	}
 }
 
