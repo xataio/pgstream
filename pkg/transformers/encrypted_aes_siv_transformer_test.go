@@ -104,6 +104,15 @@ func TestEncryptedAESSIVTransformer_Transform(t *testing.T) {
 		require.True(t, ok, "expected string token, got %T", got)
 		return token
 	}
+	// bytea columns return the token as []byte so pgx can binary-encode it
+	transformBytea := func(t *testing.T, est *EncryptedAESSIVTransformer, input any) string {
+		t.Helper()
+		got, err := est.Transform(context.Background(), Value{TransformValue: input, TransformType: "bytea"})
+		require.NoError(t, err)
+		token, ok := got.([]byte)
+		require.True(t, ok, "expected []byte token, got %T", got)
+		return string(token)
+	}
 	newSIV := func(t *testing.T) *subtle.AESSIV {
 		t.Helper()
 		key, err := hex.DecodeString(testEncryptedAESSIVKeyHex)
@@ -125,9 +134,33 @@ func TestEncryptedAESSIVTransformer_Transform(t *testing.T) {
 	t.Run("ok - deterministic and []byte parity", func(t *testing.T) {
 		t.Parallel()
 		fromString := transform(t, est, "orders/1234/scan_8842.stl")
-		fromBytes := transform(t, est, []byte("orders/1234/scan_8842.stl"))
+		fromBytes := transformBytea(t, est, []byte("orders/1234/scan_8842.stl"))
 		require.Equal(t, fromString, fromBytes)
 		require.Equal(t, fromString, transform(t, est, "orders/1234/scan_8842.stl"))
+	})
+
+	t.Run("ok - bytea snapshot and replication parity", func(t *testing.T) {
+		t.Parallel()
+		// snapshots deliver bytea as raw []byte (pgx), replication as the
+		// hex-text form (wal2json); both must produce the same token
+		raw := []byte{0x00, 0x01, 0xfe, 0xff}
+		fromSnapshot := transformBytea(t, est, raw)
+		fromReplication := transformBytea(t, est, `\x0001feff`)
+		require.Equal(t, fromSnapshot, fromReplication)
+
+		ciphertext, err := base64.RawURLEncoding.DecodeString(fromSnapshot)
+		require.NoError(t, err)
+		plaintext, err := newSIV(t).DecryptDeterministically(ciphertext, nil)
+		require.NoError(t, err)
+		require.Equal(t, raw, plaintext)
+	})
+
+	t.Run("error - bytea string value not in hex format", func(t *testing.T) {
+		t.Parallel()
+		_, err := est.Transform(context.Background(), Value{TransformValue: "no hex prefix", TransformType: "bytea"})
+		require.ErrorIs(t, err, errEncryptedAESSIVByteaNotHex)
+		_, err = est.Transform(context.Background(), Value{TransformValue: `\xnothex`, TransformType: "bytea"})
+		require.ErrorIs(t, err, errEncryptedAESSIVByteaNotHex)
 	})
 
 	t.Run("ok - round trip", func(t *testing.T) {
@@ -159,6 +192,8 @@ func TestEncryptedAESSIVTransformer_Transform(t *testing.T) {
 		})
 		token := transform(t, estAAD, "hello world")
 		require.NotEqual(t, transform(t, est, "hello world"), token)
+		// golden token: pinned so the docs example stays accurate
+		require.Equal(t, "AsC2hoq-Y9V0iqK6JmNIxq0Fsr3SFPo27QNq", token)
 
 		ciphertext, err := base64.RawURLEncoding.DecodeString(token)
 		require.NoError(t, err)

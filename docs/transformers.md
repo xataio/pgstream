@@ -1118,6 +1118,10 @@ transformations:
 | -------------------------------------------- |
 | `text`, `varchar`, `char`, `bpchar`, `bytea` |
 
+**Note on length-constrained columns:** the token is always longer than the input — `ceil(4 × (input_length + 16) / 3)` characters (36 for an 11-character input, 22 minimum). Length-constrained columns (`varchar(n)`, `char(n)`) must be wide enough to hold the expanded token or writes to the target will fail; prefer `text` columns.
+
+For `bytea` columns the raw bytes are encrypted (the transformer normalizes the hex-text form delivered during replication and the raw bytes delivered during snapshots to the same plaintext), and the token is stored as the ASCII bytes of the base64url text.
+
 | Parameter       | Type   | Default | Required |
 | --------------- | ------ | ------- | -------- |
 | key_hex         | string | N/A     | Yes      |
@@ -1147,9 +1151,10 @@ transformations:
 
 **Input-Output Examples:**
 
-| Input         | Configuration Parameters                  | Output                                 |
-| ------------- | ----------------------------------------- | -------------------------------------- |
-| `hello world` | `key_hex: "000102…3e3f"` (example above, no associated data) | `Hc5d96xIxu2ute1RbFuenEftGxw-P__m1Vv_` |
+| Input         | Configuration Parameters                                                             | Output                                 |
+| ------------- | ------------------------------------------------------------------------------------ | -------------------------------------- |
+| `hello world` | `key_hex: "000102…3e3f"`, no `associated_data`                                        | `Hc5d96xIxu2ute1RbFuenEftGxw-P__m1Vv_` |
+| `hello world` | `key_hex: "000102…3e3f"`, `associated_data: "public.orders.file_path"` (example above) | `AsC2hoq-Y9V0iqK6JmNIxq0Fsr3SFPo27QNq` |
 
 Every run with the same key and parameters produces the same output. Tokens can be decrypted with any RFC 5297 AES-SIV implementation, for example Tink's `daead/subtle` package in Go.
 
