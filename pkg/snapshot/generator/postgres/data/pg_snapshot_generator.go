@@ -74,7 +74,11 @@ type snapshotTableFn func(ctx context.Context, snapshotID string, table *table) 
 type Option func(sg *SnapshotGenerator)
 
 func NewSnapshotGenerator(ctx context.Context, cfg *Config, processor processor.Processor, opts ...Option) (*SnapshotGenerator, error) {
-	conn, err := pglib.NewConnPool(ctx, cfg.URL, pglib.WithMaxConnections(int32(cfg.maxConnections())))
+	poolOpts := []pglib.PoolOption{pglib.WithMaxConnections(int32(cfg.maxConnections()))}
+	if cfg.RawJSONValues {
+		poolOpts = append(poolOpts, pglib.WithRawJSONDecoding())
+	}
+	conn, err := pglib.NewConnPool(ctx, cfg.URL, poolOpts...)
 	if err != nil {
 		return nil, err
 	}

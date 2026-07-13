@@ -53,6 +53,30 @@ func WithMaxConnections(maxConns int32) PoolOption {
 	}
 }
 
+// WithRawJSONDecoding makes json/jsonb column values decode to their raw text
+// representation (Go string) instead of being unmarshalled into Go values
+// (maps, slices, nil). Intended for read paths that need byte-faithful
+// values: the default unmarshalling turns the JSON null value ('null'::jsonb)
+// into Go nil, making it indistinguishable from SQL NULL, and re-marshalling
+// can reorder object keys.
+//
+// Write paths must not use this option: it rebinds json/jsonb to a text-only
+// codec, which would corrupt binary COPY encoding of those types.
+func WithRawJSONDecoding() PoolOption {
+	return func(cfg *pgxpool.Config) {
+		prevAfterConnect := cfg.AfterConnect
+		cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			if prevAfterConnect != nil {
+				if err := prevAfterConnect(ctx, conn); err != nil {
+					return err
+				}
+			}
+			registerRawJSONDecoding(conn)
+			return nil
+		}
+	}
+}
+
 func (c *Pool) QueryRow(ctx context.Context, dest []any, query string, args ...any) error {
 	row := c.Pool.QueryRow(ctx, query, args...)
 	return MapError(row.Scan(dest...))
