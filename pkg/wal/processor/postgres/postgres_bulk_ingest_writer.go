@@ -24,9 +24,19 @@ type BulkIngestWriter struct {
 
 	batchSenderMap     *synclib.Map[string, queryBatchSender]
 	batchSenderBuilder func(ctx context.Context, schema, table string) (queryBatchSender, error)
+	// copyBudget caps the total number of concurrent COPYs across all tables
+	// (and all their send drainers) so they never exhaust the target
+	// connection pool. It is sized from the same pool max-connections constant,
+	// minus a reserve for the writer's own metadata/type queries.
+	copyBudget synclib.WeightedSemaphore
 }
 
 const bulkIngestWriter = "postgres_bulk_ingest_writer"
+
+// copyBudgetReserve is the number of pool connections kept out of the
+// concurrent-COPY budget, leaving headroom for the writer's adapter
+// metadata/type queries against the same pool.
+const copyBudgetReserve = 5
 
 var errUnexpectedCopiedRows = errors.New("number of rows copied doesn't match the source rows")
 
@@ -46,6 +56,7 @@ func NewBulkIngestWriter(ctx context.Context, config *Config, opts ...WriterOpti
 	biw := &BulkIngestWriter{
 		Writer:         w,
 		batchSenderMap: synclib.NewMap[string, queryBatchSender](),
+		copyBudget:     synclib.NewWeightedSemaphore(int64(pglib.MaxConns - copyBudgetReserve)),
 	}
 
 	biw.batchSenderBuilder = func(ctx context.Context, schema, table string) (queryBatchSender, error) {
@@ -147,6 +158,15 @@ func (w *BulkIngestWriter) sendBatch(ctx context.Context, batch *batch.Batch[*qu
 	}
 
 	w.logger.Trace("bulk writing batch", loglib.Fields{"batch_size": len(queries)})
+
+	// Cap the total number of concurrent COPYs across all tables and their send
+	// drainers so they never exhaust the target connection pool. This is the
+	// single choke point through which every table's COPY flows.
+	if err := w.copyBudget.Acquire(ctx, 1); err != nil {
+		return err
+	}
+	defer w.copyBudget.Release(1)
+
 	return w.copyFromInsertQueries(ctx, queries)
 }
 
