@@ -84,6 +84,12 @@ var TransformersMap = map[transformers.TransformerType]struct {
 			return transformers.NewStringTransformer(cfg.Parameters)
 		},
 	},
+	transformers.EncryptedAESSIV: {
+		Definition: transformers.EncryptedAESSIVTransformerDefinition(),
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return transformers.NewEncryptedAESSIVTransformer(cfg.Parameters)
+		},
+	},
 	// Greenmask transformers
 	transformers.GreenmaskString: {
 		Definition: greenmask.StringTransformerDefinition(),
