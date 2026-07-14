@@ -129,6 +129,7 @@ jobs:
       packages: write # push images to ghcr.io
       id-token: write # request the OIDC token used to sign attestations
       attestations: write # write GitHub artifact attestations
+      artifact-metadata: write # create the artifact metadata storage records that accompany attestations
     env:
       DOCKER_CLI_EXPERIMENTAL: "enabled"
     steps:
