@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/xataio/pgstream/internal/phase"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
 	snapshotlistener "github.com/xataio/pgstream/pkg/wal/listener/snapshot"
@@ -14,13 +15,17 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrumentation *otel.Instrumentation) error {
+func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrumentation *otel.Instrumentation, phaseTracker *phase.Tracker) error {
 	if config.Listener.Postgres == nil {
 		return errors.New("source postgres snapshot not configured: ensure source.postgres is set")
 	}
 
 	if err := config.IsValid(); err != nil {
 		return fmt.Errorf("incompatible configuration: %w", err)
+	}
+
+	if err := registerPhaseMetric(instrumentation, phaseTracker); err != nil {
+		return fmt.Errorf("registering pipeline phase metric: %w", err)
 	}
 
 	eg, ctx := errgroup.WithContext(ctx)
@@ -53,7 +58,7 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 	if err != nil {
 		return err
 	}
-	listener := snapshotlistener.New(snapshotGenerator)
+	listener := snapshotlistener.New(snapshotGenerator, snapshotlistener.WithPhaseTracker(phaseTracker))
 	defer listener.Close()
 
 	eg.Go(func() error {

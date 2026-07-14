@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/xataio/pgstream/internal/phase"
 	"github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/replication"
@@ -471,4 +472,99 @@ func TestListener_Listen(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestListener_Listen_PhaseTransitions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("replication only sets replication after start", func(t *testing.T) {
+		t.Parallel()
+
+		tracker := phase.NewTracker()
+		doneChan := make(chan struct{}, 1)
+
+		h := newMockReplicationHandler()
+		h.StartReplicationFn = func(ctx context.Context) error {
+			require.Equal(t, phase.Phase(""), tracker.Get())
+			return nil
+		}
+		h.ReceiveMessageFn = func(ctx context.Context, i uint64) (*replication.Message, error) {
+			require.Equal(t, phase.Replication, tracker.Get())
+			doneChan <- struct{}{}
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+
+		l := New(h, func(context.Context, *wal.Event) error { return nil },
+			WithLogger(log.NewNoopLogger()),
+			WithPhaseTracker(tracker))
+		l.lsnParser = newMockLSNParser()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		errCh := make(chan error, 1)
+		go func() { errCh <- l.Listen(ctx) }()
+
+		select {
+		case <-doneChan:
+			cancel()
+		case <-ctx.Done():
+			t.Fatal("timeout waiting for receive")
+		}
+		require.ErrorIs(t, <-errCh, context.Canceled)
+		require.Equal(t, phase.Replication, tracker.Get())
+	})
+
+	t.Run("snapshot and replication flips at StartReplicationFromLSN", func(t *testing.T) {
+		t.Parallel()
+
+		tracker := phase.NewTracker()
+		doneChan := make(chan struct{}, 1)
+
+		h := newMockReplicationHandler()
+		h.GetCurrentLSNFn = func(context.Context) (replication.LSN, error) {
+			require.Equal(t, phase.Snapshot, tracker.Get())
+			return testLSN, nil
+		}
+		h.StartReplicationFromLSNFn = func(ctx context.Context, lsn replication.LSN) error {
+			require.Equal(t, phase.Snapshot, tracker.Get())
+			require.Equal(t, testLSN, lsn)
+			return nil
+		}
+		h.ReceiveMessageFn = func(ctx context.Context, i uint64) (*replication.Message, error) {
+			require.Equal(t, phase.Replication, tracker.Get())
+			doneChan <- struct{}{}
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+
+		gen := &mockGenerator{
+			createSnapshotFn: func(ctx context.Context) error {
+				require.Equal(t, phase.Snapshot, tracker.Get())
+				return nil
+			},
+		}
+
+		l := New(h, func(context.Context, *wal.Event) error { return nil },
+			WithLogger(log.NewNoopLogger()),
+			WithInitialSnapshot(gen),
+			WithPhaseTracker(tracker))
+		l.lsnParser = newMockLSNParser()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		errCh := make(chan error, 1)
+		go func() { errCh <- l.Listen(ctx) }()
+
+		select {
+		case <-doneChan:
+			cancel()
+		case <-ctx.Done():
+			t.Fatal("timeout waiting for receive")
+		}
+		require.ErrorIs(t, <-errCh, context.Canceled)
+		require.Equal(t, phase.Replication, tracker.Get())
+	})
 }

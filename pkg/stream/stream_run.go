@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/xataio/pgstream/internal/phase"
 	"github.com/xataio/pgstream/pkg/kafka"
 	kafkainstrumentation "github.com/xataio/pgstream/pkg/kafka/instrumentation"
 	loglib "github.com/xataio/pgstream/pkg/log"
@@ -28,9 +29,15 @@ import (
 )
 
 // Run will run the configured pgstream processes. This call is blocking.
-func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, instrumentation *otel.Instrumentation, opts ...InitOption) error {
+// phaseTracker, when non-nil, is updated as the pipeline moves between
+// snapshot and replication phases.
+func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, instrumentation *otel.Instrumentation, phaseTracker *phase.Tracker, opts ...InitOption) error {
 	if err := config.IsValid(); err != nil {
 		return fmt.Errorf("incompatible configuration: %w", err)
+	}
+
+	if err := registerPhaseMetric(instrumentation, phaseTracker); err != nil {
+		return fmt.Errorf("registering pipeline phase metric: %w", err)
 	}
 
 	if init {
@@ -125,6 +132,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 		logger.Info("postgres listener configured")
 		opts := []pglistener.Option{
 			pglistener.WithLogger(logger),
+			pglistener.WithPhaseTracker(phaseTracker),
 		}
 		if config.Listener.Postgres.Snapshot != nil {
 			logger.Info("initial snapshot enabled")
@@ -161,7 +169,8 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 		listener, err = kafkalistener.NewWALReader(
 			kafkaReader,
 			processor.ProcessWALEvent,
-			kafkalistener.WithLogger(logger))
+			kafkalistener.WithLogger(logger),
+			kafkalistener.WithPhaseTracker(phaseTracker))
 		if err != nil {
 			return err
 		}

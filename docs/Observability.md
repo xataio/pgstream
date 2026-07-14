@@ -64,6 +64,18 @@ All metrics follow the `pgstream.*` naming convention and include relevant attri
 
 **⚠️ Important:** This metric only tracks pgstream's consumer lag. It's strongly recommended to also monitor your source PostgreSQL metrics, particularly the built-in replication lag metrics (`pg_stat_replication.flush_lag`, `pg_stat_replication.replay_lag`) to get a complete picture of replication health.
 
+### Pipeline Phase
+
+| Metric                     | Type            | Unit | Description                                                                 |
+| -------------------------- | --------------- | ---- | --------------------------------------------------------------------------- |
+| `pgstream.pipeline.phase`  | ObservableGauge | 1    | Current pipeline phase; reports `1` with attribute `phase=snapshot\|replication` |
+
+**Attributes:**
+
+- `phase`: Current phase (`snapshot` or `replication`)
+
+**Usage:** Distinguish whether a running process is performing the initial snapshot or streaming logical replication, without scraping logs. The gauge flips to `replication` when logical replication starts. The same value is also exposed via the health server `GET /status` endpoint when health checks are enabled.
+
 ### WAL Event Processing
 
 | Metric                               | Type      | Unit | Description                                    |

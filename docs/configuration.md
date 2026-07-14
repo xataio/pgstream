@@ -434,7 +434,7 @@ One of exponential/constant/disable retries retry policies can be provided for t
 <details>
   <summary>Health endpoint</summary>
 
-Exposes `/health` (liveness, always 200) and `/ready` (readiness, pings the source postgres database when configured). Only the `run` and `snapshot` commands start the server. Responses are JSON.
+Exposes `/health` (liveness, always 200), `/ready` (readiness, pings the source postgres database when configured), and `/status` (current pipeline phase: `snapshot` or `replication`). Only the `run` and `snapshot` commands start the server. Responses are JSON.
 
 | Environment Variable           | Default          | Required | Description                                                                                                  |
 | ------------------------------ | ---------------- | -------- | ------------------------------------------------------------------------------------------------------------ |

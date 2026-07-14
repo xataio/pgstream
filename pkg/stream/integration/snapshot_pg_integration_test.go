@@ -139,7 +139,7 @@ func Test_SnapshotToPostgres_SelectedParentTableDoesNotCopyInheritedRows(t *test
 		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{parentTable}),
 		Processor: testPostgresProcessorCfg(),
 	}
-	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil, nil))
 
 	targetConn, err := pglib.NewConn(ctx, targetPGURL)
 	require.NoError(t, err)
@@ -221,7 +221,7 @@ func Test_SnapshotToPostgres_CoalescedInheritedChildInsertReportsRowLoss(t *test
 		Listener:  testPostgresListenerCfgWithSnapshot(sourceURL, targetURL, []string{parentTable, childTable}),
 		Processor: testPostgresProcessorCfgWithTargetURL(targetURL, withBatchSize(100), withStrictMode()),
 	}
-	err = stream.Snapshot(ctx, testLogger(), cfg, nil)
+	err = stream.Snapshot(ctx, testLogger(), cfg, nil, nil)
 
 	type childRow struct {
 		id        int
@@ -621,7 +621,7 @@ func Test_SnapshotToPostgres_ClusteredIndex(t *testing.T) {
 		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"public.*"}),
 		Processor: testPostgresProcessorCfg(),
 	}
-	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil, nil))
 
 	targetConn, err := pglib.NewConn(ctx, targetPGURL)
 	require.NoError(t, err)
@@ -685,7 +685,7 @@ func Test_SnapshotToPostgres_MaterializedViewRefresh(t *testing.T) {
 		Processor: testPostgresProcessorCfg(),
 	}
 	cfg.Listener.Postgres.Snapshot.Schema.DumpRestore.RefreshMaterializedViews = true
-	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil, nil))
 
 	targetConn, err := pglib.NewConn(ctx, targetPGURL)
 	require.NoError(t, err)
@@ -741,7 +741,7 @@ func Test_SnapshotToPostgres_SkipsLegacyPLPGSQLHandlers(t *testing.T) {
 		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"public.*"}),
 		Processor: testPostgresProcessorCfg(),
 	}
-	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil, nil))
 
 	targetConn, err := pglib.NewConn(ctx, targetPGURL)
 	require.NoError(t, err)

@@ -101,6 +101,49 @@ func TestHandleReady_CheckFails(t *testing.T) {
 	require.Equal(t, "source unreachable", failure["error"])
 }
 
+func TestHandleStatus_NoProvider(t *testing.T) {
+	t.Parallel()
+	s := NewServer(Config{}, WithVersion("v1.2.3"))
+
+	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	rec := httptest.NewRecorder()
+	s.handleStatus(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	body, _ := io.ReadAll(rec.Body)
+	var got map[string]string
+	require.NoError(t, json.Unmarshal(body, &got))
+	require.Equal(t, "ok", got["status"])
+	require.Equal(t, "v1.2.3", got["version"])
+	require.Equal(t, "", got["phase"])
+}
+
+func TestHandleStatus_WithProvider(t *testing.T) {
+	t.Parallel()
+	phase := "snapshot"
+	s := NewServer(Config{}, WithVersion("v1.2.3"), WithPhaseProvider(func() string {
+		return phase
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/status", nil)
+	rec := httptest.NewRecorder()
+	s.handleStatus(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	body, _ := io.ReadAll(rec.Body)
+	var got map[string]string
+	require.NoError(t, json.Unmarshal(body, &got))
+	require.Equal(t, "snapshot", got["phase"])
+
+	phase = "replication"
+	rec = httptest.NewRecorder()
+	s.handleStatus(rec, req)
+	body, _ = io.ReadAll(rec.Body)
+	require.NoError(t, json.Unmarshal(body, &got))
+	require.Equal(t, "replication", got["phase"])
+}
+
 func TestListenServeShutdown(t *testing.T) {
 	t.Parallel()
 	s := NewServer(Config{Address: "127.0.0.1:0"})
