@@ -203,7 +203,7 @@ jobs:
           output-file: pgstream.image.sbom.spdx.json
 
       - name: Attest container image SBOM
-        uses: actions/attest-sbom@v2
+        uses: actions/attest@v4
         with:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.image.outputs.digest }}
