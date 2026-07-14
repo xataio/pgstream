@@ -16,6 +16,7 @@ type Request struct {
 	Schema string
 	Tables []string
 	Status Status
+	Mode   RequestMode
 	Errors *SchemaErrors
 }
 
@@ -26,6 +27,24 @@ const (
 	StatusInProgress = Status("in progress")
 	StatusCompleted  = Status("completed")
 )
+
+// RequestMode captures what a snapshot request replicated to the target:
+// schema and data (data mode), or schema only.
+type RequestMode string
+
+const (
+	RequestModeData       = RequestMode("data")
+	RequestModeSchemaOnly = RequestMode("schema-only")
+)
+
+// GetMode returns the request mode, defaulting to data mode for requests
+// recorded before the mode was tracked.
+func (r *Request) GetMode() RequestMode {
+	if r.Mode == "" {
+		return RequestModeData
+	}
+	return r.Mode
+}
 
 func (s *Snapshot) GetSchemas() []string {
 	if s == nil {
