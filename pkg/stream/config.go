@@ -199,6 +199,22 @@ func (c *Config) restoreConflictTargetsBeforeData() bool {
 	return !bw.BulkIngestEnabled && strings.EqualFold(bw.OnConflictAction, "update")
 }
 
+// applySnapshotRawJSONValues enables raw (text) decoding of json/jsonb values
+// on the snapshot data generator when the target is postgres. The default pgx
+// decoding unmarshals json/jsonb into Go values, turning the JSON null value
+// ('null'::jsonb) into Go nil — indistinguishable from SQL NULL — which the
+// postgres writer would then write as SQL NULL. Other targets keep the
+// unmarshalled representation they expect.
+func (c *Config) applySnapshotRawJSONValues() {
+	if c.Processor.Postgres == nil {
+		return
+	}
+	if c.Listener.Postgres == nil || c.Listener.Postgres.Snapshot == nil || c.Listener.Postgres.Snapshot.Data == nil {
+		return
+	}
+	c.Listener.Postgres.Snapshot.Data.RawJSONValues = true
+}
+
 func (c *Config) GetInitConfig(opts ...InitOption) *InitConfig {
 	initConfig := &InitConfig{
 		PostgresURL:               c.SourcePostgresURL(),

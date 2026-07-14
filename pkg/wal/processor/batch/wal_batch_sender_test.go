@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -540,6 +541,158 @@ func TestSender_ConcurrentSendErrorPropagation(t *testing.T) {
 	}
 }
 
+// TestSender_sendConcurrency verifies that with SendConcurrency > 1 the sender
+// runs that many COPYs concurrently. The send function blocks until N sends are
+// in flight at once; if the sender were serial this would deadlock and the test
+// would hit its timeout.
+func TestSender_sendConcurrency(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const concurrency = 4
+	testCommitPos := wal.CommitPosition("1")
+
+	var active, maxActive atomic.Int32
+	// barrier closes once `concurrency` sends are simultaneously in flight.
+	var arrived atomic.Int32
+	barrier := make(chan struct{})
+
+	sendFn := func(_ context.Context, _ *Batch[*mockMessage]) error {
+		n := active.Add(1)
+		for {
+			m := maxActive.Load()
+			if n <= m || maxActive.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		if arrived.Add(1) == concurrency {
+			close(barrier)
+		}
+		// wait until all concurrent drainers have arrived, proving they run in
+		// parallel rather than serially.
+		select {
+		case <-barrier:
+		case <-time.After(5 * time.Second):
+		}
+		active.Add(-1)
+		return nil
+	}
+
+	sender, err := NewSender(ctx, &Config{
+		BatchTimeout:    time.Minute,
+		MaxBatchSize:    1,
+		SendConcurrency: concurrency,
+	}, sendFn, log.NewNoopLogger())
+	require.NoError(t, err)
+	defer sender.Close()
+
+	for i := 0; i < concurrency; i++ {
+		require.NoError(t, sender.SendMessage(ctx, NewWALMessage(&mockMessage{id: uint(i + 1)}, testCommitPos)))
+	}
+
+	select {
+	case <-barrier:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %d concurrent sends (max observed: %d)", concurrency, maxActive.Load())
+	}
+	require.Equal(t, int32(concurrency), maxActive.Load())
+	require.NoError(t, sender.Close())
+}
+
+// TestSender_multiDrainerFirstErrorWins verifies that when one of several
+// drainers fails, the first error is surfaced, the in-flight COPYs in the other
+// drainers are cancelled via the shared send-ctx, all drainers exit and Close
+// returns the recorded error cleanly (no goroutine leak / no deadlock).
+func TestSender_multiDrainerFirstErrorWins(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const concurrency = 4
+	testCommitPos := wal.CommitPosition("1")
+	errTest := errors.New("first error")
+
+	var ctxCancelledCount atomic.Int32
+	// the first send fails; the rest block until their ctx is cancelled by the
+	// first error, then report the cancellation.
+	sendFn := func(sendCtx context.Context, b *Batch[*mockMessage]) error {
+		if b.messages[0].id == 1 {
+			return errTest
+		}
+		select {
+		case <-sendCtx.Done():
+			ctxCancelledCount.Add(1)
+			return sendCtx.Err()
+		case <-time.After(5 * time.Second):
+			return nil
+		}
+	}
+
+	sender, err := NewSender(ctx, &Config{
+		BatchTimeout:    time.Minute,
+		MaxBatchSize:    1,
+		SendConcurrency: concurrency,
+	}, sendFn, log.NewNoopLogger())
+	require.NoError(t, err)
+
+	// send a handful of messages; at least one is the failing id==1.
+	for i := 0; i < concurrency; i++ {
+		id := uint(1)
+		if i > 0 {
+			id = uint(i + 10)
+		}
+		// once a send fails, SendMessage may start returning errSendStopped, so
+		// don't assert on its error here.
+		_ = sender.SendMessage(ctx, NewWALMessage(&mockMessage{id: id}, testCommitPos))
+	}
+
+	require.Eventually(t, func() bool {
+		return errors.Is(sender.getSendErr(), errTest)
+	}, 5*time.Second, time.Millisecond)
+
+	// Close must return the first error and complete without leaking goroutines
+	// or deadlocking.
+	require.ErrorIs(t, sender.Close(), errTest)
+}
+
+// TestNewSender_autoTuneDisabledWithConcurrency verifies that the batch bytes
+// auto-tuner is disabled (not merely ignored) when send concurrency > 1.
+func TestNewSender_autoTuneDisabledWithConcurrency(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	noopSendFn := func(context.Context, *Batch[*mockMessage]) error { return nil }
+
+	t.Run("concurrency > 1 disables auto-tune", func(t *testing.T) {
+		t.Parallel()
+		sender, err := NewSender(ctx, &Config{
+			SendConcurrency: 4,
+			AutoTune:        AutoTuneConfig{Enabled: true},
+		}, noopSendFn, log.NewNoopLogger())
+		require.NoError(t, err)
+		defer sender.Close()
+		require.Nil(t, sender.batchBytesTuner)
+	})
+
+	t.Run("concurrency == 1 keeps auto-tune", func(t *testing.T) {
+		t.Parallel()
+		sender, err := NewSender(ctx, &Config{
+			SendConcurrency: 1,
+			AutoTune:        AutoTuneConfig{Enabled: true},
+		}, noopSendFn, log.NewNoopLogger())
+		require.NoError(t, err)
+		defer sender.Close()
+		require.NotNil(t, sender.batchBytesTuner)
+	})
+}
+
+func TestConfig_GetSendConcurrency(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, 1, (&Config{}).GetSendConcurrency())
+	require.Equal(t, 1, (&Config{SendConcurrency: 1}).GetSendConcurrency())
+	require.Equal(t, 8, (&Config{SendConcurrency: 8}).GetSendConcurrency())
+}
+
 func TestSender_CloseAfterSendFailure(t *testing.T) {
 	t.Parallel()
 
@@ -574,5 +727,26 @@ func TestSender_CloseAfterSendFailure(t *testing.T) {
 		}, 5*time.Second, 100*time.Microsecond)
 
 		require.ErrorIs(t, sender.Close(), errTest)
+	}
+}
+
+// Regression test: constructing a sender and closing it immediately must not
+// race the background send goroutine. Before the fix, s.cancelFn was assigned
+// and s.wg.Add called inside the background goroutine, so an immediate Close
+// could read the placeholder cancelFn and pass wg.Wait before Add ran
+// (Add-after-Wait). Caught by the race detector.
+func TestSender_CloseImmediately(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	noopSendFn := func(context.Context, *Batch[*mockMessage]) error { return nil }
+
+	for i := 0; i < 100; i++ {
+		sender, err := NewSender(ctx, &Config{
+			BatchTimeout: 100 * time.Millisecond,
+			MaxBatchSize: 1,
+		}, noopSendFn, log.NewNoopLogger())
+		require.NoError(t, err)
+		require.NoError(t, sender.Close())
 	}
 }

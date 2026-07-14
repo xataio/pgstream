@@ -83,6 +83,26 @@ func TestFilterRowColumnsJSONBArrayHandling(t *testing.T) {
 	require.Equal(t, "🎉", emoji)
 }
 
+func TestFilterRowColumnsJSONBNullValuePassthrough(t *testing.T) {
+	t.Parallel()
+
+	// Simulates the snapshot generator reading a jsonb column holding the JSON
+	// null value ('null'::jsonb) with raw JSON decoding enabled. The string
+	// "null" is valid JSON and must pass through unchanged, so it reaches
+	// postgres as the JSON null value rather than SQL NULL — the difference
+	// matters for jsonb NOT NULL columns.
+	cols := []wal.Column{
+		{Name: "id", Type: "integer", Value: 1},
+		{Name: "data", Type: "jsonb", Value: "null"},
+	}
+
+	_, values := (&dmlAdapter{}).filterRowColumns(cols, schemaInfo{})
+
+	result, ok := values[1].(string)
+	require.True(t, ok, "JSON null string should remain string, got %T", values[1])
+	require.Equal(t, "null", result)
+}
+
 func TestFilterRowColumnsJSONBScalarStringSerialization(t *testing.T) {
 	t.Parallel()
 

@@ -24,6 +24,51 @@ func TestYAMLConfig_toStreamConfig(t *testing.T) {
 	validateTestStreamConfig(t, streamConfig)
 }
 
+func TestYAMLConfig_parsePostgresProcessorConfig_CopyWorkers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                string
+		bulkIngest          *BulkIngestConfig
+		wantSendConcurrency int
+	}{
+		{
+			name:                "bulk ingest disabled - send concurrency untouched",
+			bulkIngest:          &BulkIngestConfig{Enabled: false, CopyWorkers: 4},
+			wantSendConcurrency: 0,
+		},
+		{
+			name:                "bulk ingest enabled, copy_workers unset - defaults to 8",
+			bulkIngest:          &BulkIngestConfig{Enabled: true},
+			wantSendConcurrency: 8,
+		},
+		{
+			name:                "bulk ingest enabled, copy_workers overridden",
+			bulkIngest:          &BulkIngestConfig{Enabled: true, CopyWorkers: 16},
+			wantSendConcurrency: 16,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &YAMLConfig{
+				Target: TargetConfig{
+					Postgres: &PostgresTargetConfig{
+						URL:        "postgresql://user:password@localhost:5432/mytargetdatabase",
+						BulkIngest: tc.bulkIngest,
+					},
+				},
+			}
+
+			cfg := c.parsePostgresProcessorConfig()
+			require.NotNil(t, cfg)
+			require.Equal(t, tc.wantSendConcurrency, cfg.BatchWriter.BatchConfig.SendConcurrency)
+		})
+	}
+}
+
 func TestYAMLConfig_LoggingConfig(t *testing.T) {
 	require.NoError(t, LoadFile("test/test_config.yaml"))
 
