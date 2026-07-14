@@ -54,6 +54,12 @@ func snapshot(ctx context.Context) error {
 }
 
 func snapshotFlagBinding(cmd *cobra.Command, args []string) error {
+	// bind the target flags first: the bulk ingest defaulting below checks the
+	// target postgres URL, which is bound from the --target-url flag here
+	if err := targetFlagBinding(cmd); err != nil {
+		return err
+	}
+
 	// to be able to overwrite configuration with flags when yaml config file is
 	// provided
 	viper.BindPFlag("source.postgres.url", cmd.Flags().Lookup("postgres-url"))
@@ -101,5 +107,5 @@ func snapshotFlagBinding(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	return targetFlagBinding(cmd)
+	return nil
 }

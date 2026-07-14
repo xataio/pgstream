@@ -16,7 +16,10 @@ type Pool struct {
 
 type PoolOption func(*pgxpool.Config)
 
-const maxConns = 50
+// MaxConns is the default maximum number of connections in a Postgres
+// connection pool. It also bounds the global concurrent-COPY budget in the
+// bulk-ingest writer, so the two never drift.
+const MaxConns = 50
 
 func NewConnPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error) {
 	escapedURL, err := escapeConnectionURL(url)
@@ -27,7 +30,7 @@ func NewConnPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, er
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing postgres connection string: %w", MapError(err))
 	}
-	pgCfg.MaxConns = maxConns
+	pgCfg.MaxConns = MaxConns
 	pgCfg.AfterConnect = registerTypesToConnMap
 
 	configureTCPKeepalive(pgCfg.ConnConfig)
@@ -47,6 +50,30 @@ func NewConnPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, er
 func WithMaxConnections(maxConns int32) PoolOption {
 	return func(cfg *pgxpool.Config) {
 		cfg.MaxConns = maxConns
+	}
+}
+
+// WithRawJSONDecoding makes json/jsonb column values decode to their raw text
+// representation (Go string) instead of being unmarshalled into Go values
+// (maps, slices, nil). Intended for read paths that need byte-faithful
+// values: the default unmarshalling turns the JSON null value ('null'::jsonb)
+// into Go nil, making it indistinguishable from SQL NULL, and re-marshalling
+// can reorder object keys.
+//
+// Write paths must not use this option: it rebinds json/jsonb to a text-only
+// codec, which would corrupt binary COPY encoding of those types.
+func WithRawJSONDecoding() PoolOption {
+	return func(cfg *pgxpool.Config) {
+		prevAfterConnect := cfg.AfterConnect
+		cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			if prevAfterConnect != nil {
+				if err := prevAfterConnect(ctx, conn); err != nil {
+					return err
+				}
+			}
+			registerRawJSONDecoding(conn)
+			return nil
+		}
 	}
 }
 

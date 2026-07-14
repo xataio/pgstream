@@ -84,6 +84,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED")
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_COPY_WORKERS")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_EXP_BACKOFF_INITIAL_INTERVAL")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_EXP_BACKOFF_MAX_INTERVAL")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_EXP_BACKOFF_MAX_RETRIES")
@@ -589,6 +590,7 @@ func parsePostgresProcessorConfig() (*stream.PostgresProcessorConfig, error) {
 	}
 
 	if bulkIngestEnabled {
+		cfg.BatchWriter.BatchConfig.SendConcurrency = viper.GetInt("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_COPY_WORKERS")
 		applyPostgresBulkBatchDefaults(&cfg.BatchWriter.BatchConfig)
 	}
 

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/adapter"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/filter"
@@ -315,6 +316,82 @@ func TestConfig_AccessTableSelection(t *testing.T) {
 			got := tc.cfg.AccessTableSelection()
 			require.ElementsMatch(t, tc.wantInclude, got.Include(), "Include lists differ")
 			require.ElementsMatch(t, tc.wantExclude, got.Exclude(), "Exclude lists differ")
+		})
+	}
+}
+
+func TestConfig_ApplySnapshotRawJSONValues(t *testing.T) {
+	t.Parallel()
+
+	snapshotListenerCfg := func() *PostgresListenerConfig {
+		return &PostgresListenerConfig{
+			Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+				Data: &pgsnapshotgenerator.Config{},
+			},
+		}
+	}
+
+	tests := []struct {
+		name string
+		cfg  *Config
+		want bool
+	}{
+		{
+			name: "postgres target enables raw json values",
+			cfg: &Config{
+				Listener:  ListenerConfig{Postgres: snapshotListenerCfg()},
+				Processor: ProcessorConfig{Postgres: &PostgresProcessorConfig{}},
+			},
+			want: true,
+		},
+		{
+			name: "non postgres target keeps raw json values disabled",
+			cfg: &Config{
+				Listener:  ListenerConfig{Postgres: snapshotListenerCfg()},
+				Processor: ProcessorConfig{Search: &SearchProcessorConfig{}},
+			},
+			want: false,
+		},
+		{
+			name: "no data snapshot config is a no-op",
+			cfg: &Config{
+				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{
+					Snapshot: &snapshotbuilder.SnapshotListenerConfig{},
+				}},
+				Processor: ProcessorConfig{Postgres: &PostgresProcessorConfig{}},
+			},
+			want: false,
+		},
+		{
+			name: "no snapshot config is a no-op",
+			cfg: &Config{
+				Listener:  ListenerConfig{Postgres: &PostgresListenerConfig{}},
+				Processor: ProcessorConfig{Postgres: &PostgresProcessorConfig{}},
+			},
+			want: false,
+		},
+		{
+			name: "no postgres listener is a no-op",
+			cfg: &Config{
+				Processor: ProcessorConfig{Postgres: &PostgresProcessorConfig{}},
+			},
+			want: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tc.cfg.applySnapshotRawJSONValues()
+
+			got := false
+			if tc.cfg.Listener.Postgres != nil &&
+				tc.cfg.Listener.Postgres.Snapshot != nil &&
+				tc.cfg.Listener.Postgres.Snapshot.Data != nil {
+				got = tc.cfg.Listener.Postgres.Snapshot.Data.RawJSONValues
+			}
+			require.Equal(t, tc.want, got)
 		})
 	}
 }

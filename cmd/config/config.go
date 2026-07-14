@@ -22,6 +22,7 @@ const (
 	defaultPostgresBulkBatchSize    = 20000
 	defaultPostgresBulkBatchTimeout = time.Duration(30 * time.Second)
 	defaultPostgresBulkBatchBytes   = int64(80 * 1024 * 1024) // 80MiB
+	defaultPostgresBulkCopyWorkers  = 8
 )
 
 func Load() error {
@@ -174,8 +175,27 @@ func applyPostgresBulkBatchDefaults(batchCfg *batch.Config) {
 	if batchCfg.MaxBatchSize == 0 {
 		batchCfg.MaxBatchSize = defaultPostgresBulkBatchSize
 	}
+	if batchCfg.SendConcurrency == 0 {
+		batchCfg.SendConcurrency = defaultPostgresBulkCopyWorkers
+	}
 	if batchCfg.MaxBatchBytes == 0 {
 		batchCfg.MaxBatchBytes = defaultPostgresBulkBatchBytes
+		// Split the batch bytes budget across the send workers: the max queue
+		// bytes semaphore holds both in-flight and accumulating batches, so a
+		// single large default batch (80MiB vs the 100MiB default queue) would
+		// only ever allow one batch in flight and the send workers could never
+		// run concurrently on tables with large rows.
+		if batchCfg.SendConcurrency > 1 {
+			batchCfg.MaxBatchBytes = defaultPostgresBulkBatchBytes / int64(batchCfg.SendConcurrency)
+		}
+	}
+	if batchCfg.MaxQueueBytes == 0 && batchCfg.SendConcurrency > 1 {
+		// Size the in-flight queue to hold every COPY worker's batch plus one
+		// accumulating batch, so the send-drainer pool is never starved. Since
+		// the batch bytes above are split by SendConcurrency, the total
+		// footprint stays bounded to roughly the pre-parallel default (~80MiB)
+		// regardless of copy_workers, rather than growing with it.
+		batchCfg.MaxQueueBytes = batchCfg.MaxBatchBytes * int64(batchCfg.SendConcurrency+1)
 	}
 	if batchCfg.BatchTimeout == 0 {
 		batchCfg.BatchTimeout = defaultPostgresBulkBatchTimeout

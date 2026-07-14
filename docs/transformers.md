@@ -1109,6 +1109,57 @@ transformations:
 
 </details>
 
+ <details>
+  <summary>encrypted_aes_siv</summary>
+
+**Description:** Encrypts values with AES-SIV (RFC 5297), a deterministic authenticated encryption scheme. The same input, key and associated data always produce the same token, so equality relationships between column values are preserved across rows, tables and runs — while remaining reversible by holders of the key, unlike hashing. Tokens are authenticated: tampered or forged values fail decryption. The output is the ciphertext encoded as unpadded base64url, safe for URLs and file names.
+
+| Supported PostgreSQL types                   |
+| -------------------------------------------- |
+| `text`, `varchar`, `char`, `bpchar`, `bytea` |
+
+**Note on length-constrained columns:** the token is always longer than the input — `ceil(4 × (input_length + 16) / 3)` characters (36 for an 11-character input, 22 minimum). Length-constrained columns (`varchar(n)`, `char(n)`) must be wide enough to hold the expanded token or writes to the target will fail; prefer `text` columns.
+
+For `bytea` columns the raw bytes are encrypted (the transformer normalizes the hex-text form delivered during replication and the raw bytes delivered during snapshots to the same plaintext), and the token is stored as the ASCII bytes of the base64url text.
+
+| Parameter       | Type   | Default | Required |
+| --------------- | ------ | ------- | -------- |
+| key_hex         | string | N/A     | Yes      |
+| associated_data | string | ""      | No       |
+
+`key_hex` is the 64-byte AES-SIV key, hex-encoded (128 characters), e.g. generated with `openssl rand -hex 64`. AES-SIV requires the full 64-byte key (RFC 5297); shorter keys are rejected.
+
+`associated_data` is authenticated but not encrypted: a token minted with one associated data value fails decryption under another. Use it to bind tokens to a context (such as a table/column name) so they cannot be replayed elsewhere.
+
+**Security note:** the encryption is deterministic by design — equal inputs produce equal tokens, which reveals equality (and only equality) of the underlying values. Anyone holding the key can decrypt the tokens, so the anonymization guarantee is key custody: load the key from a secret manager and never store it alongside the transformed data.
+
+**Example Configuration:**
+
+```yaml
+transformations:
+  table_transformers:
+    - schema: public
+      table: orders
+      column_transformers:
+        file_path:
+          name: encrypted_aes_siv
+          parameters:
+            # example key only — generate your own and load it from a secret store
+            key_hex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+            associated_data: "public.orders.file_path"
+```
+
+**Input-Output Examples:**
+
+| Input         | Configuration Parameters                                                             | Output                                 |
+| ------------- | ------------------------------------------------------------------------------------ | -------------------------------------- |
+| `hello world` | `key_hex: "000102…3e3f"`, no `associated_data`                                        | `Hc5d96xIxu2ute1RbFuenEftGxw-P__m1Vv_` |
+| `hello world` | `key_hex: "000102…3e3f"`, `associated_data: "public.orders.file_path"` (example above) | `AsC2hoq-Y9V0iqK6JmNIxq0Fsr3SFPo27QNq` |
+
+Every run with the same key and parameters produces the same output. Tokens can be decrypted with any RFC 5297 AES-SIV implementation, for example Tink's `daead/subtle` package in Go.
+
+</details>
+
 ### Transformation rules
 
 The rules for the transformers are defined in a dedicated yaml file with the following format:

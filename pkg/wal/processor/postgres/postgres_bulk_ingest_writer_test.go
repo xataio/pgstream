@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -414,6 +415,7 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 					pgConn:          tc.pgConn,
 					disableTriggers: tc.disableTriggers,
 				},
+				copyBudget: synclib.NewWeightedSemaphore(pglib.MaxConns - copyBudgetReserve),
 			}
 
 			err := writer.sendBatch(context.Background(), tc.batch)
@@ -422,4 +424,67 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBulkIngestWriter_sendBatch_copyBudget verifies that the global
+// concurrent-COPY budget caps the number of COPYs in flight at once across all
+// concurrent sendBatch calls, regardless of how many callers there are.
+func TestBulkIngestWriter_sendBatch_copyBudget(t *testing.T) {
+	t.Parallel()
+
+	const budget = 2
+	const callers = 8
+
+	testQuery := &query{
+		schema:      "test_schema",
+		table:       "test_table",
+		columnNames: []string{`"id"`},
+		args:        []any{1},
+	}
+
+	var active, maxActive atomic.Int32
+	release := make(chan struct{})
+	pgConn := &pgmocks.Querier{
+		ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+			n := active.Add(1)
+			for {
+				m := maxActive.Load()
+				if n <= m || maxActive.CompareAndSwap(m, n) {
+					break
+				}
+			}
+			<-release
+			active.Add(-1)
+			tx := &pgmocks.Tx{
+				CopyFromFn: func(context.Context, string, []string, [][]any) (int64, error) {
+					return 1, nil
+				},
+			}
+			return f(tx)
+		},
+	}
+
+	writer := &BulkIngestWriter{
+		Writer: &Writer{
+			logger: loglib.NewNoopLogger(),
+			pgConn: pgConn,
+		},
+		copyBudget: synclib.NewWeightedSemaphore(budget),
+	}
+
+	eg := errgroup.Group{}
+	for i := 0; i < callers; i++ {
+		eg.Go(func() error {
+			return writer.sendBatch(context.Background(), batch.NewBatch([]*query{testQuery}, nil))
+		})
+	}
+
+	// give the callers time to contend for the budget, then let them drain.
+	require.Eventually(t, func() bool {
+		return maxActive.Load() == budget
+	}, 5*time.Second, time.Millisecond)
+	close(release)
+
+	require.NoError(t, eg.Wait())
+	require.Equal(t, int32(budget), maxActive.Load(), "concurrent COPYs must not exceed the budget")
 }

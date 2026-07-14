@@ -848,6 +848,132 @@ func Test_SnapshotToPostgres_IdentityAndGeneratedColumns(t *testing.T) {
 	})
 }
 
+// Test_SnapshotToPostgres_JSONNullFidelity verifies that snapshot/restore
+// preserves the distinction between SQL NULL and the JSON null value
+// ('null'::jsonb) in json/jsonb columns.
+//
+// pgx's default json/jsonb codec unmarshals values into Go `any`, which turns
+// JSON null into Go nil — indistinguishable from SQL NULL. Without raw JSON
+// decoding on the snapshot reader, the writer emits SQL NULL instead: nullable
+// json/jsonb columns are silently corrupted, and columns declared
+// `jsonb NOT NULL DEFAULT 'null'::jsonb` (a pattern seen in the wild) make the
+// whole table snapshot fail with a not-null constraint violation on insert.
+func Test_SnapshotToPostgres_JSONNullFidelity(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	run := func(suffix string, opts ...option) {
+		testTable := fmt.Sprintf("json_null_%s", suffix)
+
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`CREATE TABLE %s(
+				id       bigint PRIMARY KEY,
+				required jsonb  NOT NULL DEFAULT 'null'::jsonb,
+				optional jsonb,
+				doc      json
+			)`, testTable))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`INSERT INTO %s(id, required, optional, doc) VALUES
+				(1, 'null'::jsonb, NULL, 'null'::json),
+				(2, '{"a": 1}'::jsonb, 'null'::jsonb, '{"b": [null]}'::json)`,
+			testTable))
+
+		cfg := &stream.Config{
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
+			Processor: testPostgresProcessorCfg(opts...),
+		}
+		initStream(t, ctx, snapshotPGURL)
+		runSnapshot(t, ctx, cfg)
+
+		targetConn, err := pglib.NewConn(ctx, targetPGURL)
+		require.NoError(t, err)
+		sourceConn, err := pglib.NewConn(ctx, snapshotPGURL)
+		require.NoError(t, err)
+
+		timer := time.NewTimer(20 * time.Second)
+		defer timer.Stop()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		// text projections keep the comparison independent of any client-side
+		// json decoding; *string distinguishes SQL NULL (nil pointer) from the
+		// JSON null value (the string "null").
+		type row struct {
+			id       int64
+			required string
+			optional *string
+			doc      *string
+		}
+		query := fmt.Sprintf(
+			"SELECT id, required::text, optional::text, doc::text FROM %s ORDER BY id", testTable)
+		fetch := func(conn pglib.Querier) ([]row, error) {
+			rows, err := conn.Query(ctx, query)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+			out := []row{}
+			for rows.Next() {
+				var r row
+				if err := rows.Scan(&r.id, &r.required, &r.optional, &r.doc); err != nil {
+					return nil, err
+				}
+				out = append(out, r)
+			}
+			return out, rows.Err()
+		}
+
+		want, err := fetch(sourceConn)
+		require.NoError(t, err)
+		require.Len(t, want, 2)
+		// Belt-and-braces: confirm the source stores the JSON null value (the
+		// text "null"), not SQL NULL. If this fails the test setup is wrong,
+		// not the production code.
+		require.Equal(t, "null", want[0].required)
+		require.Nil(t, want[0].optional)
+		require.NotNil(t, want[1].optional)
+		require.Equal(t, "null", *want[1].optional)
+
+		validation := func() bool {
+			got, err := fetch(targetConn)
+			if err != nil || len(got) != len(want) {
+				return false
+			}
+			require.Equal(t, want, got)
+			return true
+		}
+
+		for {
+			select {
+			case <-timer.C:
+				cancel()
+				t.Error("timeout waiting for json-null snapshot sync")
+				return
+			case <-ticker.C:
+				if validation() {
+					return
+				}
+			}
+		}
+	}
+
+	t.Run("bulk ingest", func(t *testing.T) {
+		run("bulk", withBulkIngestionEnabled())
+	})
+	t.Run("batch writer", func(t *testing.T) {
+		run("batch")
+	})
+}
+
 // Test_SnapshotToPostgres_LargeIntegerPrecision verifies that snapshot/restore
 // preserves int64 precision for both:
 //   - plain bigint columns whose value exceeds 2^53 (#824), and

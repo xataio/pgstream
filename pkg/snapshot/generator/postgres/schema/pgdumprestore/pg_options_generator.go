@@ -5,6 +5,7 @@ package pgdumprestore
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
@@ -85,7 +86,7 @@ func (o *optionGenerator) pgrestoreOptions() pglib.PGRestoreOptions {
 
 func (o *optionGenerator) pgdumpOptions(ctx context.Context, schemaTables map[string][]string, excludedTables map[string][]string) (*pglib.PGDumpOptions, error) {
 	schemas := make([]string, 0, len(schemaTables))
-	for schema := range schemaTables {
+	for _, schema := range slices.Sorted(maps.Keys(schemaTables)) {
 		schemas = append(schemas, quoteSchema(schema))
 	}
 	opts := &pglib.PGDumpOptions{
@@ -134,20 +135,22 @@ func (o *optionGenerator) pgdumpOptions(ctx context.Context, schemaTables map[st
 	// objects for the schema in question. If we use the tables filter, only
 	// those tables are dumped, and any related non table objects will not be
 	// dumped, causing the restore to fail due to missing related objects.
-	for schema, tables := range schemaTables {
+	for _, schema := range slices.Sorted(maps.Keys(schemaTables)) {
+		tables := schemaTables[schema]
 		if hasWildcardTable(tables) {
 			// if there's the wildcard table, we don't need to add excluded
 			// tables, since they are all included.
 			continue
 		}
-		var err error
-		opts.ExcludeTables, err = o.pgdumpExcludedTables(ctx, schema, tables)
+		schemaExcludeTables, err := o.pgdumpExcludedTables(ctx, schema, tables)
 		if err != nil {
 			return nil, err
 		}
+		opts.ExcludeTables = appendMissing(opts.ExcludeTables, schemaExcludeTables...)
 	}
 
-	for schema, tables := range excludedTables {
+	for _, schema := range slices.Sorted(maps.Keys(excludedTables)) {
+		tables := excludedTables[schema]
 		if hasWildcardTable(tables) {
 			opts.ExcludeSchemas = append(opts.ExcludeSchemas, pglib.QuoteIdentifier(schema))
 			continue
