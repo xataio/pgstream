@@ -103,7 +103,7 @@ func runStream(t *testing.T, ctx context.Context, cfg *stream.Config) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- stream.Run(ctx, testLogger(), cfg, false, nil, nil)
+		done <- stream.Run(ctx, testLogger(), cfg, false, nil)
 	}()
 
 	t.Cleanup(func() {
@@ -121,7 +121,7 @@ func runSnapshot(t *testing.T, ctx context.Context, cfg *stream.Config) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- stream.Snapshot(ctx, testLogger(), cfg, nil, nil)
+		done <- stream.Snapshot(ctx, testLogger(), cfg, nil)
 	}()
 
 	t.Cleanup(func() {

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/xataio/pgstream/internal/phase"
 	"github.com/xataio/pgstream/pkg/kafka"
 	kafkainstrumentation "github.com/xataio/pgstream/pkg/kafka/instrumentation"
 	loglib "github.com/xataio/pgstream/pkg/log"
@@ -29,19 +28,21 @@ import (
 )
 
 // Run will run the configured pgstream processes. This call is blocking.
-// phaseTracker, when non-nil, is updated as the pipeline moves between
-// snapshot and replication phases.
-func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, instrumentation *otel.Instrumentation, phaseTracker *phase.Tracker, opts ...InitOption) error {
+// Pass WithPhaseTracker to expose snapshot/replication phase via /status and metrics.
+func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, instrumentation *otel.Instrumentation, opts ...InitOption) error {
 	if err := config.IsValid(); err != nil {
 		return fmt.Errorf("incompatible configuration: %w", err)
 	}
+
+	initConfig := config.GetInitConfig(opts...)
+	phaseTracker := initConfig.PhaseTracker
 
 	if err := registerPhaseMetric(instrumentation, phaseTracker); err != nil {
 		return fmt.Errorf("registering pipeline phase metric: %w", err)
 	}
 
 	if init {
-		if err := Init(ctx, config.GetInitConfig(opts...)); err != nil {
+		if err := Init(ctx, initConfig); err != nil {
 			return err
 		}
 	}

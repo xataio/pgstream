@@ -15,7 +15,9 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrumentation *otel.Instrumentation, phaseTracker *phase.Tracker) error {
+// Snapshot performs a one-time data snapshot. This call is blocking.
+// phaseTracker is optional; when provided it is set to snapshot for the duration.
+func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrumentation *otel.Instrumentation, phaseTracker ...*phase.Tracker) error {
 	if config.Listener.Postgres == nil {
 		return errors.New("source postgres snapshot not configured: ensure source.postgres is set")
 	}
@@ -24,7 +26,12 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 		return fmt.Errorf("incompatible configuration: %w", err)
 	}
 
-	if err := registerPhaseMetric(instrumentation, phaseTracker); err != nil {
+	var tracker *phase.Tracker
+	if len(phaseTracker) > 0 {
+		tracker = phaseTracker[0]
+	}
+
+	if err := registerPhaseMetric(instrumentation, tracker); err != nil {
 		return fmt.Errorf("registering pipeline phase metric: %w", err)
 	}
 
@@ -58,7 +65,7 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 	if err != nil {
 		return err
 	}
-	listener := snapshotlistener.New(snapshotGenerator, snapshotlistener.WithPhaseTracker(phaseTracker))
+	listener := snapshotlistener.New(snapshotGenerator, snapshotlistener.WithPhaseTracker(tracker))
 	defer listener.Close()
 
 	eg.Go(func() error {

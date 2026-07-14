@@ -50,7 +50,7 @@ func Test_PhaseStatus_SnapshotAndReplication(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- stream.Run(runCtx, testLogger(), cfg, false, nil, tracker)
+		done <- stream.Run(runCtx, testLogger(), cfg, false, nil, stream.WithPhaseTracker(tracker))
 	}()
 
 	var sawSnapshot, sawReplication bool

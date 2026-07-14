@@ -42,8 +42,9 @@ func (t *Tracker) Get() Phase {
 		return ""
 	}
 	v := t.current.Load()
-	if v == nil {
+	p, ok := v.(Phase)
+	if !ok {
 		return ""
 	}
-	return v.(Phase)
+	return p
 }

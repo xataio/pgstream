@@ -73,13 +73,14 @@ func run(ctx context.Context) error {
 
 	stdLogger := zerolog.NewStdLogger(logger)
 	phaseTracker := phase.NewTracker()
+	opts = append(opts, stream.WithPhaseTracker(phaseTracker))
 	stopHealth, err := startHealthServer(ctx, stdLogger, streamConfig.SourcePostgresURL(), phaseTracker)
 	if err != nil {
 		return err
 	}
 	defer stopHealth()
 
-	return stream.Run(ctx, stdLogger, streamConfig, initFlag, provider.NewInstrumentation("run"), phaseTracker, opts...)
+	return stream.Run(ctx, stdLogger, streamConfig, initFlag, provider.NewInstrumentation("run"), opts...)
 }
 
 func runFlagBinding(cmd *cobra.Command, args []string) error {
