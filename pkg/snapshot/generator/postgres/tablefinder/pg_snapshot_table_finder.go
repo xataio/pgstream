@@ -4,7 +4,6 @@ package tablefinder
 
 import (
 	"context"
-	"fmt"
 	"slices"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
@@ -69,10 +68,18 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 }
 
 func (s *SnapshotSchemaTableFinder) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) error {
-	tablenames, wildcardSchemaFound := ss.SchemaTables[wildcard]
-	if wildcardSchemaFound {
-		if len(tablenames) != 1 || tablenames[0] != wildcard {
-			return fmt.Errorf("wildcard schema must be used with wildcard table, got %q", tablenames)
+	if err := pglib.ValidateWildcardSchemaTables(ss.SchemaOnlyTables); err != nil {
+		return err
+	}
+
+	// tables explicitly listed (no wildcards) in the snapshot request take
+	// precedence over a schema-only wildcard match, so capture them before
+	// the wildcard expansion
+	explicitTables := toSchemaTableMap(ss.SchemaTables)
+
+	if _, wildcardSchemaFound := ss.SchemaTables[wildcard]; wildcardSchemaFound {
+		if err := pglib.ValidateWildcardSchemaTables(ss.SchemaTables); err != nil {
+			return err
 		}
 
 		schemas, err := s.schemaDiscoveryFn(ctx, s.conn)
@@ -95,23 +102,42 @@ func (s *SnapshotSchemaTableFinder) CreateSnapshot(ctx context.Context, ss *snap
 		}
 	}
 
-	if len(ss.SchemaExcludedTables) == 0 {
-		// No excluded tables, return early
-		return s.wrapped.CreateSnapshot(ctx, ss)
-	}
-
 	// Remove excluded tables from the snapshot request
-	for schema, tables := range ss.SchemaTables {
-		if excludedTables, found := ss.SchemaExcludedTables[schema]; found {
-			// Filter out the excluded tables
-			filteredTables := []string{}
-			for _, table := range tables {
-				if !slices.Contains(excludedTables, table) {
-					filteredTables = append(filteredTables, table)
+	if len(ss.SchemaExcludedTables) > 0 {
+		for schema, tables := range ss.SchemaTables {
+			if excludedTables, found := ss.SchemaExcludedTables[schema]; found {
+				// Filter out the excluded tables
+				filteredTables := []string{}
+				for _, table := range tables {
+					if !slices.Contains(excludedTables, table) {
+						filteredTables = append(filteredTables, table)
+					}
+				}
+				if len(filteredTables) == 0 {
+					// If no tables left after filtering, remove the schema from the snapshot
+					delete(ss.SchemaTables, schema)
+				} else {
+					ss.SchemaTables[schema] = filteredTables
 				}
 			}
+		}
+	}
+
+	// Remove schema-only tables from the data snapshot scope, unless they are
+	// explicitly listed in the snapshot request. SchemaOnlyTables itself is
+	// left untouched: the schema snapshot generator wrapping this one has
+	// already consumed it, resolving wildcards on its own.
+	if len(ss.SchemaOnlyTables) > 0 {
+		schemaOnlyTables := toSchemaTableMap(ss.SchemaOnlyTables)
+		for schema, tables := range ss.SchemaTables {
+			filteredTables := []string{}
+			for _, table := range tables {
+				if schemaOnlyTables.ContainsSchemaTable(schema, table) && !explicitTables.ContainsExactSchemaTable(schema, table) {
+					continue
+				}
+				filteredTables = append(filteredTables, table)
+			}
 			if len(filteredTables) == 0 {
-				// If no tables left after filtering, remove the schema from the snapshot
 				delete(ss.SchemaTables, schema)
 			} else {
 				ss.SchemaTables[schema] = filteredTables
@@ -120,6 +146,17 @@ func (s *SnapshotSchemaTableFinder) CreateSnapshot(ctx context.Context, ss *snap
 	}
 
 	return s.wrapped.CreateSnapshot(ctx, ss)
+}
+
+func toSchemaTableMap(schemaTables map[string][]string) pglib.SchemaTableMap {
+	schemaTableMap := make(pglib.SchemaTableMap, len(schemaTables))
+	for schema, tables := range schemaTables {
+		schemaTableMap[schema] = make(map[string]struct{}, len(tables))
+		for _, table := range tables {
+			schemaTableMap[schema][table] = struct{}{}
+		}
+	}
+	return schemaTableMap
 }
 
 func (s *SnapshotSchemaTableFinder) Close() error {

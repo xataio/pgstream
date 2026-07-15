@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
+	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -25,7 +27,10 @@ var (
 	Env     string
 )
 
-const trueStr = "true"
+const (
+	trueStr                = "true"
+	experimentalAnnotation = "experimental"
+)
 
 type sighupReloadsContextKey struct{}
 
@@ -134,7 +139,7 @@ func Prepare() *cobra.Command {
 	rootCmd.AddCommand(snapshotCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(validateCmd)
-	rootCmd.AddCommand(checkCmd)
+	rootCmd.AddCommand(withExperimental(checkCmd))
 	return rootCmd
 }
 
@@ -305,4 +310,41 @@ func newInstrumentationProvider() (otel.InstrumentationProvider, error) {
 		return nil, fmt.Errorf("initialisating instrumentation provider: %w", err)
 	}
 	return p, nil
+}
+
+func withExperimental(cmd *cobra.Command) *cobra.Command {
+	if cmd.Annotations == nil {
+		cmd.Annotations = map[string]string{}
+	}
+	cmd.Annotations[experimentalAnnotation] = trueStr
+
+	const prefix = "[EXPERIMENTAL] "
+	if !strings.HasPrefix(cmd.Short, prefix) {
+		cmd.Short = prefix + cmd.Short
+	}
+
+	warn := func(cmd *cobra.Command) {
+		pterm.Warning.Printfln("%q is experimental and may change or be removed in future releases", cmd.CommandPath())
+	}
+
+	switch {
+	case cmd.PreRunE != nil:
+		existing := cmd.PreRunE
+		cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+			warn(cmd)
+			return existing(cmd, args)
+		}
+	case cmd.PreRun != nil:
+		existing := cmd.PreRun
+		cmd.PreRun = func(cmd *cobra.Command, args []string) {
+			warn(cmd)
+			existing(cmd, args)
+		}
+	default:
+		cmd.PreRun = func(cmd *cobra.Command, _ []string) {
+			warn(cmd)
+		}
+	}
+
+	return cmd
 }
