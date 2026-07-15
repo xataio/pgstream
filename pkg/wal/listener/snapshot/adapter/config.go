@@ -9,6 +9,9 @@ import (
 type SnapshotConfig struct {
 	Tables         []string
 	ExcludedTables []string
+	// SchemaOnlyTables are included in the schema snapshot but skipped by the
+	// data snapshot.
+	SchemaOnlyTables []string
 }
 
 const publicSchema = "public"

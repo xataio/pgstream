@@ -5,6 +5,7 @@ source:
     snapshot: # when mode is snapshot or snapshot_and_replication
       mode: full # options are data_and, schema or data
       tables: ["*"] # tables to snapshot, can be a list of table names or a pattern
+      # schema_only_tables: ["audit_log", "reports.*"] # tables for which only the schema is snapshotted, no data
       recorder:
         postgres_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # URL of the database where the snapshot status is recorded
       snapshot_workers: 1 # number of schemas to be snapshotted in parallel
@@ -32,6 +33,7 @@ modifiers:
   filter:
     include_tables:
     - test
+    # schema_only_tables: ["audit_log", "reports.*"] # tables for which DDL events are replicated but data events are skipped
   transformations:
     validation_mode: relaxed
     table_transformers:

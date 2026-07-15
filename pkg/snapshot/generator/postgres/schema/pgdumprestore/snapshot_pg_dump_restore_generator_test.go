@@ -449,6 +449,183 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - with schema-only tables and generator",
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
+				SchemaOnlyTables: map[string][]string{
+					testSchema: {"schema_only_table"},
+				},
+			},
+			conn: &mocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					switch query {
+					case selectSchemasQuery:
+						require.Equal(t, []any{[]string{testSchema}}, args)
+						return &mocks.Rows{
+							CloseFn: func() {},
+							NextFn:  func(i uint) bool { return i == 1 },
+							ScanFn: func(i uint, dest ...any) error {
+								require.Len(t, dest, 1)
+								schemaName, ok := dest[0].(*string)
+								require.True(t, ok)
+								*schemaName = excludedSchema
+								return nil
+							},
+							ErrFn: func() error { return nil },
+						}, nil
+					case selectSchemaTablesQuery:
+						// the schema-only tables are part of the dump scope
+						require.Equal(t, []any{testSchema, []string{testTable, "schema_only_table"}}, args)
+						return &mocks.Rows{
+							CloseFn: func() {},
+							NextFn:  func(i uint) bool { return i == 1 },
+							ScanFn: func(i uint, dest ...any) error {
+								require.Len(t, dest, 2)
+								schemaName, ok := dest[0].(*string)
+								require.True(t, ok)
+								*schemaName = excludedSchema
+								tableName, ok := dest[1].(*string)
+								require.True(t, ok)
+								*tableName = excludedTable
+								return nil
+							},
+							ErrFn: func() error { return nil },
+						}, nil
+					default:
+						return nil, fmt.Errorf("unexpected query: %s", query)
+					}
+				},
+			},
+			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						SchemaOnly:       true,
+						ExcludeSchemas:   excludedSchemas,
+						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
+					}, po)
+					return schemaDump, nil
+				case 2:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						DataOnly:         true,
+						Tables:           []string{testSequence},
+					}, po)
+					return sequenceDump, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
+				}
+			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpAllOptions{
+						ConnectionString: "source-url",
+						RolesOnly:        true,
+					}, po)
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
+				}
+			}),
+			pgrestoreFn: newMockPgrestore(fullDumpRestoreFn),
+
+			generator: &generatormocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
+					// the wrapped generator receives the original snapshot
+					// request untouched
+					require.Equal(t, &snapshot.Snapshot{
+						SchemaTables: map[string][]string{
+							testSchema: {testTable},
+						},
+						SchemaOnlyTables: map[string][]string{
+							testSchema: {"schema_only_table"},
+						},
+					}, ss)
+					return nil
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - only schema-only tables",
+			snapshot: &snapshot.Snapshot{
+				SchemaOnlyTables: map[string][]string{
+					testSchema: {testTable},
+				},
+			},
+			conn: validQuerier(),
+			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						SchemaOnly:       true,
+						ExcludeSchemas:   excludedSchemas,
+						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
+					}, po)
+					return schemaDump, nil
+				case 2:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						DataOnly:         true,
+						Tables:           []string{testSequence},
+					}, po)
+					return sequenceDump, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
+				}
+			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpAllOptions{
+						ConnectionString: "source-url",
+						RolesOnly:        true,
+					}, po)
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
+				}
+			}),
+			pgrestoreFn: newMockPgrestore(fullDumpRestoreFn),
+
+			generator: &generatormocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
+					require.Equal(t, &snapshot.Snapshot{
+						SchemaOnlyTables: map[string][]string{
+							testSchema: {testTable},
+						},
+					}, ss)
+					return nil
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "error - wildcard schema-only schema with specific table",
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
+				SchemaOnlyTables: map[string][]string{
+					wildcard: {"table1"},
+				},
+			},
+			conn: validQuerier(),
+
+			wantErr: fmt.Errorf("wildcard schema must be used with wildcard table, got %q", []string{"table1"}),
+		},
+		{
 			name: "ok - wildcard table",
 			snapshot: &snapshot.Snapshot{
 				SchemaTables: map[string][]string{

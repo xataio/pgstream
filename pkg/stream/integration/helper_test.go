@@ -32,6 +32,7 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/adapter"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
+	"github.com/xataio/pgstream/pkg/wal/processor/filter"
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 	"github.com/xataio/pgstream/pkg/wal/processor/postgres"
@@ -362,6 +363,12 @@ func withBatchSize(maxBatchSize int64) option {
 		if cfg.Postgres != nil {
 			cfg.Postgres.BatchWriter.BatchConfig.MaxBatchSize = maxBatchSize
 		}
+	}
+}
+
+func withFilter(filterCfg *filter.Config) option {
+	return func(cfg *stream.ProcessorConfig) {
+		cfg.Filter = filterCfg
 	}
 }
 

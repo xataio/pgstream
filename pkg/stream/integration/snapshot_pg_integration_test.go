@@ -164,6 +164,77 @@ func Test_SnapshotToPostgres_SelectedParentTableDoesNotCopyInheritedRows(t *test
 	require.Equal(t, []parentRow{{id: 1, name: "parent-row"}}, got)
 }
 
+// Test_SnapshotToPostgres_SchemaOnlyTables verifies that tables in the
+// schema-only list get their DDL copied by the schema snapshot while their
+// data is skipped, including for a schema that only appears in the
+// schema-only list.
+func Test_SnapshotToPostgres_SchemaOnlyTables(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	suffix := time.Now().UnixNano()
+	dataTable := fmt.Sprintf("snapshot_data_%d", suffix)
+	schemaOnlyTable := fmt.Sprintf("snapshot_schema_only_%d", suffix)
+	schemaOnlySchema := fmt.Sprintf("reports_%d", suffix)
+
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s(id INTEGER PRIMARY KEY, name TEXT NOT NULL)`, dataTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(id, name) VALUES (1, 'a'),(2, 'b')`, dataTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s(id INTEGER PRIMARY KEY, name TEXT NOT NULL)`, schemaOnlyTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(id, name) VALUES (1, 'not-copied')`, schemaOnlyTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE SCHEMA %s`, schemaOnlySchema))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s.audit_log(id INTEGER PRIMARY KEY, event TEXT)`, schemaOnlySchema))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s.audit_log(id, event) VALUES (1, 'not-copied')`, schemaOnlySchema))
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{dataTable}),
+		Processor: testPostgresProcessorCfg(),
+	}
+	cfg.Listener.Postgres.Snapshot.Adapter.SchemaOnlyTables = []string{schemaOnlyTable, schemaOnlySchema + ".*"}
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	// the data table has both its schema and its rows
+	rows := getIDNameRows(t, ctx, targetConn, fmt.Sprintf("SELECT id, name FROM %s ORDER BY id", dataTable))
+	require.Equal(t, []idNameRow{{id: 1, name: "a"}, {id: 2, name: "b"}}, rows)
+
+	// the schema-only table exists with its full schema but no rows
+	schemaColumns := getInformationSchemaColumns(t, ctx, targetConn, schemaOnlyTable)
+	wantSchemaCols := []*informationSchemaColumn{
+		{name: "id", dataType: "integer", isNullable: "NO"},
+		{name: "name", dataType: "text", isNullable: "NO"},
+	}
+	require.ElementsMatch(t, wantSchemaCols, schemaColumns)
+
+	var count int
+	err = targetConn.QueryRow(ctx, []any{&count}, fmt.Sprintf("SELECT count(*) FROM %s", schemaOnlyTable))
+	require.NoError(t, err)
+	require.Zero(t, count, "schema-only table should have no rows on the target")
+
+	// the schema-only schema exists with its table's DDL but no rows
+	err = targetConn.QueryRow(ctx, []any{&count}, fmt.Sprintf("SELECT count(*) FROM %s.audit_log", schemaOnlySchema))
+	require.NoError(t, err)
+	require.Zero(t, count, "schema-only schema tables should have no rows on the target")
+}
+
 // Test_SnapshotToPostgres_CoalescedInheritedChildInsertReportsRowLoss is a
 // synthetic regression for silent row loss during snapshot writes. The target
 // has a stale conflicting row in the inherited child table. The batch writer

@@ -38,10 +38,10 @@ func TestStore_CreateSnapshotRequest(t *testing.T) {
 			name: "ok",
 			querier: &postgresmocks.Querier{
 				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (pglib.CommandTag, error) {
-					wantQuery := fmt.Sprintf(`INSERT INTO %s (schema_name, table_names, created_at, updated_at, status)
-	VALUES($1, $2, now(), now(),'requested')`, snapshotsTable())
+					wantQuery := fmt.Sprintf(`INSERT INTO %s (schema_name, table_names, created_at, updated_at, status, mode)
+	VALUES($1, $2, now(), now(),'requested', $3)`, snapshotsTable())
 					require.Equal(t, wantQuery, s)
-					wantAttr := []any{testSchema, pq.StringArray(testTables)}
+					wantAttr := []any{testSchema, pq.StringArray(testTables), snapshot.RequestModeData}
 					require.Equal(t, wantAttr, a)
 					return pglib.CommandTag{}, nil
 				},
@@ -100,10 +100,10 @@ func TestStore_UpdateSnapshotRequest(t *testing.T) {
 			querier: &postgresmocks.Querier{
 				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (pglib.CommandTag, error) {
 					wantQuery := fmt.Sprintf(`UPDATE %s SET status = $1, errors = $2, updated_at = now()
-	WHERE schema_name = $3 and table_names = $4 and status != 'completed'`,
+	WHERE schema_name = $3 and table_names = $4 and mode = $5 and status != 'completed'`,
 						snapshotsTable())
 					require.Equal(t, wantQuery, s)
-					require.Equal(t, []any{snapshot.StatusInProgress, (*snapshot.SchemaErrors)(nil), testSchema, pq.StringArray(testTables)}, a)
+					require.Equal(t, []any{snapshot.StatusInProgress, (*snapshot.SchemaErrors)(nil), testSchema, pq.StringArray(testTables), snapshot.RequestModeData}, a)
 					return pglib.CommandTag{}, nil
 				},
 			},
@@ -116,10 +116,10 @@ func TestStore_UpdateSnapshotRequest(t *testing.T) {
 			querier: &postgresmocks.Querier{
 				ExecFn: func(ctx context.Context, _ uint, s string, a ...any) (pglib.CommandTag, error) {
 					wantQuery := fmt.Sprintf(`UPDATE %s SET status = $1, errors = $2, updated_at = now()
-	WHERE schema_name = $3 and table_names = $4 and status != 'completed'`,
+	WHERE schema_name = $3 and table_names = $4 and mode = $5 and status != 'completed'`,
 						snapshotsTable())
 					require.Equal(t, wantQuery, s)
-					require.Equal(t, []any{snapshot.StatusInProgress, testSchemaErr, testSchema, pq.StringArray(testTables)}, a)
+					require.Equal(t, []any{snapshot.StatusInProgress, testSchemaErr, testSchema, pq.StringArray(testTables), snapshot.RequestModeData}, a)
 					return pglib.CommandTag{}, nil
 				},
 			},
@@ -167,6 +167,7 @@ func TestStore_GetSnapshotRequestsBySchema(t *testing.T) {
 		Schema: testSchema,
 		Tables: testTables,
 		Status: snapshot.StatusInProgress,
+		Mode:   snapshot.RequestModeData,
 		Errors: snapshot.NewSchemaErrors(testSchema, errTest),
 	}
 
@@ -181,7 +182,7 @@ func TestStore_GetSnapshotRequestsBySchema(t *testing.T) {
 			name: "ok - no results",
 			querier: &postgresmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
-					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
+					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,mode,errors FROM %s
 	WHERE schema_name = $1 ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), queryLimit)
 					require.Equal(t, []any{testSchema}, args)
 					require.Equal(t, wantQuery, query)
@@ -199,7 +200,7 @@ func TestStore_GetSnapshotRequestsBySchema(t *testing.T) {
 			name: "ok",
 			querier: &postgresmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
-					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
+					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,mode,errors FROM %s
 	WHERE schema_name = $1 ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), queryLimit)
 					require.Equal(t, []any{testSchema}, args)
 					require.Equal(t, wantQuery, query)
@@ -207,7 +208,7 @@ func TestStore_GetSnapshotRequestsBySchema(t *testing.T) {
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
 						ScanFn: func(i uint, dest ...any) error {
-							require.Len(t, dest, 4)
+							require.Len(t, dest, 5)
 							schemaName, ok := dest[0].(*string)
 							require.True(t, ok)
 							*schemaName = testSchema
@@ -220,7 +221,11 @@ func TestStore_GetSnapshotRequestsBySchema(t *testing.T) {
 							require.True(t, ok)
 							*status = testSnapshotRequest.Status
 
-							errs, ok := dest[3].(**snapshot.SchemaErrors)
+							mode, ok := dest[3].(*snapshot.RequestMode)
+							require.True(t, ok)
+							*mode = testSnapshotRequest.Mode
+
+							errs, ok := dest[4].(**snapshot.SchemaErrors)
 							require.True(t, ok)
 							*errs = testSnapshotRequest.Errors
 							return nil
@@ -249,7 +254,7 @@ func TestStore_GetSnapshotRequestsBySchema(t *testing.T) {
 			name: "error - scanning row",
 			querier: &postgresmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
-					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
+					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,mode,errors FROM %s
 	WHERE schema_name = $1 ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), queryLimit)
 					require.Equal(t, []any{testSchema}, args)
 					require.Equal(t, wantQuery, query)
@@ -292,6 +297,7 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 		Schema: testSchema,
 		Tables: testTables,
 		Status: snapshot.StatusInProgress,
+		Mode:   snapshot.RequestModeData,
 		Errors: snapshot.NewSchemaErrors(testSchema, errTest),
 	}
 
@@ -306,7 +312,7 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 			name: "ok - no results",
 			querier: &postgresmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
-					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
+					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,mode,errors FROM %s
 	WHERE status = $1 ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), queryLimit)
 					require.Equal(t, wantQuery, query)
 					require.Equal(t, []any{snapshot.StatusInProgress}, args)
@@ -324,7 +330,7 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 			name: "ok",
 			querier: &postgresmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
-					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
+					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,mode,errors FROM %s
 	WHERE status = $1 ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), queryLimit)
 					require.Equal(t, wantQuery, query)
 					require.Equal(t, []any{snapshot.StatusInProgress}, args)
@@ -332,7 +338,7 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
 						ScanFn: func(i uint, dest ...any) error {
-							require.Len(t, dest, 4)
+							require.Len(t, dest, 5)
 							schemaName, ok := dest[0].(*string)
 							require.True(t, ok)
 							*schemaName = testSchema
@@ -345,7 +351,11 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 							require.True(t, ok)
 							*status = testSnapshotRequest.Status
 
-							errs, ok := dest[3].(**snapshot.SchemaErrors)
+							mode, ok := dest[3].(*snapshot.RequestMode)
+							require.True(t, ok)
+							*mode = testSnapshotRequest.Mode
+
+							errs, ok := dest[4].(**snapshot.SchemaErrors)
 							require.True(t, ok)
 							*errs = testSnapshotRequest.Errors
 							return nil
@@ -374,7 +384,7 @@ func TestStore_GetSnapshotRequestsByStatus(t *testing.T) {
 			name: "error - scanning row",
 			querier: &postgresmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
-					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
+					wantQuery := fmt.Sprintf(`SELECT schema_name,table_names,status,mode,errors FROM %s
 	WHERE status = $1 ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), queryLimit)
 					require.Equal(t, wantQuery, query)
 					require.Equal(t, []any{snapshot.StatusInProgress}, args)
@@ -435,10 +445,16 @@ func TestStore_createTable(t *testing.T) {
 	created_at TIMESTAMP WITH TIME ZONE,
 	updated_at TIMESTAMP WITH TIME ZONE,
 	status TEXT CHECK (status IN ('requested', 'in progress', 'completed')),
+	mode TEXT NOT NULL DEFAULT 'data' CHECK (mode IN ('data', 'schema-only')),
 	errors JSONB )`, snapshotsTable())
 						require.Equal(t, wantQuery, s)
 						require.Empty(t, a)
 					case 3:
+						wantQuery := fmt.Sprintf(`ALTER TABLE %s
+	ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'data' CHECK (mode IN ('data', 'schema-only'))`, snapshotsTable())
+						require.Equal(t, wantQuery, s)
+						require.Empty(t, a)
+					case 4:
 						wantQuery := fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS schema_table_status_unique_index
 	ON %s(schema_name,table_names) WHERE status != 'completed'`, snapshotsTable())
 						require.Equal(t, wantQuery, s)
@@ -483,15 +499,29 @@ func TestStore_createTable(t *testing.T) {
 			wantErr: errTest,
 		},
 		{
+			name: "error - adding mode column",
+			querier: &postgresmocks.Querier{
+				ExecFn: func(ctx context.Context, i uint, s string, a ...any) (pglib.CommandTag, error) {
+					switch i {
+					case 1, 2:
+						return pglib.CommandTag{}, nil
+					case 3:
+						return pglib.CommandTag{}, errTest
+					default:
+						return pglib.CommandTag{}, fmt.Errorf("unexpected Exec call: %d", i)
+					}
+				},
+			},
+			wantErr: errTest,
+		},
+		{
 			name: "error - creating index",
 			querier: &postgresmocks.Querier{
 				ExecFn: func(ctx context.Context, i uint, s string, a ...any) (pglib.CommandTag, error) {
 					switch i {
-					case 1:
+					case 1, 2, 3:
 						return pglib.CommandTag{}, nil
-					case 2:
-						return pglib.CommandTag{}, nil
-					case 3:
+					case 4:
 						return pglib.CommandTag{}, errTest
 					default:
 						return pglib.CommandTag{}, fmt.Errorf("unexpected Exec call: %d", i)

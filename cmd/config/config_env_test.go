@@ -38,6 +38,7 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_REPEATABLE", "true")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_TABLES", "test test_schema.Test another_schema.*")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES", "test_schema.Test")
+	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_ONLY_TABLES", "schema_only_test schema_only_schema.*")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS", "4")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_MAX_CONNECTIONS", "20")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS", "4")
@@ -106,6 +107,7 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_TRANSFORMER_RULES_FILE", "test/test_transformer_rules.yaml")
 	os.Setenv("PGSTREAM_FILTER_INCLUDE_TABLES", "test test_schema.test another_schema.*")
 	os.Setenv("PGSTREAM_FILTER_EXCLUDE_TABLES", "excluded_test excluded_schema.test another_excluded_schema.*")
+	os.Setenv("PGSTREAM_FILTER_SCHEMA_ONLY_TABLES", "schema_only_test schema_only_schema.*")
 
 	streamConfig, err := envConfigToStreamConfig()
 	assert.NoError(t, err)
