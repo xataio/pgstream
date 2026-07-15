@@ -195,6 +195,53 @@ func TestSchemaTableMap_ValidateWildcardSchema(t *testing.T) {
 	}
 }
 
+func Test_ValidateWildcardSchemaTables(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		schemaTables map[string][]string
+		wantErr      string
+	}{
+		{
+			name:         "no wildcard schema",
+			schemaTables: map[string][]string{"public": {"users"}},
+		},
+		{
+			name:         "wildcard schema with wildcard table",
+			schemaTables: map[string][]string{"*": {"*"}},
+		},
+		{
+			name:         "wildcard schema with specific table",
+			schemaTables: map[string][]string{"*": {"users"}},
+			wantErr:      `wildcard schema must be used with wildcard table, got ["users"]`,
+		},
+		{
+			name:         "wildcard schema with wildcard and specific tables",
+			schemaTables: map[string][]string{"*": {"*", "users"}},
+			wantErr:      `wildcard schema must be used with wildcard table, got ["*" "users"]`,
+		},
+		{
+			name:         "wildcard schema with empty table list",
+			schemaTables: map[string][]string{"*": {}},
+			wantErr:      `wildcard schema must be used with wildcard table, got []`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := ValidateWildcardSchemaTables(tc.schemaTables)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestSchemaTableMap_ContainsExactSchemaTable(t *testing.T) {
 	t.Parallel()
 

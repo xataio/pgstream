@@ -4,7 +4,6 @@ package tablefinder
 
 import (
 	"context"
-	"fmt"
 	"slices"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
@@ -69,8 +68,8 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 }
 
 func (s *SnapshotSchemaTableFinder) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) error {
-	if tablenames, found := ss.SchemaOnlyTables[wildcard]; found && (len(tablenames) != 1 || tablenames[0] != wildcard) {
-		return fmt.Errorf("wildcard schema must be used with wildcard table, got %q", tablenames)
+	if err := pglib.ValidateWildcardSchemaTables(ss.SchemaOnlyTables); err != nil {
+		return err
 	}
 
 	// tables explicitly listed (no wildcards) in the snapshot request take
@@ -78,10 +77,9 @@ func (s *SnapshotSchemaTableFinder) CreateSnapshot(ctx context.Context, ss *snap
 	// the wildcard expansion
 	explicitTables := toSchemaTableMap(ss.SchemaTables)
 
-	tablenames, wildcardSchemaFound := ss.SchemaTables[wildcard]
-	if wildcardSchemaFound {
-		if len(tablenames) != 1 || tablenames[0] != wildcard {
-			return fmt.Errorf("wildcard schema must be used with wildcard table, got %q", tablenames)
+	if _, wildcardSchemaFound := ss.SchemaTables[wildcard]; wildcardSchemaFound {
+		if err := pglib.ValidateWildcardSchemaTables(ss.SchemaTables); err != nil {
+			return err
 		}
 
 		schemas, err := s.schemaDiscoveryFn(ctx, s.conn)

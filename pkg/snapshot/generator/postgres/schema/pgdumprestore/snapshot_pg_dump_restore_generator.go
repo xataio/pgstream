@@ -206,8 +206,8 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 			schemaOnly[schema] = tables
 		}
 	}
-	if tables, found := schemaOnly[wildcard]; found && (len(tables) != 1 || tables[0] != wildcard) {
-		return fmt.Errorf("wildcard schema must be used with wildcard table, got %q", tables)
+	if err := pglib.ValidateWildcardSchemaTables(schemaOnly); err != nil {
+		return err
 	}
 	// the schema snapshot scope is the union of the data snapshot tables and
 	// the schema-only tables

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 )
 
@@ -80,15 +81,22 @@ func (t SchemaTableMap) ValidateWildcardSchema() error {
 	if !found {
 		return nil
 	}
-	_, wildcardTableFound := tables[wildcard]
-	if len(tables) != 1 || !wildcardTableFound {
-		tableNames := make([]string, 0, len(tables))
-		for table := range tables {
-			tableNames = append(tableNames, table)
-		}
-		return fmt.Errorf("wildcard schema must be used with wildcard table, got %q", tableNames)
+	tableNames := make([]string, 0, len(tables))
+	for table := range tables {
+		tableNames = append(tableNames, table)
 	}
-	return nil
+	slices.Sort(tableNames)
+	return ValidateWildcardSchemaTables(map[string][]string{wildcard: tableNames})
+}
+
+// ValidateWildcardSchemaTables is the schema->table-list counterpart of
+// ValidateWildcardSchema, for callers operating on map[string][]string.
+func ValidateWildcardSchemaTables(schemaTables map[string][]string) error {
+	tables, found := schemaTables[wildcard]
+	if !found || (len(tables) == 1 && tables[0] == wildcard) {
+		return nil
+	}
+	return fmt.Errorf("wildcard schema must be used with wildcard table, got %q", tables)
 }
 
 func (t SchemaTableMap) Add(table string) error {
