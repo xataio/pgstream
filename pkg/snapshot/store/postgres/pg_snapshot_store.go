@@ -41,9 +41,9 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) CreateSnapshotRequest(ctx context.Context, req *snapshot.Request) error {
-	query := fmt.Sprintf(`INSERT INTO %s (schema_name, table_names, created_at, updated_at, status)
-	VALUES($1, $2, now(), now(),'requested')`, snapshotsTable())
-	_, err := s.conn.Exec(ctx, query, req.Schema, pq.StringArray(req.Tables))
+	query := fmt.Sprintf(`INSERT INTO %s (schema_name, table_names, created_at, updated_at, status, mode)
+	VALUES($1, $2, now(), now(),'requested', $3)`, snapshotsTable())
+	_, err := s.conn.Exec(ctx, query, req.Schema, pq.StringArray(req.Tables), req.GetMode())
 	if err != nil {
 		return fmt.Errorf("error creating snapshot request: %w", err)
 	}
@@ -53,8 +53,8 @@ func (s *Store) CreateSnapshotRequest(ctx context.Context, req *snapshot.Request
 
 func (s *Store) UpdateSnapshotRequest(ctx context.Context, req *snapshot.Request) error {
 	query := fmt.Sprintf(`UPDATE %s SET status = $1, errors = $2, updated_at = now()
-	WHERE schema_name = $3 and table_names = $4 and status != 'completed'`, snapshotsTable())
-	_, err := s.conn.Exec(ctx, query, req.Status, req.Errors, req.Schema, pq.StringArray(req.Tables))
+	WHERE schema_name = $3 and table_names = $4 and mode = $5 and status != 'completed'`, snapshotsTable())
+	_, err := s.conn.Exec(ctx, query, req.Status, req.Errors, req.Schema, pq.StringArray(req.Tables), req.GetMode())
 	if err != nil {
 		return fmt.Errorf("error updating snapshot request: %w", err)
 	}
@@ -63,7 +63,7 @@ func (s *Store) UpdateSnapshotRequest(ctx context.Context, req *snapshot.Request
 }
 
 func (s *Store) GetSnapshotRequestsByStatus(ctx context.Context, status snapshot.Status) ([]*snapshot.Request, error) {
-	query := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
+	query := fmt.Sprintf(`SELECT schema_name,table_names,status,mode,errors FROM %s
 	WHERE status = $1 ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), queryLimit)
 	rows, err := s.conn.Query(ctx, query, status)
 	if err != nil {
@@ -74,7 +74,7 @@ func (s *Store) GetSnapshotRequestsByStatus(ctx context.Context, status snapshot
 	snapshotRequests := []*snapshot.Request{}
 	for rows.Next() {
 		req := &snapshot.Request{}
-		if err := rows.Scan(&req.Schema, &req.Tables, &req.Status, &req.Errors); err != nil {
+		if err := rows.Scan(&req.Schema, &req.Tables, &req.Status, &req.Mode, &req.Errors); err != nil {
 			return nil, fmt.Errorf("scanning snapshot row: %w", err)
 		}
 
@@ -85,7 +85,7 @@ func (s *Store) GetSnapshotRequestsByStatus(ctx context.Context, status snapshot
 }
 
 func (s *Store) GetSnapshotRequestsBySchema(ctx context.Context, schema string) ([]*snapshot.Request, error) {
-	query := fmt.Sprintf(`SELECT schema_name,table_names,status,errors FROM %s
+	query := fmt.Sprintf(`SELECT schema_name,table_names,status,mode,errors FROM %s
 	WHERE schema_name = $1 ORDER BY req_id ASC LIMIT %d`, snapshotsTable(), queryLimit)
 	rows, err := s.conn.Query(ctx, query, schema)
 	if err != nil {
@@ -96,7 +96,7 @@ func (s *Store) GetSnapshotRequestsBySchema(ctx context.Context, schema string) 
 	snapshotRequests := []*snapshot.Request{}
 	for rows.Next() {
 		req := &snapshot.Request{}
-		if err := rows.Scan(&req.Schema, &req.Tables, &req.Status, &req.Errors); err != nil {
+		if err := rows.Scan(&req.Schema, &req.Tables, &req.Status, &req.Mode, &req.Errors); err != nil {
 			return nil, fmt.Errorf("scanning snapshot request row: %w", err)
 		}
 
@@ -120,10 +120,20 @@ func (s *Store) createTable(ctx context.Context) error {
 	created_at TIMESTAMP WITH TIME ZONE,
 	updated_at TIMESTAMP WITH TIME ZONE,
 	status TEXT CHECK (status IN ('requested', 'in progress', 'completed')),
+	mode TEXT NOT NULL DEFAULT 'data' CHECK (mode IN ('data', 'schema-only')),
 	errors JSONB )`, snapshotsTable())
 	_, err = s.conn.Exec(ctx, createTableQuery)
 	if err != nil {
 		return fmt.Errorf("error creating snapshots postgres table: %w", err)
+	}
+
+	// upgrade tables created before the mode column existed; all requests
+	// recorded back then were data snapshot requests
+	addModeColumnQuery := fmt.Sprintf(`ALTER TABLE %s
+	ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'data' CHECK (mode IN ('data', 'schema-only'))`, snapshotsTable())
+	_, err = s.conn.Exec(ctx, addModeColumnQuery)
+	if err != nil {
+		return fmt.Errorf("error adding mode column to snapshots postgres table: %w", err)
 	}
 
 	uniqueIndexQuery := fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS schema_table_status_unique_index
