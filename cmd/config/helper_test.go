@@ -81,12 +81,12 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 							DumpDebugFile:            "pg_dump.sql",
 							ExcludedSecurityLabels:   []string{"anon"},
 							RefreshMaterializedViews: true,
-							IndexConstraintSessionSettings: map[string]string{
-								"maintenance_work_mem":             "4GB",
-								"max_parallel_maintenance_workers": "4",
-								"synchronous_commit":               "off",
-								"statement_timeout":                "0",
-								"lock_timeout":                     "0",
+							IndexConstraintSessionSettings: []string{
+								"maintenance_work_mem=4GB",
+								"max_parallel_maintenance_workers=4",
+								"synchronous_commit=off",
+								"statement_timeout=0",
+								"lock_timeout=0",
 							},
 						},
 					},

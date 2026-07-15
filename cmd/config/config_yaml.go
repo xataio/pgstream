@@ -120,17 +120,17 @@ type SnapshotSchemaConfig struct {
 }
 
 type PgDumpPgRestoreConfig struct {
-	CleanTargetDB                  bool              `mapstructure:"clean_target_db" yaml:"clean_target_db"`
-	CreateTargetDB                 bool              `mapstructure:"create_target_db" yaml:"create_target_db"`
-	IncludeGlobalDBObjects         bool              `mapstructure:"include_global_db_objects" yaml:"include_global_db_objects"`
-	Role                           string            `mapstructure:"role" yaml:"role"`
-	RolesSnapshotMode              string            `mapstructure:"roles_snapshot_mode" yaml:"roles_snapshot_mode"`
-	NoOwner                        bool              `mapstructure:"no_owner" yaml:"no_owner"`
-	NoPrivileges                   bool              `mapstructure:"no_privileges" yaml:"no_privileges"`
-	DumpFile                       string            `mapstructure:"dump_file" yaml:"dump_file"`
-	ExcludedSecurityLabels         []string          `mapstructure:"excluded_security_labels" yaml:"excluded_security_labels"`
-	RefreshMaterializedViews       bool              `mapstructure:"refresh_materialized_views" yaml:"refresh_materialized_views"`
-	IndexConstraintSessionSettings map[string]string `mapstructure:"index_constraint_session_settings" yaml:"index_constraint_session_settings"`
+	CleanTargetDB                  bool     `mapstructure:"clean_target_db" yaml:"clean_target_db"`
+	CreateTargetDB                 bool     `mapstructure:"create_target_db" yaml:"create_target_db"`
+	IncludeGlobalDBObjects         bool     `mapstructure:"include_global_db_objects" yaml:"include_global_db_objects"`
+	Role                           string   `mapstructure:"role" yaml:"role"`
+	RolesSnapshotMode              string   `mapstructure:"roles_snapshot_mode" yaml:"roles_snapshot_mode"`
+	NoOwner                        bool     `mapstructure:"no_owner" yaml:"no_owner"`
+	NoPrivileges                   bool     `mapstructure:"no_privileges" yaml:"no_privileges"`
+	DumpFile                       string   `mapstructure:"dump_file" yaml:"dump_file"`
+	ExcludedSecurityLabels         []string `mapstructure:"excluded_security_labels" yaml:"excluded_security_labels"`
+	RefreshMaterializedViews       bool     `mapstructure:"refresh_materialized_views" yaml:"refresh_materialized_views"`
+	IndexConstraintSessionSettings []string `mapstructure:"index_constraint_session_settings" yaml:"index_constraint_session_settings"`
 }
 
 type ReplicationConfig struct {

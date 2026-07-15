@@ -10,13 +10,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 
-	"github.com/lib/pq"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
 	loglib "github.com/xataio/pgstream/pkg/log"
@@ -52,9 +49,9 @@ type SnapshotGenerator struct {
 	// restored. Disabled by default since refreshing can be expensive on large
 	// views.
 	refreshMaterializedViews bool
-	// indexConstraintSessionSettings contains SET statements applied only to
+	// indexConstraintSessionSettings are applied through PGOPTIONS only to
 	// index and constraint restore sessions.
-	indexConstraintSessionSettings []byte
+	indexConstraintSessionSettings []string
 	// restoreToWAL indicates that pgRestoreFn converts the dump into WAL events
 	// instead of executing it in a PostgreSQL session.
 	restoreToWAL bool
@@ -90,9 +87,9 @@ type Config struct {
 	// VIEW ... WITH DATA) after the table data has been restored. Disabled by
 	// default since refreshing can be expensive on large views.
 	RefreshMaterializedViews bool
-	// Session settings applied only while restoring indexes and constraints.
-	// An empty map preserves PostgreSQL's existing session defaults.
-	IndexConstraintSessionSettings map[string]string
+	// Session settings in name=value format applied only while restoring indexes
+	// and constraints. An empty list preserves the existing behavior.
+	IndexConstraintSessionSettings []string
 }
 
 type Option func(s *SnapshotGenerator)
@@ -117,11 +114,6 @@ const (
 // NewSnapshotGenerator will return a postgres schema snapshot generator that
 // uses pg_dump and pg_restore to sync the schema of two postgres databases
 func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*SnapshotGenerator, error) {
-	indexConstraintSessionSettings, err := buildSessionSettingsDump(c.IndexConstraintSessionSettings)
-	if err != nil {
-		return nil, err
-	}
-
 	sourceConnPool, err := pglib.NewConnPool(ctx, c.SourcePGURL)
 	if err != nil {
 		return nil, err
@@ -140,7 +132,7 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		sourceQuerier:                  sourceConnPool,
 		optionGenerator:                newOptionGenerator(sourceConnPool, c),
 		refreshMaterializedViews:       c.RefreshMaterializedViews,
-		indexConstraintSessionSettings: indexConstraintSessionSettings,
+		indexConstraintSessionSettings: c.IndexConstraintSessionSettings,
 	}
 
 	for _, opt := range opts {
@@ -365,67 +357,14 @@ func isConflictTargetConstraint(block string) bool {
 
 func (s *SnapshotGenerator) restoreIndicesAndConstraints(ctx context.Context, dump []byte, ss *snapshot.Snapshot) error {
 	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
+	opts := s.optionGenerator.pgrestoreOptions()
 	if !s.restoreToWAL {
-		dump = prependSessionSettings(dump, s.indexConstraintSessionSettings)
+		opts.SessionSettings = s.indexConstraintSessionSettings
 	}
 	if s.snapshotTracker != nil {
-		return s.restoreIndicesWithTracking(ctx, dump)
+		return s.restoreIndicesWithTracking(ctx, opts, dump)
 	}
-	return s.restoreDump(ctx, dump)
-}
-
-var sessionSettingNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$`)
-
-func buildSessionSettingsDump(settings map[string]string) ([]byte, error) {
-	if len(settings) == 0 {
-		return nil, nil
-	}
-
-	names := make([]string, 0, len(settings))
-	for name := range settings {
-		if !sessionSettingNamePattern.MatchString(name) {
-			return nil, fmt.Errorf("invalid index/constraint session setting name %q", name)
-		}
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	var dump strings.Builder
-	for _, name := range names {
-		fmt.Fprintf(&dump, "SET %s = %s;\n", name, pq.QuoteLiteral(settings[name]))
-	}
-	dump.WriteString("\n")
-	return []byte(dump.String()), nil
-}
-
-func prependSessionSettings(dump, settings []byte) []byte {
-	if len(dump) == 0 || len(settings) == 0 {
-		return dump
-	}
-
-	lines := bytes.SplitAfter(dump, []byte("\n"))
-	result := make([]byte, 0, len(dump)+len(settings))
-	inserted := false
-	for i := 0; i < len(lines); i++ {
-		line := lines[i]
-		result = append(result, line...)
-		if bytes.HasPrefix(bytes.TrimSpace(line), []byte(`\connect`)) {
-			if !bytes.HasSuffix(line, []byte("\n")) {
-				result = append(result, '\n')
-			}
-			for i+1 < len(lines) && len(bytes.TrimSpace(lines[i+1])) == 0 {
-				i++
-				result = append(result, lines[i]...)
-			}
-			result = append(result, settings...)
-			inserted = true
-		}
-	}
-	if inserted {
-		return result
-	}
-
-	return append(append(make([]byte, 0, len(settings)+len(dump)), settings...), dump...)
+	return s.restoreDumpWithOptions(ctx, opts, dump)
 }
 
 func (s *SnapshotGenerator) Close() error {
@@ -562,11 +501,15 @@ func (s *SnapshotGenerator) restoreSchemas(ctx context.Context, schemaTables map
 }
 
 func (s *SnapshotGenerator) restoreDump(ctx context.Context, dump []byte) error {
+	return s.restoreDumpWithOptions(ctx, s.optionGenerator.pgrestoreOptions(), dump)
+}
+
+func (s *SnapshotGenerator) restoreDumpWithOptions(ctx context.Context, opts pglib.PGRestoreOptions, dump []byte) error {
 	if len(dump) == 0 {
 		return nil
 	}
 
-	_, err := s.pgRestoreFn(ctx, s.optionGenerator.pgrestoreOptions(), dump)
+	_, err := s.pgRestoreFn(ctx, opts, dump)
 	pgrestoreErr := &pglib.PGRestoreErrors{}
 	if err != nil {
 		switch {
@@ -933,7 +876,7 @@ func (s *SnapshotGenerator) getDumpFileName(suffix string) string {
 	return baseName + suffix + fileExtension
 }
 
-func (s *SnapshotGenerator) restoreIndicesWithTracking(ctx context.Context, dump []byte) error {
+func (s *SnapshotGenerator) restoreIndicesWithTracking(ctx context.Context, opts pglib.PGRestoreOptions, dump []byte) error {
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	trackingCtx, cancel := context.WithCancel(ctx)
@@ -942,7 +885,7 @@ func (s *SnapshotGenerator) restoreIndicesWithTracking(ctx context.Context, dump
 		defer wg.Done()
 		s.snapshotTracker.trackIndexesCreation(trackingCtx)
 	}()
-	err := s.restoreDump(ctx, dump)
+	err := s.restoreDumpWithOptions(ctx, opts, dump)
 	// wait for the tracking to finish once the restore is done
 	cancel()
 	wg.Wait()

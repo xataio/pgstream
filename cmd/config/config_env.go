@@ -343,7 +343,7 @@ func parseSchemaSnapshotConfig(pgurl string) (*snapshotbuilder.SchemaSnapshotCon
 			NoPrivileges:                   viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_NO_PRIVILEGES"),
 			ExcludedSecurityLabels:         viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_SECURITY_LABELS"),
 			RefreshMaterializedViews:       viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_REFRESH_MATERIALIZED_VIEWS"),
-			IndexConstraintSessionSettings: viper.GetStringMapString("PGSTREAM_POSTGRES_SNAPSHOT_INDEX_CONSTRAINT_SESSION_SETTINGS"),
+			IndexConstraintSessionSettings: viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_INDEX_CONSTRAINT_SESSION_SETTINGS"),
 		},
 	}, nil
 }
