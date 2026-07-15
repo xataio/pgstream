@@ -84,9 +84,19 @@ func (o *optionGenerator) pgrestoreOptions() pglib.PGRestoreOptions {
 	}
 }
 
-func (o *optionGenerator) pgdumpOptions(ctx context.Context, schemaTables map[string][]string, excludedTables map[string][]string) (*pglib.PGDumpOptions, error) {
-	schemas := make([]string, 0, len(schemaTables))
-	for _, schema := range slices.Sorted(maps.Keys(schemaTables)) {
+func (o *optionGenerator) pgdumpOptions(ctx context.Context, schemaTables, schemaOnlyTables, excludedTables map[string][]string) (*pglib.PGDumpOptions, error) {
+	// the dump scope is the union of the data snapshot tables and the
+	// schema-only tables
+	scopeTables := make(map[string][]string, len(schemaTables)+len(schemaOnlyTables))
+	for schema, tables := range schemaTables {
+		scopeTables[schema] = tables
+	}
+	for schema, tables := range schemaOnlyTables {
+		scopeTables[schema] = mergeTables(scopeTables[schema], tables)
+	}
+
+	schemas := make([]string, 0, len(scopeTables))
+	for _, schema := range slices.Sorted(maps.Keys(scopeTables)) {
 		schemas = append(schemas, quoteSchema(schema))
 	}
 	opts := &pglib.PGDumpOptions{
@@ -101,7 +111,7 @@ func (o *optionGenerator) pgdumpOptions(ctx context.Context, schemaTables map[st
 		Role:             o.role,
 	}
 
-	if hasWildcardSchema(schemaTables) && !o.includeGlobalDBObjects {
+	if hasWildcardSchema(scopeTables) && !o.includeGlobalDBObjects {
 		// wildcard schema without global objects: discover all user schemas
 		// and use schema inclusion filter to exclude global objects
 		allSchemas, err := o.discoverAllSchemas(ctx)
@@ -109,7 +119,7 @@ func (o *optionGenerator) pgdumpOptions(ctx context.Context, schemaTables map[st
 			return nil, err
 		}
 		opts.Schemas = allSchemas
-	} else if hasWildcardSchema(schemaTables) {
+	} else if hasWildcardSchema(scopeTables) {
 		// wildcard schema with global objects: no filter needed, just
 		// exclude the pgstream internal schema
 		opts.Schemas = nil
@@ -135,18 +145,27 @@ func (o *optionGenerator) pgdumpOptions(ctx context.Context, schemaTables map[st
 	// objects for the schema in question. If we use the tables filter, only
 	// those tables are dumped, and any related non table objects will not be
 	// dumped, causing the restore to fail due to missing related objects.
-	for _, schema := range slices.Sorted(maps.Keys(schemaTables)) {
-		tables := schemaTables[schema]
-		if hasWildcardTable(tables) {
-			// if there's the wildcard table, we don't need to add excluded
-			// tables, since they are all included.
-			continue
+	// A wildcard schema in the schema-only tables puts every table in the
+	// dump scope, so no excludes need to be computed at all.
+	if !hasWildcardSchema(schemaOnlyTables) {
+		for _, schema := range slices.Sorted(maps.Keys(scopeTables)) {
+			tables := scopeTables[schema]
+			if hasWildcardTable(tables) {
+				// if there's the wildcard table, we don't need to add excluded
+				// tables, since they are all included.
+				continue
+			}
+			if hasWildcardSchema(schemaTables) && schemaTables[schema] == nil {
+				// the schema is only listed in the schema-only tables, and the
+				// wildcard data schema already puts all its tables in scope
+				continue
+			}
+			schemaExcludeTables, err := o.pgdumpExcludedTables(ctx, schema, tables)
+			if err != nil {
+				return nil, err
+			}
+			opts.ExcludeTables = appendMissing(opts.ExcludeTables, schemaExcludeTables...)
 		}
-		schemaExcludeTables, err := o.pgdumpExcludedTables(ctx, schema, tables)
-		if err != nil {
-			return nil, err
-		}
-		opts.ExcludeTables = appendMissing(opts.ExcludeTables, schemaExcludeTables...)
 	}
 
 	for _, schema := range slices.Sorted(maps.Keys(excludedTables)) {

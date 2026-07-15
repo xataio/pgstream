@@ -9,3 +9,9 @@ transformations:
           dynamic_parameters:
             gender:
               column: sex
+        document_path:
+          name: encrypted_aes_siv
+          parameters:
+            # example key only — generate your own with `openssl rand -hex 64`
+            key_hex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+            associated_data: "public.test.document_path"

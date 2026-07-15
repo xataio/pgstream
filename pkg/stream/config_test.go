@@ -16,10 +16,12 @@ func TestConfig_ReplicationTableSelection(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		cfg         *Config
-		wantInclude []string
-		wantExclude []string
+		name           string
+		cfg            *Config
+		wantInclude    []string
+		wantExclude    []string
+		wantInScope    [][2]string
+		wantOutOfScope [][2]string
 	}{
 		{
 			name: "no filter configured returns unfiltered selection",
@@ -49,6 +51,48 @@ func TestConfig_ReplicationTableSelection(t *testing.T) {
 			},
 			wantExclude: []string{"public.audit_log"},
 		},
+		{
+			name: "schema-only tables out of scope in exclude mode",
+			cfg: &Config{
+				Processor: ProcessorConfig{
+					Filter: &filter.Config{
+						ExcludeTables:    []string{"public.secrets"},
+						SchemaOnlyTables: []string{"public.audit_log"},
+					},
+				},
+			},
+			wantExclude:    []string{"public.secrets"},
+			wantInScope:    [][2]string{{"public", "users"}},
+			wantOutOfScope: [][2]string{{"public", "secrets"}, {"public", "audit_log"}},
+		},
+		{
+			name: "exact include entry beats schema-only wildcard",
+			cfg: &Config{
+				Processor: ProcessorConfig{
+					Filter: &filter.Config{
+						IncludeTables:    []string{"public.users"},
+						SchemaOnlyTables: []string{"public.*"},
+					},
+				},
+			},
+			wantInclude:    []string{"public.users"},
+			wantInScope:    [][2]string{{"public", "users"}},
+			wantOutOfScope: [][2]string{{"public", "orders"}},
+		},
+		{
+			name: "schema-only table beats wildcard include",
+			cfg: &Config{
+				Processor: ProcessorConfig{
+					Filter: &filter.Config{
+						IncludeTables:    []string{"public.*"},
+						SchemaOnlyTables: []string{"public.audit_log"},
+					},
+				},
+			},
+			wantInclude:    []string{"public.*"},
+			wantInScope:    [][2]string{{"public", "users"}},
+			wantOutOfScope: [][2]string{{"public", "audit_log"}},
+		},
 	}
 
 	for _, tc := range tests {
@@ -57,6 +101,12 @@ func TestConfig_ReplicationTableSelection(t *testing.T) {
 			got := tc.cfg.ReplicationTableSelection()
 			require.Equal(t, tc.wantInclude, got.Include())
 			require.Equal(t, tc.wantExclude, got.Exclude())
+			for _, st := range tc.wantInScope {
+				require.True(t, got.IsTableInScope(st[0], st[1]), "expected %s.%s to be in scope", st[0], st[1])
+			}
+			for _, st := range tc.wantOutOfScope {
+				require.False(t, got.IsTableInScope(st[0], st[1]), "expected %s.%s to be out of scope", st[0], st[1])
+			}
 		})
 	}
 }
@@ -97,6 +147,76 @@ func TestConfig_IsValid_ValidatesTableSelections(t *testing.T) {
 		err := cfg.IsValid()
 		require.Error(t, err)
 		require.ErrorContains(t, err, "replication table selection")
+	})
+
+	t.Run("malformed snapshot adapter SchemaOnlyTables surfaces from IsValid", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Listener: ListenerConfig{
+				Postgres: &PostgresListenerConfig{
+					URL: "postgres://source",
+					Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+						Adapter: adapter.SnapshotConfig{SchemaOnlyTables: []string{"too.many.parts"}},
+					},
+				},
+			},
+			Processor: baseProcessor,
+		}
+		err := cfg.IsValid()
+		require.Error(t, err)
+		require.ErrorContains(t, err, "snapshot schema-only table selection")
+	})
+
+	t.Run("malformed filter SchemaOnlyTables surfaces from IsValid", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Listener: baseListener,
+			Processor: ProcessorConfig{
+				Stdout: &StdoutProcessorConfig{},
+				Filter: &filter.Config{SchemaOnlyTables: []string{"too.many.parts"}},
+			},
+		}
+		err := cfg.IsValid()
+		require.Error(t, err)
+		require.ErrorContains(t, err, "replication schema-only table selection")
+	})
+
+	t.Run("wildcard schema with specific table in snapshot SchemaOnlyTables surfaces from IsValid", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Listener: ListenerConfig{
+				Postgres: &PostgresListenerConfig{
+					URL: "postgres://source",
+					Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+						Adapter: adapter.SnapshotConfig{SchemaOnlyTables: []string{"*.audit_log"}},
+						Schema:  &snapshotbuilder.SchemaSnapshotConfig{},
+					},
+				},
+			},
+			Processor: baseProcessor,
+		}
+		err := cfg.IsValid()
+		require.Error(t, err)
+		require.ErrorContains(t, err, "wildcard schema must be used with wildcard table")
+	})
+
+	t.Run("snapshot SchemaOnlyTables without schema snapshot surfaces from IsValid", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			Listener: ListenerConfig{
+				Postgres: &PostgresListenerConfig{
+					URL: "postgres://source",
+					Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+						Adapter: adapter.SnapshotConfig{SchemaOnlyTables: []string{"public.audit_log"}},
+						Data:    &pgsnapshotgenerator.Config{URL: "postgres://source"},
+					},
+				},
+			},
+			Processor: baseProcessor,
+		}
+		err := cfg.IsValid()
+		require.Error(t, err)
+		require.ErrorContains(t, err, "schema-only tables require a schema snapshot")
 	})
 
 	t.Run("well-formed selections pass IsValid", func(t *testing.T) {
@@ -229,6 +349,22 @@ func TestConfig_SnapshotTableSelection(t *testing.T) {
 			},
 			wantInclude: []string{"public.users"},
 			wantExclude: []string{"public.audit_log"},
+		},
+		{
+			name: "schema-only tables added to include list",
+			cfg: &Config{
+				Listener: ListenerConfig{
+					Postgres: &PostgresListenerConfig{
+						Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+							Adapter: adapter.SnapshotConfig{
+								Tables:           []string{"public.users"},
+								SchemaOnlyTables: []string{"public.audit_log"},
+							},
+						},
+					},
+				},
+			},
+			wantInclude: []string{"public.users", "public.audit_log"},
 		},
 	}
 

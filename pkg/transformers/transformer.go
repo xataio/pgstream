@@ -59,6 +59,7 @@ const (
 	JSON                   TransformerType = "json"
 	Hstore                 TransformerType = "hstore"
 	PGAnonymizer           TransformerType = "pg_anonymizer"
+	EncryptedAESSIV        TransformerType = "encrypted_aes_siv"
 )
 
 type SupportedDataType string
