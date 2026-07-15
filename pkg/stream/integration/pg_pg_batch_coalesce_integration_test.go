@@ -27,7 +27,7 @@ func Test_PostgresToPostgres_BatchCoalesce(t *testing.T) {
 	}
 
 	cfg := &stream.Config{
-		Listener: testPostgresListenerCfg(),
+		Listener: testPostgresListenerCfg(t),
 		Processor: stream.ProcessorConfig{
 			Postgres: &stream.PostgresProcessorConfig{
 				BatchWriter: postgres.Config{
@@ -195,7 +195,7 @@ func Test_PostgresToPostgres_BatchCoalesce_WithCompositeKey(t *testing.T) {
 	}
 
 	cfg := &stream.Config{
-		Listener: testPostgresListenerCfg(),
+		Listener: testPostgresListenerCfg(t),
 		Processor: stream.ProcessorConfig{
 			Postgres: &stream.PostgresProcessorConfig{
 				BatchWriter: postgres.Config{
@@ -270,7 +270,7 @@ func Test_PostgresToPostgres_BatchCoalesce_OnConflict(t *testing.T) {
 	}
 
 	cfg := &stream.Config{
-		Listener: testPostgresListenerCfg(),
+		Listener: testPostgresListenerCfg(t),
 		Processor: stream.ProcessorConfig{
 			Postgres: &stream.PostgresProcessorConfig{
 				BatchWriter: postgres.Config{

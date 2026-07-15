@@ -78,6 +78,18 @@ func TestTransformers_ConcurrentTransform(t *testing.T) {
 		transformers.String: {
 			input: "hello world",
 		},
+		transformers.EncryptedAESSIV: {
+			params: transformers.ParameterValues{
+				// bytes 0x00..0x3f — a fixed, obviously-test 64-byte key
+				"key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+			},
+			input: "hello world",
+			validate: func(t *testing.T, got any) {
+				// AES-SIV is deterministic: every call from every goroutine
+				// must produce this exact token
+				require.Equal(t, "Hc5d96xIxu2ute1RbFuenEftGxw-P__m1Vv_", got)
+			},
+		},
 		transformers.GreenmaskString: {
 			params:             transformers.ParameterValues{"min_length": 2, "max_length": 12},
 			input:              "hello world",

@@ -45,7 +45,14 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...WriterOption) (
 		dmlAdapter: dml,
 	}
 
-	bw.batchSender, err = batch.NewSender(ctx, &config.BatchConfig, bw.sendBatch, w.logger)
+	// The ordered batch writer (replication path) must send strictly in order,
+	// so it never uses the send-drainer pool, regardless of the SendConcurrency
+	// carried by the shared Config: in snapshot_and_replication mode the
+	// bulk-ingest snapshot writer and this writer are built from the same
+	// postgres.Config, and bulk ingest defaults SendConcurrency to >1.
+	batchConfig := config.BatchConfig
+	batchConfig.SendConcurrency = 1
+	bw.batchSender, err = batch.NewSender(ctx, &batchConfig, bw.sendBatch, w.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -87,9 +94,7 @@ func (w *BatchWriter) Name() string {
 
 func (w *BatchWriter) Close() error {
 	w.logger.Debug("closing batch writer")
-	w.batchSender.Close()
-
-	return w.close()
+	return errors.Join(w.batchSender.Close(), w.close())
 }
 
 func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]) error {
@@ -144,6 +149,10 @@ func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]
 					if _, err := w.pgConn.Exec(ctx, q.sql, q.args...); err != nil {
 						w.logger.Error(err, "running DDL query", loglib.Fields{"query_sql": q.sql, "query_args": q.args})
 						if !w.isInternalError(err) {
+							if w.strictMode {
+								return fmt.Errorf("strict mode: stopping on non-internal DDL failure: %w", err)
+							}
+							w.recordDroppedQuery(q)
 							continue
 						}
 						return err
@@ -233,6 +242,7 @@ func (w *BatchWriter) flushQueries(ctx context.Context, queries []*query) error 
 
 func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*query, error) {
 	retryQueries := []*query{}
+	var droppedQuery *query
 	err := w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
 		if err := w.setReplicationRoleToReplica(ctx, tx); err != nil {
 			return err
@@ -241,13 +251,12 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 		for i, q := range queries {
 			if _, err := tx.Exec(ctx, q.sql, q.args...); err != nil {
 				w.logger.Error(err, "executing sql query", loglib.Fields{
-					"sql":      q.sql,
-					"args":     q.args,
-					"severity": "DATALOSS",
+					"sql":  q.sql,
+					"args": q.args,
 				})
-				// if a query returns an error, it will abort the tx. Log it as
-				// dataloss and remove it from the list of queries to be
-				// retried.
+				// if a query returns an error, it will abort the tx. Remove it
+				// from the list of queries to be retried.
+				droppedQuery = q
 				retryQueries = removeIndex(queries, i)
 				return err
 			}
@@ -259,6 +268,13 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 		// if there was an internal error in the tx, there's no point in
 		// retrying, return error and stop processing.
 		return nil, err
+	}
+
+	if err != nil && droppedQuery != nil {
+		if w.strictMode {
+			return nil, fmt.Errorf("strict mode: stopping on non-internal query failure: %w", err)
+		}
+		w.recordDroppedQuery(droppedQuery)
 	}
 
 	// if there were no errors or no internal errors in the tx, return the

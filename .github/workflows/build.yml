@@ -124,6 +124,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test, integration-test, lint, license-check]
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write # create the GitHub release and upload artifacts
+      packages: write # push images to ghcr.io
+      id-token: write # request the OIDC token used to sign attestations
+      attestations: write # write GitHub artifact attestations
     env:
       DOCKER_CLI_EXPERIMENTAL: "enabled"
     steps:
@@ -152,7 +157,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: latest
+          version: "~> v2"
           args: release --clean
         env:
           # We use two github tokens here:
@@ -163,3 +168,44 @@ jobs:
           TAP_GITHUB_TOKEN: ${{ secrets.GIT_TOKEN }}
           GITHUB_USERNAME: ${{ github.repository_owner }}
           DOCKER_USERNAME: ghcr.io/${{ github.repository_owner }}
+
+      # Signed build provenance for the released binaries/archives.
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: "dist/pgstream.*"
+
+      # Resolve the pushed multi-arch manifest digest so the image attestations
+      # cover the exact content (image tags have no "v" prefix).
+      - name: Resolve image digest
+        id: image
+        run: |
+          NAME="ghcr.io/${{ github.repository_owner }}/pgstream"
+          DIGEST="$(docker buildx imagetools inspect "${NAME}:${GITHUB_REF_NAME#v}" --format '{{.Manifest.Digest}}')"
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
+      # Signed build provenance for the container image, pushed to ghcr.io.
+      - name: Attest container image provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+
+      # Generate an SPDX SBOM for the image (anchore/sbom-action manages syft
+      # internally) and attach it as a signed attestation, pushed to ghcr.io.
+      - name: Generate container image SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.image.outputs.name }}@${{ steps.image.outputs.digest }}
+          format: spdx-json
+          output-file: pgstream.image.sbom.spdx.json
+
+      - name: Attest container image SBOM
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          sbom-path: pgstream.image.sbom.spdx.json
+          push-to-registry: true

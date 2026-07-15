@@ -34,7 +34,7 @@ type Option func(*BatchIndexer)
 
 type batchSender interface {
 	SendMessage(context.Context, *batch.WALMessage[*msg]) error
-	Close()
+	Close() error
 }
 
 // NewBatchIndexer returns a processor of wal events that indexes data into the
@@ -94,10 +94,12 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, event *wal.Event) (e
 		}
 	}()
 
-	i.logger.Trace("search batch indexer: received wal event", loglib.Fields{
-		"wal_data":            event.Data,
-		"wal_commit_position": event.CommitPosition,
-	})
+	if i.logger.IsTraceEnabled() {
+		i.logger.Trace("search batch indexer: received wal event", loglib.Fields{
+			"wal_data":            event.Data,
+			"wal_commit_position": event.CommitPosition,
+		})
+	}
 
 	msg, err := i.adapter.walEventToMsg(event)
 	if err != nil {
@@ -120,8 +122,7 @@ func (i *BatchIndexer) Name() string {
 }
 
 func (i *BatchIndexer) Close() error {
-	i.batchSender.Close()
-	return nil
+	return i.batchSender.Close()
 }
 
 func (i *BatchIndexer) sendBatch(ctx context.Context, batch *batch.Batch[*msg]) error {

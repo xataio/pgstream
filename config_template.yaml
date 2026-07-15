@@ -64,6 +64,7 @@ source:
         max_retries: 5 # maximum number of retries
         initial_interval: 1000 # initial interval in milliseconds
         max_interval: 60000 # maximum interval in milliseconds
+        max_elapsed_time: 0 # maximum total retry time in milliseconds (0 = unlimited)
       constant:
         max_retries: 5 # maximum number of retries
         interval: 1000 # interval in milliseconds
@@ -87,6 +88,7 @@ target:
     on_conflict_action: "nothing" # options are update, nothing or error. Defaults to error
     bulk_ingest:
       enabled: true # whether to enable bulk ingest on the target postgres, using COPY FROM (supported for insert only workloads)
+      copy_workers: 8 # number of concurrent COPY streams per table when bulk ingesting. Defaults to 8. Only applies when bulk_ingest.enabled is true.
   kafka:
     servers: ["localhost:9092"]
     topic:
@@ -124,6 +126,7 @@ target:
         max_retries: 5 # maximum number of retries
         initial_interval: 1000 # initial interval in milliseconds
         max_interval: 60000 # maximum interval in milliseconds
+        max_elapsed_time: 0 # maximum total retry time in milliseconds (0 = unlimited)
       constant:
         max_retries: 5 # maximum number of retries
         interval: 1000 # interval in milliseconds

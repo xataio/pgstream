@@ -22,6 +22,14 @@ type Config struct {
 	// snapshot generator can open to Postgres. This setting is optional.
 	// Defaults to 50
 	MaxConnections uint
+	// RawJSONValues makes the snapshot read json/jsonb column values as their
+	// raw text representation (Go string) instead of unmarshalling them into
+	// Go values. Unmarshalling is lossy: the JSON null value ('null'::jsonb)
+	// becomes Go nil, indistinguishable from SQL NULL, so it would get written
+	// to postgres targets as SQL NULL. Off by default since other targets
+	// expect unmarshalled values. This setting is derived from the stream
+	// configuration for postgres targets, not set by users.
+	RawJSONValues bool
 }
 
 const (
@@ -59,6 +67,14 @@ func (c *Config) snapshotWorkers() uint {
 	}
 	return defaultSnapshotWorkers
 }
+
+// EffectiveSnapshotWorkers returns the number of snapshots processed
+// concurrently once the default is applied.
+func (c *Config) EffectiveSnapshotWorkers() uint { return c.snapshotWorkers() }
+
+// EffectiveTableWorkers returns the number of concurrent workers per table once
+// the default is applied.
+func (c *Config) EffectiveTableWorkers() uint { return c.tableWorkers() }
 
 func (c *Config) maxConnections() uint {
 	if c.MaxConnections > 0 {

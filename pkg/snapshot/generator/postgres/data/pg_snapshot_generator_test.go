@@ -1178,6 +1178,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			}
 			diff := cmp.Diff(events, tc.wantEvents,
 				cmpopts.IgnoreFields(wal.Data{}, "Timestamp"),
+				cmpopts.IgnoreUnexported(wal.Data{}),
 				cmpopts.SortSlices(func(a, b *wal.Event) bool { return a.Data.Table < b.Data.Table }))
 			require.Empty(t, diff, fmt.Sprintf("got: \n%v, \nwant \n%v, \ndiff: \n%s", events, tc.wantEvents, diff))
 		})
@@ -1701,6 +1702,7 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 			}
 			diff := cmp.Diff(events, tc.wantEvents,
 				cmpopts.IgnoreFields(wal.Data{}, "Timestamp"),
+				cmpopts.IgnoreUnexported(wal.Data{}),
 				cmpopts.SortSlices(func(a, b *wal.Event) bool { return a.Data.Table < b.Data.Table }))
 			require.Empty(t, diff, fmt.Sprintf("got: \n%v, \nwant \n%v, \ndiff: \n%s", events, tc.wantEvents, diff))
 		})

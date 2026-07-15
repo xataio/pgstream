@@ -137,6 +137,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 				return fmt.Errorf("error creating snapshot processor: %w", err)
 			}
 
+			config.applySnapshotRawJSONValues()
 			snapshotGenerator, err := snapshotbuilder.NewSnapshotGenerator(
 				ctx,
 				config.Listener.Postgres.Snapshot,
