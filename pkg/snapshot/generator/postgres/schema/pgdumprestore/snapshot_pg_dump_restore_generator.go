@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -562,21 +561,19 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			skipLegacyPLPGSQLHandlerFunction = !strings.HasSuffix(line, ";")
 			continue
 		case functionParser.inProgress || isSQLFunctionStart(line):
-			if functionParser.addLine(line) {
-				statement := strings.Join(functionParser.lines, "\n")
-				if functionParser.sqlStandardBody {
+			if statement, deferred, done := functionParser.addLine(line); done {
+				if deferred {
 					// functions with SQL-standard bodies (BEGIN ATOMIC/RETURN)
 					// are parsed and validated at creation time, so they can
 					// rely on indices and constraints existing (e.g. GROUP BY
 					// primary key functional dependency) and must be restored
 					// after them, along with the views
-					viewsDump.WriteString(statement)
+					viewsDump.WriteString(strings.Join(statement, "\n"))
 					viewsDump.WriteString("\n\n")
 				} else {
-					filteredDump.WriteString(statement)
+					filteredDump.WriteString(strings.Join(statement, "\n"))
 					filteredDump.WriteString("\n")
 				}
-				functionParser.reset()
 			}
 		case strings.HasPrefix(line, "SECURITY LABEL") &&
 			isSecurityLabelForExcludedProvider(line, s.excludedSecurityLabels):
@@ -773,76 +770,70 @@ func isSQLFunctionStart(line string) bool {
 		strings.HasPrefix(line, "CREATE OR REPLACE PROCEDURE ")
 }
 
-var dollarQuoteRegex = regexp.MustCompile(`\$[A-Za-z_0-9]*\$`)
-
-// sqlFunctionParser buffers a CREATE FUNCTION/PROCEDURE statement to
-// determine where it needs to be restored. Functions with SQL-standard bodies
-// (BEGIN ATOMIC or RETURN) are parsed and validated at creation time, unlike
-// classic string-quoted bodies which are only parsed on execution.
+// sqlFunctionParser buffers the beginning of a CREATE FUNCTION/PROCEDURE
+// statement until pg_dump's body introduction reveals its style:
+//
+//   - `AS ...` (classic string/dollar quoted body): the body is only parsed
+//     on execution, so the statement can be restored in place. The parser
+//     stops and hands the buffered lines back; the rest of the statement
+//     doesn't need buffering and flows through the regular dump parsing,
+//     unchanged.
+//   - `BEGIN ATOMIC <statements> END;` or `RETURN <expression>;`
+//     (SQL-standard body): the body is parsed and validated at creation time,
+//     so it can rely on indices and constraints existing (e.g. GROUP BY
+//     primary key functional dependency) and must be deferred. These bodies
+//     are deparsed plain SQL with no quoting, so the statement end can be
+//     detected without tracking dollar quotes.
+//
+// The lines between the header and the body introduction are attribute lines
+// (LANGUAGE, IMMUTABLE, SET, COST, ...) and cannot contain quoted bodies.
 type sqlFunctionParser struct {
-	inProgress      bool
-	lines           []string
-	inDollarQuotes  bool
-	dollarQuoteTag  string
-	atomicBody      bool
-	sqlStandardBody bool
+	inProgress bool
+	lines      []string
+	atomicBody bool
+	returnBody bool
 }
 
-// addLine buffers the line, returning true once the statement is complete.
-func (p *sqlFunctionParser) addLine(line string) (done bool) {
+// addLine buffers the line and reports whether the parser is finished with
+// the statement. Once done, statement holds the buffered lines and deferred
+// indicates whether they are a SQL-standard body function that needs to be
+// restored after indices and constraints.
+func (p *sqlFunctionParser) addLine(line string) (statement []string, deferred, done bool) {
 	p.inProgress = true
 	p.lines = append(p.lines, line)
-	p.updateDollarQuoteState(line)
-	if p.inDollarQuotes {
-		// the statement can only end outside of a dollar quoted body
-		return false
-	}
-
 	trimmedLine := strings.TrimSpace(line)
 	switch {
 	case p.atomicBody:
-		// SQL-standard body `BEGIN ATOMIC <statements> END;`; pg_dump places
-		// the closing END on its own line
-		return trimmedLine == "END;"
+		// pg_dump places the closing END of the atomic body on its own line
+		if trimmedLine == "END;" {
+			return p.finish(true)
+		}
+	case p.returnBody:
+		if strings.HasSuffix(line, ";") {
+			return p.finish(true)
+		}
 	case trimmedLine == "BEGIN ATOMIC":
 		p.atomicBody = true
-		p.sqlStandardBody = true
-		return false
-	default:
-		if strings.HasPrefix(trimmedLine, "RETURN ") || strings.HasPrefix(trimmedLine, "RETURN(") {
-			// SQL-standard body `RETURN <expression>;`
-			p.sqlStandardBody = true
+	case strings.HasPrefix(trimmedLine, "RETURN ") || strings.HasPrefix(trimmedLine, "RETURN("):
+		// the RETURNS clause of the header cannot match, since the first line
+		// of the statement always starts with CREATE
+		if strings.HasSuffix(line, ";") {
+			return p.finish(true)
 		}
-		return strings.HasSuffix(line, ";")
+		p.returnBody = true
+	case strings.HasPrefix(trimmedLine, "AS "),
+		strings.HasSuffix(line, ";"):
+		// classic quoted body or end of statement without a recognized
+		// SQL-standard body: restore in place
+		return p.finish(false)
 	}
+	return nil, false, false
 }
 
-func (p *sqlFunctionParser) reset() {
+func (p *sqlFunctionParser) finish(deferred bool) ([]string, bool, bool) {
+	statement := p.lines
 	*p = sqlFunctionParser{}
-}
-
-// updateDollarQuoteState tracks whether the parser is inside a dollar quoted
-// function body (e.g. $$...$$ or $_$...$_$) across lines.
-func (p *sqlFunctionParser) updateDollarQuoteState(line string) {
-	rest := line
-	for {
-		if p.inDollarQuotes {
-			idx := strings.Index(rest, p.dollarQuoteTag)
-			if idx == -1 {
-				return
-			}
-			rest = rest[idx+len(p.dollarQuoteTag):]
-			p.inDollarQuotes = false
-			continue
-		}
-		loc := dollarQuoteRegex.FindStringIndex(rest)
-		if loc == nil {
-			return
-		}
-		p.dollarQuoteTag = rest[loc[0]:loc[1]]
-		p.inDollarQuotes = true
-		rest = rest[loc[1]:]
-	}
+	return statement, deferred, true
 }
 
 func isLegacyPLPGSQLHandlerFunctionStart(line string) bool {
