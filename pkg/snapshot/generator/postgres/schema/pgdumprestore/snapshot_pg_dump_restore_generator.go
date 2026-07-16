@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -86,10 +87,14 @@ type Config struct {
 type Option func(s *SnapshotGenerator)
 
 type dump struct {
-	full                      []byte
-	filtered                  []byte
-	cleanupPart               []byte
-	indicesAndConstraints     []byte
+	full                  []byte
+	filtered              []byte
+	cleanupPart           []byte
+	indicesAndConstraints []byte
+	// views holds the statements that are validated against the catalog at
+	// creation time and can rely on indices and constraints existing (views,
+	// materialized views, _RETURN rules and functions with SQL-standard
+	// bodies), so they are restored after the indices and constraints.
 	views                     []byte
 	materializedViewRefreshes []byte
 	sequences                 []string
@@ -539,7 +544,10 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	materializedViews := []string{}
 	alterTable := ""
 	createEventTrigger := ""
-	createView := ""
+	createView := []string{}
+	createViewIsMaterialized := false
+	createRule := []string{}
+	functionParser := &sqlFunctionParser{}
 	materializedViewNames := map[string]struct{}{}
 	skipLegacyPLPGSQLHandlerFunction := false
 	for scanner.Scan() {
@@ -553,6 +561,23 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		case isLegacyPLPGSQLHandlerFunctionStart(line):
 			skipLegacyPLPGSQLHandlerFunction = !strings.HasSuffix(line, ";")
 			continue
+		case functionParser.inProgress || isSQLFunctionStart(line):
+			if functionParser.addLine(line) {
+				statement := strings.Join(functionParser.lines, "\n")
+				if functionParser.sqlStandardBody {
+					// functions with SQL-standard bodies (BEGIN ATOMIC/RETURN)
+					// are parsed and validated at creation time, so they can
+					// rely on indices and constraints existing (e.g. GROUP BY
+					// primary key functional dependency) and must be restored
+					// after them, along with the views
+					viewsDump.WriteString(statement)
+					viewsDump.WriteString("\n\n")
+				} else {
+					filteredDump.WriteString(statement)
+					filteredDump.WriteString("\n")
+				}
+				functionParser.reset()
+			}
 		case strings.HasPrefix(line, "SECURITY LABEL") &&
 			isSecurityLabelForExcludedProvider(line, s.excludedSecurityLabels):
 			// skip security labels if configured to do so for the specified providers
@@ -586,23 +611,44 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			eventTriggersDump.WriteString(line)
 			eventTriggersDump.WriteString("\n")
 
-		case strings.HasPrefix(line, "CREATE VIEW"),
-			strings.HasPrefix(line, "CREATE MATERIALIZED VIEW"):
-			if name, ok := materializedViewName(line); ok {
-				materializedViewNames[name] = struct{}{}
-				materializedViews = append(materializedViews, name)
+		case len(createView) > 0 || isViewStatementStart(line):
+			if len(createView) == 0 {
+				if name, ok := materializedViewName(line); ok {
+					materializedViewNames[name] = struct{}{}
+					materializedViews = append(materializedViews, name)
+				}
+				createViewIsMaterialized = strings.HasPrefix(line, "CREATE MATERIALIZED VIEW")
 			}
-			createView = line
-			fallthrough
-		case createView != "":
+			createView = append(createView, line)
 			if strings.HasSuffix(line, ";") {
-				viewsDump.WriteString(line)
-				viewsDump.WriteString("\n\n")
-				createView = ""
-				continue
+				statement := strings.Join(createView, "\n")
+				if !createViewIsMaterialized && isDummyViewStatement(createView) {
+					// pg_dump breaks circular view dependencies by emitting a
+					// dummy view (a bare SELECT of NULL casts with no FROM
+					// clause) upfront and the real definition (CREATE OR
+					// REPLACE VIEW) at the end of the dump. The dummy must be
+					// restored early so that objects in the main schema dump
+					// referencing the view row type (e.g. functions) can be
+					// created; it cannot depend on indices or constraints.
+					filteredDump.WriteString(statement)
+					filteredDump.WriteString("\n")
+				} else {
+					viewsDump.WriteString(statement)
+					viewsDump.WriteString("\n\n")
+				}
+				createView = []string{}
 			}
-			viewsDump.WriteString(line)
-			viewsDump.WriteString("\n")
+		case len(createRule) > 0 || strings.HasPrefix(line, `CREATE RULE "_RETURN" AS`):
+			// older pg_dump versions break circular view dependencies with a
+			// dummy table converted into a view by a _RETURN rule; the rule
+			// body is validated at creation time, so it is restored along
+			// with the views, after indices and constraints
+			createRule = append(createRule, line)
+			if strings.HasSuffix(line, ";") {
+				viewsDump.WriteString(strings.Join(createRule, "\n"))
+				viewsDump.WriteString("\n\n")
+				createRule = []string{}
+			}
 
 		case strings.Contains(line, `\connect`):
 			connectStatements = append(connectStatements, line)
@@ -691,6 +737,112 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 
 func isClusterOnAlterTable(line string) bool {
 	return strings.Contains(line, " CLUSTER ON ")
+}
+
+func isViewStatementStart(line string) bool {
+	return strings.HasPrefix(line, "CREATE VIEW ") ||
+		strings.HasPrefix(line, "CREATE OR REPLACE VIEW ") ||
+		strings.HasPrefix(line, "CREATE MATERIALIZED VIEW ")
+}
+
+// isDummyViewStatement returns true if the view statement matches the
+// placeholder pg_dump emits to break circular view dependencies: a bare
+// SELECT of NULL-cast columns with no FROM clause, e.g.
+//
+//	CREATE VIEW public.v AS
+//	SELECT
+//	    NULL::integer AS id,
+//	    NULL::text AS name;
+func isDummyViewStatement(lines []string) bool {
+	if len(lines) < 3 || strings.TrimSpace(lines[1]) != "SELECT" {
+		return false
+	}
+	for _, line := range lines[2:] {
+		column := strings.TrimSpace(strings.TrimRight(line, ";,"))
+		if !strings.HasPrefix(column, "NULL::") {
+			return false
+		}
+	}
+	return true
+}
+
+func isSQLFunctionStart(line string) bool {
+	return strings.HasPrefix(line, "CREATE FUNCTION ") ||
+		strings.HasPrefix(line, "CREATE OR REPLACE FUNCTION ") ||
+		strings.HasPrefix(line, "CREATE PROCEDURE ") ||
+		strings.HasPrefix(line, "CREATE OR REPLACE PROCEDURE ")
+}
+
+var dollarQuoteRegex = regexp.MustCompile(`\$[A-Za-z_0-9]*\$`)
+
+// sqlFunctionParser buffers a CREATE FUNCTION/PROCEDURE statement to
+// determine where it needs to be restored. Functions with SQL-standard bodies
+// (BEGIN ATOMIC or RETURN) are parsed and validated at creation time, unlike
+// classic string-quoted bodies which are only parsed on execution.
+type sqlFunctionParser struct {
+	inProgress      bool
+	lines           []string
+	inDollarQuotes  bool
+	dollarQuoteTag  string
+	atomicBody      bool
+	sqlStandardBody bool
+}
+
+// addLine buffers the line, returning true once the statement is complete.
+func (p *sqlFunctionParser) addLine(line string) (done bool) {
+	p.inProgress = true
+	p.lines = append(p.lines, line)
+	p.updateDollarQuoteState(line)
+	if p.inDollarQuotes {
+		// the statement can only end outside of a dollar quoted body
+		return false
+	}
+
+	trimmedLine := strings.TrimSpace(line)
+	switch {
+	case p.atomicBody:
+		// SQL-standard body `BEGIN ATOMIC <statements> END;`; pg_dump places
+		// the closing END on its own line
+		return trimmedLine == "END;"
+	case trimmedLine == "BEGIN ATOMIC":
+		p.atomicBody = true
+		p.sqlStandardBody = true
+		return false
+	default:
+		if strings.HasPrefix(trimmedLine, "RETURN ") || strings.HasPrefix(trimmedLine, "RETURN(") {
+			// SQL-standard body `RETURN <expression>;`
+			p.sqlStandardBody = true
+		}
+		return strings.HasSuffix(line, ";")
+	}
+}
+
+func (p *sqlFunctionParser) reset() {
+	*p = sqlFunctionParser{}
+}
+
+// updateDollarQuoteState tracks whether the parser is inside a dollar quoted
+// function body (e.g. $$...$$ or $_$...$_$) across lines.
+func (p *sqlFunctionParser) updateDollarQuoteState(line string) {
+	rest := line
+	for {
+		if p.inDollarQuotes {
+			idx := strings.Index(rest, p.dollarQuoteTag)
+			if idx == -1 {
+				return
+			}
+			rest = rest[idx+len(p.dollarQuoteTag):]
+			p.inDollarQuotes = false
+			continue
+		}
+		loc := dollarQuoteRegex.FindStringIndex(rest)
+		if loc == nil {
+			return
+		}
+		p.dollarQuoteTag = rest[loc[0]:loc[1]]
+		p.inDollarQuotes = true
+		rest = rest[loc[1]:]
+	}
 }
 
 func isLegacyPLPGSQLHandlerFunctionStart(line string) bool {
