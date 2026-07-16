@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric"
 	metricnoop "go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -93,8 +94,13 @@ func (o *Provider) initMeterProvider(ctx context.Context, metricsConfig *Metrics
 		sdkmetric.WithInterval(metricsConfig.collectionInterval()),
 		sdkmetric.WithProducer(runtime.NewProducer()))
 
+	promExporter, err := prometheus.New(prometheus.WithProducer(runtime.NewProducer()))
+	if err != nil {
+		return err
+	}
 	mp := sdkmetric.NewMeterProvider(
 		sdkmetric.WithResource(newResource()),
+		sdkmetric.WithReader(promExporter),
 		sdkmetric.WithReader(reader))
 	o.shutdownFns = append(o.shutdownFns, mp.Shutdown)
 
