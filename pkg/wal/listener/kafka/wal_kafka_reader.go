@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/xataio/pgstream/internal/json"
+	"github.com/xataio/pgstream/internal/phase"
 	"github.com/xataio/pgstream/pkg/kafka"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -19,6 +20,7 @@ type Reader struct {
 	unmarshaler  func([]byte, any) error
 	logger       loglib.Logger
 	offsetParser kafka.OffsetParser
+	phaseTracker *phase.Tracker
 
 	// processRecord is called for a new record.
 	processRecord payloadProcessor
@@ -58,7 +60,15 @@ func WithLogger(logger loglib.Logger) Option {
 	}
 }
 
+// WithPhaseTracker registers a tracker set to replication when Listen starts.
+func WithPhaseTracker(t *phase.Tracker) Option {
+	return func(r *Reader) {
+		r.phaseTracker = t
+	}
+}
+
 func (r *Reader) Listen(ctx context.Context) error {
+	r.phaseTracker.Set(phase.Replication)
 	for {
 		select {
 		case <-ctx.Done():

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package health exposes a small HTTP server with /health (liveness) and
-// /ready (readiness) endpoints so that operators and orchestrators can
-// monitor a running pgstream process.
+// Package health exposes a small HTTP server with /health (liveness),
+// /ready (readiness), and /status (pipeline phase) endpoints so that
+// operators and orchestrators can monitor a running pgstream process.
 package health
 
 import (
@@ -29,12 +29,13 @@ type Config struct {
 	Address string
 }
 
-// Server serves /health and /ready over HTTP.
+// Server serves /health, /ready, and /status over HTTP.
 type Server struct {
 	logger         loglib.Logger
 	address        string
 	version        string
 	readinessCheck func(ctx context.Context) error
+	phaseProvider  func() string
 	listener       net.Listener
 	httpServer     *http.Server
 }
@@ -84,6 +85,16 @@ func WithReadinessCheck(fn func(ctx context.Context) error) Option {
 	}
 }
 
+// WithPhaseProvider registers a function the /status handler will invoke to
+// report the current pipeline phase (e.g. "snapshot" or "replication").
+// If no provider is registered, /status still returns status/version with an
+// empty phase.
+func WithPhaseProvider(fn func() string) Option {
+	return func(s *Server) {
+		s.phaseProvider = fn
+	}
+}
+
 // Listen binds the configured address synchronously and prepares the HTTP
 // server. After it returns successfully, Serve must be called (typically
 // from a goroutine) to start accepting requests. Splitting bind from serve
@@ -98,6 +109,7 @@ func (s *Server) Listen() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/ready", s.handleReady)
+	mux.HandleFunc("/status", s.handleStatus)
 
 	s.listener = ln
 	s.httpServer = &http.Server{
@@ -133,6 +145,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	s.writeJSON(w, http.StatusOK, s.okPayload())
 }
 
+func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
+	s.writeJSON(w, http.StatusOK, s.statusPayload())
+}
+
 func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	if s.readinessCheck != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), readinessCheckTimeout)
@@ -156,6 +172,16 @@ func (s *Server) okPayload() map[string]string {
 	if s.version != "" {
 		payload["version"] = s.version
 	}
+	return payload
+}
+
+func (s *Server) statusPayload() map[string]string {
+	payload := s.okPayload()
+	phase := ""
+	if s.phaseProvider != nil {
+		phase = s.phaseProvider()
+	}
+	payload["phase"] = phase
 	return payload
 }
 
