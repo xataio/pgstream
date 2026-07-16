@@ -43,8 +43,13 @@ type HealthConfig struct {
 }
 
 type MetricsConfig struct {
+	Prometheus *PrometheusConfig `mapstructure:"prometheus" yaml:"prometheus"`
 	Endpoint           string `mapstructure:"endpoint" yaml:"endpoint"`
 	CollectionInterval int    `mapstructure:"collection_interval" yaml:"collection_interval"`
+}
+
+type PrometheusConfig struct {
+	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
 }
 
 type TracesConfig struct {
@@ -400,10 +405,17 @@ func (c *InstrumentationConfig) toHealthConfig() *health.Config {
 func (c *InstrumentationConfig) toOtelConfig() (*otel.Config, error) {
 	cfg := &otel.Config{}
 	if c.Metrics != nil {
-		cfg.Metrics = &otel.MetricsConfig{
+		metricsCfg := &otel.MetricsConfig{
 			Endpoint:           c.Metrics.Endpoint,
 			CollectionInterval: time.Duration(c.Metrics.CollectionInterval) * time.Second,
+			Prometheus: nil,
 		}
+		if c.Metrics.Prometheus != nil {
+			metricsCfg.Prometheus = &otel.PrometheusConfig{
+				Enabled: c.Metrics.Prometheus.Enabled,
+			}
+		}
+		cfg.Metrics = metricsCfg
 	}
 
 	if c.Traces != nil {
