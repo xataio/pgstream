@@ -1,0 +1,130 @@
+name: PR approval agent
+
+# Runs on pull_request_target so the job has repo secrets (the Anthropic key and
+# the GitHub App credentials) even for fork PRs. Safety model:
+#   - The agent binary is BUILT from the BASE checkout, never from the PR branch,
+#     so a PR cannot alter the reviewer that judges it. The PR's code is checked
+#     out separately (into ./_pr) and only READ.
+#   - The reviewer is given read-only tools (read_file/grep/glob) scoped to ./_pr
+#     and cannot run code, so the PR's contents are never executed.
+#   - The deterministic gate escalates any change under .github/ or
+#     tools/pr-approval-agent/, so a PR touching the agent is never auto-approved.
+on:
+  pull_request_target:
+    types: [labeled, ready_for_review, synchronize]
+
+concurrency:
+  group: pr-approval-agent-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  REVIEW_LABEL: ai-review
+
+jobs:
+  review:
+    name: review
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: >-
+      github.event.pull_request.state == 'open' &&
+      !github.event.pull_request.draft &&
+      !endsWith(github.event.pull_request.user.login, '[bot]') &&
+      (
+        (github.event.action == 'labeled' && github.event.label.name == 'ai-review') ||
+        (github.event.action == 'ready_for_review' &&
+         contains(github.event.pull_request.labels.*.name, 'ai-review'))
+      )
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.PR_APPROVAL_AGENT_APP_ID }}
+          private-key: ${{ secrets.PR_APPROVAL_AGENT_PRIVATE_KEY }}
+
+      - name: Checkout base (trusted agent code)
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Checkout PR head (code under review, read only)
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: _pr
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: tools/pr-approval-agent/go.mod
+
+      - name: Build review agent (from base — trusted)
+        working-directory: tools/pr-approval-agent
+        run: go build -o "$RUNNER_TEMP/pr-agent" .
+
+      - name: Run review
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.REVIEW_ANTHROPIC_API_KEY }}
+        run: >-
+          "$RUNNER_TEMP/pr-agent"
+          --repo ${{ github.repository }}
+          --repo-root _pr
+          --agent-dir tools/pr-approval-agent
+          --label ${{ env.REVIEW_LABEL }}
+          --output-json review.json
+          ${{ github.event.pull_request.number }}
+
+      - name: Upload review evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pr-approval-review-${{ github.event.pull_request.number }}
+          path: review.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+  dismiss:
+    name: dismiss stale approval on push
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      github.event.action == 'synchronize' &&
+      contains(github.event.pull_request.labels.*.name, 'ai-review')
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.PR_APPROVAL_AGENT_APP_ID }}
+          private-key: ${{ secrets.PR_APPROVAL_AGENT_PRIVATE_KEY }}
+
+      - name: Checkout base (trusted agent code)
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: tools/pr-approval-agent/go.mod
+
+      - name: Build review agent (from base — trusted)
+        working-directory: tools/pr-approval-agent
+        run: go build -o "$RUNNER_TEMP/pr-agent" .
+
+      - name: Dismiss on substantive push
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: >-
+          "$RUNNER_TEMP/pr-agent"
+          --repo ${{ github.repository }}
+          --mode dismiss
+          --label ${{ env.REVIEW_LABEL }}
+          ${{ github.event.pull_request.number }}
