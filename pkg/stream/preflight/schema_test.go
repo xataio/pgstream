@@ -44,7 +44,7 @@ func TestSchemaTypeCompatibilityCheck_Run_UserDefinedTypeReturnsFinding(t *testi
 	check := &SchemaTypeCompatibilityCheck{
 		Source: sourceWithColumns(t, []schemaColumnRow{
 			{Schema: "public", Table: "orders", Column: "id", BaseOID: oidInt4, TypeName: "int4", TypeKind: "b"},
-			{Schema: "public", Table: "orders", Column: "status", BaseOID: oidUnknown, TypeName: "order_status", TypeKind: "e"},
+			{Schema: "public", Table: "orders", Column: "amount", BaseOID: oidUnknown, TypeName: "money_amount", TypeKind: "c"},
 		}),
 	}
 
@@ -52,9 +52,27 @@ func TestSchemaTypeCompatibilityCheck_Run_UserDefinedTypeReturnsFinding(t *testi
 
 	require.NoError(t, err)
 	require.Len(t, findings, 1)
-	require.Contains(t, findings[0].Message, `"public"."orders"."status"`)
-	require.Contains(t, findings[0].Message, `enum type "order_status"`)
+	require.Contains(t, findings[0].Message, `"public"."orders"."amount"`)
+	require.Contains(t, findings[0].Message, `composite type "money_amount"`)
 	require.Contains(t, findings[0].Message, "exclude the table")
+}
+
+func TestSchemaTypeCompatibilityCheck_Run_SkipsEnums(t *testing.T) {
+	t.Parallel()
+	check := &SchemaTypeCompatibilityCheck{
+		Source: sourceWithColumns(t, []schemaColumnRow{
+			{Schema: "public", Table: "orders", Column: "status", BaseOID: oidUnknown, TypeName: "order_status", TypeKind: "e"},
+			{Schema: "public", Table: "orders", Column: "tags", BaseOID: oidUnknown + 1, TypeName: "_order_status", TypeKind: "b", ElemTypeKind: "e"},
+			{Schema: "public", Table: "orders", Column: "amount", BaseOID: oidUnknown + 2, TypeName: "money_amount", TypeKind: "c"},
+		}),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	require.Contains(t, findings[0].Message, `"public"."orders"."amount"`)
+	require.Contains(t, findings[0].Message, "composite type")
 }
 
 func TestSchemaTypeCompatibilityCheck_Run_PgstreamExtraTypesPass(t *testing.T) {
@@ -634,7 +652,7 @@ func schemaColumnRows(t *testing.T, rows []schemaColumnRow) postgres.Rows {
 			return int(i) <= len(rows)
 		},
 		ScanFn: func(i uint, dest ...any) error {
-			require.Len(t, dest, 6)
+			require.Len(t, dest, 7)
 			row := rows[i-1]
 			schema, ok := dest[0].(*string)
 			require.True(t, ok)
@@ -648,12 +666,15 @@ func schemaColumnRows(t *testing.T, rows []schemaColumnRow) postgres.Rows {
 			require.True(t, ok)
 			typeKind, ok := dest[5].(*string)
 			require.True(t, ok)
+			elemTypeKind, ok := dest[6].(*string)
+			require.True(t, ok)
 			*schema = row.Schema
 			*table = row.Table
 			*column = row.Column
 			*baseOID = row.BaseOID
 			*typeName = row.TypeName
 			*typeKind = row.TypeKind
+			*elemTypeKind = row.ElemTypeKind
 			return nil
 		},
 		ErrFn: func() error { return nil },
