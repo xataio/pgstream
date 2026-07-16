@@ -195,7 +195,6 @@ func (c *TargetCreateDBPrivilegeCheck) Run(ctx context.Context) ([]Finding, erro
 	return []Finding{
 		{Message: targetCreateDBPrivilegeMessage(role)},
 	}, nil
-
 }
 
 type sourceTableSelectPrivilegeRow struct {
@@ -284,5 +283,4 @@ func targetCreateDBPrivilegeMessage(role string) string {
 		"target role %q lacks CREATEDB; run ALTER ROLE %s CREATEDB",
 		role, quotedRole,
 	)
-
 }
