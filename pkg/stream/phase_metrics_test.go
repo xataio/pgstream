@@ -38,15 +38,27 @@ func TestRegisterPhaseMetric_ObservesCurrentPhase(t *testing.T) {
 
 	tracker.Set(phase.Snapshot)
 	points := collectPipelinePhaseMetric(t, reader)
-	require.Len(t, points, 1)
-	require.EqualValues(t, 1, points[0].Value)
-	require.Equal(t, attribute.NewSet(attribute.String("phase", "snapshot")), points[0].Attributes)
+	require.Len(t, points, 2)
+	require.EqualValues(t, 1, valueForPhase(t, points, "snapshot"))
+	require.EqualValues(t, 0, valueForPhase(t, points, "replication"))
 
 	tracker.Set(phase.Replication)
 	points = collectPipelinePhaseMetric(t, reader)
-	require.Len(t, points, 1)
-	require.EqualValues(t, 1, points[0].Value)
-	require.Equal(t, attribute.NewSet(attribute.String("phase", "replication")), points[0].Attributes)
+	require.Len(t, points, 2)
+	require.EqualValues(t, 0, valueForPhase(t, points, "snapshot"))
+	require.EqualValues(t, 1, valueForPhase(t, points, "replication"))
+}
+
+func valueForPhase(t *testing.T, points []metricdata.DataPoint[int64], phase string) int64 {
+	t.Helper()
+
+	for _, p := range points {
+		if p.Attributes == attribute.NewSet(attribute.String("phase", phase)) {
+			return p.Value
+		}
+	}
+	t.Fatalf("no data point found for phase %q", phase)
+	return 0
 }
 
 func TestRegisterPhaseMetric_EmptyPhaseNotObserved(t *testing.T) {

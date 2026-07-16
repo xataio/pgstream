@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/xataio/pgstream/internal/phase"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
 	snapshotlistener "github.com/xataio/pgstream/pkg/wal/listener/snapshot"
@@ -16,8 +15,8 @@ import (
 )
 
 // Snapshot performs a one-time data snapshot. This call is blocking.
-// phaseTracker is optional; when provided it is set to snapshot for the duration.
-func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrumentation *otel.Instrumentation, phaseTracker ...*phase.Tracker) error {
+// Pass WithPhaseTracker to expose the snapshot phase via /status and metrics.
+func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrumentation *otel.Instrumentation, opts ...InitOption) error {
 	if config.Listener.Postgres == nil {
 		return errors.New("source postgres snapshot not configured: ensure source.postgres is set")
 	}
@@ -26,10 +25,7 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 		return fmt.Errorf("incompatible configuration: %w", err)
 	}
 
-	var tracker *phase.Tracker
-	if len(phaseTracker) > 0 {
-		tracker = phaseTracker[0]
-	}
+	tracker := config.GetInitConfig(opts...).PhaseTracker
 
 	if err := registerPhaseMetric(instrumentation, tracker); err != nil {
 		return fmt.Errorf("registering pipeline phase metric: %w", err)

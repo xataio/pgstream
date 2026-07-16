@@ -68,13 +68,13 @@ All metrics follow the `pgstream.*` naming convention and include relevant attri
 
 | Metric                     | Type            | Unit | Description                                                                 |
 | -------------------------- | --------------- | ---- | --------------------------------------------------------------------------- |
-| `pgstream.pipeline.phase`  | ObservableGauge | 1    | Current pipeline phase; reports `1` with attribute `phase=snapshot\|replication` |
+| `pgstream.pipeline.phase`  | ObservableGauge | 1    | Reports `1` for the active pipeline phase and `0` for the others (`phase=snapshot\|replication`) |
 
 **Attributes:**
 
-- `phase`: Current phase (`snapshot` or `replication`)
+- `phase`: Phase this data point refers to (`snapshot` or `replication`)
 
-**Usage:** Distinguish whether a running process is performing the initial snapshot or streaming logical replication, without scraping logs. The gauge flips to `replication` when logical replication starts. The same value is also exposed via the health server `GET /status` endpoint when health checks are enabled.
+**Usage:** Distinguish whether a running process is performing the initial snapshot or streaming logical replication, without scraping logs. Both `phase="snapshot"` and `phase="replication"` series are reported on every collection, with `1` marking the active phase and `0` the inactive one, so queries like `sum by (phase)` stay unambiguous across transitions. Nothing is reported until the first phase transition. The gauge flips to `replication` when logical replication starts. The same value is also exposed via the health server `GET /status` endpoint when health checks are enabled.
 
 ### WAL Event Processing
 

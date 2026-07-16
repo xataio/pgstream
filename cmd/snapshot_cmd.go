@@ -52,7 +52,7 @@ func snapshot(ctx context.Context) error {
 	}
 	defer stopHealth()
 
-	return stream.Snapshot(ctx, stdLogger, streamConfig, provider.NewInstrumentation("snapshot"), phaseTracker)
+	return stream.Snapshot(ctx, stdLogger, streamConfig, provider.NewInstrumentation("snapshot"), stream.WithPhaseTracker(phaseTracker))
 }
 
 func snapshotFlagBinding(cmd *cobra.Command, args []string) error {
