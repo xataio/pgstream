@@ -116,12 +116,12 @@ func (s *Server) Listen() error {
 	mux.HandleFunc("/ready", s.handleReady)
 	mux.HandleFunc("/status", s.handleStatus)
 
-	if s.metricsConfig != nil && s.metricsConfig.Prometheus != nil && s.metricsConfig.Prometheus.Enabled {
+	if s.isPrometheusEnabled() {
 		endpoint := DefaultPrometheusEndpoint
 		if promEndpoint := s.metricsConfig.Prometheus.Endpoint; promEndpoint != "" {
 			endpoint = promEndpoint
 		}
-		mux.Handle(endpoint, promhttp.Handler())
+		mux.HandleFunc(endpoint, s.handlePrometheus)
 	}
 
 	s.listener = ln
@@ -208,5 +208,18 @@ func (s *Server) writeJSON(w http.ResponseWriter, code int, body any) {
 	}
 	if _, err := w.Write(payload); err != nil {
 		s.logger.Warn(err, "health server: writing response")
+	}
+}
+
+func (s *Server) isPrometheusEnabled() bool {
+	return s.metricsConfig != nil && s.metricsConfig.Prometheus != nil && s.metricsConfig.Prometheus.Enabled
+
+}
+
+func (s *Server) handlePrometheus(w http.ResponseWriter, req *http.Request) {
+	if s.isPrometheusEnabled() {
+		promhttp.Handler().ServeHTTP(w, req)
+	} else {
+		s.writeJSON(w, http.StatusNotFound, map[string]any{})
 	}
 }
