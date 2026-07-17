@@ -11,6 +11,9 @@ instrumentation:
   metrics:
     endpoint: "0.0.0.0:4317"
     collection_interval: 60 # collection interval for metrics in seconds. Defaults to 60s
+    prometheus:
+      enabled: true # exposes a Prometheus scrape endpoint on the health server. Defaults to false
+      endpoint: "/metrics" # path the Prometheus endpoint is served on. Defaults to /metrics
   traces:
     endpoint: "0.0.0.0:4317"
     sample_ratio: 0.5 # ratio of traces that will be sampled. Must be between 0.0-1.0, where 0 is no traces sampled, and 1 is all traces sampled.
@@ -420,10 +423,12 @@ One of exponential/constant/disable retries retry policies can be provided for t
 <details>
   <summary>Metrics</summary>
 
-| Environment Variable                 | Default | Required | Description                                                            |
-| ------------------------------------ | ------- | -------- | ---------------------------------------------------------------------- |
-| PGSTREAM_METRICS_ENDPOINT            | N/A     | No       | Endpoint where the pgstream metrics will be exported to.               |
-| PGSTREAM_METRICS_COLLECTION_INTERVAL | 60s     | No       | Interval at which the pgstream metrics will be collected and exported. |
+| Environment Variable                   | Default   | Required | Description                                                                                     |
+| --------------------------------------- | --------- | -------- | ------------------------------------------------------------------------------------------------ |
+| PGSTREAM_METRICS_ENDPOINT               | N/A       | No       | Endpoint where the pgstream metrics will be pushed to via OTLP. Not required to use Prometheus.  |
+| PGSTREAM_METRICS_COLLECTION_INTERVAL    | 60s       | No       | Interval at which the pgstream metrics will be collected and exported via OTLP.                  |
+| PGSTREAM_METRICS_PROMETHEUS_ENABLED     | False     | No       | Exposes a Prometheus scrape endpoint on the health server. Requires the health endpoint enabled. |
+| PGSTREAM_METRICS_PROMETHEUS_ENDPOINT    | /metrics  | No       | Path the Prometheus endpoint is served on.                                                       |
 
 </details>
 
@@ -441,6 +446,8 @@ One of exponential/constant/disable retries retry policies can be provided for t
   <summary>Health endpoint</summary>
 
 Exposes `/health` (liveness, always 200), `/ready` (readiness, pings the source postgres database when configured), and `/status` (current pipeline phase: `snapshot` or `replication`). Only the `run` and `snapshot` commands start the server. Responses are JSON.
+
+When `instrumentation.metrics.prometheus.enabled` (`PGSTREAM_METRICS_PROMETHEUS_ENABLED`) is true, the server also exposes a Prometheus scrape endpoint (default path `/metrics`, configurable via `instrumentation.metrics.prometheus.endpoint` / `PGSTREAM_METRICS_PROMETHEUS_ENDPOINT`). The endpoint returns `404` when Prometheus is disabled. This lets you scrape pgstream's metrics directly, without deploying an OTel collector.
 
 | Environment Variable           | Default          | Required | Description                                                                                                  |
 | ------------------------------ | ---------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
