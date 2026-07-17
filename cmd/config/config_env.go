@@ -171,11 +171,20 @@ func envToOtelConfig() (*otel.Config, error) {
 	cfg := &otel.Config{}
 
 	metricsEndpoint := viper.GetString("PGSTREAM_METRICS_ENDPOINT")
-	if metricsEndpoint != "" {
-		cfg.Metrics = &otel.MetricsConfig{
-			Endpoint:           metricsEndpoint,
-			CollectionInterval: viper.GetDuration("PGSTREAM_METRICS_COLLECTION_INTERVAL"),
+	prometheusEnabled := viper.GetBool("PGSTREAM_METRICS_PROMETHEUS_ENABLED")
+	if metricsEndpoint != "" || prometheusEnabled {
+		metricsCfg := &otel.MetricsConfig{}
+		if metricsEndpoint != "" {
+			metricsCfg.Endpoint = metricsEndpoint
+			metricsCfg.CollectionInterval = viper.GetDuration("PGSTREAM_METRICS_COLLECTION_INTERVAL")
 		}
+		if prometheusEnabled {
+			metricsCfg.Prometheus = &otel.PrometheusConfig{
+				Enabled:  prometheusEnabled,
+				Endpoint: viper.GetString("PGSTREAM_METRICS_PROMETHEUS_ENDPOINT"),
+			}
+		}
+		cfg.Metrics = metricsCfg
 	}
 
 	tracesEndpoint := viper.GetString("PGSTREAM_TRACES_ENDPOINT")

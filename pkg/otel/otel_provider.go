@@ -80,25 +80,28 @@ func (o *Provider) initMeterProvider(ctx context.Context, metricsConfig *Metrics
 		return nil
 	}
 
-	metricsExporter, err := otlpmetricgrpc.New(ctx,
-		otlpmetricgrpc.WithTemporalitySelector(deltaSelector),
-		otlpmetricgrpc.WithInsecure(),
-		otlpmetricgrpc.WithEndpoint(metricsConfig.Endpoint))
-	if err != nil {
-		return err
-	}
-
-	// periodic reader collects and exports metrics to the exporter at the
-	// defined interval (defaults to 60s)
-	reader := sdkmetric.NewPeriodicReader(metricsExporter,
-		sdkmetric.WithInterval(metricsConfig.collectionInterval()),
-		sdkmetric.WithProducer(runtime.NewProducer()))
-
 	providerOpts := []sdkmetric.Option{
 		sdkmetric.WithResource(newResource()),
-		sdkmetric.WithReader(reader),
 	}
-	if metricsConfig.Prometheus.Enabled {
+
+	if metricsConfig.Endpoint != "" {
+		metricsExporter, err := otlpmetricgrpc.New(ctx,
+			otlpmetricgrpc.WithTemporalitySelector(deltaSelector),
+			otlpmetricgrpc.WithInsecure(),
+			otlpmetricgrpc.WithEndpoint(metricsConfig.Endpoint))
+		if err != nil {
+			return err
+		}
+
+		// periodic reader collects and exports metrics to the exporter at the
+		// defined interval (defaults to 60s)
+		reader := sdkmetric.NewPeriodicReader(metricsExporter,
+			sdkmetric.WithInterval(metricsConfig.collectionInterval()),
+			sdkmetric.WithProducer(runtime.NewProducer()))
+		providerOpts = append(providerOpts, sdkmetric.WithReader(reader))
+	}
+
+	if metricsConfig.Prometheus != nil && metricsConfig.Prometheus.Enabled {
 		promExporter, err := prometheus.New(prometheus.WithProducer(runtime.NewProducer()))
 		if err != nil {
 			return err
