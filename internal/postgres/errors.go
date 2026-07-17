@@ -32,6 +32,14 @@ func (e *ErrConstraintViolation) Error() string {
 	return fmt.Sprintf("constraint violation: %s", e.Details)
 }
 
+type ErrCommentOwnership struct {
+	Details string
+}
+
+func (e *ErrCommentOwnership) Error() string {
+	return fmt.Sprintf("comment not restored, requires object ownership: %s", e.Details)
+}
+
 type ErrPermissionDenied struct {
 	Details string
 }
