@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/xataio/pgstream/pkg/otel"
 )
 
 func TestNewServer_DefaultAddress(t *testing.T) {
@@ -182,4 +183,31 @@ func TestListen_BindError(t *testing.T) {
 
 	second := NewServer(Config{Address: first.listener.Addr().String()}, nil)
 	require.Error(t, second.Listen())
+}
+
+func makeMetricsConfig() *otel.MetricsConfig {
+	return &otel.MetricsConfig{
+		Prometheus: &otel.PrometheusConfig{
+			Enabled: true,
+		},
+	}
+}
+
+func TestHandlePrometheus(t *testing.T) {
+	t.Parallel()
+	s := NewServer(Config{}, makeMetricsConfig())
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", DefaultPrometheusEndpoint, nil)
+	s.handlePrometheus(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandlePrometheusDisabled(t *testing.T) {
+	t.Parallel()
+	s := NewServer(Config{}, nil)
+	req := httptest.NewRequest("GET", DefaultPrometheusEndpoint, nil)
+	rec := httptest.NewRecorder()
+	s.handlePrometheus(rec, req)
+
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
