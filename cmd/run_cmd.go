@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/xataio/pgstream/cmd/config"
 	"github.com/xataio/pgstream/internal/log/zerolog"
+	"github.com/xataio/pgstream/internal/phase"
 	"github.com/xataio/pgstream/pkg/stream"
 )
 
@@ -71,7 +72,9 @@ func run(ctx context.Context) error {
 	}
 
 	stdLogger := zerolog.NewStdLogger(logger)
-	stopHealth, err := startHealthServer(ctx, stdLogger, streamConfig.SourcePostgresURL())
+	phaseTracker := phase.NewTracker()
+	opts = append(opts, stream.WithPhaseTracker(phaseTracker))
+	stopHealth, err := startHealthServer(ctx, stdLogger, streamConfig.SourcePostgresURL(), phaseTracker)
 	if err != nil {
 		return err
 	}

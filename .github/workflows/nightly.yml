@@ -9,6 +9,7 @@ permissions:
   packages: write
   id-token: write
   attestations: write
+  artifact-metadata: write # create the artifact metadata storage records that accompany attestations
 
 jobs:
   # Skip the run if main has not changed in the last day, unless triggered

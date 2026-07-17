@@ -5,6 +5,7 @@ package stream
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -158,11 +159,28 @@ func (c *Config) validateTableSelections() error {
 		if _, err := NewTableSelection(adapter.Tables, adapter.ExcludedTables); err != nil {
 			return fmt.Errorf("snapshot table selection: %w", err)
 		}
+		schemaOnlyMap, err := pglib.NewSchemaTableMap(adapter.SchemaOnlyTables)
+		if err != nil {
+			return fmt.Errorf("snapshot schema-only table selection: %w", err)
+		}
+		// the snapshot generators can't resolve a wildcard schema with a
+		// specific table; reject it up front instead of mid-snapshot
+		if err := schemaOnlyMap.ValidateWildcardSchema(); err != nil {
+			return fmt.Errorf("snapshot schema-only table selection: %w", err)
+		}
+		// schema-only tables are consumed by the schema snapshot layer; without
+		// it they would be silently dropped from the snapshot altogether
+		if len(adapter.SchemaOnlyTables) > 0 && c.Listener.Postgres.Snapshot.Schema == nil {
+			return errors.New("snapshot schema-only tables require a schema snapshot to be configured")
+		}
 	}
 	if c.Processor.Filter != nil {
 		filter := c.Processor.Filter
 		if _, err := NewTableSelection(filter.IncludeTables, filter.ExcludeTables); err != nil {
 			return fmt.Errorf("replication table selection: %w", err)
+		}
+		if _, err := pglib.NewSchemaTableMap(filter.SchemaOnlyTables); err != nil {
+			return fmt.Errorf("replication schema-only table selection: %w", err)
 		}
 	}
 	return nil
@@ -280,10 +298,11 @@ func (c *Config) RequiredTables() []string {
 // names tables to skip. Include and exclude are mutually exclusive at the
 // source-config level (validated by the filter package).
 type TableSelection struct {
-	include    []string
-	exclude    []string
-	includeMap pglib.SchemaTableMap
-	excludeMap pglib.SchemaTableMap
+	include       []string
+	exclude       []string
+	includeMap    pglib.SchemaTableMap
+	excludeMap    pglib.SchemaTableMap
+	schemaOnlyMap pglib.SchemaTableMap
 }
 
 func NewTableSelection(include, exclude []string) (TableSelection, error) {
@@ -308,8 +327,17 @@ func (s TableSelection) IsUnfiltered() bool {
 	return len(s.include) == 0 && len(s.exclude) == 0
 }
 
+// IsTableInScope mirrors the precedence the wal filter applies to data (DML)
+// events: exclude beats everything, an exact include entry beats a schema-only
+// match, and a schema-only match beats a wildcard include.
 func (s TableSelection) IsTableInScope(schema, table string) bool {
-	if s.excludeMap != nil && s.excludeMap.ContainsSchemaTable(schema, table) {
+	if s.excludeMap.ContainsSchemaTable(schema, table) {
+		return false
+	}
+	if s.includeMap.ContainsExactSchemaTable(schema, table) {
+		return true
+	}
+	if s.schemaOnlyMap.ContainsSchemaTable(schema, table) {
 		return false
 	}
 	if s.includeMap == nil {
@@ -329,7 +357,10 @@ func (c *Config) SnapshotTableSelection() TableSelection {
 	// IsValid is the gate that catches malformed entries; if a caller skipped
 	// it the constructor error is swallowed and the lazy fallback in
 	// IsTableInScope produces a defined (over-permissive) answer.
-	sel, _ := NewTableSelection(c.Listener.Postgres.Snapshot.Adapter.Tables, c.Listener.Postgres.Snapshot.Adapter.ExcludedTables)
+	// Schema-only tables are part of the snapshot scope (pg_dump reads them),
+	// so they are added to the include list.
+	adapter := c.Listener.Postgres.Snapshot.Adapter
+	sel, _ := NewTableSelection(appendTables(adapter.Tables, adapter.SchemaOnlyTables), adapter.ExcludedTables)
 	return sel
 }
 
@@ -340,7 +371,12 @@ func (c *Config) ReplicationTableSelection() TableSelection {
 	// IsValid is the gate that catches malformed entries; if a caller skipped
 	// it the constructor error is swallowed and the lazy fallback in
 	// IsTableInScope produces a defined (over-permissive) answer.
-	sel, _ := NewTableSelection(c.Processor.Filter.IncludeTables, c.Processor.Filter.ExcludeTables)
+	// Schema-only tables have their data events filtered out, so they don't
+	// need a replica identity; IsTableInScope applies the same per-table
+	// precedence as the wal filter.
+	filter := c.Processor.Filter
+	sel, _ := NewTableSelection(filter.IncludeTables, filter.ExcludeTables)
+	sel.schemaOnlyMap, _ = pglib.NewSchemaTableMap(filter.SchemaOnlyTables)
 	return sel
 }
 
@@ -354,7 +390,7 @@ func (c *Config) AccessTableSelection() TableSelection {
 
 	switch {
 	case len(snap.include) > 0 && len(rep.include) > 0:
-		sel, _ := NewTableSelection(dedupUnion(snap.include, rep.include), nil)
+		sel, _ := NewTableSelection(appendTables(snap.include, rep.include), nil)
 		return sel
 	case len(snap.exclude) > 0 && len(rep.exclude) > 0:
 		sel, _ := NewTableSelection(nil, intersection(snap.exclude, rep.exclude))
@@ -364,19 +400,16 @@ func (c *Config) AccessTableSelection() TableSelection {
 	}
 }
 
-func dedupUnion(a, b []string) []string {
-	seen := make(map[string]struct{}, len(a)+len(b))
-	for _, s := range a {
-		seen[s] = struct{}{}
+// appendTables returns the deduplicated union of both table lists, preserving
+// order and without mutating either of them.
+func appendTables(tables, moreTables []string) []string {
+	merged := slices.Clone(tables)
+	for _, table := range moreTables {
+		if !slices.Contains(merged, table) {
+			merged = append(merged, table)
+		}
 	}
-	for _, s := range b {
-		seen[s] = struct{}{}
-	}
-	out := make([]string, 0, len(seen))
-	for s := range seen {
-		out = append(out, s)
-	}
-	return out
+	return merged
 }
 
 func intersection(a, b []string) []string {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/xataio/pgstream/cmd/config"
 	"github.com/xataio/pgstream/internal/health"
+	"github.com/xataio/pgstream/internal/phase"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
 )
@@ -28,8 +29,9 @@ const (
 // fails the command immediately rather than silently degrading.
 //
 // sourcePostgresURL, when non-empty, wires the /ready endpoint to ping the
-// source database.
-func startHealthServer(ctx context.Context, logger loglib.Logger, sourcePostgresURL string) (func(), error) {
+// source database. phaseTracker, when non-nil, wires the /status endpoint to
+// report the current pipeline phase.
+func startHealthServer(ctx context.Context, logger loglib.Logger, sourcePostgresURL string, phaseTracker *phase.Tracker) (func(), error) {
 	cfg, err := config.ParseHealthConfig()
 	if err != nil {
 		return nil, fmt.Errorf("parsing health config: %w", err)
@@ -41,6 +43,12 @@ func startHealthServer(ctx context.Context, logger loglib.Logger, sourcePostgres
 	opts := []health.Option{
 		health.WithLogger(logger),
 		health.WithVersion(version()),
+	}
+
+	if phaseTracker != nil {
+		opts = append(opts, health.WithPhaseProvider(func() string {
+			return string(phaseTracker.Get())
+		}))
 	}
 
 	var pool *pglib.Pool

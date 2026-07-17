@@ -164,6 +164,77 @@ func Test_SnapshotToPostgres_SelectedParentTableDoesNotCopyInheritedRows(t *test
 	require.Equal(t, []parentRow{{id: 1, name: "parent-row"}}, got)
 }
 
+// Test_SnapshotToPostgres_SchemaOnlyTables verifies that tables in the
+// schema-only list get their DDL copied by the schema snapshot while their
+// data is skipped, including for a schema that only appears in the
+// schema-only list.
+func Test_SnapshotToPostgres_SchemaOnlyTables(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	suffix := time.Now().UnixNano()
+	dataTable := fmt.Sprintf("snapshot_data_%d", suffix)
+	schemaOnlyTable := fmt.Sprintf("snapshot_schema_only_%d", suffix)
+	schemaOnlySchema := fmt.Sprintf("reports_%d", suffix)
+
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s(id INTEGER PRIMARY KEY, name TEXT NOT NULL)`, dataTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(id, name) VALUES (1, 'a'),(2, 'b')`, dataTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s(id INTEGER PRIMARY KEY, name TEXT NOT NULL)`, schemaOnlyTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(id, name) VALUES (1, 'not-copied')`, schemaOnlyTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE SCHEMA %s`, schemaOnlySchema))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s.audit_log(id INTEGER PRIMARY KEY, event TEXT)`, schemaOnlySchema))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s.audit_log(id, event) VALUES (1, 'not-copied')`, schemaOnlySchema))
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{dataTable}),
+		Processor: testPostgresProcessorCfg(),
+	}
+	cfg.Listener.Postgres.Snapshot.Adapter.SchemaOnlyTables = []string{schemaOnlyTable, schemaOnlySchema + ".*"}
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	// the data table has both its schema and its rows
+	rows := getIDNameRows(t, ctx, targetConn, fmt.Sprintf("SELECT id, name FROM %s ORDER BY id", dataTable))
+	require.Equal(t, []idNameRow{{id: 1, name: "a"}, {id: 2, name: "b"}}, rows)
+
+	// the schema-only table exists with its full schema but no rows
+	schemaColumns := getInformationSchemaColumns(t, ctx, targetConn, schemaOnlyTable)
+	wantSchemaCols := []*informationSchemaColumn{
+		{name: "id", dataType: "integer", isNullable: "NO"},
+		{name: "name", dataType: "text", isNullable: "NO"},
+	}
+	require.ElementsMatch(t, wantSchemaCols, schemaColumns)
+
+	var count int
+	err = targetConn.QueryRow(ctx, []any{&count}, fmt.Sprintf("SELECT count(*) FROM %s", schemaOnlyTable))
+	require.NoError(t, err)
+	require.Zero(t, count, "schema-only table should have no rows on the target")
+
+	// the schema-only schema exists with its table's DDL but no rows
+	err = targetConn.QueryRow(ctx, []any{&count}, fmt.Sprintf("SELECT count(*) FROM %s.audit_log", schemaOnlySchema))
+	require.NoError(t, err)
+	require.Zero(t, count, "schema-only schema tables should have no rows on the target")
+}
+
 // Test_SnapshotToPostgres_CoalescedInheritedChildInsertReportsRowLoss is a
 // synthetic regression for silent row loss during snapshot writes. The target
 // has a stale conflicting row in the inherited child table. The batch writer
@@ -762,6 +833,137 @@ func Test_SnapshotToPostgres_SkipsLegacyPLPGSQLHandlers(t *testing.T) {
 	err = targetConn.QueryRow(ctx, []any{&got}, fmt.Sprintf("SELECT public.%s()", regularFunction))
 	require.NoError(t, err)
 	require.Equal(t, 42, got)
+}
+
+// Test_SnapshotToPostgres_SQLStandardFunctionBodies verifies that functions
+// with SQL-standard bodies (LANGUAGE sql BEGIN ATOMIC / RETURN), whose bodies
+// are parsed and validated at creation time, are restored after indices and
+// constraints. A body such as `SELECT c.id, c.name ... GROUP BY c.id` is only
+// valid while the primary key on c exists (functional dependency); pgstream
+// defers primary key creation until after the data load, so creating the
+// function in the initial schema phase fails with `column "c.name" must
+// appear in the GROUP BY clause or be used in an aggregate function`.
+func Test_SnapshotToPostgres_SQLStandardFunctionBodies(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	suffix := time.Now().UnixNano()
+	testTable := fmt.Sprintf("atomic_fn_customers_%d", suffix)
+	atomicFunction := fmt.Sprintf("atomic_fn_names_%d", suffix)
+	returnFunction := fmt.Sprintf("return_fn_count_%d", suffix)
+
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s(id integer PRIMARY KEY, name text NOT NULL)`, testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(id, name) VALUES (1, 'a'),(2, 'b')`, testTable))
+	// both function bodies rely on the primary key of the table for the GROUP
+	// BY functional dependency and are validated at creation time
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE FUNCTION %s() RETURNS TABLE(id integer, name text)
+		LANGUAGE sql
+		BEGIN ATOMIC
+			SELECT c.id, c.name FROM %s c GROUP BY c.id;
+		END`, atomicFunction, testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE FUNCTION %s() RETURNS bigint
+		LANGUAGE sql
+		RETURN (SELECT count(*) FROM (SELECT c.id, c.name FROM %s c GROUP BY c.id) sub)`,
+		returnFunction, testTable))
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"public.*"}),
+		Processor: testPostgresProcessorCfg(),
+	}
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	rows := getIDNameRows(t, ctx, targetConn, fmt.Sprintf("SELECT id, name FROM %s() ORDER BY id", atomicFunction))
+	require.Equal(t, []idNameRow{{id: 1, name: "a"}, {id: 2, name: "b"}}, rows)
+
+	var count int64
+	err = targetConn.QueryRow(ctx, []any{&count}, fmt.Sprintf("SELECT %s()", returnFunction))
+	require.NoError(t, err)
+	require.Equal(t, int64(2), count)
+}
+
+// Test_SnapshotToPostgres_CircularDependencyView verifies that views involved
+// in a circular dependency (view -> function -> view) are restored correctly.
+// pg_dump breaks the cycle by emitting a dummy `CREATE VIEW ... SELECT
+// NULL::...` (no FROM clause) upfront and a `CREATE OR REPLACE VIEW` with the
+// real definition at the end of the dump. The real definition is validated at
+// creation time: when it relies on the base table's primary key for the GROUP
+// BY functional dependency, it must be restored after indices and constraints.
+// The dummy view, on the other hand, must be restored early so that functions
+// referencing the view's row type can be created.
+func Test_SnapshotToPostgres_CircularDependencyView(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	suffix := time.Now().UnixNano()
+	baseTable := fmt.Sprintf("circ_base_%d", suffix)
+	viewName := fmt.Sprintf("circ_view_%d", suffix)
+	fnName := fmt.Sprintf("circ_fn_%d", suffix)
+
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s(id integer PRIMARY KEY, name text NOT NULL)`, baseTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(id, name) VALUES (1, 'a'),(2, 'b')`, baseTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE VIEW %s AS SELECT c.id, c.name FROM %s c GROUP BY c.id`, viewName, baseTable))
+	// the function depends on the view through its return type only, so
+	// querying it doesn't recurse
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE FUNCTION %s() RETURNS SETOF %s LANGUAGE sql STABLE AS $$ SELECT id, name FROM %s $$`,
+		fnName, viewName, baseTable))
+	// make the view depend on the function to close the cycle; the GROUP BY
+	// relies on the base table's primary key (functional dependency)
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE OR REPLACE VIEW %s AS
+			SELECT c.id, c.name FROM %s c
+			WHERE c.id IN (SELECT id FROM %s())
+			GROUP BY c.id`, viewName, baseTable, fnName))
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"public.*"}),
+		Processor: testPostgresProcessorCfg(),
+	}
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	// the view must hold the real definition, not pg_dump's dummy NULL
+	// placeholder, and must return the snapshotted base table rows
+	var viewDef string
+	err = targetConn.QueryRow(ctx, []any{&viewDef},
+		fmt.Sprintf("SELECT pg_get_viewdef('public.%s'::regclass)", viewName))
+	require.NoError(t, err)
+	require.Contains(t, viewDef, "GROUP BY")
+
+	rows := getIDNameRows(t, ctx, targetConn, fmt.Sprintf("SELECT id, name FROM %s ORDER BY id", viewName))
+	require.Equal(t, []idNameRow{{id: 1, name: "a"}, {id: 2, name: "b"}}, rows)
 }
 
 // Test_SnapshotToPostgres_IdentityAndGeneratedColumns verifies that identity

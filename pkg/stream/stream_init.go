@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	migratorlib "github.com/xataio/pgstream/internal/migrator"
+	"github.com/xataio/pgstream/internal/phase"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -22,6 +23,8 @@ type InitConfig struct {
 	InjectorMigrationsEnabled bool
 	MigrationsOnly            bool
 	Upgrade                   bool
+	// PhaseTracker is optional runtime state for stream.Run; Init/Destroy ignore it.
+	PhaseTracker *phase.Tracker
 }
 
 type InitOption func(*InitConfig)
@@ -35,6 +38,14 @@ func WithMigrationsOnly() InitOption {
 func WithUpgrade() InitOption {
 	return func(cfg *InitConfig) {
 		cfg.Upgrade = true
+	}
+}
+
+// WithPhaseTracker registers a tracker updated as the pipeline moves between
+// snapshot and replication phases. Used by stream.Run; ignored by Init/Destroy.
+func WithPhaseTracker(t *phase.Tracker) InitOption {
+	return func(cfg *InitConfig) {
+		cfg.PhaseTracker = t
 	}
 }
 

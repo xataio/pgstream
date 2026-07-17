@@ -86,10 +86,14 @@ type Config struct {
 type Option func(s *SnapshotGenerator)
 
 type dump struct {
-	full                      []byte
-	filtered                  []byte
-	cleanupPart               []byte
-	indicesAndConstraints     []byte
+	full                  []byte
+	filtered              []byte
+	cleanupPart           []byte
+	indicesAndConstraints []byte
+	// views holds the statements that are validated against the catalog at
+	// creation time and can rely on indices and constraints existing (views,
+	// materialized views, _RETURN rules and functions with SQL-standard
+	// bodies), so they are restored after the indices and constraints.
 	views                     []byte
 	materializedViewRefreshes []byte
 	sequences                 []string
@@ -191,14 +195,32 @@ func WithRestoreConflictTargetsBeforeData() Option {
 }
 
 func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) (err error) {
-	s.logger.Info("creating schema snapshot", loglib.Fields{"schemaTables": ss.SchemaTables})
+	s.logger.Info("creating schema snapshot", loglib.Fields{"schemaTables": ss.SchemaTables, "schemaOnlyTables": ss.SchemaOnlyTables})
 
 	// make sure any empty schemas are filtered out
-	dumpSchemas := make(map[string][]string, len(ss.SchemaTables))
+	dataSchemas := make(map[string][]string, len(ss.SchemaTables))
 	for schema, tables := range ss.SchemaTables {
 		if len(tables) > 0 {
-			dumpSchemas[schema] = tables
+			dataSchemas[schema] = tables
 		}
+	}
+	schemaOnly := make(map[string][]string, len(ss.SchemaOnlyTables))
+	for schema, tables := range ss.SchemaOnlyTables {
+		if len(tables) > 0 {
+			schemaOnly[schema] = tables
+		}
+	}
+	if err := pglib.ValidateWildcardSchemaTables(schemaOnly); err != nil {
+		return err
+	}
+	// the schema snapshot scope is the union of the data snapshot tables and
+	// the schema-only tables
+	dumpSchemas := make(map[string][]string, len(dataSchemas)+len(schemaOnly))
+	for schema, tables := range dataSchemas {
+		dumpSchemas[schema] = tables
+	}
+	for schema, tables := range schemaOnly {
+		dumpSchemas[schema] = mergeTables(dumpSchemas[schema], tables)
 	}
 	// nothing to dump
 	if len(dumpSchemas) == 0 {
@@ -207,7 +229,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 
 	// DUMP
 
-	dump, err := s.dumpSchema(ctx, dumpSchemas, ss.SchemaExcludedTables)
+	dump, err := s.dumpSchema(ctx, dataSchemas, schemaOnly, ss.SchemaExcludedTables)
 	if err != nil {
 		return err
 	}
@@ -374,8 +396,8 @@ func (s *SnapshotGenerator) Close() error {
 	return nil
 }
 
-func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables map[string][]string, excludedTables map[string][]string) (*dump, error) {
-	pgdumpOpts, err := s.optionGenerator.pgdumpOptions(ctx, schemaTables, excludedTables)
+func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables, schemaOnlyTables, excludedTables map[string][]string) (*dump, error) {
+	pgdumpOpts, err := s.optionGenerator.pgdumpOptions(ctx, schemaTables, schemaOnlyTables, excludedTables)
 	if err != nil {
 		return nil, fmt.Errorf("preparing pg_dump options: %w", err)
 	}
@@ -521,7 +543,10 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	materializedViews := []string{}
 	alterTable := ""
 	createEventTrigger := ""
-	createView := ""
+	createView := []string{}
+	createViewIsMaterialized := false
+	createRule := []string{}
+	functionParser := &sqlFunctionParser{}
 	materializedViewNames := map[string]struct{}{}
 	skipLegacyPLPGSQLHandlerFunction := false
 	for scanner.Scan() {
@@ -535,6 +560,21 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		case isLegacyPLPGSQLHandlerFunctionStart(line):
 			skipLegacyPLPGSQLHandlerFunction = !strings.HasSuffix(line, ";")
 			continue
+		case functionParser.inProgress || isSQLFunctionStart(line):
+			if statement, deferred, done := functionParser.addLine(line); done {
+				if deferred {
+					// functions with SQL-standard bodies (BEGIN ATOMIC/RETURN)
+					// are parsed and validated at creation time, so they can
+					// rely on indices and constraints existing (e.g. GROUP BY
+					// primary key functional dependency) and must be restored
+					// after them, along with the views
+					viewsDump.WriteString(strings.Join(statement, "\n"))
+					viewsDump.WriteString("\n\n")
+				} else {
+					filteredDump.WriteString(strings.Join(statement, "\n"))
+					filteredDump.WriteString("\n")
+				}
+			}
 		case strings.HasPrefix(line, "SECURITY LABEL") &&
 			isSecurityLabelForExcludedProvider(line, s.excludedSecurityLabels):
 			// skip security labels if configured to do so for the specified providers
@@ -568,23 +608,44 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			eventTriggersDump.WriteString(line)
 			eventTriggersDump.WriteString("\n")
 
-		case strings.HasPrefix(line, "CREATE VIEW"),
-			strings.HasPrefix(line, "CREATE MATERIALIZED VIEW"):
-			if name, ok := materializedViewName(line); ok {
-				materializedViewNames[name] = struct{}{}
-				materializedViews = append(materializedViews, name)
+		case len(createView) > 0 || isViewStatementStart(line):
+			if len(createView) == 0 {
+				if name, ok := materializedViewName(line); ok {
+					materializedViewNames[name] = struct{}{}
+					materializedViews = append(materializedViews, name)
+				}
+				createViewIsMaterialized = strings.HasPrefix(line, "CREATE MATERIALIZED VIEW")
 			}
-			createView = line
-			fallthrough
-		case createView != "":
+			createView = append(createView, line)
 			if strings.HasSuffix(line, ";") {
-				viewsDump.WriteString(line)
-				viewsDump.WriteString("\n\n")
-				createView = ""
-				continue
+				statement := strings.Join(createView, "\n")
+				if !createViewIsMaterialized && isDummyViewStatement(createView) {
+					// pg_dump breaks circular view dependencies by emitting a
+					// dummy view (a bare SELECT of NULL casts with no FROM
+					// clause) upfront and the real definition (CREATE OR
+					// REPLACE VIEW) at the end of the dump. The dummy must be
+					// restored early so that objects in the main schema dump
+					// referencing the view row type (e.g. functions) can be
+					// created; it cannot depend on indices or constraints.
+					filteredDump.WriteString(statement)
+					filteredDump.WriteString("\n")
+				} else {
+					viewsDump.WriteString(statement)
+					viewsDump.WriteString("\n\n")
+				}
+				createView = []string{}
 			}
-			viewsDump.WriteString(line)
-			viewsDump.WriteString("\n")
+		case len(createRule) > 0 || strings.HasPrefix(line, `CREATE RULE "_RETURN" AS`):
+			// older pg_dump versions break circular view dependencies with a
+			// dummy table converted into a view by a _RETURN rule; the rule
+			// body is validated at creation time, so it is restored along
+			// with the views, after indices and constraints
+			createRule = append(createRule, line)
+			if strings.HasSuffix(line, ";") {
+				viewsDump.WriteString(strings.Join(createRule, "\n"))
+				viewsDump.WriteString("\n\n")
+				createRule = []string{}
+			}
 
 		case strings.Contains(line, `\connect`):
 			connectStatements = append(connectStatements, line)
@@ -673,6 +734,106 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 
 func isClusterOnAlterTable(line string) bool {
 	return strings.Contains(line, " CLUSTER ON ")
+}
+
+func isViewStatementStart(line string) bool {
+	return strings.HasPrefix(line, "CREATE VIEW ") ||
+		strings.HasPrefix(line, "CREATE OR REPLACE VIEW ") ||
+		strings.HasPrefix(line, "CREATE MATERIALIZED VIEW ")
+}
+
+// isDummyViewStatement returns true if the view statement matches the
+// placeholder pg_dump emits to break circular view dependencies: a bare
+// SELECT of NULL-cast columns with no FROM clause, e.g.
+//
+//	CREATE VIEW public.v AS
+//	SELECT
+//	    NULL::integer AS id,
+//	    NULL::text AS name;
+func isDummyViewStatement(lines []string) bool {
+	if len(lines) < 3 || strings.TrimSpace(lines[1]) != "SELECT" {
+		return false
+	}
+	for _, line := range lines[2:] {
+		column := strings.TrimSpace(strings.TrimRight(line, ";,"))
+		if !strings.HasPrefix(column, "NULL::") {
+			return false
+		}
+	}
+	return true
+}
+
+func isSQLFunctionStart(line string) bool {
+	return strings.HasPrefix(line, "CREATE FUNCTION ") ||
+		strings.HasPrefix(line, "CREATE OR REPLACE FUNCTION ") ||
+		strings.HasPrefix(line, "CREATE PROCEDURE ") ||
+		strings.HasPrefix(line, "CREATE OR REPLACE PROCEDURE ")
+}
+
+// sqlFunctionParser buffers the beginning of a CREATE FUNCTION/PROCEDURE
+// statement until pg_dump's body introduction reveals its style:
+//
+//   - `AS ...` (classic string/dollar quoted body): the body is only parsed
+//     on execution, so the statement can be restored in place. The parser
+//     stops and hands the buffered lines back; the rest of the statement
+//     doesn't need buffering and flows through the regular dump parsing,
+//     unchanged.
+//   - `BEGIN ATOMIC <statements> END;` or `RETURN <expression>;`
+//     (SQL-standard body): the body is parsed and validated at creation time,
+//     so it can rely on indices and constraints existing (e.g. GROUP BY
+//     primary key functional dependency) and must be deferred. These bodies
+//     are deparsed plain SQL with no quoting, so the statement end can be
+//     detected without tracking dollar quotes.
+//
+// The lines between the header and the body introduction are attribute lines
+// (LANGUAGE, IMMUTABLE, SET, COST, ...) and cannot contain quoted bodies.
+type sqlFunctionParser struct {
+	inProgress bool
+	lines      []string
+	atomicBody bool
+	returnBody bool
+}
+
+// addLine buffers the line and reports whether the parser is finished with
+// the statement. Once done, statement holds the buffered lines and deferred
+// indicates whether they are a SQL-standard body function that needs to be
+// restored after indices and constraints.
+func (p *sqlFunctionParser) addLine(line string) (statement []string, deferred, done bool) {
+	p.inProgress = true
+	p.lines = append(p.lines, line)
+	trimmedLine := strings.TrimSpace(line)
+	switch {
+	case p.atomicBody:
+		// pg_dump places the closing END of the atomic body on its own line
+		if trimmedLine == "END;" {
+			return p.finish(true)
+		}
+	case p.returnBody:
+		if strings.HasSuffix(line, ";") {
+			return p.finish(true)
+		}
+	case trimmedLine == "BEGIN ATOMIC":
+		p.atomicBody = true
+	case strings.HasPrefix(trimmedLine, "RETURN ") || strings.HasPrefix(trimmedLine, "RETURN("):
+		// the RETURNS clause of the header cannot match, since the first line
+		// of the statement always starts with CREATE
+		if strings.HasSuffix(line, ";") {
+			return p.finish(true)
+		}
+		p.returnBody = true
+	case strings.HasPrefix(trimmedLine, "AS "),
+		strings.HasSuffix(line, ";"):
+		// classic quoted body or end of statement without a recognized
+		// SQL-standard body: restore in place
+		return p.finish(false)
+	}
+	return nil, false, false
+}
+
+func (p *sqlFunctionParser) finish(deferred bool) ([]string, bool, bool) {
+	statement := p.lines
+	*p = sqlFunctionParser{}
+	return statement, deferred, true
 }
 
 func isLegacyPLPGSQLHandlerFunctionStart(line string) bool {
@@ -875,6 +1036,21 @@ func (s *SnapshotGenerator) restoreIndicesWithTracking(ctx context.Context, dump
 
 func hasWildcardTable(tables []string) bool {
 	return slices.Contains(tables, wildcard)
+}
+
+// mergeTables returns the deduplicated union of both table lists, collapsing
+// to the wildcard if either list contains it.
+func mergeTables(t1, t2 []string) []string {
+	if hasWildcardTable(t1) || hasWildcardTable(t2) {
+		return []string{wildcard}
+	}
+	merged := slices.Clone(t1)
+	for _, table := range t2 {
+		if !slices.Contains(merged, table) {
+			merged = append(merged, table)
+		}
+	}
+	return merged
 }
 
 func hasWildcardSchema(schemaTables map[string][]string) bool {

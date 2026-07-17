@@ -129,6 +129,7 @@ jobs:
       packages: write # push images to ghcr.io
       id-token: write # request the OIDC token used to sign attestations
       attestations: write # write GitHub artifact attestations
+      artifact-metadata: write # create the artifact metadata storage records that accompany attestations
     env:
       DOCKER_CLI_EXPERIMENTAL: "enabled"
     steps:
@@ -169,11 +170,29 @@ jobs:
           GITHUB_USERNAME: ${{ github.repository_owner }}
           DOCKER_USERNAME: ghcr.io/${{ github.repository_owner }}
 
+      - name: Stage release binaries
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release
+          jq -r '.[]
+                 | select(.name | test("^pgstream\\.[a-z]+\\."))
+                 | [.path, .name] | @tsv' \
+            dist/artifacts.json \
+            | while IFS=$'\t' read -r path name; do
+                cp "$path" "dist/release/$name"
+              done
+          if [ -z "$(ls -A dist/release)" ]; then
+            echo "no binaries matched; artifacts.json contained:"
+            jq -r '.[] | "\(.type)\t\(.name)"' dist/artifacts.json
+            exit 1
+          fi
+          ls -1 dist/release
+
       # Signed build provenance for the released binaries/archives.
       - name: Attest release artifacts
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: "dist/pgstream.*"
+          subject-path: "dist/release/pgstream.*"
 
       # Resolve the pushed multi-arch manifest digest so the image attestations
       # cover the exact content (image tags have no "v" prefix).
