@@ -17,19 +17,19 @@ import (
 
 func TestNewServer_DefaultAddress(t *testing.T) {
 	t.Parallel()
-	s := NewServer(Config{})
+	s := NewServer(Config{}, nil)
 	require.Equal(t, DefaultAddress, s.address)
 }
 
 func TestNewServer_CustomAddress(t *testing.T) {
 	t.Parallel()
-	s := NewServer(Config{Address: "127.0.0.1:0"})
+	s := NewServer(Config{Address: "127.0.0.1:0"}, nil)
 	require.Equal(t, "127.0.0.1:0", s.address)
 }
 
 func TestHandleHealth(t *testing.T) {
 	t.Parallel()
-	s := NewServer(Config{}, WithVersion("v1.2.3"))
+	s := NewServer(Config{}, nil, WithVersion("v1.2.3"))
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
@@ -46,7 +46,7 @@ func TestHandleHealth(t *testing.T) {
 
 func TestHandleReady_NoCheck(t *testing.T) {
 	t.Parallel()
-	s := NewServer(Config{}, WithVersion("v1.2.3"))
+	s := NewServer(Config{}, nil, WithVersion("v1.2.3"))
 
 	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
 	rec := httptest.NewRecorder()
@@ -62,7 +62,7 @@ func TestHandleReady_NoCheck(t *testing.T) {
 func TestHandleReady_CheckPasses(t *testing.T) {
 	t.Parallel()
 	var called bool
-	s := NewServer(Config{}, WithReadinessCheck(func(_ context.Context) error {
+	s := NewServer(Config{}, nil, WithReadinessCheck(func(_ context.Context) error {
 		called = true
 		return nil
 	}))
@@ -77,7 +77,7 @@ func TestHandleReady_CheckPasses(t *testing.T) {
 
 func TestHandleReady_CheckFails(t *testing.T) {
 	t.Parallel()
-	s := NewServer(Config{}, WithReadinessCheck(func(_ context.Context) error {
+	s := NewServer(Config{}, nil, WithReadinessCheck(func(_ context.Context) error {
 		return errors.New("source unreachable")
 	}))
 
@@ -146,7 +146,7 @@ func TestHandleStatus_WithProvider(t *testing.T) {
 
 func TestListenServeShutdown(t *testing.T) {
 	t.Parallel()
-	s := NewServer(Config{Address: "127.0.0.1:0"})
+	s := NewServer(Config{Address: "127.0.0.1:0"}, nil)
 
 	require.NoError(t, s.Listen())
 
@@ -164,22 +164,22 @@ func TestListenServeShutdown(t *testing.T) {
 
 func TestServe_BeforeListen(t *testing.T) {
 	t.Parallel()
-	s := NewServer(Config{Address: "127.0.0.1:0"})
+	s := NewServer(Config{Address: "127.0.0.1:0"}, nil)
 	require.ErrorIs(t, s.Serve(), errNotListening)
 }
 
 func TestShutdown_BeforeListen(t *testing.T) {
 	t.Parallel()
-	s := NewServer(Config{Address: "127.0.0.1:0"})
+	s := NewServer(Config{Address: "127.0.0.1:0"}, nil)
 	require.NoError(t, s.Shutdown(context.Background()))
 }
 
 func TestListen_BindError(t *testing.T) {
 	t.Parallel()
-	first := NewServer(Config{Address: "127.0.0.1:0"})
+	first := NewServer(Config{Address: "127.0.0.1:0"}, nil)
 	require.NoError(t, first.Listen())
 	defer first.Shutdown(context.Background())
 
-	second := NewServer(Config{Address: first.listener.Addr().String()})
+	second := NewServer(Config{Address: first.listener.Addr().String()}, nil)
 	require.Error(t, second.Listen())
 }

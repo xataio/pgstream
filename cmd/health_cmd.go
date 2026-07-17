@@ -12,6 +12,7 @@ import (
 	"github.com/xataio/pgstream/internal/phase"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/otel"
 )
 
 const (
@@ -40,6 +41,11 @@ func startHealthServer(ctx context.Context, logger loglib.Logger, sourcePostgres
 		return func() {}, nil
 	}
 
+	instrumentationCfg, err := config.ParseInstrumentationConfig()
+	if err != nil {
+		return nil, fmt.Errorf("parsing instrumentation config: %w", err)
+	}
+
 	opts := []health.Option{
 		health.WithLogger(logger),
 		health.WithVersion(version()),
@@ -60,7 +66,11 @@ func startHealthServer(ctx context.Context, logger loglib.Logger, sourcePostgres
 		opts = append(opts, health.WithReadinessCheck(pool.Ping))
 	}
 
-	srv := health.NewServer(*cfg, opts...)
+	var metricsCfg *otel.MetricsConfig
+	if instrumentationCfg.Metrics != nil {
+		metricsCfg = instrumentationCfg.Metrics
+	}
+	srv := health.NewServer(*cfg, metricsCfg, opts...)
 	if err := srv.Listen(); err != nil {
 		if pool != nil {
 			pool.Close(context.Background())

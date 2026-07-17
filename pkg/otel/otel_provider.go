@@ -94,16 +94,19 @@ func (o *Provider) initMeterProvider(ctx context.Context, metricsConfig *Metrics
 		sdkmetric.WithInterval(metricsConfig.collectionInterval()),
 		sdkmetric.WithProducer(runtime.NewProducer()))
 
-	promExporter, err := prometheus.New(prometheus.WithProducer(runtime.NewProducer()))
-	if err != nil {
-		return err
-	}
-	mp := sdkmetric.NewMeterProvider(
+	providerOpts := []sdkmetric.Option{
 		sdkmetric.WithResource(newResource()),
-		sdkmetric.WithReader(promExporter),
-		sdkmetric.WithReader(reader))
+		sdkmetric.WithReader(reader),
+	}
+	if metricsConfig.Prometheus.Enabled {
+		promExporter, err := prometheus.New(prometheus.WithProducer(runtime.NewProducer()))
+		if err != nil {
+			return err
+		}
+		providerOpts = append(providerOpts, sdkmetric.WithReader(promExporter))
+	}
+	mp := sdkmetric.NewMeterProvider(providerOpts...)
 	o.shutdownFns = append(o.shutdownFns, mp.Shutdown)
-
 	o.meterProvider = mp
 	otel.SetMeterProvider(o.meterProvider)
 
