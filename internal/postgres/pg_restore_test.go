@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -227,6 +228,34 @@ STATEMENT:  CREATE TABLE public.t_multi(
 
 			wantErrs: nil,
 		},
+		{
+			name: "multi-line comment echo containing ERROR text stays ignorable",
+			output: `ERROR:  must be owner of schema public
+STATEMENT:  COMMENT ON SCHEMA public IS 'status codes:
+ERROR means failure
+DETAIL: none';`,
+
+			wantErrs: &PGRestoreErrors{
+				ignoredErrs: []error{
+					fmt.Errorf("%w: %s", &ErrCommentOwnership{Details: "ERROR:  must be owner of schema public"}, "STATEMENT:  COMMENT ON SCHEMA public IS 'status codes:"),
+				},
+			},
+		},
+		{
+			name: "error following a multi-line statement echo is still parsed",
+			output: `ERROR:  must be owner of schema public
+STATEMENT:  COMMENT ON SCHEMA public IS 'first
+line';
+ERROR:  relation "users" already exists
+STATEMENT:  CREATE TABLE public.users (id integer);`,
+
+			wantErrs: &PGRestoreErrors{
+				ignoredErrs: []error{
+					fmt.Errorf("%w: %s", &ErrCommentOwnership{Details: "ERROR:  must be owner of schema public"}, "STATEMENT:  COMMENT ON SCHEMA public IS 'first"),
+					fmt.Errorf("%w: %s", &ErrRelationAlreadyExists{Details: `ERROR:  relation "users" already exists`}, "STATEMENT:  CREATE TABLE public.users (id integer);"),
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -309,6 +338,8 @@ func TestIsErrorLine(t *testing.T) {
 		{"pg_restore: processing data for table", false},
 		{"DETAIL:  some detail", false},
 		{"INFO:  some info", false},
+		{"'ERROR means failure';", false},
+		{"comment text mentioning ERROR mid-line", false},
 		{"", false},
 	}
 
@@ -389,6 +420,12 @@ func TestTruncateStatement(t *testing.T) {
 	long := "STATEMENT:  CREATE VIEW public.v AS SELECT " + strings.Repeat("a", maxStatementLen)
 	truncated := truncateStatement(long)
 	assert.Len(t, truncated, maxStatementLen+len("..."))
+	assert.True(t, strings.HasSuffix(truncated, "..."))
+
+	// the two-byte 'é' straddles the cut point and must not be split
+	multibyte := strings.Repeat("a", maxStatementLen-1) + "éllo wörld"
+	truncated = truncateStatement(multibyte)
+	assert.True(t, utf8.ValidString(truncated))
 	assert.True(t, strings.HasSuffix(truncated, "..."))
 }
 
