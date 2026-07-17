@@ -5,6 +5,7 @@ package postgres
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -149,6 +150,83 @@ pg_restore: finished`,
 				},
 			},
 		},
+		{
+			name: "ownership error on comment statement is ignorable",
+			output: `ERROR:  must be owner of schema public
+STATEMENT:  COMMENT ON SCHEMA public IS 'standard public schema';`,
+
+			wantErrs: &PGRestoreErrors{
+				ignoredErrs: []error{
+					fmt.Errorf("%w: %s", &ErrCommentOwnership{Details: "ERROR:  must be owner of schema public"}, "STATEMENT:  COMMENT ON SCHEMA public IS 'standard public schema';"),
+				},
+			},
+		},
+		{
+			name: "ownership error on comment statement from pg_restore is ignorable",
+			output: `pg_restore: error: could not execute query: ERROR:  must be owner of extension plpgsql
+Command was: COMMENT ON EXTENSION plpgsql IS 'PL/pgSQL procedural language';`,
+
+			wantErrs: &PGRestoreErrors{
+				ignoredErrs: []error{
+					fmt.Errorf("%w: %s", &ErrCommentOwnership{Details: "pg_restore: error: could not execute query: ERROR:  must be owner of extension plpgsql"}, "Command was: COMMENT ON EXTENSION plpgsql IS 'PL/pgSQL procedural language';"),
+				},
+			},
+		},
+		{
+			name: "ownership error on non-comment statement stays critical",
+			output: `ERROR:  must be owner of table users
+STATEMENT:  ALTER TABLE public.users OWNER TO admin;`,
+
+			wantErrs: &PGRestoreErrors{
+				criticalErrs: []error{
+					fmt.Errorf("%w: %s", errors.New("ERROR:  must be owner of table users"), "STATEMENT:  ALTER TABLE public.users OWNER TO admin;"),
+				},
+			},
+		},
+		{
+			name: "error with command was line from pg_restore",
+			output: `pg_restore: error: could not execute query: ERROR:  relation "users" already exists
+Command was: CREATE TABLE public.users (id integer);`,
+
+			wantErrs: &PGRestoreErrors{
+				ignoredErrs: []error{
+					fmt.Errorf("%w: %s", &ErrRelationAlreadyExists{Details: `pg_restore: error: could not execute query: ERROR:  relation "users" already exists`}, "Command was: CREATE TABLE public.users (id integer);"),
+				},
+			},
+		},
+		{
+			name: "statement echo containing ERROR keyword is not a new error",
+			output: `ERROR:  must be owner of table error_log
+STATEMENT:  COMMENT ON TABLE error_log IS 'ERROR entries';`,
+
+			wantErrs: &PGRestoreErrors{
+				ignoredErrs: []error{
+					fmt.Errorf("%w: %s", &ErrCommentOwnership{Details: "ERROR:  must be owner of table error_log"}, "STATEMENT:  COMMENT ON TABLE error_log IS 'ERROR entries';"),
+				},
+			},
+		},
+		{
+			name: "multi-line statement echo keeps first line only",
+			output: `ERROR:  permission denied for schema public
+LINE 1: CREATE TABLE public.t_multi(
+                     ^
+STATEMENT:  CREATE TABLE public.t_multi(
+  id int,
+  name text
+);`,
+
+			wantErrs: &PGRestoreErrors{
+				criticalErrs: []error{
+					fmt.Errorf("%w: %s", errors.New("ERROR:  permission denied for schema public"), "STATEMENT:  CREATE TABLE public.t_multi("),
+				},
+			},
+		},
+		{
+			name:   "statement line without preceding error is ignored",
+			output: "STATEMENT:  COMMENT ON SCHEMA public IS 'standard public schema';\n",
+
+			wantErrs: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -260,6 +338,58 @@ func TestIsDetailLine(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestIsStatementLine(t *testing.T) {
+	tests := []struct {
+		line     string
+		expected bool
+	}{
+		{"STATEMENT:  COMMENT ON SCHEMA public IS 'standard public schema';", true},
+		{"Command was: CREATE TABLE public.users (id integer);", true},
+		{"    Command was: CREATE TABLE public.users (id integer);", true},
+		{"ERROR:  must be owner of schema public", false},
+		{"DETAIL:  some detail", false},
+		{"  id int,", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.line, func(t *testing.T) {
+			result := isStatementLine(tt.line)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestIsCommentStatement(t *testing.T) {
+	tests := []struct {
+		line     string
+		expected bool
+	}{
+		{"STATEMENT:  COMMENT ON SCHEMA public IS 'standard public schema';", true},
+		{"Command was: COMMENT ON EXTENSION plpgsql IS 'PL/pgSQL procedural language';", true},
+		{"STATEMENT:  ALTER TABLE public.users OWNER TO admin;", false},
+		{"STATEMENT:  CREATE TABLE public.comment_on (id int);", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.line, func(t *testing.T) {
+			result := isCommentStatement(tt.line)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestTruncateStatement(t *testing.T) {
+	short := "STATEMENT:  COMMENT ON SCHEMA public IS 'standard public schema';"
+	assert.Equal(t, short, truncateStatement(short))
+
+	long := "STATEMENT:  CREATE VIEW public.v AS SELECT " + strings.Repeat("a", maxStatementLen)
+	truncated := truncateStatement(long)
+	assert.Len(t, truncated, maxStatementLen+len("..."))
+	assert.True(t, strings.HasSuffix(truncated, "..."))
 }
 
 func TestParseErrorLine(t *testing.T) {

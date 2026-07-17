@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	pgRestoreCmd = "pg_restore"
-	psqlCmd      = "psql"
-	postgres     = "postgres"
+	pgRestoreCmd    = "pg_restore"
+	psqlCmd         = "psql"
+	postgres        = "postgres"
+	maxStatementLen = 500
 )
 
 type PGRestoreOptions struct {
@@ -57,7 +58,7 @@ func (opts PGRestoreOptions) toArgs() []string {
 }
 
 func (opts PGRestoreOptions) toPSQLArgs() []string {
-	return []string{opts.ConnectionString}
+	return []string{"--echo-errors", opts.ConnectionString}
 }
 
 // Func RunPGRestore runs pg_restore command with the given options and returns
@@ -135,6 +136,13 @@ func parsePgRestoreOutputErrs(out []byte) error {
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
+		case isStatementLine(line):
+			if currentErr != nil {
+				if isOwnershipError(currentErr) && isCommentStatement(line) {
+					currentErr = &ErrCommentOwnership{Details: currentErr.Error()}
+				}
+				currentErr = fmt.Errorf("%w: %s", currentErr, truncateStatement(line))
+			}
 		case isErrorLine(line):
 			// Save any pending error before processing new one
 			if currentErr != nil {
@@ -162,6 +170,30 @@ func parsePgRestoreOutputErrs(out []byte) error {
 // isDetailLine checks if a line contains detail information
 func isDetailLine(line string) bool {
 	return strings.Contains(line, "DETAIL:")
+}
+
+func isStatementLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "STATEMENT:") || strings.HasPrefix(trimmed, "Command was:")
+}
+
+func isCommentStatement(line string) bool {
+	stmt := strings.TrimSpace(line)
+	for _, prefix := range []string{"STATEMENT:", "Command was:"} {
+		stmt = strings.TrimSpace(strings.TrimPrefix(stmt, prefix))
+	}
+	return strings.HasPrefix(stmt, "COMMENT ON ")
+}
+
+func isOwnershipError(err error) bool {
+	return strings.Contains(err.Error(), "must be owner of")
+}
+
+func truncateStatement(line string) string {
+	if len(line) <= maxStatementLen {
+		return line
+	}
+	return line[:maxStatementLen] + "..."
 }
 
 // isErrorLine checks if a line contains an error indicator
@@ -236,11 +268,13 @@ func (e *PGRestoreErrors) addError(err error) {
 	var errConstraintViolation *ErrConstraintViolation
 	var errPermissionDenied *ErrPermissionDenied
 	var errDoesNotExist *ErrRelationDoesNotExist
+	var errCommentOwnership *ErrCommentOwnership
 	switch {
 	case errors.As(err, &errAlreadyExists),
 		errors.As(err, &errConstraintViolation),
 		errors.As(err, &errPermissionDenied),
-		errors.As(err, &errDoesNotExist):
+		errors.As(err, &errDoesNotExist),
+		errors.As(err, &errCommentOwnership):
 		e.ignoredErrs = append(e.ignoredErrs, err)
 	default:
 		e.criticalErrs = append(e.criticalErrs, err)
