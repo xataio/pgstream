@@ -41,23 +41,63 @@ model thinks of the code.
 | Draft / merged / closed / bot-authored (incl. xata-bot) | **Skipped** → the agent only reviews open, ready-for-review PRs |
 | Merge-conflicted | **ESCALATE** → rebase before review |
 
-The exact patterns and thresholds live in `gates.go`; the table above is a summary.
+The default policy above lives in [`policy.yml`](./policy.yml) — there is no policy
+hardcoded in Go. The agent loads it at runtime via `--config` (which defaults to
+`<agent-dir>/policy.yml`). Any repo can point `--config` at its own file — see
+**Reusing in another repo** below.
 
 The trusted review criteria the model follows live in
 [`review-guidance.md`](./review-guidance.md). Both that file and the agent binary
 are always loaded/built **from the base branch**, never from the PR under review.
+
+## Reusing in another repo
+
+Nothing in the agent is pgstream-specific except two inputs, both overridable:
+
+| What | How | Default |
+| --- | --- | --- |
+| Gate policy (deny / scrutiny / inert / trivial paths, size thresholds) | `--config <file.yml>` | `<agent-dir>/policy.yml` (pgstream's) |
+| Reviewer guidance (the LLM's instructions) | `--guidance <file.md>` | `<agent-dir>/review-guidance.md` |
+
+To adopt it elsewhere:
+
+1. Copy [`policy.yml`](./policy.yml) into the target repo (e.g.
+   `.github/pr-approval-policy.yml`) and edit the path lists/thresholds for that
+   codebase. A `--config` file **fully replaces** the default, so list every rule
+   you want. **Deny-list wherever the agent's own config/guidance/workflow live**
+   (usually `.github/`) so a PR can't weaken its own gate.
+2. Write a `review-guidance.md` for that repo's domain (or reuse pgstream's).
+3. Add the workflow, pointing at both files:
+
+   ```yaml
+   - run: >-
+       "$RUNNER_TEMP/pr-agent"
+       --repo ${{ github.repository }}
+       --repo-root _pr
+       --config .github/pr-approval-policy.yml
+       --guidance .github/review-guidance.md
+       --label ${{ env.REVIEW_LABEL }}
+       --bot-login ${{ env.REVIEW_BOT_LOGIN }}
+       ${{ github.event.pull_request.number }}
+   ```
+
+   Patterns are Go (RE2) regexes over repo-relative, forward-slash paths; quote
+   them with single quotes in YAML so backslashes stay literal. The config also
+   accepts JSON (YAML is a superset).
 
 ## Files
 
 | File | Role |
 | --- | --- |
 | `main.go` | Orchestrator + CLI (`review` / `dismiss` modes), verdict posting |
-| `gates.go` | Deterministic classification, deny-list, size ceiling |
+| `config.go` | Gate policy loader (`--config` YAML) |
+| `policy.yml` | pgstream's gate policy (loaded at runtime; template for reuse) |
+| `gates.go` | Deterministic classification and gating against a policy |
 | `reviewer.go` | Anthropic Go SDK tool-use loop (read-only tools, `submit_verdict`) |
 | `github.go` | `gh` CLI wrappers (fetch PR, post review, sticky comment, dismiss) |
 | `render.go` | GitHub comment rendering for verdicts |
 | `review-guidance.md` | Trusted review criteria injected into the system prompt |
-| `gates_test.go` | Unit tests for the gate and glob logic |
+| `gates_test.go` / `config_test.go` / `reviewer_test.go` | Unit tests |
 | `../../.github/workflows/pr-approval-agent.yml` | The workflow that runs it |
 
 ## One-time setup

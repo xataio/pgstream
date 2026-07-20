@@ -79,7 +79,8 @@ jobs:
           "$RUNNER_TEMP/pr-agent"
           --repo ${{ github.repository }}
           --repo-root _pr
-          --agent-dir tools/pr-approval-agent
+          --config tools/pr-approval-agent/policy.yml
+          --guidance tools/pr-approval-agent/review-guidance.md
           --label ${{ env.REVIEW_LABEL }}
           --bot-login ${{ env.REVIEW_BOT_LOGIN }}
           --output-json review.json
@@ -128,6 +129,7 @@ jobs:
           "$RUNNER_TEMP/pr-agent"
           --repo ${{ github.repository }}
           --mode dismiss
+          --config tools/pr-approval-agent/policy.yml
           --label ${{ env.REVIEW_LABEL }}
           --bot-login ${{ env.REVIEW_BOT_LOGIN }}
           ${{ github.event.pull_request.number }}

@@ -2,7 +2,10 @@ module github.com/xataio/pgstream/tools/pr-approval-agent
 
 go 1.26.3
 
-require github.com/anthropics/anthropic-sdk-go v1.57.0
+require (
+	github.com/anthropics/anthropic-sdk-go v1.57.0
+	gopkg.in/yaml.v3 v3.0.1
+)
 
 require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect

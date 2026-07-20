@@ -42,10 +42,13 @@ type options struct {
 	botLogin   string
 	repoRoot   string
 	agentDir   string
+	configPath string
+	guidance   string
 	dryRun     bool
 	noPost     bool
 	outputJSON string
 	verbose    bool
+	pol        *policy
 }
 
 func main() {
@@ -62,7 +65,9 @@ func run() int {
 	flag.StringVar(&o.label, "label", defaultLabel, "trigger label to remove on non-approval")
 	flag.StringVar(&o.botLogin, "bot-login", defaultBotLogin, "login of the agent bot")
 	flag.StringVar(&o.repoRoot, "repo-root", ".", "path to the PR's checked-out code the reviewer reads")
-	flag.StringVar(&o.agentDir, "agent-dir", defaultAgentDir, "directory holding review-guidance.md")
+	flag.StringVar(&o.agentDir, "agent-dir", defaultAgentDir, "directory holding the default review-guidance.md")
+	flag.StringVar(&o.configPath, "config", "", "path to the YAML gate-policy file (default: <agent-dir>/policy.yml)")
+	flag.StringVar(&o.guidance, "guidance", "", "path to the reviewer guidance markdown (default: <agent-dir>/review-guidance.md)")
 	flag.BoolVar(&o.dryRun, "dry-run", false, "gates only: no LLM, no posting")
 	flag.BoolVar(&o.noPost, "no-post", false, "compute the verdict but do not touch the PR")
 	flag.StringVar(&o.outputJSON, "output-json", "", "write the full result JSON to this path")
@@ -85,6 +90,18 @@ func run() int {
 		return 2
 	}
 	o.prNumber = n
+
+	if o.configPath == "" {
+		o.configPath = filepath.Join(o.agentDir, "policy.yml")
+	}
+	o.pol, err = loadPolicy(o.configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 2
+	}
+	if o.guidance == "" {
+		o.guidance = filepath.Join(o.agentDir, "review-guidance.md")
+	}
 
 	var result map[string]any
 	switch o.mode {
@@ -149,7 +166,7 @@ func runReview(ctx context.Context, o options) (map[string]any, error) {
 			Verdict: "ESCALATE",
 			Reasons: []string{fmt.Sprintf("PR changes at least %d files; too large to classify reliably", restFileCap)},
 		}
-		c := classify(pr.Files)
+		c := o.pol.classify(pr.Files)
 		result["classification"] = c
 		result["gate"] = gate
 		result["final"] = "ESCALATE"
@@ -163,8 +180,8 @@ func runReview(ctx context.Context, o options) (map[string]any, error) {
 		return result, nil
 	}
 
-	c := classify(pr.Files)
-	gate := runGates(c, pr.Mergeable)
+	c := o.pol.classify(pr.Files)
+	gate := o.pol.runGates(c, pr.Mergeable)
 	result["classification"] = c
 	result["gate"] = gate
 
@@ -211,7 +228,7 @@ func runReview(ctx context.Context, o options) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	v, err := review(ctx, pr, c, diff, truncated, o.repoRoot, o.agentDir, o.verbose)
+	v, err := review(ctx, pr, c, diff, truncated, o.repoRoot, o.guidance, o.verbose)
 	if err != nil {
 		return nil, err
 	}
@@ -313,7 +330,7 @@ func runDismiss(o options) (map[string]any, error) {
 		if changed, cerr := compareFiles(o.repo, approvedSHA, pr.HeadRefOID); cerr == nil && len(changed) > 0 && len(changed) < compareFileCap {
 			inert = true
 			for _, p := range changed {
-				if !isInert(normPath(p)) {
+				if !o.pol.isInert(normPath(p)) {
 					inert = false
 					break
 				}

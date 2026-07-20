@@ -64,10 +64,10 @@ exactly once with:
 
 Do not narrate outside tool calls. Decide, then submit.`
 
-func loadGuidance(agentDir string) (string, error) {
-	b, err := os.ReadFile(filepath.Join(agentDir, "review-guidance.md"))
+func loadGuidance(guidancePath string) (string, error) {
+	b, err := os.ReadFile(guidancePath)
 	if err != nil {
-		return "", fmt.Errorf("reading review-guidance.md: %w", err)
+		return "", fmt.Errorf("reading reviewer guidance %s: %w", guidancePath, err)
 	}
 	return string(b) + scaffoldTail, nil
 }
@@ -182,8 +182,8 @@ func escalateVerdict(reason string) verdict {
 
 // review runs the tool loop and returns a verdict. Any tooling/API failure yields
 // ESCALATE rather than a false APPROVE.
-func review(ctx context.Context, pr *pullRequest, c classification, diff string, truncated bool, repoRoot, agentDir string, verbose bool) (verdict, error) {
-	guidance, err := loadGuidance(agentDir)
+func review(ctx context.Context, pr *pullRequest, c classification, diff string, truncated bool, repoRoot, guidancePath string, verbose bool) (verdict, error) {
+	guidance, err := loadGuidance(guidancePath)
 	if err != nil {
 		return verdict{}, err
 	}

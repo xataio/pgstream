@@ -7,6 +7,18 @@ import (
 	"testing"
 )
 
+// testPol is pgstream's own policy, loaded from the policy.yml shipped alongside
+// these tests (the same file the agent loads at runtime).
+var testPol = mustLoadPolicy("policy.yml")
+
+func mustLoadPolicy(path string) *policy {
+	p, err := loadPolicy(path)
+	if err != nil {
+		panic(err)
+	}
+	return p
+}
+
 func files(specs ...changedFile) []changedFile { return specs }
 
 func f(path string, add, del int) changedFile {
@@ -18,34 +30,34 @@ func fr(path, prev string, add, del int) changedFile {
 }
 
 func TestMigrationIsDenied(t *testing.T) {
-	c := classify(files(f("migrations/postgres/0001_init.sql", 10, 0)))
+	c := testPol.classify(files(f("migrations/postgres/0001_init.sql", 10, 0)))
 	if c.Tier != "T2-never" {
 		t.Fatalf("tier = %q, want T2-never", c.Tier)
 	}
 	if !contains(c.DenyCategories, "migration") {
 		t.Fatalf("deny categories = %v, want migration", c.DenyCategories)
 	}
-	if g := runGates(c, "MERGEABLE"); g.Verdict != "ESCALATE" {
+	if g := testPol.runGates(c, "MERGEABLE"); g.Verdict != "ESCALATE" {
 		t.Fatalf("verdict = %q, want ESCALATE", g.Verdict)
 	}
 }
 
 func TestDocsOnlyIsTrivial(t *testing.T) {
-	c := classify(files(f("README.md", 5, 2), f("docs/guide.md", 1, 0)))
+	c := testPol.classify(files(f("README.md", 5, 2), f("docs/guide.md", 1, 0)))
 	if c.Tier != "T0-trivial" || !c.TrivialOnly {
 		t.Fatalf("got tier=%q trivialOnly=%v", c.Tier, c.TrivialOnly)
 	}
-	if g := runGates(c, "MERGEABLE"); g.Verdict != "PASS" {
+	if g := testPol.runGates(c, "MERGEABLE"); g.Verdict != "PASS" {
 		t.Fatalf("verdict = %q, want PASS", g.Verdict)
 	}
 }
 
 func TestNormalGoChangeIsAgentReviewed(t *testing.T) {
-	c := classify(files(f("pkg/foo/bar.go", 10, 1)))
+	c := testPol.classify(files(f("pkg/foo/bar.go", 10, 1)))
 	if c.Tier != "T1-agent" {
 		t.Fatalf("tier = %q, want T1-agent", c.Tier)
 	}
-	if g := runGates(c, "MERGEABLE"); g.Verdict != "PASS" {
+	if g := testPol.runGates(c, "MERGEABLE"); g.Verdict != "PASS" {
 		t.Fatalf("verdict = %q, want PASS", g.Verdict)
 	}
 }
@@ -59,21 +71,21 @@ func TestScrutinyChangesAreFlaggedNotDenied(t *testing.T) {
 		"pkg/wal/processor/postgres/w.go": "postgres-writer",
 	}
 	for path, flag := range cases {
-		c := classify(files(f(path, 40, 3)))
+		c := testPol.classify(files(f(path, 40, 3)))
 		if c.Tier != "T1-agent" {
 			t.Errorf("%s: tier = %q, want T1-agent", path, c.Tier)
 		}
 		if !contains(c.ScrutinyFlags, flag) {
 			t.Errorf("%s: scrutiny flags = %v, want %s", path, c.ScrutinyFlags, flag)
 		}
-		if g := runGates(c, "MERGEABLE"); g.Verdict != "PASS" {
+		if g := testPol.runGates(c, "MERGEABLE"); g.Verdict != "PASS" {
 			t.Errorf("%s: verdict = %q, want PASS", path, g.Verdict)
 		}
 	}
 }
 
 func TestTestsDoNotCountTowardSizeCeiling(t *testing.T) {
-	c := classify(files(f("pkg/a_test.go", 900, 0)))
+	c := testPol.classify(files(f("pkg/a_test.go", 900, 0)))
 	if c.SubstantiveLines != 0 {
 		t.Fatalf("substantive lines = %d, want 0", c.SubstantiveLines)
 	}
@@ -85,7 +97,7 @@ func TestTestsDoNotCountTowardSizeCeiling(t *testing.T) {
 }
 
 func TestTestOnlyChangeIsReviewedNotAutoApproved(t *testing.T) {
-	c := classify(files(f("pkg/foo_test.go", 30, 2), f("pkg/mocks/m.go", 5, 0)))
+	c := testPol.classify(files(f("pkg/foo_test.go", 30, 2), f("pkg/mocks/m.go", 5, 0)))
 	if c.Tier != "T1-agent" {
 		t.Fatalf("tier = %q, want T1-agent (executable test/mocks must be reviewed)", c.Tier)
 	}
@@ -94,7 +106,7 @@ func TestTestOnlyChangeIsReviewedNotAutoApproved(t *testing.T) {
 func TestRenameOutOfDenyPathIsCaught(t *testing.T) {
 	// Moving a workflow to a docs path must still trip the .github/ deny rule,
 	// not slip through as a single trivial entry.
-	c := classify(files(fr("docs/old-ci.md", ".github/workflows/ci.yml", 0, 0)))
+	c := testPol.classify(files(fr("docs/old-ci.md", ".github/workflows/ci.yml", 0, 0)))
 	if !contains(c.DenyCategories, "ci-cd") {
 		t.Fatalf("deny categories = %v, want ci-cd", c.DenyCategories)
 	}
@@ -104,8 +116,8 @@ func TestRenameOutOfDenyPathIsCaught(t *testing.T) {
 }
 
 func TestLargeSubstantiveChangeEscalatesOnSize(t *testing.T) {
-	c := classify(files(f("pkg/a.go", 500, 400)))
-	g := runGates(c, "MERGEABLE")
+	c := testPol.classify(files(f("pkg/a.go", 500, 400)))
+	g := testPol.runGates(c, "MERGEABLE")
 	if g.Verdict != "ESCALATE" {
 		t.Fatalf("verdict = %q, want ESCALATE", g.Verdict)
 	}
@@ -125,26 +137,26 @@ func TestDotfileDenyPathsMatch(t *testing.T) {
 		"LICENSE":                          "legal",
 	}
 	for path, cat := range cases {
-		c := classify(files(f(path, 1, 0)))
+		c := testPol.classify(files(f(path, 1, 0)))
 		if !contains(c.DenyCategories, cat) {
 			t.Errorf("%s: deny categories = %v, want %s", path, c.DenyCategories, cat)
 		}
-		if g := runGates(c, "MERGEABLE"); g.Verdict != "ESCALATE" {
+		if g := testPol.runGates(c, "MERGEABLE"); g.Verdict != "ESCALATE" {
 			t.Errorf("%s: verdict = %q, want ESCALATE", path, g.Verdict)
 		}
 	}
 }
 
 func TestDenyWinsMixedWithTrivial(t *testing.T) {
-	c := classify(files(f("README.md", 1, 0), f("go.mod", 1, 0)))
+	c := testPol.classify(files(f("README.md", 1, 0), f("go.mod", 1, 0)))
 	if c.Tier != "T2-never" || c.TrivialOnly {
 		t.Fatalf("got tier=%q trivialOnly=%v", c.Tier, c.TrivialOnly)
 	}
 }
 
 func TestConflictEscalates(t *testing.T) {
-	c := classify(files(f("pkg/a.go", 1, 0)))
-	if g := runGates(c, "CONFLICTING"); g.Verdict != "ESCALATE" {
+	c := testPol.classify(files(f("pkg/a.go", 1, 0)))
+	if g := testPol.runGates(c, "CONFLICTING"); g.Verdict != "ESCALATE" {
 		t.Fatalf("conflicting verdict = %q, want ESCALATE", g.Verdict)
 	}
 }
