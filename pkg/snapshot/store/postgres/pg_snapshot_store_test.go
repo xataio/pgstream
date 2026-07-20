@@ -455,17 +455,17 @@ func TestStore_createTable(t *testing.T) {
 						require.Equal(t, wantQuery, s)
 						require.Empty(t, a)
 					case 4:
-						wantQuery := fmt.Sprintf(`DROP INDEX IF EXISTS %s.schema_table_status_unique_index`, store.SchemaName)
+						wantQuery := fmt.Sprintf(`CREATE OR REPLACE FUNCTION %s.snapshot_table_names_hash(names TEXT[])
+	RETURNS TEXT LANGUAGE sql IMMUTABLE AS $func$ SELECT md5(names::text) $func$`, store.SchemaName)
 						require.Equal(t, wantQuery, s)
 						require.Empty(t, a)
 					case 5:
-						wantQuery := fmt.Sprintf(`CREATE OR REPLACE FUNCTION %s.snapshot_table_names_hash(names TEXT[])
-	RETURNS TEXT LANGUAGE sql IMMUTABLE AS $func$ SELECT md5(array_to_string(names, ',')) $func$`, store.SchemaName)
+						wantQuery := fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS schema_table_status_hash_unique_index
+	ON %s(schema_name,%s.snapshot_table_names_hash(table_names)) WHERE status != 'completed'`, snapshotsTable(), store.SchemaName)
 						require.Equal(t, wantQuery, s)
 						require.Empty(t, a)
 					case 6:
-						wantQuery := fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS schema_table_status_unique_index
-	ON %s(schema_name,%s.snapshot_table_names_hash(table_names)) WHERE status != 'completed'`, snapshotsTable(), store.SchemaName)
+						wantQuery := fmt.Sprintf(`DROP INDEX IF EXISTS %s.schema_table_status_unique_index`, store.SchemaName)
 						require.Equal(t, wantQuery, s)
 						require.Empty(t, a)
 					default:
@@ -524,7 +524,7 @@ func TestStore_createTable(t *testing.T) {
 			wantErr: errTest,
 		},
 		{
-			name: "error - dropping legacy index",
+			name: "error - creating hash function",
 			querier: &postgresmocks.Querier{
 				ExecFn: func(ctx context.Context, i uint, s string, a ...any) (pglib.CommandTag, error) {
 					switch i {
@@ -540,7 +540,7 @@ func TestStore_createTable(t *testing.T) {
 			wantErr: errTest,
 		},
 		{
-			name: "error - creating hash function",
+			name: "error - creating index",
 			querier: &postgresmocks.Querier{
 				ExecFn: func(ctx context.Context, i uint, s string, a ...any) (pglib.CommandTag, error) {
 					switch i {
@@ -556,7 +556,7 @@ func TestStore_createTable(t *testing.T) {
 			wantErr: errTest,
 		},
 		{
-			name: "error - creating index",
+			name: "error - dropping legacy index",
 			querier: &postgresmocks.Querier{
 				ExecFn: func(ctx context.Context, i uint, s string, a ...any) (pglib.CommandTag, error) {
 					switch i {
