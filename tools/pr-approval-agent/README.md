@@ -1,10 +1,8 @@
 # pgstream PR approval agent
 
 An AI-assisted PR reviewer that pairs **deterministic safety gates** with a Claude
-review pass. It is a lean, Go-native reimplementation of
-[PostHog's stamphog agent](https://github.com/PostHog/posthog/tree/master/tools/pr-approval-agent),
-retuned for pgstream's Go + SQL layout — no ownership model, no Django migration
-heuristics, no analytics.
+review pass. It is deliberately lean and tuned for pgstream's Go + SQL layout — no
+ownership model, no analytics — just path-based gating plus an LLM review.
 
 It lives in its own nested Go module (`tools/pr-approval-agent/go.mod`) so the
 Anthropic SDK dependency stays out of pgstream's core `go.mod`.

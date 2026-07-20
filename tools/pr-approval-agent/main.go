@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Command pr-approval-agent is a lean, Go-native reimplementation of PostHog's
-// stamphog PR reviewer, retuned for pgstream.
+// Command pr-approval-agent is a lean, Go-native AI PR reviewer for pgstream.
 //
 // Pipeline: fetch PR -> deterministic gates -> (conditionally) LLM review -> post
 // verdict. Gates are authoritative; the LLM can tighten but never loosen them.

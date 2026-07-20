@@ -15,15 +15,15 @@ import (
 // their verdict, never loosen it. A path that lands in the deny-list is escalated
 // to a human regardless of what the model thinks of the code.
 //
-// This mirrors PostHog's stamphog design, retuned for pgstream's Go + SQL layout:
-// no ownership model, no Django migration heuristics, no analytics — just path
-// classification, a size ceiling, and a small deny-list.
+// The design is deliberately lean for pgstream's Go + SQL layout: no ownership
+// model, no analytics — just path classification, a size ceiling, and a small
+// deny-list.
 
 // Escalate (never auto-approve) anything larger than these ceilings. A change
 // this big cannot be reviewed with confidence from a diff by an agent.
 const (
-	maxSubstantiveLines = 800
-	maxSubstantiveFiles = 30
+	maxSubstantiveLines = 300
+	maxSubstantiveFiles = 15
 )
 
 type pathRule struct {
