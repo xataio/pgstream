@@ -28,6 +28,7 @@ permissions:
 env:
   REVIEW_LABEL: ai-review
   REVIEW_BOT_LOGIN: xata-bot
+  REVIEW_MODEL: claude-sonnet-5
 
 jobs:
   review:
@@ -36,6 +37,7 @@ jobs:
     timeout-minutes: 20
     if: >-
       github.event.pull_request.state == 'open' &&
+      !github.event.pull_request.merged &&
       !github.event.pull_request.draft &&
       !endsWith(github.event.pull_request.user.login, '[bot]') &&
       (
@@ -94,6 +96,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: >-
+      github.event.pull_request.state == 'open' &&
+      !github.event.pull_request.merged &&
       github.event.action == 'synchronize' &&
       contains(github.event.pull_request.labels.*.name, 'ai-review')
     steps:

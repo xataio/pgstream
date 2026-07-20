@@ -16,20 +16,24 @@ import (
 
 const stickyMarker = "<!-- pgstream-review-agent -->"
 
-const prFields = "number,title,body,author,isDraft,mergeable,headRefOid,baseRefName,files,labels,reviews"
+// Note: reviews are NOT fetched here. `gh pr view --json reviews` comes from the
+// GraphQL API, whose review id is a string node id and which omits the commit the
+// review was submitted against — both of which the dismiss logic needs. Reviews
+// are fetched separately from the REST API (see fetchReviews).
+const prFields = "number,title,body,author,isDraft,state,mergeable,headRefOid,baseRefName,files,labels"
 
 type ghUser struct {
 	Login string `json:"login"`
 	IsBot bool   `json:"is_bot"`
 }
 
-type ghReview struct {
-	ID     int64  `json:"id"`
-	State  string `json:"state"`
-	Author ghUser `json:"author"`
-	Commit struct {
-		OID string `json:"oid"`
-	} `json:"commit"`
+// restReview matches the REST reviews endpoint, which gives a numeric id (usable
+// with the REST dismissal endpoint) and commit_id (the SHA reviewed).
+type restReview struct {
+	ID       int64  `json:"id"`
+	State    string `json:"state"`
+	CommitID string `json:"commit_id"`
+	User     ghUser `json:"user"`
 }
 
 type ghLabel struct {
@@ -42,12 +46,12 @@ type pullRequest struct {
 	Body        string        `json:"body"`
 	Author      ghUser        `json:"author"`
 	IsDraft     bool          `json:"isDraft"`
+	State       string        `json:"state"` // OPEN | CLOSED | MERGED
 	Mergeable   string        `json:"mergeable"`
 	HeadRefOID  string        `json:"headRefOid"`
 	BaseRefName string        `json:"baseRefName"`
 	Files       []changedFile `json:"files"`
 	Labels      []ghLabel     `json:"labels"`
-	Reviews     []ghReview    `json:"reviews"`
 }
 
 func runGH(args ...string) (string, error) {
@@ -134,11 +138,24 @@ func removeLabel(repo string, number int, label string) error {
 	return nil
 }
 
+// fetchReviews lists a PR's reviews via the REST API (numeric id + commit_id).
+func fetchReviews(repo string, number int) ([]restReview, error) {
+	out, err := runGH("api", fmt.Sprintf("repos/%s/pulls/%d/reviews", repo, number), "--paginate")
+	if err != nil {
+		return nil, err
+	}
+	var reviews []restReview
+	if err := json.Unmarshal([]byte(out), &reviews); err != nil {
+		return nil, fmt.Errorf("parsing reviews json: %w", err)
+	}
+	return reviews, nil
+}
+
 // botApprovals returns APPROVED reviews left by the agent bot, in API order.
-func botApprovals(pr *pullRequest, botLogin string) []ghReview {
-	var out []ghReview
-	for _, r := range pr.Reviews {
-		if r.Author.Login == botLogin && r.State == "APPROVED" {
+func botApprovals(reviews []restReview, botLogin string) []restReview {
+	var out []restReview
+	for _, r := range reviews {
+		if r.User.Login == botLogin && r.State == "APPROVED" {
 			out = append(out, r)
 		}
 	}

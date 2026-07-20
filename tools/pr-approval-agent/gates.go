@@ -162,10 +162,7 @@ func classify(files []changedFile) classification {
 // runGates applies the authoritative gates to a classification. Allow=false means
 // the PR must not be auto-approved. Allow=true means the LLM may be consulted (or,
 // for T0-trivial, auto-approval is permitted).
-func runGates(c classification, isDraft bool, mergeable string) gateResult {
-	if isDraft {
-		return gateResult{Allow: false, Verdict: "ESCALATE", Reasons: []string{"PR is a draft"}}
-	}
+func runGates(c classification, mergeable string) gateResult {
 	if mergeable == "CONFLICTING" {
 		return gateResult{
 			Allow:   false,

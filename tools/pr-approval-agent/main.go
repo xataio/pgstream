@@ -119,14 +119,28 @@ func runReview(ctx context.Context, o options) (map[string]any, error) {
 		"author": pr.Author.Login,
 	}
 
+	// The agent only reviews open, ready-for-review PRs. The workflow already
+	// guards this, but keep the guarantee (and a clear message) for manual/local
+	// runs too.
+	if pr.State != "OPEN" {
+		result["final"] = "SKIP"
+		result["message"] = "the agent only reviews open PRs; this one is " + pr.State
+		return result, nil
+	}
+	if pr.IsDraft {
+		result["final"] = "SKIP"
+		result["message"] = "the agent only reviews open, ready-for-review PRs; this one is a draft"
+		return result, nil
+	}
+
 	if pr.Author.IsBot || hasBotSuffix(pr.Author.Login) {
 		result["final"] = "SKIP"
-		result["message"] = "bot-authored PR"
+		result["message"] = "the agent does not review bot-authored PRs"
 		return result, nil
 	}
 
 	c := classify(pr.Files)
-	gate := runGates(c, pr.IsDraft, pr.Mergeable)
+	gate := runGates(c, pr.Mergeable)
 	result["classification"] = c
 	result["gate"] = gate
 
@@ -207,7 +221,17 @@ func runDismiss(o options) (map[string]any, error) {
 	}
 	result := map[string]any{"pr": o.prNumber, "repo": o.repo, "head": pr.HeadRefOID, "mode": "dismiss"}
 
-	approvals := botApprovals(pr, o.botLogin)
+	if pr.State != "OPEN" {
+		result["final"] = "SKIP"
+		result["message"] = "PR is not open (state " + pr.State + ")"
+		return result, nil
+	}
+
+	reviews, err := fetchReviews(o.repo, o.prNumber)
+	if err != nil {
+		return nil, err
+	}
+	approvals := botApprovals(reviews, o.botLogin)
 	if len(approvals) == 0 {
 		result["final"] = "NOOP"
 		result["message"] = "no bot approval to dismiss"
@@ -215,7 +239,7 @@ func runDismiss(o options) (map[string]any, error) {
 	}
 
 	latest := approvals[len(approvals)-1]
-	approvedSHA := latest.Commit.OID
+	approvedSHA := latest.CommitID
 
 	if approvedSHA == pr.HeadRefOID {
 		result["final"] = "KEEP"

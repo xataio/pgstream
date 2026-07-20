@@ -21,7 +21,7 @@ func TestMigrationIsDenied(t *testing.T) {
 	if !contains(c.DenyCategories, "migration") {
 		t.Fatalf("deny categories = %v, want migration", c.DenyCategories)
 	}
-	if g := runGates(c, false, "MERGEABLE"); g.Verdict != "ESCALATE" {
+	if g := runGates(c, "MERGEABLE"); g.Verdict != "ESCALATE" {
 		t.Fatalf("verdict = %q, want ESCALATE", g.Verdict)
 	}
 }
@@ -31,7 +31,7 @@ func TestDocsOnlyIsTrivial(t *testing.T) {
 	if c.Tier != "T0-trivial" || !c.TrivialOnly {
 		t.Fatalf("got tier=%q trivialOnly=%v", c.Tier, c.TrivialOnly)
 	}
-	if g := runGates(c, false, "MERGEABLE"); g.Verdict != "PASS" {
+	if g := runGates(c, "MERGEABLE"); g.Verdict != "PASS" {
 		t.Fatalf("verdict = %q, want PASS", g.Verdict)
 	}
 }
@@ -41,7 +41,7 @@ func TestNormalGoChangeIsAgentReviewed(t *testing.T) {
 	if c.Tier != "T1-agent" {
 		t.Fatalf("tier = %q, want T1-agent", c.Tier)
 	}
-	if g := runGates(c, false, "MERGEABLE"); g.Verdict != "PASS" {
+	if g := runGates(c, "MERGEABLE"); g.Verdict != "PASS" {
 		t.Fatalf("verdict = %q, want PASS", g.Verdict)
 	}
 }
@@ -62,7 +62,7 @@ func TestScrutinyChangesAreFlaggedNotDenied(t *testing.T) {
 		if !contains(c.ScrutinyFlags, flag) {
 			t.Errorf("%s: scrutiny flags = %v, want %s", path, c.ScrutinyFlags, flag)
 		}
-		if g := runGates(c, false, "MERGEABLE"); g.Verdict != "PASS" {
+		if g := runGates(c, "MERGEABLE"); g.Verdict != "PASS" {
 			t.Errorf("%s: verdict = %q, want PASS", path, g.Verdict)
 		}
 	}
@@ -80,7 +80,7 @@ func TestTestsDoNotCountTowardSizeCeiling(t *testing.T) {
 
 func TestLargeSubstantiveChangeEscalatesOnSize(t *testing.T) {
 	c := classify(files(f("pkg/a.go", 500, 400)))
-	g := runGates(c, false, "MERGEABLE")
+	g := runGates(c, "MERGEABLE")
 	if g.Verdict != "ESCALATE" {
 		t.Fatalf("verdict = %q, want ESCALATE", g.Verdict)
 	}
@@ -104,7 +104,7 @@ func TestDotfileDenyPathsMatch(t *testing.T) {
 		if !contains(c.DenyCategories, cat) {
 			t.Errorf("%s: deny categories = %v, want %s", path, c.DenyCategories, cat)
 		}
-		if g := runGates(c, false, "MERGEABLE"); g.Verdict != "ESCALATE" {
+		if g := runGates(c, "MERGEABLE"); g.Verdict != "ESCALATE" {
 			t.Errorf("%s: verdict = %q, want ESCALATE", path, g.Verdict)
 		}
 	}
@@ -117,12 +117,9 @@ func TestDenyWinsMixedWithTrivial(t *testing.T) {
 	}
 }
 
-func TestDraftAndConflictEscalate(t *testing.T) {
+func TestConflictEscalates(t *testing.T) {
 	c := classify(files(f("pkg/a.go", 1, 0)))
-	if g := runGates(c, true, "MERGEABLE"); g.Verdict != "ESCALATE" {
-		t.Fatalf("draft verdict = %q, want ESCALATE", g.Verdict)
-	}
-	if g := runGates(c, false, "CONFLICTING"); g.Verdict != "ESCALATE" {
+	if g := runGates(c, "CONFLICTING"); g.Verdict != "ESCALATE" {
 		t.Fatalf("conflicting verdict = %q, want ESCALATE", g.Verdict)
 	}
 }

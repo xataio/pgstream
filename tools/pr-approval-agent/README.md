@@ -39,7 +39,8 @@ model thinks of the code.
 | `pkg/wal/replication/`, `pkg/wal/checkpointer/`, `pkg/wal/listener/`, `pkg/snapshot/`, `pkg/wal/processor/postgres/` | **Scrutiny flag** → reviewed, but the model is told to lean toward ESCALATE |
 | `*.md`, `docs/`, `*_test.go`, `testdata/`, `mocks/`, generated `*-definition.json` | **Trivial** → excluded from the size ceiling; docs-only PRs auto-approve without an LLM call |
 | > 800 substantive lines or > 30 substantive files | **Size ceiling** → ESCALATE (too big to auto-review) |
-| Draft / conflicting / bot-authored | ESCALATE / skip |
+| Draft / merged / closed / bot-authored | **Skipped** → the agent only reviews open, ready-for-review PRs |
+| Merge-conflicted | **ESCALATE** → rebase before review |
 
 The trusted review criteria the model follows live in
 [`review-guidance.md`](./review-guidance.md). Both that file and the agent binary
@@ -125,6 +126,16 @@ go run . --repo xataio/pgstream --mode dismiss 1002
 `--repo-root` is the working tree the reviewer reads with read_file/grep/glob;
 `--agent-dir` (default: the binary's directory) is where `review-guidance.md` is
 loaded from.
+
+### Configuration
+
+| Env var | Default | Purpose |
+| --- | --- | --- |
+| `ANTHROPIC_API_KEY` | — | required for the LLM review call |
+| `REVIEW_MODEL` | `claude-sonnet-5` | reviewer model; set to `claude-opus-4-8` for higher-confidence reviews |
+
+`REVIEW_MODEL` is wired as a workflow-level `env` in `pr-approval-agent.yml`, so you
+can change the model there without touching code.
 
 ## Safety model
 

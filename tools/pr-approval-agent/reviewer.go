@@ -23,7 +23,16 @@ import (
 // base branch (see the workflow), so a PR cannot rewrite the reviewer that judges
 // it.
 
-const model = "claude-sonnet-5"
+// defaultModel is used when REVIEW_MODEL is unset. Override via the REVIEW_MODEL
+// env var (e.g. "claude-opus-4-8" for higher-confidence reviews).
+const defaultModel = "claude-sonnet-5"
+
+func reviewModel() string {
+	if m := strings.TrimSpace(os.Getenv("REVIEW_MODEL")); m != "" {
+		return m
+	}
+	return defaultModel
+}
 
 const (
 	maxTurns       = 20
@@ -170,7 +179,7 @@ func review(ctx context.Context, pr *pullRequest, c classification, diff string,
 
 	for turn := 0; turn < maxTurns; turn++ {
 		msg, err := client.Messages.New(ctx, anthropic.MessageNewParams{
-			Model:     model,
+			Model:     anthropic.Model(reviewModel()),
 			MaxTokens: 4096,
 			System:    []anthropic.TextBlockParam{{Text: guidance}},
 			Messages:  messages,
