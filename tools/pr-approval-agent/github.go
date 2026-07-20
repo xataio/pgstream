@@ -11,16 +11,23 @@ import (
 )
 
 // Thin wrappers over the `gh` CLI. Every call uses whatever token gh/GH_TOKEN is
-// configured with; in CI that is the GitHub App installation token, so reviews
-// are attributed to the app and can satisfy branch protection.
+// configured with; in CI that is the xata-bot PAT, so reviews are attributed to
+// xata-bot and its approvals can satisfy branch protection.
 
 const stickyMarker = "<!-- pgstream-review-agent -->"
 
-// Note: reviews are NOT fetched here. `gh pr view --json reviews` comes from the
-// GraphQL API, whose review id is a string node id and which omits the commit the
-// review was submitted against — both of which the dismiss logic needs. Reviews
-// are fetched separately from the REST API (see fetchReviews).
-const prFields = "number,title,body,author,isDraft,state,mergeable,headRefOid,baseRefName,files,labels"
+// Note: neither files nor reviews are fetched here.
+//   - `gh pr view --json files` is a GraphQL call capped at the first 100 files
+//     with no pagination, so a large PR would hide files 101+ from the gates —
+//     a classification bypass. Files come from the paginated REST endpoint
+//     instead (fetchFiles), which also reports rename origins.
+//   - `gh pr view --json reviews` gives a string node id and omits the reviewed
+//     commit, both of which dismiss needs; reviews come from REST (fetchReviews).
+const prFields = "number,title,body,author,isDraft,state,mergeable,headRefOid,baseRefName,labels"
+
+// restFileCap is GitHub's hard cap on the PR files REST endpoint. Beyond this the
+// file list is incomplete, so the PR must be escalated rather than classified.
+const restFileCap = 3000
 
 type ghUser struct {
 	Login string `json:"login"`
@@ -41,17 +48,18 @@ type ghLabel struct {
 }
 
 type pullRequest struct {
-	Number      int           `json:"number"`
-	Title       string        `json:"title"`
-	Body        string        `json:"body"`
-	Author      ghUser        `json:"author"`
-	IsDraft     bool          `json:"isDraft"`
-	State       string        `json:"state"` // OPEN | CLOSED | MERGED
-	Mergeable   string        `json:"mergeable"`
-	HeadRefOID  string        `json:"headRefOid"`
-	BaseRefName string        `json:"baseRefName"`
-	Files       []changedFile `json:"files"`
-	Labels      []ghLabel     `json:"labels"`
+	Number         int           `json:"number"`
+	Title          string        `json:"title"`
+	Body           string        `json:"body"`
+	Author         ghUser        `json:"author"`
+	IsDraft        bool          `json:"isDraft"`
+	State          string        `json:"state"` // OPEN | CLOSED | MERGED
+	Mergeable      string        `json:"mergeable"`
+	HeadRefOID     string        `json:"headRefOid"`
+	BaseRefName    string        `json:"baseRefName"`
+	Labels         []ghLabel     `json:"labels"`
+	Files          []changedFile `json:"-"` // populated from REST (fetchFiles)
+	FilesTruncated bool          `json:"-"` // file list hit the REST cap; classification unsafe
 }
 
 func runGH(args ...string) (string, error) {
@@ -74,7 +82,54 @@ func fetchPR(repo string, number int) (*pullRequest, error) {
 	if err := json.Unmarshal([]byte(out), &pr); err != nil {
 		return nil, fmt.Errorf("parsing PR json: %w", err)
 	}
+	files, truncated, err := fetchFiles(repo, number)
+	if err != nil {
+		return nil, err
+	}
+	pr.Files = files
+	pr.FilesTruncated = truncated
 	return &pr, nil
+}
+
+type restFile struct {
+	Filename         string `json:"filename"`
+	PreviousFilename string `json:"previous_filename"`
+	Additions        int    `json:"additions"`
+	Deletions        int    `json:"deletions"`
+}
+
+// fetchFiles lists a PR's changed files via the paginated REST endpoint (up to
+// restFileCap). Returns truncated=true when the cap is hit, meaning the list is
+// incomplete and the PR must not be classified from it.
+func fetchFiles(repo string, number int) (files []changedFile, truncated bool, err error) {
+	out, err := runGH("api", fmt.Sprintf("repos/%s/pulls/%d/files?per_page=100", repo, number), "--paginate")
+	if err != nil {
+		return nil, false, err
+	}
+	var rf []restFile
+	if err := json.Unmarshal([]byte(out), &rf); err != nil {
+		return nil, false, fmt.Errorf("parsing files json: %w", err)
+	}
+	files = make([]changedFile, len(rf))
+	for i, f := range rf {
+		files[i] = changedFile{
+			Path:      f.Filename,
+			Prev:      f.PreviousFilename,
+			Additions: f.Additions,
+			Deletions: f.Deletions,
+		}
+	}
+	return files, len(rf) >= restFileCap, nil
+}
+
+// hasLabel reports whether the PR currently carries the given label.
+func hasLabel(pr *pullRequest, label string) bool {
+	for _, l := range pr.Labels {
+		if l.Name == label {
+			return true
+		}
+	}
+	return false
 }
 
 // fetchDiff returns the PR diff, clipped so the prompt stays bounded.
@@ -131,11 +186,13 @@ func findStickyComment(repo string, number int) (int64, error) {
 }
 
 func removeLabel(repo string, number int, label string) error {
-	// gh errors if the label is absent; treat that as a no-op.
-	if _, err := runGH("pr", "edit", fmt.Sprint(number), "--repo", repo, "--remove-label", label); err != nil {
+	_, err := runGH("pr", "edit", fmt.Sprint(number), "--repo", repo, "--remove-label", label)
+	if err != nil && strings.Contains(err.Error(), "not found") {
+		// Label already absent (e.g. a concurrent run removed it) — a genuine
+		// no-op. Any other error (auth, network, permissions) is propagated.
 		return nil
 	}
-	return nil
+	return err
 }
 
 // fetchReviews lists a PR's reviews via the REST API (numeric id + commit_id).

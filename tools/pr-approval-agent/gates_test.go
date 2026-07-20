@@ -13,6 +13,10 @@ func f(path string, add, del int) changedFile {
 	return changedFile{Path: path, Additions: add, Deletions: del}
 }
 
+func fr(path, prev string, add, del int) changedFile {
+	return changedFile{Path: path, Prev: prev, Additions: add, Deletions: del}
+}
+
 func TestMigrationIsDenied(t *testing.T) {
 	c := classify(files(f("migrations/postgres/0001_init.sql", 10, 0)))
 	if c.Tier != "T2-never" {
@@ -73,8 +77,29 @@ func TestTestsDoNotCountTowardSizeCeiling(t *testing.T) {
 	if c.SubstantiveLines != 0 {
 		t.Fatalf("substantive lines = %d, want 0", c.SubstantiveLines)
 	}
-	if c.Tier != "T0-trivial" {
-		t.Fatalf("tier = %q, want T0-trivial", c.Tier)
+	// Test files are size-exempt but NOT inert: CI compiles and runs them, so a
+	// test-only PR is reviewed by the LLM, never auto-approved.
+	if c.Tier != "T1-agent" {
+		t.Fatalf("tier = %q, want T1-agent", c.Tier)
+	}
+}
+
+func TestTestOnlyChangeIsReviewedNotAutoApproved(t *testing.T) {
+	c := classify(files(f("pkg/foo_test.go", 30, 2), f("pkg/mocks/m.go", 5, 0)))
+	if c.Tier != "T1-agent" {
+		t.Fatalf("tier = %q, want T1-agent (executable test/mocks must be reviewed)", c.Tier)
+	}
+}
+
+func TestRenameOutOfDenyPathIsCaught(t *testing.T) {
+	// Moving a workflow to a docs path must still trip the .github/ deny rule,
+	// not slip through as a single trivial entry.
+	c := classify(files(fr("docs/old-ci.md", ".github/workflows/ci.yml", 0, 0)))
+	if !contains(c.DenyCategories, "ci-cd") {
+		t.Fatalf("deny categories = %v, want ci-cd", c.DenyCategories)
+	}
+	if c.Tier != "T2-never" {
+		t.Fatalf("tier = %q, want T2-never", c.Tier)
 	}
 }
 

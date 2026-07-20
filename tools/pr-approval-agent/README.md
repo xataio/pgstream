@@ -27,18 +27,21 @@ model thinks of the code.
 - **REFUSE / ESCALATE** → the agent posts a sticky comment explaining why and
   removes the label, so it can be re-added after a fix.
 - **New push (`synchronize`)** → a stale approval is dismissed unless the delta
-  since it is trivial (docs/tests only).
+  since it is inert (docs/markdown only).
 
-### Gate policy (edit `gates.go` to tune)
+### Gate policy (`gates.go` is the authoritative source)
 
 | Area | Behaviour |
 | --- | --- |
-| `migrations/`, `.github/`, `.goreleaser*.yaml`, `Dockerfile`, `go.mod/go.sum`, `tools/pr-approval-agent/`, `LICENSE` | **Deny** → always ESCALATE to a human |
+| `migrations/`, `.github/`, `.goreleaser*.yaml`, `Dockerfile`, `go.mod/go.sum`, `tools/pr-approval-agent/`, `LICENSE` | **Deny** → always ESCALATE to a human (checked on both the new and pre-rename path) |
 | `pkg/wal/replication/`, `pkg/wal/checkpointer/`, `pkg/wal/listener/`, `pkg/snapshot/`, `pkg/wal/processor/postgres/` | **Scrutiny flag** → reviewed, but the model is told to lean toward ESCALATE |
-| `*.md`, `docs/`, `*_test.go`, `testdata/`, `mocks/`, generated `*-definition.json` | **Trivial** → excluded from the size ceiling; docs-only PRs auto-approve without an LLM call |
-| > 800 substantive lines or > 30 substantive files | **Size ceiling** → ESCALATE (too big to auto-review) |
-| Draft / merged / closed / bot-authored | **Skipped** → the agent only reviews open, ready-for-review PRs |
+| `*.md`, `docs/`, `coverage/` | **Inert** → auto-approve without an LLM call; dismiss keeps an approval only across inert deltas |
+| `*_test.go`, `testdata/`, `mocks/`, generated `*-definition.json` | **Size-exempt but reviewed** → excluded from the size ceiling, but still get an LLM review (CI compiles/runs test files, so they are not auto-approved) |
+| > 300 substantive lines or > 15 substantive files, or > 3000 changed files | **Size ceiling** → ESCALATE (too big to classify/auto-review) |
+| Draft / merged / closed / bot-authored (incl. xata-bot) | **Skipped** → the agent only reviews open, ready-for-review PRs |
 | Merge-conflicted | **ESCALATE** → rebase before review |
+
+The exact patterns and thresholds live in `gates.go`; the table above is a summary.
 
 The trusted review criteria the model follows live in
 [`review-guidance.md`](./review-guidance.md). Both that file and the agent binary

@@ -17,9 +17,9 @@ on:
   pull_request_target:
     types: [labeled, ready_for_review, synchronize]
 
-concurrency:
-  group: pr-approval-agent-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+# No workflow-level concurrency: the review and dismiss jobs must not cancel each
+# other (a label re-add starting a review must not kill an in-flight dismiss, or a
+# stale approval could survive a substantive push). Each job scopes its own group.
 
 permissions:
   contents: read
@@ -35,6 +35,9 @@ jobs:
     name: review
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    concurrency:
+      group: pr-approval-agent-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     if: >-
       github.event.pull_request.state == 'open' &&
       !github.event.pull_request.merged &&
@@ -95,6 +98,9 @@ jobs:
     name: dismiss stale approval on push
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    concurrency:
+      group: pr-approval-agent-dismiss-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     if: >-
       github.event.pull_request.state == 'open' &&
       !github.event.pull_request.merged &&

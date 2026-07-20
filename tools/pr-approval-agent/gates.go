@@ -68,8 +68,19 @@ var trivialPaths = []*regexp.Regexp{
 	regexp.MustCompile(`^(cli-definition|transformers-definition)\.json$`),
 }
 
+// inertPaths carry no executable risk: safe to auto-approve WITHOUT an LLM call
+// and safe to keep an approval across (dismiss). This is deliberately narrower
+// than trivialPaths — test files match trivialPaths but CI compiles and executes
+// them, so a test-only change must still get a review rather than a free pass.
+var inertPaths = []*regexp.Regexp{
+	regexp.MustCompile(`\.md$`),
+	regexp.MustCompile(`^docs/`),
+	regexp.MustCompile(`^coverage/`),
+}
+
 type changedFile struct {
 	Path      string `json:"path"`
+	Prev      string `json:"prev,omitempty"` // previous path for a rename, if any
 	Additions int    `json:"additions"`
 	Deletions int    `json:"deletions"`
 }
@@ -104,6 +115,15 @@ func isTrivial(p string) bool {
 	return false
 }
 
+func isInert(p string) bool {
+	for _, re := range inertPaths {
+		if re.MatchString(p) {
+			return true
+		}
+	}
+	return false
+}
+
 func appendUnique(list []string, v string) []string {
 	for _, existing := range list {
 		if existing == v {
@@ -123,18 +143,33 @@ func classify(files []changedFile) classification {
 		ScrutinyFlags:  []string{},
 		TrivialOnly:    true,
 	}
+	// A PR auto-approves without an LLM only when every touched path (new AND, for
+	// renames, old) is inert. An empty file list is never inert.
+	inertOnly := len(files) > 0
 
 	for _, f := range files {
 		p := normPath(f.Path)
 
-		for _, rule := range denyPaths {
-			if rule.pattern.MatchString(p) {
-				c.DenyCategories = appendUnique(c.DenyCategories, rule.category)
-			}
+		// Match deny/scrutiny against both the new and the pre-rename path, so
+		// moving a sensitive file out of (or into) a gated directory still trips
+		// the gate instead of showing up as a single trivial entry.
+		paths := []string{p}
+		if f.Prev != "" {
+			paths = append(paths, normPath(f.Prev))
 		}
-		for _, rule := range scrutinyPaths {
-			if rule.pattern.MatchString(p) {
-				c.ScrutinyFlags = appendUnique(c.ScrutinyFlags, rule.category)
+		for _, pp := range paths {
+			for _, rule := range denyPaths {
+				if rule.pattern.MatchString(pp) {
+					c.DenyCategories = appendUnique(c.DenyCategories, rule.category)
+				}
+			}
+			for _, rule := range scrutinyPaths {
+				if rule.pattern.MatchString(pp) {
+					c.ScrutinyFlags = appendUnique(c.ScrutinyFlags, rule.category)
+				}
+			}
+			if !isInert(pp) {
+				inertOnly = false
 			}
 		}
 
@@ -150,7 +185,7 @@ func classify(files []changedFile) classification {
 	case len(c.DenyCategories) > 0:
 		c.Tier = "T2-never"
 		c.TrivialOnly = false
-	case c.TrivialOnly:
+	case inertOnly:
 		c.Tier = "T0-trivial"
 	default:
 		c.Tier = "T1-agent"

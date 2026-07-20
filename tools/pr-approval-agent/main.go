@@ -19,14 +19,19 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
-// Trigger label and bot identity. Override via flags when the app is named
-// differently. The bot login is the GitHub App slug suffixed with "[bot]".
+// Trigger label and bot identity. Override via flags. Reviews are posted as this
+// login (the xata-bot machine user); its own PRs are skipped since it cannot
+// approve them.
 const (
 	defaultLabel    = "ai-review"
 	defaultBotLogin = "xata-bot"
 	diffMaxBytes    = 200_000
+	// compareFileCap is GitHub's per-response cap on the compare endpoint; a
+	// delta at or above it is incompletely reported, so it is never "inert".
+	compareFileCap = 300
 )
 
 type options struct {
@@ -64,8 +69,14 @@ func run() int {
 	flag.BoolVar(&o.verbose, "v", false, "log agent tool calls to stderr")
 	flag.Parse()
 
-	if flag.NArg() < 1 {
+	// Go's flag package stops at the first positional, so flags placed after the
+	// PR number are silently ignored — dangerous when e.g. --no-post is dropped.
+	// Require exactly one positional and reject trailing args.
+	if flag.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "usage: pr-approval-agent [flags] <pr-number>")
+		if flag.NArg() > 1 {
+			fmt.Fprintf(os.Stderr, "unexpected arguments after the PR number: %v (flags must precede it)\n", flag.Args()[1:])
+		}
 		return 2
 	}
 	n, err := strconv.Atoi(flag.Arg(0))
@@ -97,14 +108,6 @@ func run() int {
 	return 0
 }
 
-func labelNames(pr *pullRequest) map[string]bool {
-	set := map[string]bool{}
-	for _, l := range pr.Labels {
-		set[l.Name] = true
-	}
-	return set
-}
-
 func runReview(ctx context.Context, o options) (map[string]any, error) {
 	pr, err := fetchPR(o.repo, o.prNumber)
 	if err != nil {
@@ -132,9 +135,31 @@ func runReview(ctx context.Context, o options) (map[string]any, error) {
 		return result, nil
 	}
 
-	if pr.Author.IsBot || hasBotSuffix(pr.Author.Login) {
+	if pr.Author.IsBot || strings.HasSuffix(pr.Author.Login, "[bot]") || pr.Author.Login == o.botLogin {
 		result["final"] = "SKIP"
 		result["message"] = "the agent does not review bot-authored PRs"
+		return result, nil
+	}
+
+	// If the file list hit the REST cap it is incomplete, so the gates cannot be
+	// trusted — escalate rather than risk classifying a partial change.
+	if pr.FilesTruncated {
+		gate := gateResult{
+			Allow:   false,
+			Verdict: "ESCALATE",
+			Reasons: []string{fmt.Sprintf("PR changes at least %d files; too large to classify reliably", restFileCap)},
+		}
+		c := classify(pr.Files)
+		result["classification"] = c
+		result["gate"] = gate
+		result["final"] = "ESCALATE"
+		body := renderNonApproval(c, gate, nil, "ESCALATE", o.label)
+		result["body"] = body
+		if !o.dryRun && !o.noPost {
+			if err := postNonApproval(o, pr, body); err != nil {
+				return nil, err
+			}
+		}
 		return result, nil
 	}
 
@@ -149,19 +174,18 @@ func runReview(ctx context.Context, o options) (map[string]any, error) {
 		body := renderNonApproval(c, gate, nil, "ESCALATE", o.label)
 		result["body"] = body
 		if !o.dryRun && !o.noPost {
-			if err := upsertStickyComment(o.repo, o.prNumber, body); err != nil {
-				return nil, err
-			}
-			if err := removeLabel(o.repo, o.prNumber, o.label); err != nil {
+			if err := postNonApproval(o, pr, body); err != nil {
 				return nil, err
 			}
 		}
 		return result, nil
 	}
 
-	// Pure docs/tests changes: auto-approve without spending an LLM call.
+	// Inert changes (docs/markdown only) auto-approve without spending an LLM
+	// call. Note test files are deliberately NOT inert — CI compiles and runs
+	// them, so they get a review.
 	if c.Tier == "T0-trivial" {
-		v := verdict{Verdict: "APPROVE", Reasoning: "Trivial change (docs/tests only).", Risk: "low", Issues: []string{}}
+		v := verdict{Verdict: "APPROVE", Reasoning: "Inert change (docs only).", Risk: "low", Issues: []string{}}
 		result["verdict"] = v
 		result["final"] = "APPROVE"
 		if !o.dryRun && !o.noPost {
@@ -175,6 +199,12 @@ func runReview(ctx context.Context, o options) (map[string]any, error) {
 	if o.dryRun {
 		result["final"] = "DRY-RUN"
 		return result, nil
+	}
+
+	// A missing key is a deployment misconfiguration, not a review outcome —
+	// fail loudly (exit 1) instead of silently escalating every PR.
+	if strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) == "" {
+		return nil, fmt.Errorf("ANTHROPIC_API_KEY is not set; cannot run the LLM review")
 	}
 
 	diff, truncated, err := fetchDiff(o.repo, o.prNumber, diffMaxBytes)
@@ -200,15 +230,44 @@ func runReview(ctx context.Context, o options) (map[string]any, error) {
 		body := renderNonApproval(c, gate, &v, v.Verdict, o.label)
 		result["body"] = body
 		if !o.noPost {
-			if err := upsertStickyComment(o.repo, o.prNumber, body); err != nil {
-				return nil, err
-			}
-			if err := removeLabel(o.repo, o.prNumber, o.label); err != nil {
+			if err := postNonApproval(o, pr, body); err != nil {
 				return nil, err
 			}
 		}
 	}
 	return result, nil
+}
+
+// postNonApproval posts the sticky comment for a REFUSE/ESCALATE, dismisses any
+// prior bot approval that a re-review has now superseded (so a stale APPROVE
+// cannot keep satisfying branch protection), and drops the trigger label.
+// Label/dismiss failures are logged, not fatal — the verdict is already recorded.
+func postNonApproval(o options, pr *pullRequest, body string) error {
+	if err := upsertStickyComment(o.repo, o.prNumber, body); err != nil {
+		return err
+	}
+	if err := dismissBotApprovals(o); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not dismiss prior bot approvals: %v\n", err)
+	}
+	if hasLabel(pr, o.label) {
+		if err := removeLabel(o.repo, o.prNumber, o.label); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not remove label %q: %v\n", o.label, err)
+		}
+	}
+	return nil
+}
+
+func dismissBotApprovals(o options) error {
+	reviews, err := fetchReviews(o.repo, o.prNumber)
+	if err != nil {
+		return err
+	}
+	for _, r := range botApprovals(reviews, o.botLogin) {
+		if err := dismissReview(o.repo, o.prNumber, r.ID, "Superseded by a non-approving re-review."); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // runDismiss dismisses a stale approval on push unless the delta since it is
@@ -246,22 +305,25 @@ func runDismiss(o options) (map[string]any, error) {
 		return result, nil
 	}
 
-	trivial := false
+	// Keep the approval only when EVERY file in the delta is inert (docs only).
+	// Test files are executable and excluded; a >=300-file delta is incompletely
+	// reported by the compare API, so it is never treated as inert.
+	inert := false
 	if approvedSHA != "" {
-		if changed, cerr := compareFiles(o.repo, approvedSHA, pr.HeadRefOID); cerr == nil && len(changed) > 0 {
-			trivial = true
+		if changed, cerr := compareFiles(o.repo, approvedSHA, pr.HeadRefOID); cerr == nil && len(changed) > 0 && len(changed) < compareFileCap {
+			inert = true
 			for _, p := range changed {
-				if !isTrivial(normPath(p)) {
-					trivial = false
+				if !isInert(normPath(p)) {
+					inert = false
 					break
 				}
 			}
 		}
 	}
 
-	if trivial {
+	if inert {
 		result["final"] = "KEEP"
-		result["message"] = "delta since approval is trivial (docs/tests only)"
+		result["message"] = "delta since approval is inert (docs only)"
 		return result, nil
 	}
 
@@ -278,8 +340,4 @@ func runDismiss(o options) (map[string]any, error) {
 		}
 	}
 	return result, nil
-}
-
-func hasBotSuffix(login string) bool {
-	return len(login) >= 5 && login[len(login)-5:] == "[bot]"
 }
