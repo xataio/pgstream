@@ -11,7 +11,6 @@ import (
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
 	"github.com/xataio/pgstream/internal/progress"
-	synclib "github.com/xataio/pgstream/internal/sync"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/snapshot"
@@ -35,8 +34,7 @@ type SnapshotGenerator struct {
 	// workers per schema, parallelise the snapshot creation for each table
 	schemaWorkers uint
 
-	progressTracking   bool
-	progressBars       *synclib.Map[string, progress.Bar]
+	progress           progressTracker
 	progressBarBuilder func(totalBytes int64, description string) progress.Bar
 }
 
@@ -92,14 +90,13 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, processor processor.
 	}
 
 	sg.reader = &ctidReader{
-		conn:             sg.conn,
-		logger:           sg.logger,
-		adapter:          newAdapter(pglib.NewMapper(conn), sg.logger),
-		processor:        sg.processor,
-		tableWorkers:     cfg.tableWorkers(),
-		batchBytes:       cfg.batchBytes(),
-		progressTracking: sg.progressTracking,
-		progressBars:     sg.progressBars,
+		conn:         sg.conn,
+		logger:       sg.logger,
+		adapter:      newAdapter(pglib.NewMapper(conn), sg.logger),
+		processor:    sg.processor,
+		tableWorkers: cfg.tableWorkers(),
+		batchBytes:   cfg.batchBytes(),
+		progress:     sg.progress,
 	}
 
 	if sg.instrumentation != nil {
@@ -132,8 +129,7 @@ func WithInstrumentation(i *otel.Instrumentation) Option {
 
 func WithProgressTracking() Option {
 	return func(sg *SnapshotGenerator) {
-		sg.progressTracking = true
-		sg.progressBars = synclib.NewMap[string, progress.Bar]()
+		sg.progress = newProgressTracker()
 		sg.progressBarBuilder = progress.NewBytesBar
 	}
 }
@@ -193,13 +189,13 @@ func (sg *SnapshotGenerator) Close() error {
 
 func (sg *SnapshotGenerator) createSchemaSnapshot(ctx context.Context, schemaTables *schemaTables) error {
 	return sg.reader.beginSchema(ctx, schemaTables, func(ctx context.Context, session *readSession) (err error) {
-		if sg.progressTracking {
+		if sg.progress.enabled {
 			if err := sg.addProgressBar(ctx, session.snapshotID, schemaTables); err != nil {
 				return err
 			}
 			defer func() {
 				if err == nil {
-					sg.markProgressBarCompleted(schemaTables.schema)
+					sg.progress.complete(schemaTables.schema)
 				}
 			}()
 		}
@@ -290,16 +286,8 @@ func (sg *SnapshotGenerator) addProgressBar(ctx context.Context, snapshotID stri
 	}
 
 	bar := sg.progressBarBuilder(totalBytes, fmt.Sprintf("[cyan][%s][reset] Snapshotting data...", schemaTables.schema))
-	sg.progressBars.Set(schemaTables.schema, bar)
+	sg.progress.set(schemaTables.schema, bar)
 	return nil
-}
-
-func (sg *SnapshotGenerator) markProgressBarCompleted(schema string) {
-	bar, found := sg.progressBars.Get(schema)
-	if found {
-		bar.Close()
-	}
-	sg.progressBars.Delete(schema)
 }
 
 const tablesBytesQuery = `SELECT SUM(pg_table_size(c.oid)) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = ANY($2) AND c.relkind = 'r';`

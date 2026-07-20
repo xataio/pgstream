@@ -8,8 +8,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	pglib "github.com/xataio/pgstream/internal/postgres"
-	"github.com/xataio/pgstream/internal/progress"
-	synclib "github.com/xataio/pgstream/internal/sync"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -29,9 +27,9 @@ type ctidReader struct {
 	tableWorkers uint
 	batchBytes   uint64
 
-	// progress tracking, shared with the snapshot generator.
-	progressTracking bool
-	progressBars     *synclib.Map[string, progress.Bar]
+	// progress is shared by value with the snapshot generator; the underlying
+	// bars map is shared by reference.
+	progress progressTracker
 }
 
 // beginSchema opens the transaction that exports the shared transaction
@@ -145,12 +143,7 @@ func (r *ctidReader) snapshotTableRange(ctx context.Context, snapshotID string, 
 			}
 		}
 
-		if r.progressTracking {
-			bar, found := r.progressBars.Get(table.schema)
-			if found {
-				bar.Add64(int64(rowCount) * table.rowSize)
-			}
-		}
+		r.progress.advance(table.schema, int64(rowCount)*table.rowSize)
 
 		r.logger.Debug(fmt.Sprintf("%d rows processed", rowCount), loglib.Fields{
 			"schema": table.schema, "table": table.name, "snapshotID": snapshotID,

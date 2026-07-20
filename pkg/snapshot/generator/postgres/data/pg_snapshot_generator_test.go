@@ -1144,27 +1144,28 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 					return tc.processorCloseErr
 				},
 			}
-			progressBars := synclib.NewMap[string, progress.Bar]()
+			pt := progressTracker{
+				enabled: tc.progressBar != nil,
+				bars:    synclib.NewMap[string, progress.Bar](),
+			}
 			sg := SnapshotGenerator{
-				logger:           logger,
-				conn:             tc.querier,
-				processor:        processor,
-				schemaWorkers:    1,
-				snapshotWorkers:  1,
-				progressTracking: tc.progressBar != nil,
-				progressBars:     progressBars,
+				logger:          logger,
+				conn:            tc.querier,
+				processor:       processor,
+				schemaWorkers:   1,
+				snapshotWorkers: 1,
+				progress:        pt,
 				progressBarBuilder: func(totalBytes int64, description string) progress.Bar {
 					return tc.progressBar
 				},
 				reader: &ctidReader{
-					conn:             tc.querier,
-					logger:           logger,
-					adapter:          newAdapter(pglib.NewMapper(tc.querier), loglib.NewNoopLogger()),
-					processor:        processor,
-					tableWorkers:     1,
-					batchBytes:       1024 * 1024, // 1MB
-					progressTracking: tc.progressBar != nil,
-					progressBars:     progressBars,
+					conn:         tc.querier,
+					logger:       logger,
+					adapter:      newAdapter(pglib.NewMapper(tc.querier), loglib.NewNoopLogger()),
+					processor:    processor,
+					tableWorkers: 1,
+					batchBytes:   1024 * 1024, // 1MB
+					progress:     pt,
 				},
 			}
 
@@ -1693,12 +1694,14 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 						return nil
 					},
 				},
-				progressTracking: tc.name == "ok - with progress tracking",
-				progressBars:     synclib.NewMap[string, progress.Bar](),
+				progress: progressTracker{
+					enabled: tc.name == "ok - with progress tracking",
+					bars:    synclib.NewMap[string, progress.Bar](),
+				},
 			}
 
-			if reader.progressTracking {
-				reader.progressBars.Set(tc.table.schema, progressBar)
+			if reader.progress.enabled {
+				reader.progress.set(tc.table.schema, progressBar)
 			}
 
 			err := reader.snapshotTableRange(context.Background(), testSnapshotID, tc.table, tc.pageRange)
