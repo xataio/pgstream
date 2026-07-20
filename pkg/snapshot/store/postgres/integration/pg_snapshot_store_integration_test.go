@@ -4,7 +4,7 @@ package integration
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"testing"
@@ -174,7 +174,7 @@ func Test_SnapshotStore_RepeatedInitIsIdempotent(t *testing.T) {
 func wideSchemaRequest() *snapshot.Request {
 	tables := make([]string, 0, 300)
 	for i := range 300 {
-		sum := md5.Sum([]byte(fmt.Sprintf("pgstream-wide-schema-table-%d", i)))
+		sum := sha256.Sum256([]byte(fmt.Sprintf("pgstream-wide-schema-table-%d", i)))
 		tables = append(tables, fmt.Sprintf("t_%x", sum))
 	}
 	return &snapshot.Request{
