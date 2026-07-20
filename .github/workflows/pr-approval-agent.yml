@@ -1,7 +1,7 @@
 name: PR approval agent
 
 # Runs on pull_request_target so the job has repo secrets (the Anthropic key and
-# the GitHub App credentials) even for fork PRs. Safety model:
+# the xata-bot token) even for fork PRs. Safety model:
 #   - The agent binary is BUILT from the BASE checkout, never from the PR branch,
 #     so a PR cannot alter the reviewer that judges it. The PR's code is checked
 #     out separately (into ./_pr) and only READ.
@@ -9,6 +9,10 @@ name: PR approval agent
 #     and cannot run code, so the PR's contents are never executed.
 #   - The deterministic gate escalates any change under .github/ or
 #     tools/pr-approval-agent/, so a PR touching the agent is never auto-approved.
+#
+# Auth: reviews are posted as the xata-bot machine user via secrets.GIT_TOKEN (a
+# PAT with pull-requests:write). A real user's approving review counts toward
+# branch protection, unlike the default GITHUB_TOKEN.
 on:
   pull_request_target:
     types: [labeled, ready_for_review, synchronize]
@@ -23,6 +27,7 @@ permissions:
 
 env:
   REVIEW_LABEL: ai-review
+  REVIEW_BOT_LOGIN: xata-bot
 
 jobs:
   review:
@@ -39,13 +44,6 @@ jobs:
          contains(github.event.pull_request.labels.*.name, 'ai-review'))
       )
     steps:
-      - name: Create GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ secrets.PR_APPROVAL_AGENT_APP_ID }}
-          private-key: ${{ secrets.PR_APPROVAL_AGENT_PRIVATE_KEY }}
-
       - name: Checkout base (trusted agent code)
         uses: actions/checkout@v7
         with:
@@ -70,7 +68,7 @@ jobs:
 
       - name: Run review
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.GIT_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.REVIEW_ANTHROPIC_API_KEY }}
         run: >-
           "$RUNNER_TEMP/pr-agent"
@@ -78,6 +76,7 @@ jobs:
           --repo-root _pr
           --agent-dir tools/pr-approval-agent
           --label ${{ env.REVIEW_LABEL }}
+          --bot-login ${{ env.REVIEW_BOT_LOGIN }}
           --output-json review.json
           ${{ github.event.pull_request.number }}
 
@@ -98,13 +97,6 @@ jobs:
       github.event.action == 'synchronize' &&
       contains(github.event.pull_request.labels.*.name, 'ai-review')
     steps:
-      - name: Create GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ secrets.PR_APPROVAL_AGENT_APP_ID }}
-          private-key: ${{ secrets.PR_APPROVAL_AGENT_PRIVATE_KEY }}
-
       - name: Checkout base (trusted agent code)
         uses: actions/checkout@v7
         with:
@@ -121,10 +113,11 @@ jobs:
 
       - name: Dismiss on substantive push
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.GIT_TOKEN }}
         run: >-
           "$RUNNER_TEMP/pr-agent"
           --repo ${{ github.repository }}
           --mode dismiss
           --label ${{ env.REVIEW_LABEL }}
+          --bot-login ${{ env.REVIEW_BOT_LOGIN }}
           ${{ github.event.pull_request.number }}

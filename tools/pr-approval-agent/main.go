@@ -26,7 +26,7 @@ import (
 // differently. The bot login is the GitHub App slug suffixed with "[bot]".
 const (
 	defaultLabel    = "ai-review"
-	defaultBotLogin = "pgstream-review-agent[bot]"
+	defaultBotLogin = "xata-bot"
 	diffMaxBytes    = 200_000
 )
 

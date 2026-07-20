@@ -24,8 +24,8 @@ label "ai-review" added ─▶ deterministic gates ─▶ (conditionally) Claude
 A PR touching a deny-listed area is escalated to a human regardless of what the
 model thinks of the code.
 
-- **APPROVE** → the agent posts a real approving PR review (as the GitHub App, so it
-  can count toward branch protection) and keeps the label.
+- **APPROVE** → the agent posts a real approving PR review (as xata-bot, so it can
+  count toward branch protection) and keeps the label.
 - **REFUSE / ESCALATE** → the agent posts a sticky comment explaining why and
   removes the label, so it can be re-added after a fix.
 - **New push (`synchronize`)** → a stale approval is dismissed unless the delta
@@ -60,21 +60,22 @@ are always loaded/built **from the base branch**, never from the PR under review
 
 ## One-time setup
 
-### 1. Register a GitHub App
+### 1. Bot identity (xata-bot)
 
-A dedicated app is required so the agent's approvals are attributed to a bot and
-can satisfy required-review branch protection (the built-in `GITHUB_TOKEN` cannot
-post approvals that count).
+Reviews are posted as the **xata-bot** machine user, authenticated with a PAT.
+A real user's approving review counts toward required-review branch protection,
+unlike the built-in `GITHUB_TOKEN`.
 
-1. **Org/user → Settings → Developer settings → GitHub Apps → New GitHub App.**
-   - Name e.g. `pgstream-review-agent` (its bot login becomes
-     `pgstream-review-agent[bot]` — keep this in sync with `defaultBotLogin` in
-     `main.go` and `REVIEW_LABEL` in the workflow if you rename).
-   - Permissions (repository): **Pull requests: Read & write**, **Contents: Read-only**,
-     **Metadata: Read-only**.
-   - Subscribe to events: none needed (the workflow triggers, not a webhook).
-2. **Generate a private key** and note the **App ID**.
-3. **Install the app** on the `xataio/pgstream` repo.
+Requirements:
+- xata-bot must have **write access** to the repo (to post reviews and manage the
+  label).
+- Its PAT needs **pull-requests: read & write** (a fine-grained PAT scoped to
+  `xataio/pgstream`, or a classic `repo`-scoped token). PATs expire — rotate
+  before expiry or the agent will start failing.
+- The bot login is `xata-bot` — kept in sync via `defaultBotLogin` in `main.go`
+  and `REVIEW_BOT_LOGIN` in the workflow. (To use a GitHub App instead, swap the
+  workflow's `GH_TOKEN` for an `actions/create-github-app-token` step and set the
+  login to `<app-name>[bot]`.)
 
 ### 2. Add repo secrets
 
@@ -82,9 +83,8 @@ In `xataio/pgstream → Settings → Secrets and variables → Actions`:
 
 | Secret | Value |
 | --- | --- |
-| `PR_APPROVAL_AGENT_APP_ID` | the App ID |
-| `PR_APPROVAL_AGENT_PRIVATE_KEY` | the app's private key (full PEM) |
-| `REVIEW_ANTHROPIC_API_KEY` | an Anthropic API key for the review LLM |
+| `GIT_TOKEN` | xata-bot's PAT (already present — reused from the release workflow) |
+| `REVIEW_ANTHROPIC_API_KEY` | an Anthropic API key for the review LLM (new) |
 
 ### 3. Create the trigger label
 
@@ -93,10 +93,11 @@ the agent.
 
 ### 4. (Optional) require the bot in branch protection
 
-To make an approval meaningful, add the app as a required reviewer, or rely on it
-as an advisory approval alongside human review. The agent **removes the label on
+To make an approval meaningful, require a review from xata-bot, or rely on it as
+an advisory approval alongside human review. The agent **removes the label on
 REFUSE/ESCALATE** and dismisses its own approval on substantive pushes — it is an
-assistant, not a merge gate on its own.
+assistant, not a merge gate on its own. Note xata-bot cannot approve its own PRs,
+so bot-authored PRs are skipped.
 
 ## Local testing
 
