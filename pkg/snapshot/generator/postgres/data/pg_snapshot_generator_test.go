@@ -1132,32 +1132,42 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			t.Parallel()
 
 			eventChan := make(chan *wal.Event, 10)
-			sg := SnapshotGenerator{
-				logger: zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
-					LogLevel: "debug",
-				})),
-				conn:    tc.querier,
-				adapter: newAdapter(pglib.NewMapper(tc.querier), loglib.NewNoopLogger()),
-				processor: &processormocks.Processor{
-					ProcessWALEventFn: func(ctx context.Context, e *wal.Event) error {
-						eventChan <- e
-						return nil
-					},
-					CloseFn: func() error {
-						return tc.processorCloseErr
-					},
+			logger := zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
+				LogLevel: "debug",
+			}))
+			processor := &processormocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, e *wal.Event) error {
+					eventChan <- e
+					return nil
 				},
-				schemaWorkers:    1,
-				tableWorkers:     1,
-				batchBytes:       1024 * 1024, // 1MB
-				snapshotWorkers:  1,
-				progressTracking: tc.progressBar != nil,
-				progressBars:     synclib.NewMap[string, progress.Bar](),
+				CloseFn: func() error {
+					return tc.processorCloseErr
+				},
+			}
+			pt := progressTracker{
+				enabled: tc.progressBar != nil,
+				bars:    synclib.NewMap[string, progress.Bar](),
+			}
+			sg := SnapshotGenerator{
+				logger:          logger,
+				conn:            tc.querier,
+				processor:       processor,
+				schemaWorkers:   1,
+				snapshotWorkers: 1,
+				progress:        pt,
 				progressBarBuilder: func(totalBytes int64, description string) progress.Bar {
 					return tc.progressBar
 				},
+				reader: &ctidReader{
+					conn:         tc.querier,
+					logger:       logger,
+					adapter:      newAdapter(pglib.NewMapper(tc.querier), loglib.NewNoopLogger()),
+					processor:    processor,
+					tableWorkers: 1,
+					batchBytes:   1024 * 1024, // 1MB
+					progress:     pt,
+				},
 			}
-			sg.tableSnapshotGenerator = sg.snapshotTable
 
 			if tc.schemaWorkers != 0 {
 				sg.schemaWorkers = tc.schemaWorkers
@@ -1667,7 +1677,7 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 				},
 			}
 
-			sg := SnapshotGenerator{
+			reader := &ctidReader{
 				logger: zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
 					LogLevel: "debug",
 				})),
@@ -1684,15 +1694,17 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 						return nil
 					},
 				},
-				progressTracking: tc.name == "ok - with progress tracking",
-				progressBars:     synclib.NewMap[string, progress.Bar](),
+				progress: progressTracker{
+					enabled: tc.name == "ok - with progress tracking",
+					bars:    synclib.NewMap[string, progress.Bar](),
+				},
 			}
 
-			if sg.progressTracking {
-				sg.progressBars.Set(tc.table.schema, progressBar)
+			if reader.progress.enabled {
+				reader.progress.set(tc.table.schema, progressBar)
 			}
 
-			err := sg.snapshotTableRange(context.Background(), testSnapshotID, tc.table, tc.pageRange)
+			err := reader.snapshotTableRange(context.Background(), testSnapshotID, tc.table, tc.pageRange)
 			require.Equal(t, tc.wantErr, err)
 			close(eventChan)
 
