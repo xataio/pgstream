@@ -136,8 +136,28 @@ func (s *Store) createTable(ctx context.Context) error {
 		return fmt.Errorf("error adding mode column to snapshots postgres table: %w", err)
 	}
 
+	// drop the legacy index that indexed the raw table_names array: its index
+	// row overflows the btree tuple size limit for schemas with many tables.
+	dropLegacyIndexQuery := fmt.Sprintf(`DROP INDEX IF EXISTS %s.schema_table_status_unique_index`, store.SchemaName)
+	_, err = s.conn.Exec(ctx, dropLegacyIndexQuery)
+	if err != nil {
+		return fmt.Errorf("error dropping legacy unique index on snapshots postgres table: %w", err)
+	}
+
+	// the index below hashes the table names so its row stays within the btree
+	// tuple size limit regardless of table count. postgres requires an index
+	// expression to be IMMUTABLE, and neither table_names::text nor
+	// array_to_string is marked immutable, so wrap the hash in an immutable
+	// helper (a text[] digest is deterministic).
+	hashFuncQuery := fmt.Sprintf(`CREATE OR REPLACE FUNCTION %s.snapshot_table_names_hash(names TEXT[])
+	RETURNS TEXT LANGUAGE sql IMMUTABLE AS $func$ SELECT md5(array_to_string(names, ',')) $func$`, store.SchemaName)
+	_, err = s.conn.Exec(ctx, hashFuncQuery)
+	if err != nil {
+		return fmt.Errorf("error creating table names hash function for snapshots postgres table: %w", err)
+	}
+
 	uniqueIndexQuery := fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS schema_table_status_unique_index
-	ON %s(schema_name,table_names) WHERE status != 'completed'`, snapshotsTable())
+	ON %s(schema_name,%s.snapshot_table_names_hash(table_names)) WHERE status != 'completed'`, snapshotsTable(), store.SchemaName)
 	_, err = s.conn.Exec(ctx, uniqueIndexQuery)
 	if err != nil {
 		return fmt.Errorf("error creating unique index on snapshots postgres table: %w", err)
