@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// testPol is pgstream's own policy, loaded from the policy.yml shipped alongside
-// these tests (the same file the agent loads at runtime).
-var testPol = mustLoadPolicy("policy.yml")
+// testPol is loaded from a self-contained fixture copy of the policy under
+// testdata/, so the tests do not depend on files elsewhere in the repo.
+var testPol = mustLoadPolicy("testdata/policy.yml")
 
 func mustLoadPolicy(path string) *policy {
 	p, err := loadPolicy(path)

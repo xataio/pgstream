@@ -1,0 +1,61 @@
+# pgstream's gate policy for the PR approval agent.
+#
+# This file IS the policy — it is embedded into the agent binary as the built-in
+# default (config.go), so pgstream runs with no --config flag. It is also the
+# template to copy when reusing the agent in another repo: copy it, edit the path
+# lists/thresholds, and pass the copy with --config.
+#
+# NOTES
+# - Patterns are Go (RE2) regular expressions matched against repo-relative,
+#   forward-slash paths (e.g. "pkg/foo/bar.go").
+# - Quote patterns with SINGLE quotes so backslashes stay literal in YAML.
+# - A --config file fully REPLACES this policy; list every rule you want.
+#   Omitted lists are empty; omitted thresholds fall back to 300 lines / 15 files.
+# - Deny/scrutiny are matched against both the new and the pre-rename path.
+# - When reusing: deny-list wherever the agent's config/guidance/workflow live
+#   (usually .github/) so a PR cannot weaken its own gate.
+
+# Never auto-approved — always escalated to a human. `category` labels the verdict.
+denyPaths:
+  - { pattern: '^migrations/', category: migration }
+  - { pattern: '^\.github/workflows/', category: ci-cd }
+  - { pattern: '^\.github/', category: ci-cd }
+  - { pattern: '^\.goreleaser.*\.ya?ml$', category: release/supply-chain }
+  - { pattern: '(^|/)Dockerfile$', category: release/supply-chain }
+  - { pattern: '^go\.(mod|sum)$', category: dependencies }
+  - { pattern: '^tools/pr-approval-agent/', category: review-agent-self }
+  - { pattern: '^(LICENSE|license-header\.txt)$', category: legal }
+
+# Reviewed by the LLM, but it is told to lean toward ESCALATE. `category` is the
+# scrutiny flag surfaced to the model.
+scrutinyPaths:
+  - { pattern: '^pkg/wal/replication/', category: replication-core }
+  - { pattern: '^pkg/wal/checkpointer/', category: checkpoint-core }
+  - { pattern: '^pkg/wal/listener/', category: wal-listener }
+  - { pattern: '^pkg/snapshot/', category: snapshot-core }
+  - { pattern: '^pkg/wal/processor/postgres/', category: postgres-writer }
+
+# Inert = no executable risk: a PR touching only these auto-approves WITHOUT an
+# LLM call, and dismiss keeps an approval only across inert deltas. Keep this
+# narrow — do NOT include test files (CI compiles and runs them).
+inertPaths:
+  - '\.md$'
+  - '^docs/'
+  - '^coverage/'
+
+# Size-exempt = does not count toward the ceilings below, but (unless also inert)
+# still gets a full LLM review. Tests, fixtures, mocks, generated artifacts.
+trivialPaths:
+  - '\.md$'
+  - '^docs/'
+  - '_test\.go$'
+  - '(^|/)testdata/'
+  - '(^|/)mocks?/'
+  - '_mocks?\.go$'
+  - '^coverage/'
+  - '^(cli-definition|transformers-definition)\.json$'
+
+# A PR with more substantive (non-size-exempt) lines/files than this is escalated
+# as too big to auto-review.
+maxSubstantiveLines: 300
+maxSubstantiveFiles: 15

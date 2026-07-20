@@ -11,10 +11,9 @@ import (
 )
 
 // Configurable gate policy. There is no policy hardcoded in Go: pgstream's policy
-// lives in policy.yml, loaded at runtime via --config (which defaults to
-// <agent-dir>/policy.yml). Other repos supply their own, so the agent can be
-// reused without code changes. review-guidance.md (the LLM's instructions) is a
-// separate file whose path is set with --guidance.
+// lives in .github/pr-approval-agent/policy.yml, loaded at runtime via --config.
+// Other repos supply their own, so the agent can be reused without code changes.
+// review-guidance.md (the LLM's instructions) is a separate file set with --guidance.
 
 const (
 	defaultMaxLines = 300

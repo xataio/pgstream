@@ -17,7 +17,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -32,6 +31,10 @@ const (
 	// compareFileCap is GitHub's per-response cap on the compare endpoint; a
 	// delta at or above it is incompletely reported, so it is never "inert".
 	compareFileCap = 300
+	// Config lives under .github/ (already deny-listed, so a PR can't weaken its
+	// own gate). Paths are resolved relative to the working dir (the repo root).
+	defaultConfigPath   = ".github/pr-approval-agent/policy.yml"
+	defaultGuidancePath = ".github/pr-approval-agent/review-guidance.md"
 )
 
 type options struct {
@@ -41,7 +44,6 @@ type options struct {
 	label      string
 	botLogin   string
 	repoRoot   string
-	agentDir   string
 	configPath string
 	guidance   string
 	dryRun     bool
@@ -56,18 +58,14 @@ func main() {
 }
 
 func run() int {
-	exe, _ := os.Executable()
-	defaultAgentDir := filepath.Dir(exe)
-
 	var o options
 	flag.StringVar(&o.repo, "repo", "xataio/pgstream", "target repository (owner/name)")
 	flag.StringVar(&o.mode, "mode", "review", "review | dismiss")
 	flag.StringVar(&o.label, "label", defaultLabel, "trigger label to remove on non-approval")
 	flag.StringVar(&o.botLogin, "bot-login", defaultBotLogin, "login of the agent bot")
 	flag.StringVar(&o.repoRoot, "repo-root", ".", "path to the PR's checked-out code the reviewer reads")
-	flag.StringVar(&o.agentDir, "agent-dir", defaultAgentDir, "directory holding the default review-guidance.md")
-	flag.StringVar(&o.configPath, "config", "", "path to the YAML gate-policy file (default: <agent-dir>/policy.yml)")
-	flag.StringVar(&o.guidance, "guidance", "", "path to the reviewer guidance markdown (default: <agent-dir>/review-guidance.md)")
+	flag.StringVar(&o.configPath, "config", defaultConfigPath, "path to the YAML gate-policy file")
+	flag.StringVar(&o.guidance, "guidance", defaultGuidancePath, "path to the reviewer guidance markdown")
 	flag.BoolVar(&o.dryRun, "dry-run", false, "gates only: no LLM, no posting")
 	flag.BoolVar(&o.noPost, "no-post", false, "compute the verdict but do not touch the PR")
 	flag.StringVar(&o.outputJSON, "output-json", "", "write the full result JSON to this path")
@@ -91,16 +89,10 @@ func run() int {
 	}
 	o.prNumber = n
 
-	if o.configPath == "" {
-		o.configPath = filepath.Join(o.agentDir, "policy.yml")
-	}
 	o.pol, err = loadPolicy(o.configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 2
-	}
-	if o.guidance == "" {
-		o.guidance = filepath.Join(o.agentDir, "review-guidance.md")
 	}
 
 	var result map[string]any

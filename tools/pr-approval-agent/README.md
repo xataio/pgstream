@@ -41,41 +41,40 @@ model thinks of the code.
 | Draft / merged / closed / bot-authored (incl. xata-bot) | **Skipped** → the agent only reviews open, ready-for-review PRs |
 | Merge-conflicted | **ESCALATE** → rebase before review |
 
-The default policy above lives in [`policy.yml`](./policy.yml) — there is no policy
-hardcoded in Go. The agent loads it at runtime via `--config` (which defaults to
-`<agent-dir>/policy.yml`). Any repo can point `--config` at its own file — see
-**Reusing in another repo** below.
-
-The trusted review criteria the model follows live in
-[`review-guidance.md`](./review-guidance.md). Both that file and the agent binary
-are always loaded/built **from the base branch**, never from the PR under review.
+The tool's Go code lives in `tools/pr-approval-agent/`, but the **config** — the
+gate policy and the reviewer guidance — lives under **`.github/pr-approval-agent/`**
+(`policy.yml` and `review-guidance.md`). Putting it under `.github/` means it is
+already deny-listed, so a PR cannot weaken its own gate. There is no policy
+hardcoded in Go; the agent loads both files at runtime (defaults below), always
+**from the base branch**, never from the PR under review.
 
 ## Reusing in another repo
 
 Nothing in the agent is pgstream-specific except two inputs, both overridable:
 
-| What | How | Default |
+| What | Flag | Default (relative to repo root) |
 | --- | --- | --- |
-| Gate policy (deny / scrutiny / inert / trivial paths, size thresholds) | `--config <file.yml>` | `<agent-dir>/policy.yml` (pgstream's) |
-| Reviewer guidance (the LLM's instructions) | `--guidance <file.md>` | `<agent-dir>/review-guidance.md` |
+| Gate policy (deny / scrutiny / inert / trivial paths, size thresholds) | `--config <file.yml>` | `.github/pr-approval-agent/policy.yml` |
+| Reviewer guidance (the LLM's instructions) | `--guidance <file.md>` | `.github/pr-approval-agent/review-guidance.md` |
 
 To adopt it elsewhere:
 
-1. Copy [`policy.yml`](./policy.yml) into the target repo (e.g.
-   `.github/pr-approval-policy.yml`) and edit the path lists/thresholds for that
-   codebase. A `--config` file **fully replaces** the default, so list every rule
-   you want. **Deny-list wherever the agent's own config/guidance/workflow live**
-   (usually `.github/`) so a PR can't weaken its own gate.
-2. Write a `review-guidance.md` for that repo's domain (or reuse pgstream's).
-3. Add the workflow, pointing at both files:
+1. Copy pgstream's [`policy.yml`](../../.github/pr-approval-agent/policy.yml) to
+   `.github/pr-approval-agent/policy.yml` in the target repo and edit the path
+   lists/thresholds for that codebase. A `--config` file **fully replaces** the
+   default, so list every rule you want. Keep it under `.github/` (or otherwise
+   deny-list wherever the config/guidance/workflow live) so a PR can't weaken its
+   own gate.
+2. Write a `.github/pr-approval-agent/review-guidance.md` for that repo's domain
+   (or reuse pgstream's).
+3. Add the workflow (the defaults match these paths, so `--config`/`--guidance`
+   are optional if you follow the convention):
 
    ```yaml
    - run: >-
        "$RUNNER_TEMP/pr-agent"
        --repo ${{ github.repository }}
        --repo-root _pr
-       --config .github/pr-approval-policy.yml
-       --guidance .github/review-guidance.md
        --label ${{ env.REVIEW_LABEL }}
        --bot-login ${{ env.REVIEW_BOT_LOGIN }}
        ${{ github.event.pull_request.number }}
@@ -87,17 +86,24 @@ To adopt it elsewhere:
 
 ## Files
 
+The tool (this directory):
+
 | File | Role |
 | --- | --- |
 | `main.go` | Orchestrator + CLI (`review` / `dismiss` modes), verdict posting |
 | `config.go` | Gate policy loader (`--config` YAML) |
-| `policy.yml` | pgstream's gate policy (loaded at runtime; template for reuse) |
 | `gates.go` | Deterministic classification and gating against a policy |
 | `reviewer.go` | Anthropic Go SDK tool-use loop (read-only tools, `submit_verdict`) |
 | `github.go` | `gh` CLI wrappers (fetch PR, post review, sticky comment, dismiss) |
 | `render.go` | GitHub comment rendering for verdicts |
-| `review-guidance.md` | Trusted review criteria injected into the system prompt |
 | `gates_test.go` / `config_test.go` / `reviewer_test.go` | Unit tests |
+
+Config and workflow (under `.github/`):
+
+| File | Role |
+| --- | --- |
+| `../../.github/pr-approval-agent/policy.yml` | pgstream's gate policy (template for reuse) |
+| `../../.github/pr-approval-agent/review-guidance.md` | Trusted review criteria injected into the system prompt |
 | `../../.github/workflows/pr-approval-agent.yml` | The workflow that runs it |
 
 ## One-time setup
@@ -148,25 +154,28 @@ Requires Go and an authenticated `gh`. For a real LLM review set
 positional argument, **the PR number comes last, after all flags.**
 
 ```bash
-cd tools/pr-approval-agent
+# Unit-test the gate + glob logic (no network), from the tool dir:
+( cd tools/pr-approval-agent && go test ./... )
 
-# Unit-test the gate + glob logic (no network):
-go test ./...
+# Build the binary, then run it FROM THE REPO ROOT so the default config paths
+# (.github/pr-approval-agent/...) resolve — or pass --config/--guidance explicitly.
+( cd tools/pr-approval-agent && go build -o /tmp/pr-agent . )
 
 # Gates only — no LLM, no posting:
-go run . --repo xataio/pgstream --dry-run 1002
+/tmp/pr-agent --repo xataio/pgstream --dry-run 1002
 
 # Full review against a local checkout, compute the verdict but DO NOT post:
-ANTHROPIC_API_KEY=sk-... go run . \
+ANTHROPIC_API_KEY=sk-... /tmp/pr-agent \
   --repo xataio/pgstream --repo-root /path/to/pr/checkout --no-post -v 1002
 
 # Dismiss check for a pushed PR (no LLM):
-go run . --repo xataio/pgstream --mode dismiss 1002
+/tmp/pr-agent --repo xataio/pgstream --mode dismiss 1002
 ```
 
-`--repo-root` is the working tree the reviewer reads with read_file/grep/glob;
-`--agent-dir` (default: the binary's directory) is where `review-guidance.md` is
-loaded from.
+`--repo-root` is the working tree the reviewer reads with read_file/grep/glob.
+`--config` and `--guidance` default to `.github/pr-approval-agent/{policy.yml,
+review-guidance.md}` relative to the working directory; run from the repo root or
+pass absolute paths.
 
 ### Configuration
 
