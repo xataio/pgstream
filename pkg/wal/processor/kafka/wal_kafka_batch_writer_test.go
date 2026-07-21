@@ -202,6 +202,171 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 	}
 }
 
+func TestBatchKafkaWriter_getMessageKey(t *testing.T) {
+	t.Parallel()
+
+	testWalData := func() *wal.Data {
+		return &wal.Data{
+			Action: "I",
+			LSN:    testLSNStr,
+			Schema: testSchema,
+			Table:  testTable,
+			Columns: []wal.Column{
+				{ID: "col-1", Name: "id", Type: "integer", Value: int64(1)},
+				{ID: "col-2", Name: "name", Type: "text", Value: "alice"},
+			},
+			Metadata: wal.Metadata{
+				InternalColIDs: []string{"col-1"},
+			},
+		}
+	}
+
+	testDDLData := &wal.Data{
+		Action:  wal.LogicalMessageAction,
+		Prefix:  wal.DDLPrefix,
+		LSN:     testLSNStr,
+		Content: `{"schema_name":"test_schema"}`,
+	}
+
+	tests := []struct {
+		name         string
+		partitionKey PartitionKey
+		walData      *wal.Data
+
+		wantKey string
+	}{
+		{
+			name:         "schema key",
+			partitionKey: PartitionKeySchema,
+			walData:      testWalData(),
+
+			wantKey: testSchema,
+		},
+		{
+			name:         "default key",
+			partitionKey: "",
+			walData:      testWalData(),
+
+			wantKey: testSchema,
+		},
+		{
+			name:         "table key",
+			partitionKey: PartitionKeyTable,
+			walData:      testWalData(),
+
+			wantKey: "test_schema.test_table",
+		},
+		{
+			name:         "primary key",
+			partitionKey: PartitionKeyPrimaryKey,
+			walData:      testWalData(),
+
+			wantKey: "test_schema.test_table:1",
+		},
+		{
+			name:         "primary key - composite",
+			partitionKey: PartitionKeyPrimaryKey,
+			walData: func() *wal.Data {
+				d := testWalData()
+				d.Metadata.InternalColIDs = []string{"col-1", "col-2"}
+				return d
+			}(),
+
+			wantKey: "test_schema.test_table:1,alice",
+		},
+		{
+			name:         "primary key - delete event with identity columns",
+			partitionKey: PartitionKeyPrimaryKey,
+			walData: func() *wal.Data {
+				d := testWalData()
+				d.Action = "D"
+				d.Identity = d.Columns
+				d.Columns = nil
+				return d
+			}(),
+
+			wantKey: "test_schema.test_table:1",
+		},
+		{
+			name:         "primary key - no metadata, degrades to table key",
+			partitionKey: PartitionKeyPrimaryKey,
+			walData: func() *wal.Data {
+				d := testWalData()
+				d.Metadata = wal.Metadata{}
+				return d
+			}(),
+
+			wantKey: "test_schema.test_table",
+		},
+		{
+			name:         "primary key - identity columns not in event, degrades to table key",
+			partitionKey: PartitionKeyPrimaryKey,
+			walData: func() *wal.Data {
+				d := testWalData()
+				d.Metadata.InternalColIDs = []string{"col-3"}
+				return d
+			}(),
+
+			wantKey: "test_schema.test_table",
+		},
+		{
+			name:         "ddl event keeps schema key regardless of strategy",
+			partitionKey: PartitionKeyPrimaryKey,
+			walData:      testDDLData,
+
+			wantKey: testSchema,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			writer := BatchWriter{
+				logger:            loglib.NewNoopLogger(),
+				partitionKey:      tc.partitionKey,
+				walDataToDDLEvent: wal.WalDataToDDLEvent,
+			}
+
+			key := writer.getMessageKey(tc.walData)
+			require.Equal(t, tc.wantKey, string(key))
+		})
+	}
+}
+
+func TestConfig_partitionKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		partitionKey PartitionKey
+
+		wantKey PartitionKey
+		wantErr bool
+	}{
+		{name: "default", partitionKey: "", wantKey: PartitionKeySchema},
+		{name: "schema", partitionKey: PartitionKeySchema, wantKey: PartitionKeySchema},
+		{name: "table", partitionKey: PartitionKeyTable, wantKey: PartitionKeyTable},
+		{name: "primary key", partitionKey: PartitionKeyPrimaryKey, wantKey: PartitionKeyPrimaryKey},
+		{name: "invalid", partitionKey: "invalid", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			config := &Config{PartitionKey: tc.partitionKey}
+			key, err := config.partitionKey()
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.wantKey, key)
+		})
+	}
+}
+
 func TestBatchKafkaWriter_sendBatch(t *testing.T) {
 	t.Parallel()
 
