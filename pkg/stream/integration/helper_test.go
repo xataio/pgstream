@@ -143,7 +143,7 @@ func startPhaseHealthServer(t *testing.T, tracker *phase.Tracker) (statusURL str
 	addr := ln.Addr().String()
 	require.NoError(t, ln.Close())
 
-	srv := health.NewServer(health.Config{Address: addr},
+	srv := health.NewServer(health.Config{Address: addr}, nil,
 		health.WithVersion("test"),
 		health.WithPhaseProvider(func() string {
 			return string(tracker.Get())
