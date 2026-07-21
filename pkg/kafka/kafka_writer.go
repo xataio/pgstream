@@ -119,6 +119,10 @@ func createTopic(cfg *ConnConfig) error {
 }
 
 func buildTransport(cfg *tlslib.Config) (kafka.RoundTripper, error) {
+	// use a dedicated transport per writer instead of the shared
+	// kafka.DefaultTransport, since its cluster metadata cache is scoped to the
+	// transport, and a shared stale cache can make writes fail with unknown
+	// topic errors for recently created topics
 	if cfg.Enabled {
 		tlsConfig, err := tlslib.NewConfig(cfg)
 		if err != nil {
@@ -127,5 +131,5 @@ func buildTransport(cfg *tlslib.Config) (kafka.RoundTripper, error) {
 		return &kafka.Transport{TLS: tlsConfig}, nil
 	}
 
-	return kafka.DefaultTransport, nil
+	return &kafka.Transport{}, nil
 }

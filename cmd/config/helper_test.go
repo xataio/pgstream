@@ -179,6 +179,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 						MaxQueueBytes:    204800,
 						IgnoreSendErrors: true,
 					},
+					PartitionKey: kafkaprocessor.PartitionKeyTable,
 				},
 			},
 			Search: &stream.SearchProcessorConfig{

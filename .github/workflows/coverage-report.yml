@@ -43,27 +43,25 @@ jobs:
             const wr = context.payload.workflow_run;
             const headSha = wr.head_sha;
 
-            const assoc = await github.paginate(
-              github.rest.repos.listPullRequestsAssociatedWithCommit,
-              { owner, repo, commit_sha: headSha, per_page: 100 },
-            );
-            const prs = assoc.filter(
-              (pr) => pr.state === 'open' && pr.head && pr.head.sha === headSha);
-            if (prs.length !== 1) {
-              core.info(
-                `expected exactly one open PR for ${headSha}, found ` +
-                `${prs.length}; skipping coverage comment`);
+            if (!wr.head_repository || !wr.head_branch) {
+              core.info('workflow_run missing head repo/branch; skipping');
               return;
             }
-            const pr = prs[0];
-
-            if (wr.head_branch && pr.head.ref !== wr.head_branch) {
-              core.info('head branch mismatch; skipping'); return;
+            const headOwner = wr.head_repository.owner.login;
+            const prs = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: 'open',
+              head: `${headOwner}:${wr.head_branch}`, per_page: 100,
+            });
+            const matching = prs.filter(
+              (pr) => pr.head && pr.head.sha === headSha);
+            if (matching.length !== 1) {
+              core.info(
+                `expected exactly one open PR for ${headOwner}:` +
+                `${wr.head_branch}@${headSha}, found ${matching.length}; ` +
+                `skipping coverage comment`);
+              return;
             }
-            if (wr.head_repository && pr.head.repo &&
-                pr.head.repo.full_name !== wr.head_repository.full_name) {
-              core.info('head repo mismatch; skipping'); return;
-            }
+            const pr = matching[0];
 
             core.setOutput('pr_number', String(pr.number));
             core.setOutput('base_ref', pr.base.ref);

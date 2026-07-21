@@ -211,6 +211,7 @@ type KafkaTopicConfig struct {
 	Partitions        int    `mapstructure:"partitions" yaml:"partitions"`
 	ReplicationFactor int    `mapstructure:"replication_factor" yaml:"replication_factor"`
 	AutoCreate        bool   `mapstructure:"auto_create" yaml:"auto_create"`
+	PartitionKey      string `mapstructure:"partition_key" yaml:"partition_key"`
 }
 
 type SearchConfig struct {
@@ -678,7 +679,8 @@ func (c *YAMLConfig) parseKafkaProcessorConfig() *stream.KafkaProcessorConfig {
 				},
 				TLS: c.Target.Kafka.TLS.parseTLSConfig(),
 			},
-			Batch: c.Target.Kafka.Batch.parseBatchConfig(),
+			Batch:        c.Target.Kafka.Batch.parseBatchConfig(),
+			PartitionKey: kafkaprocessor.PartitionKey(c.Target.Kafka.Topic.PartitionKey),
 		},
 	}
 }

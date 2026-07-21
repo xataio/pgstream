@@ -88,6 +88,7 @@ target:
     topic:
       name: "mytopic" # name of the Kafka topic
       partitions: 1 # number of partitions for the topic
+      partition_key: "table" # message key strategy for DML events, one of schema, table or primary_key
       replication_factor: 1 # replication factor for the topic
       auto_create: true # whether to automatically create the topic if it doesn't exist
     tls:
