@@ -136,11 +136,35 @@ func (s *Store) createTable(ctx context.Context) error {
 		return fmt.Errorf("error adding mode column to snapshots postgres table: %w", err)
 	}
 
-	uniqueIndexQuery := fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS schema_table_status_unique_index
-	ON %s(schema_name,table_names) WHERE status != 'completed'`, snapshotsTable())
+	// the hashed index below keys on a fixed-size digest of the table names
+	// instead of the raw table_names array, whose index row overflows the btree
+	// tuple size limit for schemas with many tables. postgres requires an index
+	// expression to be IMMUTABLE, so wrap the digest in an immutable helper (a
+	// text[] digest is deterministic).
+	hashFuncQuery := fmt.Sprintf(`CREATE OR REPLACE FUNCTION %s.snapshot_table_names_hash(names TEXT[])
+	RETURNS TEXT LANGUAGE sql IMMUTABLE AS $func$ SELECT md5(names::text) $func$`, store.SchemaName)
+	_, err = s.conn.Exec(ctx, hashFuncQuery)
+	if err != nil {
+		return fmt.Errorf("error creating table names hash function for snapshots postgres table: %w", err)
+	}
+
+	// create the hashed index under a new name, then drop the legacy raw-array
+	// index. both statements are idempotent (IF NOT EXISTS / IF EXISTS), so once
+	// migrated a startup neither creates nor drops anything, and during the
+	// one-time migration the new index is in place before the old one is removed,
+	// so a unique constraint is always enforced (no window without it).
+	uniqueIndexQuery := fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS schema_table_status_hash_unique_index
+	ON %s(schema_name,%s.snapshot_table_names_hash(table_names)) WHERE status != 'completed'`, snapshotsTable(), store.SchemaName)
 	_, err = s.conn.Exec(ctx, uniqueIndexQuery)
 	if err != nil {
 		return fmt.Errorf("error creating unique index on snapshots postgres table: %w", err)
+	}
+
+	// the legacy index indexed the raw table_names array
+	dropLegacyIndexQuery := fmt.Sprintf(`DROP INDEX IF EXISTS %s.schema_table_status_unique_index`, store.SchemaName)
+	_, err = s.conn.Exec(ctx, dropLegacyIndexQuery)
+	if err != nil {
+		return fmt.Errorf("error dropping legacy unique index on snapshots postgres table: %w", err)
 	}
 
 	return err

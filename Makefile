@@ -10,7 +10,9 @@ test:
 
 .PHONY: integration-test
 integration-test:
-	@PGSTREAM_INTEGRATION_TESTS=true go test -timeout 180s github.com/xataio/pgstream/pkg/stream/integration
+	@PGSTREAM_INTEGRATION_TESTS=true go test -timeout 180s \
+		github.com/xataio/pgstream/pkg/stream/integration \
+		github.com/xataio/pgstream/pkg/snapshot/store/postgres/integration
 
 .PHONY: fuzz
 fuzz:
