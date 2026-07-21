@@ -107,6 +107,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_KAFKA_COMMIT_BACKOFF_MAX_RETRIES")
 	viper.BindEnv("PGSTREAM_KAFKA_COMMIT_DISABLE_RETRIES")
 	viper.BindEnv("PGSTREAM_KAFKA_TOPIC_PARTITIONS")
+	viper.BindEnv("PGSTREAM_KAFKA_TOPIC_PARTITION_KEY")
 	viper.BindEnv("PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR")
 	viper.BindEnv("PGSTREAM_KAFKA_TOPIC_AUTO_CREATE")
 	viper.BindEnv("PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT")
@@ -483,6 +484,7 @@ func parseKafkaWriterConfig(kafkaServers []string, kafkaTopic string) (*kafkapro
 			MaxQueueBytes:    maxQueueBytes,
 			IgnoreSendErrors: viper.GetBool("PGSTREAM_KAFKA_WRITER_BATCH_IGNORE_SEND_ERRORS"),
 		},
+		PartitionKey: kafkaprocessor.PartitionKey(viper.GetString("PGSTREAM_KAFKA_TOPIC_PARTITION_KEY")),
 	}, nil
 }
 

@@ -115,6 +115,7 @@ target:
     topic:
       name: "mytopic" # name of the Kafka topic
       partitions: 1 # number of partitions for the topic. Defaults to 1
+      partition_key: "schema" # message key strategy for DML events, one of schema, table or primary_key. Defaults to schema
       replication_factor: 1 # replication factor for the topic. Defaults to 1
       auto_create: true # whether to automatically create the topic if it doesn't exist. Defaults to false
     tls:
@@ -278,6 +279,7 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 | PGSTREAM_KAFKA_WRITER_SERVERS                  | N/A     | Yes              | URLs for the Kafka servers to connect to.                                                           |
 | PGSTREAM_KAFKA_TOPIC_NAME                      | N/A     | Yes              | Name of the Kafka topic to write to.                                                                |
 | PGSTREAM_KAFKA_TOPIC_PARTITIONS                | 1       | No               | Number of partitions created for the Kafka topic if auto create is enabled.                         |
+| PGSTREAM_KAFKA_TOPIC_PARTITION_KEY             | schema  | No               | Message key strategy for DML events, one of `schema`, `table` or `primary_key`. See the ordering trade-offs below. |
 | PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR        | 1       | No               | Replication factor used when creating the Kafka topic if auto create is enabled.                    |
 | PGSTREAM_KAFKA_TOPIC_AUTO_CREATE               | False   | No               | Auto creation of configured Kafka topic if it doesn't exist.                                        |
 | PGSTREAM_KAFKA_TLS_ENABLED                     | False   | No               | Enable TLS connection to the Kafka servers.                                                         |
@@ -289,6 +291,12 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 | PGSTREAM_KAFKA_WRITER_BATCH_SIZE               | 100     | No               | Max number of messages to be sent per batch. When this size is reached, the batch is sent to Kafka. |
 | PGSTREAM_KAFKA_WRITER_BATCH_IGNORE_SEND_ERRORS | False   | No               | Whether to ignore errors encountered while sending batches to the target.                           |
 | PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES          | 104857600 (100MiB) | No               | Max memory used by the Kafka batch writer for inflight batches.                                     |
+
+The partition key determines which partition an event is routed to, and therefore which events are consumed in order relative to each other:
+
+- `schema` (default): all events for a schema go to the same partition, guaranteeing ordering per schema, including between DDL and DML events. Parallelism is capped at the number of distinct schemas, so extra partitions don't help a single-schema database.
+- `table`: events are keyed by schema qualified table name, guaranteeing ordering per table. DDL events remain keyed by schema, so schema changes can be consumed out of order relative to the DML events of the tables they affect.
+- `primary_key`: events are keyed by schema qualified table name plus the row primary key values, guaranteeing ordering per row and allowing full use of the topic partitions. Requires the injector (`PGSTREAM_INJECTOR_STORE_POSTGRES_URL`) to identify primary key columns; events without an identifiable primary key fall back to `table` keying. As with `table`, DDL events remain keyed by schema and can be consumed out of order relative to DML.
 
 </details>
 
