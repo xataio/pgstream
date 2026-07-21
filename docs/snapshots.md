@@ -14,4 +14,32 @@ The snapshot implementation is different for schema and data.
 
 ![snapshots sequence](img/pgstream_snapshot_sequence.svg)
 
+## ⚠️ The data snapshot source must be a single instance
+
+The data snapshot exports a transaction snapshot on one connection and imports it
+(`SET TRANSACTION SNAPSHOT`) on the parallel worker connections to give every worker the
+same stable view. An exported snapshot is **instance-local**, so this only works when every
+connection reaches the *same* Postgres instance.
+
+Do **not** point the snapshot source at a load-balanced endpoint that spans multiple
+instances, such as:
+
+- an Amazon **Aurora reader (`cluster-ro`) endpoint** or an **RDS reader endpoint**,
+- a connection **pooler that spreads connections across multiple database instances**.
+
+Against such an endpoint the worker connections can land on a different instance than the
+one that exported the snapshot, and the snapshot fails — nondeterministically, depending on
+how connections happen to be routed — with:
+
+```
+setting transaction snapshot: relation does not exist: snapshot "…" does not exist
+```
+
+Use a **single-instance / writer endpoint** for the snapshot source. A connection pooler in
+front of a *single* instance (e.g. RDS Proxy to one instance, or pgbouncer to one server) is
+fine.
+
+> `pgstream check` includes a preflight check that probes the source and reports a clear
+> error when it detects a load-balanced source, so you can catch this before a snapshot runs.
+
 For more details into the snapshot implementation and performance benchmarking, check out this [blogpost](https://xata.io/blog/behind-the-scenes-speeding-up-pgstream-snapshots-for-postgresql). For details on how to use and configure the snapshot mode, check the [snapshot tutorial](tutorials/postgres_snapshot.md).

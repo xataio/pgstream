@@ -66,6 +66,8 @@ func NewServer(cfg Config, metricsCfg *otel.MetricsConfig, opts ...Option) *Serv
 	return s
 }
 
+// WithLogger sets the logger the health server uses, tagged with the
+// health_server module field.
 func WithLogger(l loglib.Logger) Option {
 	return func(s *Server) {
 		s.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
@@ -74,6 +76,7 @@ func WithLogger(l loglib.Logger) Option {
 	}
 }
 
+// WithVersion sets the version string the health server reports.
 func WithVersion(v string) Option {
 	return func(s *Server) {
 		s.version = v
