@@ -12,12 +12,14 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
-	pgRestoreCmd = "pg_restore"
-	psqlCmd      = "psql"
-	postgres     = "postgres"
+	pgRestoreCmd    = "pg_restore"
+	psqlCmd         = "psql"
+	postgres        = "postgres"
+	maxStatementLen = 500
 )
 
 type PGRestoreOptions struct {
@@ -60,7 +62,7 @@ func (opts PGRestoreOptions) toArgs() []string {
 }
 
 func (opts PGRestoreOptions) toPSQLArgs() []string {
-	return []string{opts.ConnectionString}
+	return []string{"--echo-errors", opts.ConnectionString}
 }
 
 func (opts PGRestoreOptions) toPGOptions(existing string) string {
@@ -149,9 +151,23 @@ func parsePgRestoreOutputErrs(out []byte) error {
 	errs := &PGRestoreErrors{}
 	scanner := bufio.NewScanner(bytes.NewReader(out))
 	var currentErr error
+	inStatement := false
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
+		case inStatement:
+			// continuation of a multi-line statement echo: consume until the
+			// terminating semicolon so echoed SQL text (which can contain
+			// "ERROR" or other keywords) is never parsed as new records
+			inStatement = !endsStatement(line)
+		case isStatementLine(line):
+			if currentErr != nil {
+				if isOwnershipError(currentErr) && isCommentStatement(line) {
+					currentErr = &ErrCommentOwnership{Details: currentErr.Error()}
+				}
+				currentErr = fmt.Errorf("%w: %s", currentErr, truncateStatement(line))
+			}
+			inStatement = !endsStatement(line)
 		case isErrorLine(line):
 			// Save any pending error before processing new one
 			if currentErr != nil {
@@ -176,17 +192,65 @@ func parsePgRestoreOutputErrs(out []byte) error {
 	return errs
 }
 
-// isDetailLine checks if a line contains detail information
+// isDetailLine checks if a line starts a detail record
 func isDetailLine(line string) bool {
-	return strings.Contains(line, "DETAIL:")
+	return strings.HasPrefix(strings.TrimSpace(line), "DETAIL:")
 }
 
-// isErrorLine checks if a line contains an error indicator
+var statementPrefixes = []string{"STATEMENT:", "Command was:"}
+
+func stripStatementPrefix(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	for _, prefix := range statementPrefixes {
+		if strings.HasPrefix(trimmed, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(trimmed, prefix)), true
+		}
+	}
+	return "", false
+}
+
+func isStatementLine(line string) bool {
+	_, ok := stripStatementPrefix(line)
+	return ok
+}
+
+func isCommentStatement(line string) bool {
+	stmt, ok := stripStatementPrefix(line)
+	return ok && strings.HasPrefix(stmt, "COMMENT ON ")
+}
+
+func endsStatement(line string) bool {
+	return strings.HasSuffix(strings.TrimSpace(line), ";")
+}
+
+func isOwnershipError(err error) bool {
+	return strings.Contains(err.Error(), "must be owner of")
+}
+
+func truncateStatement(line string) string {
+	if len(line) <= maxStatementLen {
+		return line
+	}
+	truncated := line[:maxStatementLen]
+	// don't leave a partial multibyte rune at the cut point
+	for len(truncated) > 0 {
+		if r, size := utf8.DecodeLastRuneInString(truncated); r != utf8.RuneError || size > 1 {
+			break
+		}
+		truncated = truncated[:len(truncated)-1]
+	}
+	return truncated + "..."
+}
+
+// isErrorLine checks if a line starts an error record. Anchored on line
+// prefixes rather than substring matches so that echoed SQL containing
+// keywords like "ERROR" is not mistaken for a new error.
 func isErrorLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
 	switch {
-	case strings.Contains(line, "pg_restore: error:"),
-		strings.Contains(line, "ERROR"),
-		strings.Contains(line, "psql: error:"):
+	case strings.HasPrefix(trimmed, "ERROR"),
+		strings.HasPrefix(trimmed, "pg_restore: error:"),
+		strings.HasPrefix(trimmed, "psql: error:"):
 		return true
 	default:
 		return false
@@ -253,11 +317,13 @@ func (e *PGRestoreErrors) addError(err error) {
 	var errConstraintViolation *ErrConstraintViolation
 	var errPermissionDenied *ErrPermissionDenied
 	var errDoesNotExist *ErrRelationDoesNotExist
+	var errCommentOwnership *ErrCommentOwnership
 	switch {
 	case errors.As(err, &errAlreadyExists),
 		errors.As(err, &errConstraintViolation),
 		errors.As(err, &errPermissionDenied),
-		errors.As(err, &errDoesNotExist):
+		errors.As(err, &errDoesNotExist),
+		errors.As(err, &errCommentOwnership):
 		e.ignoredErrs = append(e.ignoredErrs, err)
 	default:
 		e.criticalErrs = append(e.criticalErrs, err)

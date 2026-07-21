@@ -61,6 +61,16 @@ func BuildConnectivityChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 	checks := []Check{}
 	if url := cfg.SourcePostgresURL(); url != "" {
 		checks = append(checks, &ConnectivityCheck{Label: "source", URL: url})
+		if demand, ok := cfg.SnapshotConnectionDemand(); ok {
+			checks = append(checks, &SourceSnapshotInstanceCheck{
+				Probe: func(ctx context.Context, probes int) (int, error) {
+					return postgres.ProbeExportedSnapshotVisibility(ctx, func(ctx context.Context) (postgres.Querier, error) {
+						return postgres.NewConn(ctx, url)
+					}, probes)
+				},
+				Probes: snapshotInstanceProbes(demand),
+			})
+		}
 	}
 	if cfg.Processor.Postgres != nil {
 		if url := cfg.Processor.Postgres.BatchWriter.URL; url != "" {
@@ -68,6 +78,18 @@ func BuildConnectivityChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 		}
 	}
 	return checks, nil
+}
+
+func snapshotInstanceProbes(demand uint) int {
+	const minProbes, maxProbes = 4, 16
+	switch {
+	case demand < minProbes:
+		return minProbes
+	case demand > maxProbes:
+		return maxProbes
+	default:
+		return int(demand)
+	}
 }
 
 // BuildReplicationChecks returns the replication-preflight checks applicable

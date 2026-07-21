@@ -32,11 +32,14 @@ SELECT
   a.attname,
   tr.resolved_oid::bigint,
   tr.typname,
-  tr.typtype
+  tr.typtype,
+  COALESCE(elem.typtype, '') AS elem_typtype
 FROM pg_attribute a
 JOIN pg_class c ON c.oid = a.attrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
 JOIN type_resolved tr ON tr.source_oid = a.atttypid AND tr.typtype <> 'd'
+JOIN pg_type rt ON rt.oid = tr.resolved_oid
+LEFT JOIN pg_type elem ON elem.oid = rt.typelem AND rt.typcategory = 'A'
 WHERE c.relkind IN ('r', 'p')
   AND a.attnum > 0
   AND NOT a.attisdropped
@@ -84,10 +87,13 @@ func (c *SchemaTypeCompatibilityCheck) Run(ctx context.Context) ([]Finding, erro
 	var findings []Finding
 	for rows.Next() {
 		var row schemaColumnRow
-		if err := rows.Scan(&row.Schema, &row.Table, &row.Column, &row.BaseOID, &row.TypeName, &row.TypeKind); err != nil {
+		if err := rows.Scan(&row.Schema, &row.Table, &row.Column, &row.BaseOID, &row.TypeName, &row.TypeKind, &row.ElemTypeKind); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
 		if !c.Selection.IsTableInScope(row.Schema, row.Table) {
+			continue
+		}
+		if row.isEnum() {
 			continue
 		}
 		if _, ok := typeMap.TypeForOID(uint32(row.BaseOID)); ok {
@@ -117,12 +123,20 @@ func pgstreamSupportedTypes() map[string]struct{} {
 }
 
 type schemaColumnRow struct {
-	Schema   string
-	Table    string
-	Column   string
-	BaseOID  int64  // OID of the column's type, with domains resolved to their base
-	TypeName string // name of that resolved type
-	TypeKind string // pg_type.typtype of the resolved type
+	Schema       string
+	Table        string
+	Column       string
+	BaseOID      int64  // OID of the column's type, with domains resolved to their base
+	TypeName     string // name of that resolved type
+	TypeKind     string // pg_type.typtype of the resolved type
+	ElemTypeKind string // pg_type.typtype of the array element type, "" when not an array
+}
+
+// isEnum reports whether the column is an enum or an array of enums. Enum array
+// types are ordinary base types (typtype 'b') whose element carries the enum
+// kind, so the scalar TypeKind alone doesn't catch them.
+func (r schemaColumnRow) isEnum() bool {
+	return r.TypeKind == "e" || r.ElemTypeKind == "e"
 }
 
 func unsupportedColumnTypeMessage(row schemaColumnRow) string {
@@ -170,7 +184,7 @@ func (c *PostgresRangeTypeCheck) Run(ctx context.Context) ([]Finding, error) {
 	var findings []Finding
 	for rows.Next() {
 		var row schemaColumnRow
-		if err := rows.Scan(&row.Schema, &row.Table, &row.Column, &row.BaseOID, &row.TypeName, &row.TypeKind); err != nil {
+		if err := rows.Scan(&row.Schema, &row.Table, &row.Column, &row.BaseOID, &row.TypeName, &row.TypeKind, &row.ElemTypeKind); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
 		if !c.Selection.IsTableInScope(row.Schema, row.Table) {

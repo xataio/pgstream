@@ -6,6 +6,7 @@ source:
       mode: full # options are full, schema or data
       tables: ["test", "test_schema.Test", "another_schema.*"] # tables to snapshot, can be a list of table names or a pattern
       excluded_tables: ["test_schema.Test"] # tables to exclude from the snapshot
+      schema_only_tables: ["schema_only_test", "schema_only_schema.*"] # tables for which only the schema is snapshotted, no data
       recorder:
         repeatable_snapshots: true # whether to repeat snapshots that have already been taken
         postgres_url: "postgresql://user:password@localhost:5432/mytargetdatabase" # URL of the database where the snapshot status is recorded
@@ -93,6 +94,7 @@ target:
     topic:
       name: "mytopic" # name of the Kafka topic
       partitions: 1 # number of partitions for the topic
+      partition_key: "table" # message key strategy for DML events, one of schema, table or primary_key
       replication_factor: 1 # replication factor for the topic
       auto_create: true # whether to automatically create the topic if it doesn't exist
     tls:
@@ -148,6 +150,9 @@ modifiers:
      - "excluded_test"
      - "excluded_schema.test"
      - "another_excluded_schema.*"
+    schema_only_tables: # list of tables for which DDL events are allowed but data events are skipped. Tables should be schema qualified. If no schema is provided, the public schema will be assumed. Wildcards "*" are supported.
+     - "schema_only_test"
+     - "schema_only_schema.*"
   transformations:
     infer_from_security_labels: false
     dump_inferred_rules: false

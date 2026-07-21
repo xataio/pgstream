@@ -54,6 +54,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_TABLES")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_ONLY_TABLES")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_WORKERS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_MAX_CONNECTIONS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_STORE_URL")
@@ -107,6 +108,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_KAFKA_COMMIT_BACKOFF_MAX_RETRIES")
 	viper.BindEnv("PGSTREAM_KAFKA_COMMIT_DISABLE_RETRIES")
 	viper.BindEnv("PGSTREAM_KAFKA_TOPIC_PARTITIONS")
+	viper.BindEnv("PGSTREAM_KAFKA_TOPIC_PARTITION_KEY")
 	viper.BindEnv("PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR")
 	viper.BindEnv("PGSTREAM_KAFKA_TOPIC_AUTO_CREATE")
 	viper.BindEnv("PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT")
@@ -151,6 +153,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_TRANSFORMER_RULES_FILE")
 	viper.BindEnv("PGSTREAM_FILTER_INCLUDE_TABLES")
 	viper.BindEnv("PGSTREAM_FILTER_EXCLUDE_TABLES")
+	viper.BindEnv("PGSTREAM_FILTER_SCHEMA_ONLY_TABLES")
 	viper.BindEnv("PGSTREAM_PROCESSOR_SANITIZE_STRIP_NULL_CHAR_BYTES")
 
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_ENABLED")
@@ -244,14 +247,19 @@ func parsePostgresListenerConfig() (*stream.PostgresListenerConfig, error) {
 		RetryPolicy: parseBackoffConfig("PGSTREAM_POSTGRES_LISTENER"),
 	}
 
+	// if there's a filter config, apply it to the replication config so that
+	// "no tuple identifier" warnings are suppressed for tables whose data
+	// events are filtered out anyway
 	if filterConfig := parseFilterConfig(); filterConfig != nil {
 		cfg.Replication.ExcludeTables = filterConfig.ExcludeTables
 		cfg.Replication.IncludeTables = filterConfig.IncludeTables
+		cfg.Replication.SchemaOnlyTables = filterConfig.SchemaOnlyTables
 	}
 
 	snapshotTables := viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES")
 	excludedTables := viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES")
-	if len(snapshotTables) > 0 || len(excludedTables) > 0 {
+	schemaOnlyTables := viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_ONLY_TABLES")
+	if len(snapshotTables) > 0 || len(excludedTables) > 0 || len(schemaOnlyTables) > 0 {
 		var err error
 		cfg.Snapshot, err = parseSnapshotConfig(pgURL)
 		if err != nil {
@@ -271,6 +279,10 @@ func parseSnapshotConfig(pgURL string) (*snapshotbuilder.SnapshotListenerConfig,
 		snapshotMode = fullSnapshotMode
 	default:
 		return nil, errUnsupportedSnapshotMode
+	}
+
+	if snapshotMode == dataSnapshotMode && len(viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_ONLY_TABLES")) > 0 {
+		return nil, errSchemaOnlyTablesSnapshotMode
 	}
 
 	var schemaSnapshotCfg *snapshotbuilder.SchemaSnapshotConfig
@@ -305,8 +317,9 @@ func parseSnapshotConfig(pgURL string) (*snapshotbuilder.SnapshotListenerConfig,
 		Data:   dataSnapshotCfg,
 		Schema: schemaSnapshotCfg,
 		Adapter: adapter.SnapshotConfig{
-			Tables:         viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES"),
-			ExcludedTables: viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES"),
+			Tables:           viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_TABLES"),
+			ExcludedTables:   viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES"),
+			SchemaOnlyTables: viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_ONLY_TABLES"),
 		},
 		DisableProgressTracking: viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_DISABLE_PROGRESS_TRACKING"),
 	}
@@ -473,6 +486,7 @@ func parseKafkaWriterConfig(kafkaServers []string, kafkaTopic string) (*kafkapro
 			MaxQueueBytes:    maxQueueBytes,
 			IgnoreSendErrors: viper.GetBool("PGSTREAM_KAFKA_WRITER_BATCH_IGNORE_SEND_ERRORS"),
 		},
+		PartitionKey: kafkaprocessor.PartitionKey(viper.GetString("PGSTREAM_KAFKA_TOPIC_PARTITION_KEY")),
 	}, nil
 }
 
@@ -653,13 +667,15 @@ func parseTransformerConfig() (*transformer.Config, error) {
 func parseFilterConfig() *filter.Config {
 	includeTables := viper.GetStringSlice("PGSTREAM_FILTER_INCLUDE_TABLES")
 	excludeTables := viper.GetStringSlice("PGSTREAM_FILTER_EXCLUDE_TABLES")
-	if len(includeTables) == 0 && len(excludeTables) == 0 {
+	schemaOnlyTables := viper.GetStringSlice("PGSTREAM_FILTER_SCHEMA_ONLY_TABLES")
+	if len(includeTables) == 0 && len(excludeTables) == 0 && len(schemaOnlyTables) == 0 {
 		return nil
 	}
 
 	return &filter.Config{
-		IncludeTables: includeTables,
-		ExcludeTables: excludeTables,
+		IncludeTables:    includeTables,
+		ExcludeTables:    excludeTables,
+		SchemaOnlyTables: schemaOnlyTables,
 	}
 }
 

@@ -96,6 +96,7 @@ type SnapshotConfig struct {
 	Mode                    string                  `mapstructure:"mode" yaml:"mode"`
 	Tables                  []string                `mapstructure:"tables" yaml:"tables"`
 	ExcludedTables          []string                `mapstructure:"excluded_tables" yaml:"excluded_tables"`
+	SchemaOnlyTables        []string                `mapstructure:"schema_only_tables" yaml:"schema_only_tables"`
 	Recorder                *SnapshotRecorderConfig `mapstructure:"recorder" yaml:"recorder"`
 	SnapshotWorkers         int                     `mapstructure:"snapshot_workers" yaml:"snapshot_workers"`
 	Data                    *SnapshotDataConfig     `mapstructure:"data" yaml:"data"`
@@ -211,6 +212,7 @@ type KafkaTopicConfig struct {
 	Partitions        int    `mapstructure:"partitions" yaml:"partitions"`
 	ReplicationFactor int    `mapstructure:"replication_factor" yaml:"replication_factor"`
 	AutoCreate        bool   `mapstructure:"auto_create" yaml:"auto_create"`
+	PartitionKey      string `mapstructure:"partition_key" yaml:"partition_key"`
 }
 
 type SearchConfig struct {
@@ -304,8 +306,9 @@ type InjectorConfig struct {
 }
 
 type FilterConfig struct {
-	IncludeTables []string `mapstructure:"include_tables" yaml:"include_tables"`
-	ExcludeTables []string `mapstructure:"exclude_tables" yaml:"exclude_tables"`
+	IncludeTables    []string `mapstructure:"include_tables" yaml:"include_tables"`
+	ExcludeTables    []string `mapstructure:"exclude_tables" yaml:"exclude_tables"`
+	SchemaOnlyTables []string `mapstructure:"schema_only_tables" yaml:"schema_only_tables"`
 }
 
 type TransformationsConfig struct {
@@ -383,6 +386,7 @@ var (
 	errInvalidSnapshotRecorderConfig           = errors.New("snapshot recorder config requires a postgres url")
 	errInvalidSampleRatio                      = errors.New("trace sample ratio must be a value between 0.0 and 1.0")
 	errSchemaSnapshotNotConfigured             = errors.New("schema snapshot config must be provided when snapshot mode is 'full' or 'schema'")
+	errSchemaOnlyTablesSnapshotMode            = errors.New("snapshot schema_only_tables can only be used when snapshot mode is 'full' or 'schema'")
 )
 
 func (c *InstrumentationConfig) toHealthConfig() *health.Config {
@@ -517,10 +521,13 @@ func (c *YAMLConfig) parsePostgresListenerConfig() (*stream.PostgresListenerConf
 		}
 	}
 
-	// if there's a filter config, apply it to the replication config
+	// if there's a filter config, apply it to the replication config so that
+	// "no tuple identifier" warnings are suppressed for tables whose data
+	// events are filtered out anyway
 	if c.Modifiers.Filter != nil {
 		streamCfg.Replication.ExcludeTables = c.Modifiers.Filter.ExcludeTables
 		streamCfg.Replication.IncludeTables = c.Modifiers.Filter.IncludeTables
+		streamCfg.Replication.SchemaOnlyTables = c.Modifiers.Filter.SchemaOnlyTables
 	}
 
 	return streamCfg, nil
@@ -534,8 +541,9 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 
 	streamCfg := &snapshotbuilder.SnapshotListenerConfig{
 		Adapter: adapter.SnapshotConfig{
-			Tables:         snapshotConfig.Tables,
-			ExcludedTables: snapshotConfig.ExcludedTables,
+			Tables:           snapshotConfig.Tables,
+			ExcludedTables:   snapshotConfig.ExcludedTables,
+			SchemaOnlyTables: snapshotConfig.SchemaOnlyTables,
 		},
 		DisableProgressTracking: snapshotConfig.DisableProgressTracking,
 	}
@@ -558,6 +566,10 @@ func (c *YAMLConfig) parseSnapshotConfig() (*snapshotbuilder.SnapshotListenerCon
 		snapshotConfig.Mode = fullSnapshotMode
 	default:
 		return nil, errUnsupportedSnapshotMode
+	}
+
+	if snapshotConfig.Mode == dataSnapshotMode && len(snapshotConfig.SchemaOnlyTables) > 0 {
+		return nil, errSchemaOnlyTablesSnapshotMode
 	}
 
 	if snapshotConfig.Mode == fullSnapshotMode || snapshotConfig.Mode == dataSnapshotMode {
@@ -669,7 +681,8 @@ func (c *YAMLConfig) parseKafkaProcessorConfig() *stream.KafkaProcessorConfig {
 				},
 				TLS: c.Target.Kafka.TLS.parseTLSConfig(),
 			},
-			Batch: c.Target.Kafka.Batch.parseBatchConfig(),
+			Batch:        c.Target.Kafka.Batch.parseBatchConfig(),
+			PartitionKey: kafkaprocessor.PartitionKey(c.Target.Kafka.Topic.PartitionKey),
 		},
 	}
 }
@@ -788,8 +801,9 @@ func (c YAMLConfig) parseFilterConfig() *filter.Config {
 		return nil
 	}
 	return &filter.Config{
-		ExcludeTables: c.Modifiers.Filter.ExcludeTables,
-		IncludeTables: c.Modifiers.Filter.IncludeTables,
+		ExcludeTables:    c.Modifiers.Filter.ExcludeTables,
+		IncludeTables:    c.Modifiers.Filter.IncludeTables,
+		SchemaOnlyTables: c.Modifiers.Filter.SchemaOnlyTables,
 	}
 }
 

@@ -122,6 +122,22 @@ func TestYAMLConfig_toStreamConfig_ErrorCases(t *testing.T) {
 			wantErr: errUnsupportedSnapshotMode,
 		},
 		{
+			name: "err - schema-only tables with data snapshot mode",
+			config: YAMLConfig{
+				Source: SourceConfig{
+					Postgres: &PostgresConfig{
+						Mode: snapshotMode,
+						Snapshot: &SnapshotConfig{
+							Mode:             dataSnapshotMode,
+							SchemaOnlyTables: []string{"public.audit_log"},
+						},
+					},
+				},
+			},
+
+			wantErr: errSchemaOnlyTablesSnapshotMode,
+		},
+		{
 			name: "err - invalid snapshot recorder config",
 			config: YAMLConfig{
 				Source: SourceConfig{

@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/xataio/pgstream/internal/json"
+	"github.com/xataio/pgstream/internal/phase"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/replication"
@@ -20,6 +21,7 @@ type Listener struct {
 	logger             loglib.Logger
 	lsnParser          replication.LSNParser
 	snapshotGenerator  snapshotGenerator
+	phaseTracker       *phase.Tracker
 
 	// Function called for processing WAL events.
 	processEvent listenerProcessWalEvent
@@ -77,6 +79,14 @@ func WithInitialSnapshot(sg snapshotGenerator) Option {
 	}
 }
 
+// WithPhaseTracker registers a tracker updated as the listener moves between
+// snapshot and replication phases.
+func WithPhaseTracker(t *phase.Tracker) Option {
+	return func(l *Listener) {
+		l.phaseTracker = t
+	}
+}
+
 // Listen starts the subscription process to listen for updates from PG.
 func (l *Listener) Listen(ctx context.Context) error {
 	if l.snapshotGenerator != nil {
@@ -84,11 +94,15 @@ func (l *Listener) Listen(ctx context.Context) error {
 			l.logger.Error(err, "pg snapshot and listen")
 			return err
 		}
+		// snapshotAndListen already entered the listen loop; only reached on
+		// clean return (context cancel) or if snapshot path returned early.
+		return nil
 	}
 
 	if err := l.replicationHandler.StartReplication(ctx); err != nil {
 		return fmt.Errorf("start replication: %w", err)
 	}
+	l.phaseTracker.Set(phase.Replication)
 
 	return l.listen(ctx)
 }
@@ -99,6 +113,8 @@ func (l *Listener) Close() error {
 }
 
 func (l *Listener) snapshotAndListen(ctx context.Context) error {
+	l.phaseTracker.Set(phase.Snapshot)
+
 	lsn, err := l.replicationHandler.GetCurrentLSN(ctx)
 	if err != nil {
 		return err
@@ -111,6 +127,7 @@ func (l *Listener) snapshotAndListen(ctx context.Context) error {
 	if err := l.replicationHandler.StartReplicationFromLSN(ctx, lsn); err != nil {
 		return fmt.Errorf("start replication from LSN %s: %w", l.lsnParser.ToString(lsn), err)
 	}
+	l.phaseTracker.Set(phase.Replication)
 
 	return l.listen(ctx)
 }

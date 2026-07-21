@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/xataio/pgstream/cmd/config"
 	"github.com/xataio/pgstream/internal/log/zerolog"
+	"github.com/xataio/pgstream/internal/phase"
 	"github.com/xataio/pgstream/pkg/stream"
 )
 
@@ -44,13 +45,14 @@ func snapshot(ctx context.Context) error {
 	defer provider.Close()
 
 	stdLogger := zerolog.NewStdLogger(logger)
-	stopHealth, err := startHealthServer(ctx, stdLogger, streamConfig.SourcePostgresURL())
+	phaseTracker := phase.NewTracker()
+	stopHealth, err := startHealthServer(ctx, stdLogger, streamConfig.SourcePostgresURL(), phaseTracker)
 	if err != nil {
 		return err
 	}
 	defer stopHealth()
 
-	return stream.Snapshot(ctx, stdLogger, streamConfig, provider.NewInstrumentation("snapshot"))
+	return stream.Snapshot(ctx, stdLogger, streamConfig, provider.NewInstrumentation("snapshot"), stream.WithPhaseTracker(phaseTracker))
 }
 
 func snapshotFlagBinding(cmd *cobra.Command, args []string) error {

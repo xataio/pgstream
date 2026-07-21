@@ -27,10 +27,17 @@ This guide explains how to use **pgstream** with **AWS RDS/Aurora databases**, c
 
 #### Quick Checklist
 
+- [ ] Point the source URL at the **writer / single-instance endpoint**, **not** the Aurora reader (`cluster-ro`) or an RDS reader endpoint (see warning below).
 - [ ] Create a source user (**`pgstreamsource`**) with access to required schemas/tables.
 - [ ] For roles without passwords → no special config needed.
 - [ ] Snapshot of roles with passwords is **not supported**.
 - [ ] Update YAML config with correct snapshot settings.
+
+> ⚠️ **Do not snapshot from an Aurora reader (`cluster-ro`) or RDS reader endpoint.** These
+> load-balance across multiple instances, and the parallel data snapshot relies on an
+> instance-local exported transaction snapshot. Worker connections that land on a different
+> reader fail nondeterministically with `snapshot "…" does not exist`. Use the
+> **writer/cluster endpoint** (a single instance). See [Snapshots](snapshots.md#️-the-data-snapshot-source-must-be-a-single-instance) for details; `pgstream check` flags this before a snapshot runs.
 
 #### Steps
 

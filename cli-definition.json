@@ -3,7 +3,7 @@
   "commands": [
     {
       "name": "check",
-      "short": "Runs pre-migration checks to catch blocking issues before snapshot/run",
+      "short": "[EXPERIMENTAL] Runs pre-migration checks to catch blocking issues before snapshot/run",
       "use": "check",
       "example": "\n\tpgstream check -c pg2pg.env\n\tpgstream check -c pg2pg.yaml --json\n\t",
       "flags": [
@@ -49,7 +49,10 @@
         }
       ],
       "subcommands": [],
-      "args": []
+      "args": [],
+      "annotations": {
+        "experimental": "true"
+      }
     },
     {
       "name": "destroy",

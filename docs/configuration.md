@@ -23,6 +23,7 @@ source:
       mode: full # one of full, schema or data. Defaults to full.
       tables: ["test", "test_schema.Test", "another_schema.*"] # tables to snapshot, can be a list of table names or a pattern
       excluded_tables: ["test_schema.Test"] # tables to exclude for snapshot, wildcards are not supported
+      schema_only_tables: ["audit_log", "reports.*"] # tables for which only the schema is snapshotted, no data. Wildcards are supported. Requires snapshot mode full or schema. Tables listed explicitly in `tables` take precedence over a schema-only wildcard match; `excluded_tables` take precedence over the schema-only list. When a snapshot recorder is configured, schema-only snapshots are recorded separately from data snapshots, so moving a table from `schema_only_tables` to `tables` triggers its data snapshot on the next run (and moving it the other way doesn't repeat any work). Exception: when `tables` is the full `*.*` wildcard, its completed snapshot record covers all schemas and a promoted table won't be re-snapshotted automatically; use `pgstream snapshot` with the table listed explicitly instead. Sequence values are copied for schema-only tables, so out-of-band data backfills on the target won't collide with source-generated IDs.
       recorder:
         repeatable_snapshots: true # whether to repeat snapshots that have already been taken. Defaults to false
         postgres_url: "postgresql://user:password@localhost:5432/mytargetdatabase" # URL of the database where the snapshot status is recorded
@@ -120,6 +121,7 @@ target:
     topic:
       name: "mytopic" # name of the Kafka topic
       partitions: 1 # number of partitions for the topic. Defaults to 1
+      partition_key: "schema" # message key strategy for DML events, one of schema, table or primary_key. Defaults to schema
       replication_factor: 1 # replication factor for the topic. Defaults to 1
       auto_create: true # whether to automatically create the topic if it doesn't exist. Defaults to false
     tls:
@@ -171,7 +173,7 @@ modifiers:
   injector:
     enabled: true # whether to inject pgstream metadata into the WAL events. Defaults to false
     source_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # optional for postgres sources (defaults to source URL), required for non-postgres sources
-  filter: # one of include_tables or exclude_tables
+  filter: # one of include_tables or exclude_tables; schema_only_tables can be combined with either
     include_tables: # list of tables for which events should be allowed. Tables should be schema qualified. If no schema is provided, the public schema will be assumed. Wildcards "*" are supported.
       - "test"
       - "test_schema.test"
@@ -180,6 +182,9 @@ modifiers:
       - "excluded_test"
       - "excluded_schema.test"
       - "another_excluded_schema.*"
+    schema_only_tables: # list of tables for which DDL (schema change) events are processed but data (DML) events are skipped. Tables should be schema qualified. If no schema is provided, the public schema will be assumed. Wildcards "*" are supported. Tables listed explicitly in include_tables take precedence over a schema-only wildcard match; exclude_tables take precedence over the schema-only list.
+      - "audit_log"
+      - "reports.*"
   sanitize:
     strip_null_char_bytes: true # strip null bytes (0x00) from string column values. Defaults to false
   transformations:
@@ -216,6 +221,7 @@ Here's a list of all the environment variables that can be used to configure the
 | PGSTREAM_POSTGRES_SNAPSHOT_MODE                         | "full"                       | No       | Mode in which the snapshot will be run. It can be one of `schema`, `data` or `full` (both schema and data).                                                                                                                                                                                                  |
 | PGSTREAM_POSTGRES_SNAPSHOT_TABLES                       | ""                           | No       | Tables for which there will be an initial snapshot generated. The syntax supports wildcards. Tables without a schema defined will be applied the public schema. Example: for `public.test_table` and all tables in the `test_schema` schema, the value would be the following: `"test_table test_schema.\*"` |
 | PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_TABLES              | ""                           | No       | Tables that will be excluded in the snapshot process. The syntax does not support wildcards. Tables without a schema defined will be applied the public schema.                                                                                                                                              |
+| PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_ONLY_TABLES           | ""                           | No       | Tables for which only the schema will be snapshotted, skipping their data. The syntax supports wildcards. Tables without a schema defined will be applied the public schema. Requires snapshot mode `full` or `schema`. Tables explicitly listed in the snapshot tables take precedence over a schema-only wildcard match; excluded tables take precedence over the schema-only list.                        |
 | PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS               | 4                            | No       | Number of tables per schema that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                  |
 | PGSTREAM_POSTGRES_SNAPSHOT_TABLE_WORKERS                | 4                            | No       | Number of concurrent workers that will be used per table by the snapshotting process.                                                                                                                                                                                                                        |
 | PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES                  | 83886080 (80MiB)             | No       | Max batch size in bytes to be read and processed by each table worker at a time. The number of pages in the select queries will be based on this value.                                                                                                                                                      |
@@ -280,6 +286,7 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 | PGSTREAM_KAFKA_WRITER_SERVERS                  | N/A     | Yes              | URLs for the Kafka servers to connect to.                                                           |
 | PGSTREAM_KAFKA_TOPIC_NAME                      | N/A     | Yes              | Name of the Kafka topic to write to.                                                                |
 | PGSTREAM_KAFKA_TOPIC_PARTITIONS                | 1       | No               | Number of partitions created for the Kafka topic if auto create is enabled.                         |
+| PGSTREAM_KAFKA_TOPIC_PARTITION_KEY             | schema  | No               | Message key strategy for DML events, one of `schema`, `table` or `primary_key`. See the ordering trade-offs below. |
 | PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR        | 1       | No               | Replication factor used when creating the Kafka topic if auto create is enabled.                    |
 | PGSTREAM_KAFKA_TOPIC_AUTO_CREATE               | False   | No               | Auto creation of configured Kafka topic if it doesn't exist.                                        |
 | PGSTREAM_KAFKA_TLS_ENABLED                     | False   | No               | Enable TLS connection to the Kafka servers.                                                         |
@@ -291,6 +298,12 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 | PGSTREAM_KAFKA_WRITER_BATCH_SIZE               | 100     | No               | Max number of messages to be sent per batch. When this size is reached, the batch is sent to Kafka. |
 | PGSTREAM_KAFKA_WRITER_BATCH_IGNORE_SEND_ERRORS | False   | No               | Whether to ignore errors encountered while sending batches to the target.                           |
 | PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES          | 104857600 (100MiB) | No               | Max memory used by the Kafka batch writer for inflight batches.                                     |
+
+The partition key determines which partition an event is routed to, and therefore which events are consumed in order relative to each other:
+
+- `schema` (default): all events for a schema go to the same partition, guaranteeing ordering per schema, including between DDL and DML events. Parallelism is capped at the number of distinct schemas, so extra partitions don't help a single-schema database.
+- `table`: events are keyed by schema qualified table name, guaranteeing ordering per table. DDL events remain keyed by schema, so schema changes can be consumed out of order relative to the DML events of the tables they affect.
+- `primary_key`: events are keyed by schema qualified table name plus the row primary key values, guaranteeing ordering per row and allowing full use of the topic partitions. Requires the injector (`PGSTREAM_INJECTOR_STORE_POSTGRES_URL`) to identify primary key columns; events without an identifiable primary key fall back to `table` keying. As with `table`, DDL events remain keyed by schema and can be consumed out of order relative to DML.
 
 </details>
 
@@ -404,6 +417,7 @@ One of exponential/constant/disable retries retry policies can be provided for t
 | ------------------------------ | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PGSTREAM_FILTER_INCLUDE_TABLES | N/A     | No       | List of schema qualified tables for which the WAL events should be processed. If no schema is provided, `public` schema will be assumed. Wildcards are supported. |
 | PGSTREAM_FILTER_EXCLUDE_TABLES | N/A     | No       | List of schema qualified tables for which the WAL events should be skipped. If no schema is provided, `public` schema will be assumed. Wildcards are supported.   |
+| PGSTREAM_FILTER_SCHEMA_ONLY_TABLES | N/A     | No       | List of schema qualified tables for which DDL (schema change) events are processed but data (DML) events are skipped. If no schema is provided, `public` schema will be assumed. Wildcards are supported. Can be combined with either the include or the exclude list. |
 
 </details>
 
@@ -441,7 +455,7 @@ One of exponential/constant/disable retries retry policies can be provided for t
 <details>
   <summary>Health endpoint</summary>
 
-Exposes `/health` (liveness, always 200) and `/ready` (readiness, pings the source postgres database when configured). Only the `run` and `snapshot` commands start the server. Responses are JSON.
+Exposes `/health` (liveness, always 200), `/ready` (readiness, pings the source postgres database when configured), and `/status` (current pipeline phase: `snapshot` or `replication`). Only the `run` and `snapshot` commands start the server. Responses are JSON.
 
 | Environment Variable           | Default          | Required | Description                                                                                                  |
 | ------------------------------ | ---------------- | -------- | ------------------------------------------------------------------------------------------------------------ |

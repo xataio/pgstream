@@ -449,6 +449,183 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - with schema-only tables and generator",
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
+				SchemaOnlyTables: map[string][]string{
+					testSchema: {"schema_only_table"},
+				},
+			},
+			conn: &mocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					switch query {
+					case selectSchemasQuery:
+						require.Equal(t, []any{[]string{testSchema}}, args)
+						return &mocks.Rows{
+							CloseFn: func() {},
+							NextFn:  func(i uint) bool { return i == 1 },
+							ScanFn: func(i uint, dest ...any) error {
+								require.Len(t, dest, 1)
+								schemaName, ok := dest[0].(*string)
+								require.True(t, ok)
+								*schemaName = excludedSchema
+								return nil
+							},
+							ErrFn: func() error { return nil },
+						}, nil
+					case selectSchemaTablesQuery:
+						// the schema-only tables are part of the dump scope
+						require.Equal(t, []any{testSchema, []string{testTable, "schema_only_table"}}, args)
+						return &mocks.Rows{
+							CloseFn: func() {},
+							NextFn:  func(i uint) bool { return i == 1 },
+							ScanFn: func(i uint, dest ...any) error {
+								require.Len(t, dest, 2)
+								schemaName, ok := dest[0].(*string)
+								require.True(t, ok)
+								*schemaName = excludedSchema
+								tableName, ok := dest[1].(*string)
+								require.True(t, ok)
+								*tableName = excludedTable
+								return nil
+							},
+							ErrFn: func() error { return nil },
+						}, nil
+					default:
+						return nil, fmt.Errorf("unexpected query: %s", query)
+					}
+				},
+			},
+			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						SchemaOnly:       true,
+						ExcludeSchemas:   excludedSchemas,
+						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
+					}, po)
+					return schemaDump, nil
+				case 2:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						DataOnly:         true,
+						Tables:           []string{testSequence},
+					}, po)
+					return sequenceDump, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
+				}
+			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpAllOptions{
+						ConnectionString: "source-url",
+						RolesOnly:        true,
+					}, po)
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
+				}
+			}),
+			pgrestoreFn: newMockPgrestore(fullDumpRestoreFn),
+
+			generator: &generatormocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
+					// the wrapped generator receives the original snapshot
+					// request untouched
+					require.Equal(t, &snapshot.Snapshot{
+						SchemaTables: map[string][]string{
+							testSchema: {testTable},
+						},
+						SchemaOnlyTables: map[string][]string{
+							testSchema: {"schema_only_table"},
+						},
+					}, ss)
+					return nil
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - only schema-only tables",
+			snapshot: &snapshot.Snapshot{
+				SchemaOnlyTables: map[string][]string{
+					testSchema: {testTable},
+				},
+			},
+			conn: validQuerier(),
+			pgdumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						SchemaOnly:       true,
+						ExcludeSchemas:   excludedSchemas,
+						ExcludeTables:    []string{pglib.QuoteQualifiedIdentifier(excludedSchema, excludedTable)},
+					}, po)
+					return schemaDump, nil
+				case 2:
+					require.Equal(t, pglib.PGDumpOptions{
+						ConnectionString: "source-url",
+						Format:           "p",
+						DataOnly:         true,
+						Tables:           []string{testSequence},
+					}, po)
+					return sequenceDump, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
+				}
+			}),
+			pgdumpallFn: newMockPgdumpall(func(_ context.Context, i uint, po pglib.PGDumpAllOptions) ([]byte, error) {
+				switch i {
+				case 1:
+					require.Equal(t, pglib.PGDumpAllOptions{
+						ConnectionString: "source-url",
+						RolesOnly:        true,
+					}, po)
+					return rolesDumpOriginal, nil
+				default:
+					return nil, fmt.Errorf("unexpected call to pgdumpallFn: %d", i)
+				}
+			}),
+			pgrestoreFn: newMockPgrestore(fullDumpRestoreFn),
+
+			generator: &generatormocks.Generator{
+				CreateSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
+					require.Equal(t, &snapshot.Snapshot{
+						SchemaOnlyTables: map[string][]string{
+							testSchema: {testTable},
+						},
+					}, ss)
+					return nil
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
+			name: "error - wildcard schema-only schema with specific table",
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {testTable},
+				},
+				SchemaOnlyTables: map[string][]string{
+					wildcard: {"table1"},
+				},
+			},
+			conn: validQuerier(),
+
+			wantErr: fmt.Errorf("wildcard schema must be used with wildcard table, got %q", []string{"table1"}),
+		},
+		{
 			name: "ok - wildcard table",
 			snapshot: &snapshot.Snapshot{
 				SchemaTables: map[string][]string{
@@ -1540,6 +1717,125 @@ CREATE FUNCTION public.keep_me() RETURNS integer
 	require.NotContains(t, string(dump.filtered), "CREATE FUNCTION public.plpgsql_call_handler()")
 	require.NotContains(t, string(dump.filtered), "CREATE FUNCTION public.plpgsql_validator(oid)")
 	require.Contains(t, string(dump.filtered), "CREATE FUNCTION public.keep_me() RETURNS integer")
+}
+
+func TestSnapshotGenerator_parseDumpDefersSQLStandardFunctionBodies(t *testing.T) {
+	t.Parallel()
+
+	dumpBytes := []byte(`CREATE FUNCTION public.atomic_fn() RETURNS TABLE(id integer, name text)
+    LANGUAGE sql
+    BEGIN ATOMIC
+ SELECT c.id,
+     c.name
+    FROM public.customers c
+   GROUP BY c.id;
+END;
+
+CREATE FUNCTION public.return_fn() RETURNS bigint
+    LANGUAGE sql
+    RETURN (SELECT count(*) AS count FROM public.customers);
+
+CREATE FUNCTION public.classic_fn(integer[]) RETURNS integer
+    LANGUAGE sql IMMUTABLE
+    AS $_$
+  SELECT val
+  FROM unnest($1) val
+  -- END; and RETURN inside a dollar quoted body must not confuse the parser
+  LIMIT 1;
+$_$;
+
+CREATE FUNCTION public.trigger_fn() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RETURN NULL;
+END;
+$$;
+
+CREATE TABLE public.customers (
+    id integer NOT NULL
+);
+`)
+
+	dump := (&SnapshotGenerator{}).parseDump(dumpBytes)
+
+	filtered := string(dump.filtered)
+	views := string(dump.views)
+
+	// SQL-standard bodies are validated at creation time and can depend on
+	// constraints, so they are deferred along with the views
+	require.Contains(t, views, "CREATE FUNCTION public.atomic_fn()")
+	require.Contains(t, views, "CREATE FUNCTION public.return_fn()")
+	require.NotContains(t, filtered, "atomic_fn")
+	require.NotContains(t, filtered, "return_fn")
+
+	// classic quoted bodies stay in the main schema dump
+	require.Contains(t, filtered, "CREATE FUNCTION public.classic_fn(integer[])")
+	require.Contains(t, filtered, "CREATE FUNCTION public.trigger_fn()")
+	require.Contains(t, filtered, "CREATE TABLE public.customers")
+	require.NotContains(t, views, "classic_fn")
+	require.NotContains(t, views, "trigger_fn")
+}
+
+func TestSnapshotGenerator_parseDumpCircularDependencyViews(t *testing.T) {
+	t.Parallel()
+
+	// pg_dump breaks circular view dependencies by emitting a dummy view
+	// upfront and the real definition (CREATE OR REPLACE VIEW, or CREATE RULE
+	// "_RETURN" in older versions) at the end of the dump
+	dumpBytes := []byte(`CREATE VIEW public.circ_view AS
+SELECT
+    NULL::integer AS id,
+    NULL::text AS name;
+
+CREATE FUNCTION public.circ_fn() RETURNS SETOF public.circ_view
+    LANGUAGE sql STABLE
+    AS $$ SELECT id, name FROM circ_view $$;
+
+CREATE TABLE public.circ_base (
+    id integer NOT NULL,
+    name text NOT NULL
+);
+
+CREATE VIEW public.regular_view AS
+ SELECT c.id,
+    c.name
+   FROM public.circ_base c
+  GROUP BY c.id;
+
+CREATE OR REPLACE VIEW public.circ_view AS
+ SELECT c.id,
+    c.name
+   FROM public.circ_base c
+  WHERE (c.id IN ( SELECT circ_fn.id
+           FROM public.circ_fn() circ_fn(id, name)))
+  GROUP BY c.id;
+
+CREATE RULE "_RETURN" AS
+    ON SELECT TO public.legacy_view DO INSTEAD
+ SELECT c.id,
+    c.name
+   FROM public.circ_base c
+  GROUP BY c.id;
+`)
+
+	dump := (&SnapshotGenerator{}).parseDump(dumpBytes)
+
+	filtered := string(dump.filtered)
+	views := string(dump.views)
+
+	// the dummy view must be restored early so that the function referencing
+	// the view row type can be created
+	require.Contains(t, filtered, "CREATE VIEW public.circ_view AS\nSELECT\n    NULL::integer AS id,\n    NULL::text AS name;")
+	require.Contains(t, filtered, "CREATE FUNCTION public.circ_fn()")
+
+	// the real definitions are validated at creation time and are deferred
+	require.Contains(t, views, "CREATE OR REPLACE VIEW public.circ_view AS")
+	require.Contains(t, views, `CREATE RULE "_RETURN" AS`)
+	require.Contains(t, views, "CREATE VIEW public.regular_view AS")
+	require.NotContains(t, filtered, "CREATE OR REPLACE VIEW")
+	require.NotContains(t, filtered, "_RETURN")
+	require.NotContains(t, filtered, "regular_view")
 }
 
 func TestSnapshotGenerator_parseDumpRefreshesMaterializedViewsInCreationOrder(t *testing.T) {

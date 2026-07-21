@@ -21,13 +21,17 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: "go.mod"
 
       - name: Run tests
         run: make test
 
+      # The coverage comment is posted from a separate workflow_run-triggered
+      # workflow (coverage-report.yml) so that it works for pull requests from
+      # forks: fork PRs only get a read-only GITHUB_TOKEN here, which cannot
+      # comment on the PR. That workflow downloads this artifact.
       - name: Archive code coverage results
         uses: actions/upload-artifact@v7
         with:
@@ -41,7 +45,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: "go.mod"
 
@@ -55,7 +59,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: "go.mod"
           cache: false
@@ -74,21 +78,6 @@ jobs:
           # The location of the configuration file can be changed by using `--config=`
           args: --timeout=30m --config=.golangci.yml
 
-  coverage:
-    if: github.event_name == 'pull_request' # Do not run when workflow is triggered by push to main branch
-    runs-on: ubuntu-latest
-    needs: test # Depends on the artifact uploaded by the "test" job
-    permissions:
-      contents: read
-      actions: read # to download code coverage results from "test" job
-      pull-requests: write # write permission needed to comment on PR
-    steps:
-      - uses: fgrosse/go-coverage-report@v1.3.0
-        with:
-          coverage-artifact-name: "code-coverage"
-          coverage-file-name: "coverage"
-          root-package: "github.com/xataio/pgstream"
-
   license-check:
     name: license check
     runs-on: ubuntu-latest
@@ -105,7 +94,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: "go.mod"
 
@@ -129,6 +118,7 @@ jobs:
       packages: write # push images to ghcr.io
       id-token: write # request the OIDC token used to sign attestations
       attestations: write # write GitHub artifact attestations
+      artifact-metadata: write # create the artifact metadata storage records that accompany attestations
     env:
       DOCKER_CLI_EXPERIMENTAL: "enabled"
     steps:
@@ -149,7 +139,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: "go.mod"
 
@@ -169,11 +159,29 @@ jobs:
           GITHUB_USERNAME: ${{ github.repository_owner }}
           DOCKER_USERNAME: ghcr.io/${{ github.repository_owner }}
 
+      - name: Stage release binaries
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release
+          jq -r '.[]
+                 | select(.name | test("^pgstream\\.[a-z]+\\."))
+                 | [.path, .name] | @tsv' \
+            dist/artifacts.json \
+            | while IFS=$'\t' read -r path name; do
+                cp "$path" "dist/release/$name"
+              done
+          if [ -z "$(ls -A dist/release)" ]; then
+            echo "no binaries matched; artifacts.json contained:"
+            jq -r '.[] | "\(.type)\t\(.name)"' dist/artifacts.json
+            exit 1
+          fi
+          ls -1 dist/release
+
       # Signed build provenance for the released binaries/archives.
       - name: Attest release artifacts
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: "dist/pgstream.*"
+          subject-path: "dist/release/pgstream.*"
 
       # Resolve the pushed multi-arch manifest digest so the image attestations
       # cover the exact content (image tags have no "v" prefix).
