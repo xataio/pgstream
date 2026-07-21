@@ -1,0 +1,241 @@
+name: Coverage Report
+# Runs after the "Build" workflow completes for a pull request. It lives in a
+# separate workflow_run-triggered workflow (rather than in build.yml) so that
+# it can comment on pull requests from forks: fork PRs only get a read-only
+# GITHUB_TOKEN in build.yml, whereas workflow_run always runs in the base
+# repository context with a writable token.
+#
+# The delta-vs-base column is computed by downloading the coverage artifact of
+# the most recent successful "Build" run on the PR's base branch (the test job
+# uploads that artifact on every push, including pushes to main), so no extra
+# datastore or baseline test run is needed.
+on:
+  workflow_run:
+    workflows: ["Build"]
+    types: [completed]
+
+permissions:
+  contents: read # commits API (listPullRequestsAssociatedWithCommit)
+  actions: read # download artifacts from the triggering run and the base run
+  pull-requests: write # comment on the PR
+
+jobs:
+  coverage-report:
+    runs-on: ubuntu-latest
+    # Only for successful pull_request runs: a failed run has no complete
+    # coverage profile, and push runs have no PR to comment on.
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Download coverage profile
+        uses: actions/download-artifact@v7
+        with:
+          name: code-coverage
+          path: coverage-data
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve pull request and base coverage run
+        id: resolve
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const wr = context.payload.workflow_run;
+            const headSha = wr.head_sha;
+
+            // Derive the target PR from the trusted trigger metadata, never from
+            // an artifact: a fork could otherwise stash another PR's number and
+            // redirect this writable token at it. Require exactly one open PR
+            // whose head still matches the SHA that was actually built.
+            const assoc = await github.paginate(
+              github.rest.repos.listPullRequestsAssociatedWithCommit,
+              { owner, repo, commit_sha: headSha, per_page: 100 },
+            );
+            const prs = assoc.filter(
+              (pr) => pr.state === 'open' && pr.head && pr.head.sha === headSha);
+            if (prs.length !== 1) {
+              core.info(
+                `expected exactly one open PR for ${headSha}, found ` +
+                `${prs.length}; skipping coverage comment`);
+              return;
+            }
+            const pr = prs[0];
+
+            // Defense in depth: the resolved PR's head must also match the repo
+            // and branch the workflow_run reported.
+            if (wr.head_branch && pr.head.ref !== wr.head_branch) {
+              core.info('head branch mismatch; skipping'); return;
+            }
+            if (wr.head_repository && pr.head.repo &&
+                pr.head.repo.full_name !== wr.head_repository.full_name) {
+              core.info('head repo mismatch; skipping'); return;
+            }
+
+            core.setOutput('pr_number', String(pr.number));
+            core.setOutput('base_ref', pr.base.ref);
+
+            // Baseline for the delta: newest successful Build pushed to the base
+            // branch (a trusted context, not the untrusted PR artifact).
+            const runs = await github.rest.actions.listWorkflowRuns({
+              owner, repo, workflow_id: 'build.yml',
+              branch: pr.base.ref, event: 'push', status: 'success', per_page: 1,
+            });
+            const run = runs.data.workflow_runs[0];
+            core.setOutput('base_run_id', run ? String(run.id) : '');
+
+      - name: Download base coverage profile
+        if: steps.resolve.outputs.base_run_id != ''
+        continue-on-error: true # baseline may have expired; delta is optional
+        uses: actions/download-artifact@v7
+        with:
+          name: code-coverage
+          path: base-data
+          run-id: ${{ steps.resolve.outputs.base_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Report coverage on the pull request
+        if: steps.resolve.outputs.pr_number != ''
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
+          BASE_REF: ${{ steps.resolve.outputs.base_ref }}
+        with:
+          script: |
+            const fs = require('fs');
+
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            if (!Number.isInteger(prNumber)) {
+              core.setFailed('missing PR number');
+              return;
+            }
+
+            const marker = '<!-- coverage-report -->';
+            const rootPackage = 'github.com/xataio/pgstream/';
+            const strip = (p) =>
+              p.startsWith(rootPackage) ? p.slice(rootPackage.length) : p;
+            // The coverage profile is produced by the untrusted (fork) build, so
+            // every string taken from it is reduced to a safe charset before it
+            // reaches the comment. This drops table-breaking `|`, backticks,
+            // angle brackets and newlines, so it cannot forge markdown/HTML or
+            // reproduce the sticky-comment marker.
+            const clean = (s) => String(s).replace(/[^A-Za-z0-9._/\- ]/g, '');
+
+            // Aggregate statement counts from a Go coverage profile. Each line
+            // is "file:start.col,end.col numStmts execCount"; summing numStmts
+            // weighted by execCount > 0 yields the same statement-based
+            // percentages as `go tool cover`.
+            const parseProfile = (path) => {
+              if (!fs.existsSync(path)) return null;
+              const perPackage = new Map();
+              let total = 0, covered = 0;
+              const re = /^(.+):\d+\.\d+,\d+\.\d+ (\d+) (\d+)$/;
+              for (const line of fs.readFileSync(path, 'utf8').split('\n')) {
+                if (!line || line.startsWith('mode:')) continue;
+                const m = line.match(re);
+                if (!m) continue;
+                const stmts = parseInt(m[2], 10);
+                const hit = parseInt(m[3], 10) > 0;
+                const pkg = m[1].substring(0, m[1].lastIndexOf('/'));
+                const a = perPackage.get(pkg) || { total: 0, covered: 0 };
+                a.total += stmts;
+                if (hit) a.covered += stmts;
+                perPackage.set(pkg, a);
+                total += stmts;
+                if (hit) covered += stmts;
+              }
+              return { perPackage, total, covered };
+            };
+
+            const head = parseProfile('coverage-data/coverage');
+            if (!head) {
+              core.setFailed('no head coverage profile found');
+              return;
+            }
+            const base = parseProfile('base-data/coverage');
+            const hasBase = base != null;
+            const baseRef = clean(process.env.BASE_REF || 'base');
+
+            const pct = (c, t) => (t === 0 ? 0 : (100 * c) / t);
+            const fmt = (n) => n.toFixed(1) + '%';
+            // Sign from the rounded value so a tiny delta that rounds to 0.0
+            // renders as "±0.0%" rather than a stray "+"/"-".
+            const fmtDelta = (d) => {
+              const r = Math.round(d * 10) / 10;
+              return (r > 0 ? '+' : r < 0 ? '-' : '±') + Math.abs(r).toFixed(1) + '%';
+            };
+
+            const headPct = pct(head.covered, head.total);
+
+            const basePkgPct = new Map();
+            if (hasBase) {
+              for (const [p, a] of base.perPackage) {
+                basePkgPct.set(p, pct(a.covered, a.total));
+              }
+            }
+
+            const rows = [...head.perPackage.entries()]
+              .map(([p, a]) => {
+                const cur = pct(a.covered, a.total);
+                let delta = '';
+                if (hasBase) {
+                  delta = basePkgPct.has(p)
+                    ? fmtDelta(cur - basePkgPct.get(p))
+                    : 'new';
+                }
+                return { pkg: clean(strip(p)), cur, delta };
+              })
+              .sort((x, y) => x.pkg.localeCompare(y.pkg));
+
+            const renderTable = () => {
+              const header = hasBase
+                ? '| Package | Coverage | Δ |\n| --- | --- | --- |'
+                : '| Package | Coverage |\n| --- | --- |';
+              const rowStr = rows
+                .map((r) => hasBase
+                  ? '| ' + r.pkg + ' | ' + fmt(r.cur) + ' | ' + r.delta + ' |'
+                  : '| ' + r.pkg + ' | ' + fmt(r.cur) + ' |')
+                .join('\n');
+              return header + '\n' + rowStr;
+            };
+
+            let totalLine = '**Total: ' + fmt(headPct) + '**';
+            if (hasBase) {
+              const basePct = pct(base.covered, base.total);
+              totalLine +=
+                ' (' + fmtDelta(headPct - basePct) + ' vs `' + baseRef + '`)';
+            }
+
+            const body = [
+              marker,
+              '### Coverage',
+              '',
+              totalLine,
+              '',
+              ...(hasBase
+                ? []
+                : ['> _No base coverage found for `' + baseRef +
+                   '`; showing current coverage only._', '']),
+              '<details><summary>Coverage by package</summary>',
+              '',
+              renderTable(),
+              '',
+              '</details>',
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner, repo, issue_number: prNumber, per_page: 100,
+            });
+            const existing = comments.find(
+              (c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner, repo, comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: prNumber, body,
+              });
+            }
