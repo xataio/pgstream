@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/xataio/pgstream/internal/json"
@@ -26,6 +27,7 @@ type BatchWriter struct {
 	logger        loglib.Logger
 	batchSender   batchSender
 	maxBatchBytes int64
+	partitionKey  PartitionKey
 
 	// optional checkpointer callback to mark what was safely processed
 	checkpointer checkpointer.Checkpoint
@@ -44,10 +46,16 @@ type batchSender interface {
 var errRecordTooLarge = errors.New("record too large")
 
 func NewBatchWriter(ctx context.Context, config *Config, opts ...Option) (*BatchWriter, error) {
+	partitionKey, err := config.partitionKey()
+	if err != nil {
+		return nil, err
+	}
+
 	w := &BatchWriter{
 		serialiser:        json.Marshal,
 		logger:            loglib.NewNoopLogger(),
 		maxBatchBytes:     config.Batch.GetMaxBatchBytes(),
+		partitionKey:      partitionKey,
 		walDataToDDLEvent: wal.WalDataToDDLEvent,
 	}
 
@@ -62,7 +70,6 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...Option) (*Batch
 	// additional features (automatic retries, reconnection, distribution of
 	// messages across partitions,etc) which we want to benefit from.
 	const kafkaBatchTimeout = 10 * time.Millisecond
-	var err error
 	w.writer, err = kafka.NewWriter(kafka.WriterConfig{
 		Conn:         config.Kafka,
 		BatchTimeout: kafkaBatchTimeout,
@@ -200,20 +207,72 @@ func (w *BatchWriter) sendBatch(ctx context.Context, batch *batch.Batch[kafka.Me
 // on input. The message key determines which partition the event is routed to,
 // and therefore which order the events will be executed in. For DDL events, we
 // extract the underlying user schema they're linked to in the content, to make
-// sure they're routed to the same partition as their writes. This gives us
-// ordering per schema.
+// sure they're routed to the same partition as their schema keyed writes. DML
+// events are keyed following the configured partition key strategy, which
+// defaults to the schema name (ordering per schema).
 func (w BatchWriter) getMessageKey(walData *wal.Data) []byte {
-	eventKey := walData.Schema
 	if walData.IsDDLEvent() {
 		ddlEvent, err := w.walDataToDDLEvent(walData)
 		if err != nil {
 			w.logger.Error(err, "parsing ddl event for schema", loglib.Fields{
 				"wal_data": walData,
 			})
-			return []byte(eventKey)
+			return []byte(walData.Schema)
 		}
-		eventKey = ddlEvent.SchemaName
+		return []byte(ddlEvent.SchemaName)
 	}
 
-	return []byte(eventKey)
+	switch w.partitionKey {
+	case PartitionKeyPrimaryKey:
+		if key := primaryKeyMessageKey(walData); key != nil {
+			return key
+		}
+		// no identifiable primary key for the event (no injector configured,
+		// or table without primary key), degrade gracefully to table keying
+		return tableMessageKey(walData)
+	case PartitionKeyTable:
+		return tableMessageKey(walData)
+	default:
+		return []byte(walData.Schema)
+	}
+}
+
+// primaryKeyMessageKey returns a key composed of the schema qualified table
+// name and the values of the event primary key columns, as identified by the
+// injector in the wal metadata. It returns nil if the primary key columns or
+// their values can't be found in the event.
+func primaryKeyMessageKey(walData *wal.Data) []byte {
+	colIDs := walData.Metadata.InternalColIDs
+	if len(colIDs) == 0 {
+		return nil
+	}
+
+	values := make([]string, 0, len(colIDs))
+	for _, colID := range colIDs {
+		col, found := findColumn(walData.Columns, colID)
+		if !found {
+			// delete events don't include the new row values, rely on the
+			// identity (old) values instead
+			col, found = findColumn(walData.Identity, colID)
+		}
+		if !found {
+			return nil
+		}
+		values = append(values, fmt.Sprintf("%v", col.Value))
+	}
+
+	return fmt.Appendf(tableMessageKey(walData), ":%s", strings.Join(values, ","))
+}
+
+func tableMessageKey(walData *wal.Data) []byte {
+	return []byte(walData.Schema + "." + walData.Table)
+}
+
+func findColumn(cols []wal.Column, id string) (wal.Column, bool) {
+	for _, col := range cols {
+		if col.ID == id {
+			return col, true
+		}
+	}
+	return wal.Column{}, false
 }
