@@ -1553,6 +1553,63 @@ CREATE INDEX test_table_value_idx ON public.test_table USING btree (value);
 	require.Equal(t, []string{"schema", "conflict targets", "data", "remaining constraints"}, calls)
 }
 
+func TestSnapshotGenerator_restoreIndicesAndConstraintsSessionSettings(t *testing.T) {
+	t.Parallel()
+
+	settings := []string{"maintenance_work_mem=4GB", "max_parallel_maintenance_workers=4"}
+	indexDump := []byte("\\connect test\n\nCREATE INDEX test_idx ON test_table (id);\n")
+	tests := []struct {
+		name         string
+		settings     []string
+		restoreToWAL bool
+		wantSettings []string
+	}{
+		{
+			name:         "postgres restore",
+			settings:     settings,
+			wantSettings: settings,
+		},
+		{
+			name: "postgres restore with empty settings",
+		},
+		{
+			name:         "WAL restore",
+			settings:     settings,
+			restoreToWAL: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var restoredDump []byte
+			var restoredOptions pglib.PGRestoreOptions
+			sg := &SnapshotGenerator{
+				indexConstraintSessionSettings: tt.settings,
+				logger:                         log.NewNoopLogger(),
+				optionGenerator: &optionGenerator{
+					targetURL: "target-url",
+				},
+			}
+			if tt.restoreToWAL {
+				WithRestoreToWAL(nil)(sg)
+			}
+			sg.pgRestoreFn = func(_ context.Context, opts pglib.PGRestoreOptions, dump []byte) (string, error) {
+				restoredOptions = opts
+				restoredDump = dump
+				return "", nil
+			}
+
+			err := sg.restoreIndicesAndConstraints(context.Background(), indexDump, &snapshot.Snapshot{})
+
+			require.NoError(t, err)
+			require.Equal(t, indexDump, restoredDump)
+			require.Equal(t, tt.wantSettings, restoredOptions.SessionSettings)
+		})
+	}
+}
+
 func TestSnapshotGenerator_parseDump(t *testing.T) {
 	t.Parallel()
 
