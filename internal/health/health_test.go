@@ -104,7 +104,7 @@ func TestHandleReady_CheckFails(t *testing.T) {
 
 func TestHandleStatus_NoProvider(t *testing.T) {
 	t.Parallel()
-	s := NewServer(Config{}, WithVersion("v1.2.3"))
+	s := NewServer(Config{}, nil, WithVersion("v1.2.3"))
 
 	req := httptest.NewRequest(http.MethodGet, "/status", nil)
 	rec := httptest.NewRecorder()
@@ -123,7 +123,7 @@ func TestHandleStatus_NoProvider(t *testing.T) {
 func TestHandleStatus_WithProvider(t *testing.T) {
 	t.Parallel()
 	phase := "snapshot"
-	s := NewServer(Config{}, WithVersion("v1.2.3"), WithPhaseProvider(func() string {
+	s := NewServer(Config{}, nil, WithVersion("v1.2.3"), WithPhaseProvider(func() string {
 		return phase
 	}))
 
