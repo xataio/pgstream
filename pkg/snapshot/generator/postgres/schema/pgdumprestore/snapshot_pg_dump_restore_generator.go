@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -92,6 +93,25 @@ type Config struct {
 	IndexConstraintSessionSettings []string
 }
 
+// sessionSettingRegex validates a single index/constraint session setting of
+// the form name=value. The name must be a valid PostgreSQL configuration
+// parameter identifier, and neither the name nor the value may contain
+// whitespace: the settings are passed to the restore subprocess through
+// PGOPTIONS, which libpq splits on whitespace, so allowing whitespace would let
+// a single setting inject additional backend command-line options.
+var sessionSettingRegex = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.]*=\S+$`)
+
+var errInvalidSessionSetting = errors.New("invalid index constraint session setting, must be a whitespace-free name=value pair")
+
+func validateSessionSettings(settings []string) error {
+	for _, setting := range settings {
+		if !sessionSettingRegex.MatchString(setting) {
+			return fmt.Errorf("%w: %q", errInvalidSessionSetting, setting)
+		}
+	}
+	return nil
+}
+
 type Option func(s *SnapshotGenerator)
 
 type dump struct {
@@ -118,6 +138,10 @@ const (
 // NewSnapshotGenerator will return a postgres schema snapshot generator that
 // uses pg_dump and pg_restore to sync the schema of two postgres databases
 func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*SnapshotGenerator, error) {
+	if err := validateSessionSettings(c.IndexConstraintSessionSettings); err != nil {
+		return nil, err
+	}
+
 	sourceConnPool, err := pglib.NewConnPool(ctx, c.SourcePGURL)
 	if err != nil {
 		return nil, err
