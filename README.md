@@ -251,6 +251,9 @@ You can find below the release notes for major pgstream versions, along with mig
 
 We welcome contributions from the community! If you'd like to contribute to pgstream, please follow [these guidelines](https://github.com/xataio/pgstream/tree/main?tab=contributing-ov-file) and adhere to our [code of conduct](https://github.com/xataio/pgstream?tab=coc-ov-file).
 
+> [!TIP]
+> 💜 **Xata is hiring!** Want to work on Postgres infrastructure and tools like `pgstream`? We're looking for a [Software Backend Engineer (Go/Rust)](https://xata.io/careers/7928089).
+
 ## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
