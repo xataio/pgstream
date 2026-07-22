@@ -43,7 +43,7 @@ source:
           roles_snapshot_mode: # enabled by default. Can be set to disabled to disable roles snapshotting, or can be set to no_passwords to exclude role passwords
           exclude_security_labels: ["anon"] # list of providers whose security labels will be excluded from the snapshot. Wildcard supported.
           refresh_materialized_views: false # whether to refresh materialized views (REFRESH MATERIALIZED VIEW ... WITH DATA) after the table data has been restored. Defaults to false
-          index_constraint_session_settings: # optional PostgreSQL name=value session settings applied only while restoring indexes and constraints. Unset or empty preserves existing behavior
+          index_constraint_session_settings: # optional PostgreSQL name=value session settings applied only while restoring indexes and constraints. Each entry must be a whitespace-free name=value pair. Unset or empty preserves existing behavior
             - maintenance_work_mem=4GB
             - max_parallel_maintenance_workers=4
             - synchronous_commit=off

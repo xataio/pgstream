@@ -1610,6 +1610,63 @@ func TestSnapshotGenerator_restoreIndicesAndConstraintsSessionSettings(t *testin
 	}
 }
 
+func TestValidateSessionSettings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		settings []string
+		wantErr  error
+	}{
+		{
+			name:     "nil settings",
+			settings: nil,
+			wantErr:  nil,
+		},
+		{
+			name:     "valid settings",
+			settings: []string{"maintenance_work_mem=4GB", "max_parallel_maintenance_workers=4", "synchronous_commit=off"},
+			wantErr:  nil,
+		},
+		{
+			name:     "valid setting with dotted name",
+			settings: []string{"pg_stat_statements.max=1000"},
+			wantErr:  nil,
+		},
+		{
+			name:     "missing value",
+			settings: []string{"maintenance_work_mem="},
+			wantErr:  errInvalidSessionSetting,
+		},
+		{
+			name:     "missing equals",
+			settings: []string{"maintenance_work_mem"},
+			wantErr:  errInvalidSessionSetting,
+		},
+		{
+			// whitespace would let a single setting expand into multiple
+			// PGOPTIONS backend options once libpq splits on whitespace
+			name:     "whitespace injects extra options",
+			settings: []string{"maintenance_work_mem=4GB -c session_preload_libraries=/tmp/evil.so"},
+			wantErr:  errInvalidSessionSetting,
+		},
+		{
+			name:     "leading dash in name",
+			settings: []string{"-c foo=bar"},
+			wantErr:  errInvalidSessionSetting,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateSessionSettings(tt.settings)
+			require.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
 func TestSnapshotGenerator_parseDump(t *testing.T) {
 	t.Parallel()
 
