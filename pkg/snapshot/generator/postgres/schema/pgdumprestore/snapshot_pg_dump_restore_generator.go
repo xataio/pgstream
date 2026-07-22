@@ -51,11 +51,10 @@ type SnapshotGenerator struct {
 	// views.
 	refreshMaterializedViews bool
 	// indexConstraintSessionSettings are applied through PGOPTIONS only to
-	// index and constraint restore sessions.
+	// index and constraint restore sessions. They are cleared when restoring to
+	// WAL (see WithRestoreToWAL), since that path converts the dump into WAL
+	// events instead of running a psql/pg_restore session.
 	indexConstraintSessionSettings []string
-	// restoreToWAL indicates that pgRestoreFn converts the dump into WAL events
-	// instead of executing it in a PostgreSQL session.
-	restoreToWAL bool
 }
 
 type snapshotProgressTracker interface {
@@ -213,7 +212,7 @@ func WithProgressTracking(ctx context.Context) Option {
 func WithRestoreToWAL(processor processor.Processor) Option {
 	return func(sg *SnapshotGenerator) {
 		sg.pgRestoreFn = newPGSnapshotWALRestore(processor, sg.sourceQuerier).restoreToWAL
-		sg.restoreToWAL = true
+		sg.indexConstraintSessionSettings = nil
 	}
 }
 
@@ -404,9 +403,7 @@ func isConflictTargetConstraint(block string) bool {
 func (s *SnapshotGenerator) restoreIndicesAndConstraints(ctx context.Context, dump []byte, ss *snapshot.Snapshot) error {
 	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
 	opts := s.optionGenerator.pgrestoreOptions()
-	if !s.restoreToWAL {
-		opts.SessionSettings = s.indexConstraintSessionSettings
-	}
+	opts.SessionSettings = s.indexConstraintSessionSettings
 	if s.snapshotTracker != nil {
 		return s.restoreIndicesWithTracking(ctx, opts, dump)
 	}
