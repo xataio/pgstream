@@ -91,9 +91,9 @@ func RunPGRestore(ctx context.Context, opts PGRestoreOptions, dump []byte) (stri
 	}
 	switch opts.Format {
 	case "c":
-		cmd = exec.Command(pgRestoreCmd, opts.toArgs()...) //nolint:gosec
+		cmd = exec.CommandContext(ctx, pgRestoreCmd, opts.toArgs()...) //nolint:gosec
 	default:
-		cmd = exec.Command(psqlCmd, opts.toPSQLArgs()...) //nolint:gosec
+		cmd = exec.CommandContext(ctx, psqlCmd, opts.toPSQLArgs()...) //nolint:gosec
 	}
 	if len(opts.SessionSettings) > 0 {
 		cmd.Env = append(cmd.Environ(), "PGOPTIONS="+opts.toPGOptions(os.Getenv("PGOPTIONS")))
