@@ -47,9 +47,10 @@ source:
           index_constraint_session_settings: # optional PostgreSQL name=value session settings applied only while restoring indexes and constraints. Each entry must be a whitespace-free name=value pair. Unset or empty preserves existing behavior
             - maintenance_work_mem=4GB
             - max_parallel_maintenance_workers=4
-            - synchronous_commit=off
-            - statement_timeout=0
-            - lock_timeout=0
+            # statement_timeout=0 and lock_timeout=0 disable the server-side limits that would otherwise bound a stuck restore; the restore then relies on client-side cancellation. Omit them to keep those safety limits.
+            # - statement_timeout=0
+            # - lock_timeout=0
+            # - synchronous_commit=off # faster restore, but a target crash right after the restore can lose the final index/constraint commits
           dump_file: pg_dump.sql # name of the file where the contents of the schema pg_dump command and output will be written for debugging purposes.
       disable_progress_tracking: false # whether to disable progress tracking for the snapshot. Defaults to false
     replication: # when mode is replication or snapshot_and_replication
