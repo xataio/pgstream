@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"unicode/utf8"
@@ -34,6 +35,8 @@ type PGRestoreOptions struct {
 	Format string
 	// Options to pass to pg_restore
 	Options []string
+	// SessionSettings are name=value settings passed to PostgreSQL through PGOPTIONS.
+	SessionSettings []string
 }
 
 func (opts PGRestoreOptions) toArgs() []string {
@@ -62,6 +65,17 @@ func (opts PGRestoreOptions) toPSQLArgs() []string {
 	return []string{"--echo-errors", opts.ConnectionString}
 }
 
+func (opts PGRestoreOptions) toPGOptions(existing string) string {
+	options := make([]string, 0, len(opts.SessionSettings)+1)
+	if existing != "" {
+		options = append(options, existing)
+	}
+	for _, setting := range opts.SessionSettings {
+		options = append(options, "-c "+setting)
+	}
+	return strings.Join(options, " ")
+}
+
 // Func RunPGRestore runs pg_restore command with the given options and returns
 // the result.
 func RunPGRestore(ctx context.Context, opts PGRestoreOptions, dump []byte) (string, error) {
@@ -80,6 +94,9 @@ func RunPGRestore(ctx context.Context, opts PGRestoreOptions, dump []byte) (stri
 		cmd = exec.Command(pgRestoreCmd, opts.toArgs()...) //nolint:gosec
 	default:
 		cmd = exec.Command(psqlCmd, opts.toPSQLArgs()...) //nolint:gosec
+	}
+	if len(opts.SessionSettings) > 0 {
+		cmd.Env = append(cmd.Environ(), "PGOPTIONS="+opts.toPGOptions(os.Getenv("PGOPTIONS")))
 	}
 
 	stdin, err := cmd.StdinPipe()

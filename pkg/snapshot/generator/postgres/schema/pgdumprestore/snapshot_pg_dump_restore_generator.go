@@ -49,6 +49,12 @@ type SnapshotGenerator struct {
 	// restored. Disabled by default since refreshing can be expensive on large
 	// views.
 	refreshMaterializedViews bool
+	// indexConstraintSessionSettings are applied through PGOPTIONS only to
+	// index and constraint restore sessions.
+	indexConstraintSessionSettings []string
+	// restoreToWAL indicates that pgRestoreFn converts the dump into WAL events
+	// instead of executing it in a PostgreSQL session.
+	restoreToWAL bool
 }
 
 type snapshotProgressTracker interface {
@@ -81,6 +87,9 @@ type Config struct {
 	// VIEW ... WITH DATA) after the table data has been restored. Disabled by
 	// default since refreshing can be expensive on large views.
 	RefreshMaterializedViews bool
+	// Session settings in name=value format applied only while restoring indexes
+	// and constraints. An empty list preserves the existing behavior.
+	IndexConstraintSessionSettings []string
 }
 
 type Option func(s *SnapshotGenerator)
@@ -115,18 +124,19 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 	}
 
 	sg := &SnapshotGenerator{
-		sourceURL:                c.SourcePGURL,
-		targetURL:                c.TargetPGURL,
-		pgDumpFn:                 pglib.RunPGDump,
-		pgDumpAllFn:              pglib.RunPGDumpAll,
-		pgRestoreFn:              pglib.RunPGRestore,
-		logger:                   loglib.NewNoopLogger(),
-		dumpDebugFile:            c.DumpDebugFile,
-		excludedSecurityLabels:   c.ExcludedSecurityLabels,
-		roleSQLParser:            &roleSQLParser{},
-		sourceQuerier:            sourceConnPool,
-		optionGenerator:          newOptionGenerator(sourceConnPool, c),
-		refreshMaterializedViews: c.RefreshMaterializedViews,
+		sourceURL:                      c.SourcePGURL,
+		targetURL:                      c.TargetPGURL,
+		pgDumpFn:                       pglib.RunPGDump,
+		pgDumpAllFn:                    pglib.RunPGDumpAll,
+		pgRestoreFn:                    pglib.RunPGRestore,
+		logger:                         loglib.NewNoopLogger(),
+		dumpDebugFile:                  c.DumpDebugFile,
+		excludedSecurityLabels:         c.ExcludedSecurityLabels,
+		roleSQLParser:                  &roleSQLParser{},
+		sourceQuerier:                  sourceConnPool,
+		optionGenerator:                newOptionGenerator(sourceConnPool, c),
+		refreshMaterializedViews:       c.RefreshMaterializedViews,
+		indexConstraintSessionSettings: c.IndexConstraintSessionSettings,
 	}
 
 	for _, opt := range opts {
@@ -179,6 +189,7 @@ func WithProgressTracking(ctx context.Context) Option {
 func WithRestoreToWAL(processor processor.Processor) Option {
 	return func(sg *SnapshotGenerator) {
 		sg.pgRestoreFn = newPGSnapshotWALRestore(processor, sg.sourceQuerier).restoreToWAL
+		sg.restoreToWAL = true
 	}
 }
 
@@ -368,10 +379,14 @@ func isConflictTargetConstraint(block string) bool {
 
 func (s *SnapshotGenerator) restoreIndicesAndConstraints(ctx context.Context, dump []byte, ss *snapshot.Snapshot) error {
 	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
-	if s.snapshotTracker != nil {
-		return s.restoreIndicesWithTracking(ctx, dump)
+	opts := s.optionGenerator.pgrestoreOptions()
+	if !s.restoreToWAL {
+		opts.SessionSettings = s.indexConstraintSessionSettings
 	}
-	return s.restoreDump(ctx, dump)
+	if s.snapshotTracker != nil {
+		return s.restoreIndicesWithTracking(ctx, opts, dump)
+	}
+	return s.restoreDumpWithOptions(ctx, opts, dump)
 }
 
 func (s *SnapshotGenerator) Close() error {
@@ -508,11 +523,15 @@ func (s *SnapshotGenerator) restoreSchemas(ctx context.Context, schemaTables map
 }
 
 func (s *SnapshotGenerator) restoreDump(ctx context.Context, dump []byte) error {
+	return s.restoreDumpWithOptions(ctx, s.optionGenerator.pgrestoreOptions(), dump)
+}
+
+func (s *SnapshotGenerator) restoreDumpWithOptions(ctx context.Context, opts pglib.PGRestoreOptions, dump []byte) error {
 	if len(dump) == 0 {
 		return nil
 	}
 
-	_, err := s.pgRestoreFn(ctx, s.optionGenerator.pgrestoreOptions(), dump)
+	_, err := s.pgRestoreFn(ctx, opts, dump)
 	pgrestoreErr := &pglib.PGRestoreErrors{}
 	if err != nil {
 		switch {
@@ -1018,7 +1037,7 @@ func (s *SnapshotGenerator) getDumpFileName(suffix string) string {
 	return baseName + suffix + fileExtension
 }
 
-func (s *SnapshotGenerator) restoreIndicesWithTracking(ctx context.Context, dump []byte) error {
+func (s *SnapshotGenerator) restoreIndicesWithTracking(ctx context.Context, opts pglib.PGRestoreOptions, dump []byte) error {
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	trackingCtx, cancel := context.WithCancel(ctx)
@@ -1027,7 +1046,7 @@ func (s *SnapshotGenerator) restoreIndicesWithTracking(ctx context.Context, dump
 		defer wg.Done()
 		s.snapshotTracker.trackIndexesCreation(trackingCtx)
 	}()
-	err := s.restoreDump(ctx, dump)
+	err := s.restoreDumpWithOptions(ctx, opts, dump)
 	// wait for the tracking to finish once the restore is done
 	cancel()
 	wg.Wait()
