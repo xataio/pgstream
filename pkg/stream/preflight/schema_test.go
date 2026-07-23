@@ -535,7 +535,7 @@ func TestBuildSchemaChecks(t *testing.T) {
 					},
 				},
 			},
-			wantNames: []string{"schema_type_compatibility", "postgres_range_type_support", "schema_extension_compatibility"},
+			wantNames: []string{"schema_type_compatibility", "postgres_range_type_support", "postgres_version_compatibility", "schema_extension_compatibility"},
 		},
 	}
 
