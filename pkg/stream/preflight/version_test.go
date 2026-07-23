@@ -39,7 +39,21 @@ func versionConn(t *testing.T, major int) postgres.AcquireFunc {
 	}
 }
 
-func TestPostgresVersionCompatibilityCheck_Run(t *testing.T) {
+func TestPostgresVersionCheck_Run_SourceOnly(t *testing.T) {
+	t.Parallel()
+
+	// No target: informational only — never a finding, and Details carries just
+	// the source version (no target_version key at all).
+	check := &PostgresVersionCheck{Source: versionConn(t, 18)}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Empty(t, findings)
+	require.Equal(t, map[string]any{"source_version": "18.4"}, check.Details())
+}
+
+func TestPostgresVersionCheck_Run_WithTarget(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -60,11 +74,6 @@ func TestPostgresVersionCompatibilityCheck_Run(t *testing.T) {
 			targetMajor: 16,
 		},
 		{
-			name:        "same major, older target minor is not a finding",
-			sourceMajor: 16,
-			targetMajor: 16,
-		},
-		{
 			name:        "target older than source is a finding",
 			sourceMajor: 18,
 			targetMajor: 15,
@@ -81,7 +90,7 @@ func TestPostgresVersionCompatibilityCheck_Run(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			check := &PostgresVersionCompatibilityCheck{
+			check := &PostgresVersionCheck{
 				Source: versionConn(t, tc.sourceMajor),
 				Target: versionConn(t, tc.targetMajor),
 			}
@@ -98,7 +107,7 @@ func TestPostgresVersionCompatibilityCheck_Run(t *testing.T) {
 				}
 			}
 
-			// Details always records the full compared versions, regardless of
+			// With a target, Details records both full versions regardless of
 			// outcome (versionConn reports each major as major.4).
 			require.Equal(t, map[string]any{
 				"source_version": fmt.Sprintf("%d.4", tc.sourceMajor),
@@ -108,11 +117,22 @@ func TestPostgresVersionCompatibilityCheck_Run(t *testing.T) {
 	}
 }
 
-func TestPostgresVersionCompatibilityCheck_Run_SourceAcquireFails(t *testing.T) {
+func TestPostgresVersionCheck_Details_BeforeRun(t *testing.T) {
+	t.Parallel()
+
+	// Source-only: only source_version, empty until Run reads it.
+	require.Equal(t, map[string]any{"source_version": ""}, (&PostgresVersionCheck{}).Details())
+
+	// With a target configured, target_version is present too (empty pre-Run).
+	withTarget := &PostgresVersionCheck{Target: versionConn(t, 18)}
+	require.Equal(t, map[string]any{"source_version": "", "target_version": ""}, withTarget.Details())
+}
+
+func TestPostgresVersionCheck_Run_SourceAcquireFails(t *testing.T) {
 	t.Parallel()
 
 	checkErr := errors.New("boom")
-	check := &PostgresVersionCompatibilityCheck{
+	check := &PostgresVersionCheck{
 		Source: func(context.Context) (postgres.Querier, error) { return nil, checkErr },
 		Target: versionConn(t, 18),
 	}
@@ -124,17 +144,16 @@ func TestPostgresVersionCompatibilityCheck_Run_SourceAcquireFails(t *testing.T) 
 	require.ErrorContains(t, err, "connecting to source")
 }
 
-func TestPostgresVersionCompatibilityCheck_Run_SourceQueryFails(t *testing.T) {
+func TestPostgresVersionCheck_Run_SourceQueryFails(t *testing.T) {
 	t.Parallel()
 
 	queryErr := errors.New("query failed")
-	check := &PostgresVersionCompatibilityCheck{
+	check := &PostgresVersionCheck{
 		Source: func(context.Context) (postgres.Querier, error) {
 			return &mocks.Querier{
 				QueryRowFn: func(context.Context, []any, string, ...any) error { return queryErr },
 			}, nil
 		},
-		Target: versionConn(t, 18),
 	}
 
 	findings, err := check.Run(context.Background())
@@ -144,11 +163,11 @@ func TestPostgresVersionCompatibilityCheck_Run_SourceQueryFails(t *testing.T) {
 	require.ErrorContains(t, err, "querying source version")
 }
 
-func TestPostgresVersionCompatibilityCheck_Run_TargetAcquireFails(t *testing.T) {
+func TestPostgresVersionCheck_Run_TargetAcquireFails(t *testing.T) {
 	t.Parallel()
 
 	checkErr := errors.New("boom")
-	check := &PostgresVersionCompatibilityCheck{
+	check := &PostgresVersionCheck{
 		Source: versionConn(t, 15),
 		Target: func(context.Context) (postgres.Querier, error) { return nil, checkErr },
 	}
@@ -160,11 +179,11 @@ func TestPostgresVersionCompatibilityCheck_Run_TargetAcquireFails(t *testing.T) 
 	require.ErrorContains(t, err, "connecting to target")
 }
 
-func TestPostgresVersionCompatibilityCheck_Run_TargetQueryFails(t *testing.T) {
+func TestPostgresVersionCheck_Run_TargetQueryFails(t *testing.T) {
 	t.Parallel()
 
 	queryErr := errors.New("query failed")
-	check := &PostgresVersionCompatibilityCheck{
+	check := &PostgresVersionCheck{
 		Source: versionConn(t, 15),
 		Target: func(context.Context) (postgres.Querier, error) {
 			return &mocks.Querier{
@@ -180,8 +199,8 @@ func TestPostgresVersionCompatibilityCheck_Run_TargetQueryFails(t *testing.T) {
 	require.ErrorContains(t, err, "querying target version")
 }
 
-func TestPostgresVersionCompatibilityCheck_Name(t *testing.T) {
+func TestPostgresVersionCheck_Name(t *testing.T) {
 	t.Parallel()
 
-	require.Equal(t, "postgres_version_compatibility", (&PostgresVersionCompatibilityCheck{}).Name())
+	require.Equal(t, "postgres_version", (&PostgresVersionCheck{}).Name())
 }
