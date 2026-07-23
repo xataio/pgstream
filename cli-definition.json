@@ -43,6 +43,11 @@
           "default": "false"
         },
         {
+          "name": "source",
+          "description": "Run only checks that query the source database (ignores the configured target)",
+          "default": "false"
+        },
+        {
           "name": "target-url",
           "description": "Target URL to run checks against",
           "default": ""
