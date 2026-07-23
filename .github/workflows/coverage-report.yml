@@ -36,7 +36,7 @@ jobs:
 
       - name: Resolve pull request and base coverage run
         id: resolve
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -85,7 +85,7 @@ jobs:
 
       - name: Report coverage on the pull request
         if: steps.resolve.outputs.pr_number != ''
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
           BASE_REF: ${{ steps.resolve.outputs.base_ref }}
