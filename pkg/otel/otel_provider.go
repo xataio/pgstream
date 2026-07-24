@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric"
 	metricnoop "go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -79,25 +80,36 @@ func (o *Provider) initMeterProvider(ctx context.Context, metricsConfig *Metrics
 		return nil
 	}
 
-	metricsExporter, err := otlpmetricgrpc.New(ctx,
-		otlpmetricgrpc.WithTemporalitySelector(deltaSelector),
-		otlpmetricgrpc.WithInsecure(),
-		otlpmetricgrpc.WithEndpoint(metricsConfig.Endpoint))
-	if err != nil {
-		return err
+	providerOpts := []sdkmetric.Option{
+		sdkmetric.WithResource(newResource()),
 	}
 
-	// periodic reader collects and exports metrics to the exporter at the
-	// defined interval (defaults to 60s)
-	reader := sdkmetric.NewPeriodicReader(metricsExporter,
-		sdkmetric.WithInterval(metricsConfig.collectionInterval()),
-		sdkmetric.WithProducer(runtime.NewProducer()))
+	if metricsConfig.Endpoint != "" {
+		metricsExporter, err := otlpmetricgrpc.New(ctx,
+			otlpmetricgrpc.WithTemporalitySelector(deltaSelector),
+			otlpmetricgrpc.WithInsecure(),
+			otlpmetricgrpc.WithEndpoint(metricsConfig.Endpoint))
+		if err != nil {
+			return err
+		}
 
-	mp := sdkmetric.NewMeterProvider(
-		sdkmetric.WithResource(newResource()),
-		sdkmetric.WithReader(reader))
+		// periodic reader collects and exports metrics to the exporter at the
+		// defined interval (defaults to 60s)
+		reader := sdkmetric.NewPeriodicReader(metricsExporter,
+			sdkmetric.WithInterval(metricsConfig.collectionInterval()),
+			sdkmetric.WithProducer(runtime.NewProducer()))
+		providerOpts = append(providerOpts, sdkmetric.WithReader(reader))
+	}
+
+	if metricsConfig.Prometheus != nil && metricsConfig.Prometheus.Enabled {
+		promExporter, err := prometheus.New(prometheus.WithProducer(runtime.NewProducer()))
+		if err != nil {
+			return err
+		}
+		providerOpts = append(providerOpts, sdkmetric.WithReader(promExporter))
+	}
+	mp := sdkmetric.NewMeterProvider(providerOpts...)
 	o.shutdownFns = append(o.shutdownFns, mp.Shutdown)
-
 	o.meterProvider = mp
 	otel.SetMeterProvider(o.meterProvider)
 

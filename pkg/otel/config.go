@@ -12,6 +12,12 @@ type Config struct {
 type MetricsConfig struct {
 	Endpoint           string
 	CollectionInterval time.Duration
+	Prometheus         *PrometheusConfig
+}
+
+type PrometheusConfig struct {
+	Enabled  bool
+	Endpoint string
 }
 
 type TracesConfig struct {

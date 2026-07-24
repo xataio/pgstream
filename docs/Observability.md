@@ -219,6 +219,32 @@ PGSTREAM_TRACES_ENDPOINT="http://localhost:4317"
 PGSTREAM_TRACES_SAMPLE_RATIO=0.5
 ```
 
+### Prometheus Scraping (Pull-based)
+
+If you'd rather scrape metrics directly than deploy an OTel collector, enable the Prometheus exporter. It's served from the existing [health endpoint](configuration.md#instrumentation) server, so no separate port or process is needed:
+
+```yaml
+instrumentation:
+  health:
+    enabled: true
+    address: "0.0.0.0:9910" # defaults to localhost:9910
+  metrics:
+    prometheus:
+      enabled: true
+      endpoint: "/metrics" # defaults to /metrics
+```
+
+Or using environment variables:
+
+```sh
+PGSTREAM_HEALTH_CHECK_ENABLED=true
+PGSTREAM_HEALTH_CHECK_ADDRESS="0.0.0.0:9910"
+PGSTREAM_METRICS_PROMETHEUS_ENABLED=true
+PGSTREAM_METRICS_PROMETHEUS_ENDPOINT="/metrics"
+```
+
+This works standalone — `metrics.endpoint` is not required, so you get pgstream's metrics (including the [Go runtime metrics](#go-runtime-metrics)) without an OTLP collector in the loop. It can also be combined with `metrics.endpoint` to export to both a Prometheus scraper and an OTLP collector at the same time.
+
 ## Monitoring Dashboards
 
 ### Pre-built pgstream Dashboard
