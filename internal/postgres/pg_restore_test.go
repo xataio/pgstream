@@ -45,6 +45,41 @@ func TestRemoveDatabaseFromConnectionString(t *testing.T) {
 	}
 }
 
+func TestPGRestoreOptionsToPGOptions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		existing string
+		settings []string
+		want     string
+	}{
+		{
+			name: "session settings",
+			settings: []string{
+				"maintenance_work_mem=4GB",
+				"max_parallel_maintenance_workers=4",
+			},
+			want: "-c maintenance_work_mem=4GB -c max_parallel_maintenance_workers=4",
+		},
+		{
+			name:     "preserves existing options",
+			existing: "-c search_path=public",
+			settings: []string{"statement_timeout=0"},
+			want:     "-c search_path=public -c statement_timeout=0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			opts := PGRestoreOptions{SessionSettings: tt.settings}
+			require.Equal(t, tt.want, opts.toPGOptions(tt.existing))
+		})
+	}
+}
+
 func TestParsePgRestoreOutputErrs(t *testing.T) {
 	tests := []struct {
 		name             string

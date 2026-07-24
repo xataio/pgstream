@@ -161,8 +161,11 @@ func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 // plus a cleanup function that closes the shared source (and, when the target
 // is Postgres, target) connection. Schema checks cover every table pgstream
 // reads (snapshot and replication), so they use the combined access table
-// selection. The range-type and extension checks are target specific and are
-// only added when the target is Postgres.
+// selection. The version check runs whenever a source is configured — reporting
+// the source version alone (so it survives --source) and additionally comparing
+// against the target when a Postgres target URL is configured. The range-type
+// check is added when the target is Postgres; the extension check additionally
+// needs the target URL to query the target.
 func BuildSchemaChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 	url := cfg.SourcePostgresURL()
 	if url == "" {
@@ -170,7 +173,9 @@ func BuildSchemaChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 	}
 	src := postgres.NewLazyConn(url)
 	selection := cfg.AccessTableSelection()
+	versionCheck := &PostgresVersionCheck{Source: src.Acquire}
 	checks := []Check{
+		versionCheck,
 		&SchemaTypeCompatibilityCheck{
 			Source:    src.Acquire,
 			Selection: selection,
@@ -185,6 +190,7 @@ func BuildSchemaChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 		if targetURL := cfg.Processor.Postgres.BatchWriter.URL; targetURL != "" {
 			tgt := postgres.NewLazyConn(targetURL)
 			cleanups = append(cleanups, tgt.Close)
+			versionCheck.Target = tgt.Acquire
 			checks = append(checks, &SchemaExtensionCompatibilityCheck{
 				Source: src.Acquire,
 				Target: tgt.Acquire,

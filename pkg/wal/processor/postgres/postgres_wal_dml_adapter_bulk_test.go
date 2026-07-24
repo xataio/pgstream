@@ -105,20 +105,29 @@ func TestBuildBulkDeleteQuery_CompositePK(t *testing.T) {
 	require.Len(t, queries, 1)
 
 	q := queries[0]
-	require.Contains(t, q.sql, "IN")
-	require.Contains(t, q.sql, `("user_id","order_id")`)
-	// 3 events * 2 pk cols = 6 params
-	require.Len(t, q.args, 6)
+	require.Contains(t, q.sql, `("user_id","order_id") IN (SELECT * FROM unnest($1::int8[],$2::int8[]))`)
+	// one array arg per pk col
+	require.Len(t, q.args, 2)
+	for _, arg := range q.args {
+		values, ok := arg.([]any)
+		require.True(t, ok)
+		require.Len(t, values, 3) // one value per event
+	}
 }
 
-func TestBuildBulkDeleteQuery_CompositePK_SplitAtLimit(t *testing.T) {
+// A large composite-PK delete must stay a single query with a constant
+// parameter count (one array per PK column). The previous row-constructor IN
+// form produced a per-tuple OR tree that overflowed the target's
+// max_stack_depth (SQLSTATE 54001) well before the param cap; the unnest form
+// has no such limit, so no splitting is needed.
+func TestBuildBulkDeleteQuery_CompositePK_LargeBatch(t *testing.T) {
 	t.Parallel()
 
 	adapter := newTestDMLAdapter(t)
 
 	numPKCols := 3
-	// create enough events to exceed maxParamsPerQuery
-	numEvents := (maxParamsPerQuery / numPKCols) + 10
+	// far more tuples than the ~9-10k that overflowed the old OR-tree form
+	numEvents := 50000
 	events := make([]*wal.Data, numEvents)
 	for i := range events {
 		events[i] = &wal.Data{
@@ -135,14 +144,17 @@ func TestBuildBulkDeleteQuery_CompositePK_SplitAtLimit(t *testing.T) {
 
 	queries, err := adapter.buildBulkDeleteQuery(events)
 	require.NoError(t, err)
-	require.Greater(t, len(queries), 1, "should split into multiple queries")
+	require.Len(t, queries, 1, "unnest form needs no splitting")
 
-	// verify all events are covered
-	totalParams := 0
-	for _, q := range queries {
-		totalParams += len(q.args)
+	q := queries[0]
+	require.Contains(t, q.sql, "unnest($1::int8[],$2::int8[],$3::int8[])")
+	// constant param count: one array per PK column, regardless of row count
+	require.Len(t, q.args, numPKCols)
+	for _, arg := range q.args {
+		values, ok := arg.([]any)
+		require.True(t, ok)
+		require.Len(t, values, numEvents) // every event covered
 	}
-	require.Equal(t, numEvents*numPKCols, totalParams)
 }
 
 func TestBuildBulkDeleteQuery_NullIdentity(t *testing.T) {

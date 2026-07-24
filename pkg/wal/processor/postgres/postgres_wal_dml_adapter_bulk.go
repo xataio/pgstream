@@ -55,7 +55,7 @@ func (a *dmlAdapter) getIdentityColumns(d *wal.Data) ([]wal.Column, error) {
 // into as few queries as possible.
 //
 // Single PK: DELETE FROM t WHERE col = ANY($1::type[])
-// Composite PK: DELETE FROM t WHERE (a,b) IN (($1,$2),($3,$4),...) split at maxParamsPerQuery
+// Composite PK: DELETE FROM t WHERE (a,b) IN (SELECT * FROM unnest($1::a[], $2::b[]))
 // NULL identity values are handled as individual queries.
 func (a *dmlAdapter) buildBulkDeleteQuery(events []*wal.Data) ([]*query, error) {
 	if len(events) == 0 {
@@ -117,12 +117,12 @@ func (a *dmlAdapter) buildBulkDeleteQuery(events []*wal.Data) ([]*query, error) 
 		}
 		queries = append(queries, q)
 	} else {
-		// composite PK: use IN tuples, split at maxParamsPerQuery
-		qs, err := a.buildBulkDeleteCompositePK(normalEvents, numPKCols, tableName)
+		// composite PK: use unnest of one array per PK column
+		q, err := a.buildBulkDeleteCompositePK(normalEvents, numPKCols, tableName)
 		if err != nil {
 			return nil, err
 		}
-		queries = append(queries, qs...)
+		queries = append(queries, q)
 	}
 
 	return queries, nil
@@ -150,60 +150,56 @@ func (a *dmlAdapter) buildBulkDeleteSinglePK(events []*wal.Data, refCol wal.Colu
 	}, nil
 }
 
-func (a *dmlAdapter) buildBulkDeleteCompositePK(events []*wal.Data, numPKCols int, tableName string) ([]*query, error) {
-	var queries []*query
+// buildBulkDeleteCompositePK emits a single stack-safe DELETE for composite-PK
+// tables:
+//
+//	DELETE FROM t WHERE (a,b) IN (SELECT * FROM unnest($1::a[], $2::b[]))
+//
+// One array parameter is bound per PK column, so the parameter count is
+// constant (numPKCols) regardless of how many rows are deleted.
+func (a *dmlAdapter) buildBulkDeleteCompositePK(events []*wal.Data, numPKCols int, tableName string) (*query, error) {
+	// determine column names + types from the first event
+	firstCols, err := a.getIdentityColumns(events[0])
+	if err != nil {
+		return nil, err
+	}
 
-	// split events into chunks to stay under maxParamsPerQuery
-	eventsPerChunk := max(maxParamsPerQuery/numPKCols, 1)
+	colNames := make([]string, numPKCols)
+	unnestArgs := make([]string, numPKCols)
+	// one array per PK column, gathered across all events
+	colValues := make([][]any, numPKCols)
+	for i, c := range firstCols {
+		colNames[i] = pglib.QuoteIdentifier(c.Name)
+		unnestArgs[i] = fmt.Sprintf("$%d::%s", i+1, pgArrayType(c.Type))
+		colValues[i] = make([]any, 0, len(events))
+	}
 
-	for start := 0; start < len(events); start += eventsPerChunk {
-		end := min(start+eventsPerChunk, len(events))
-		chunk := events[start:end]
-
-		// get column names from first event in chunk
-		firstCols, err := a.getIdentityColumns(chunk[0])
+	for _, e := range events {
+		cols, err := a.getIdentityColumns(e)
 		if err != nil {
 			return nil, err
 		}
-
-		colNames := make([]string, numPKCols)
-		for i, c := range firstCols {
-			colNames[i] = pglib.QuoteIdentifier(c.Name)
+		for i, c := range cols {
+			colValues[i] = append(colValues[i], serializeJSONBValue(c.Type, c.Value))
 		}
-
-		args := make([]any, 0, len(chunk)*numPKCols)
-		tuples := make([]string, 0, len(chunk))
-		paramIdx := 0
-
-		for _, e := range chunk {
-			cols, err := a.getIdentityColumns(e)
-			if err != nil {
-				return nil, err
-			}
-
-			placeholders := make([]string, numPKCols)
-			for i, c := range cols {
-				paramIdx++
-				placeholders[i] = fmt.Sprintf("$%d", paramIdx)
-				args = append(args, serializeJSONBValue(c.Type, c.Value))
-			}
-			tuples = append(tuples, fmt.Sprintf("(%s)", strings.Join(placeholders, ",")))
-		}
-
-		sql := fmt.Sprintf("DELETE FROM %s WHERE (%s) IN (%s)",
-			tableName,
-			strings.Join(colNames, ","),
-			strings.Join(tuples, ","))
-
-		queries = append(queries, &query{
-			schema: chunk[0].Schema,
-			table:  chunk[0].Table,
-			sql:    sql,
-			args:   args,
-		})
 	}
 
-	return queries, nil
+	args := make([]any, numPKCols)
+	for i := range colValues {
+		args[i] = colValues[i]
+	}
+
+	sql := fmt.Sprintf("DELETE FROM %s WHERE (%s) IN (SELECT * FROM unnest(%s))",
+		tableName,
+		strings.Join(colNames, ","),
+		strings.Join(unnestArgs, ","))
+
+	return &query{
+		schema: events[0].Schema,
+		table:  events[0].Table,
+		sql:    sql,
+		args:   args,
+	}, nil
 }
 
 // buildBulkInsertQueries coalesces multiple INSERT events for the same table
