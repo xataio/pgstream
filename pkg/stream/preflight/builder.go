@@ -117,13 +117,13 @@ func BuildReplicationChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 // BuildAccessChecks returns the access-preflight checks applicable to cfg,
 // plus a cleanup function that closes the shared source connection.
 func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
-	url := cfg.SourcePostgresURL()
-	if url == "" {
+	sourceURL := cfg.SourcePostgresURL()
+	if sourceURL == "" {
 		return nil, nil
 	}
-	src := postgres.NewLazyConn(url)
+	src := postgres.NewLazyConn(sourceURL)
 	selection := cfg.AccessTableSelection()
-	return []Check{
+	checks := []Check{
 		&SourceTableSelectPrivilegesCheck{
 			Source:    src.Acquire,
 			Selection: selection,
@@ -132,7 +132,29 @@ func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 			Source:    src.Acquire,
 			Selection: selection,
 		},
-	}, src.Close
+	}
+
+	cleanups := []CleanupFunc{src.Close}
+
+	if cfg.SnapshotCreateTargetDB() {
+		if targetURL := cfg.SnapshotTargetPostgresURL(); targetURL != "" {
+			var err error
+			targetURL, err = postgres.RemoveDatabaseFromConnectionString(targetURL)
+			if err != nil {
+				checks = append(checks, &TargetCreateDBPrivilegeCheck{
+					Target: func(context.Context) (postgres.Querier, error) {
+						return nil, err
+					},
+				})
+				return checks, joinCleanups(cleanups)
+			}
+			target := postgres.NewLazyConn(targetURL)
+			checks = append(checks, &TargetCreateDBPrivilegeCheck{Target: target.Acquire})
+			cleanups = append(cleanups, target.Close)
+		}
+	}
+
+	return checks, joinCleanups(cleanups)
 }
 
 // BuildSchemaChecks returns the schema-preflight checks applicable to cfg,

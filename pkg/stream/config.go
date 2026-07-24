@@ -204,6 +204,26 @@ func (c *Config) isInjectorEnabled() bool {
 	return c.Processor.Injector != nil && c.Processor.Injector.URL != ""
 }
 
+func (c *Config) SnapshotTargetPostgresURL() string {
+	if c.Listener.Postgres == nil ||
+		c.Listener.Postgres.Snapshot == nil ||
+		c.Listener.Postgres.Snapshot.Schema == nil ||
+		c.Listener.Postgres.Snapshot.Schema.DumpRestore == nil {
+		return ""
+	}
+	return c.Listener.Postgres.Snapshot.Schema.DumpRestore.TargetPGURL
+}
+
+func (c *Config) SnapshotCreateTargetDB() bool {
+	if c.Listener.Postgres == nil ||
+		c.Listener.Postgres.Snapshot == nil ||
+		c.Listener.Postgres.Snapshot.Schema == nil ||
+		c.Listener.Postgres.Snapshot.Schema.DumpRestore == nil {
+		return false
+	}
+	return c.Listener.Postgres.Snapshot.Schema.DumpRestore.CreateTargetDB
+}
+
 // restoreConflictTargetsBeforeData reports whether the schema snapshot must
 // restore primary keys, unique constraints and unique indexes before the data
 // snapshot runs. This is required when the postgres batch writer emits
