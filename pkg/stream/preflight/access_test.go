@@ -416,6 +416,33 @@ func TestTargetCreateDBPrivilegeCheck_Run_HasCreateDB(t *testing.T) {
 	require.Empty(t, findings)
 }
 
+func TestTargetCreateDBPrivilegeCheck_Run_SuperuserHasCreateDB(t *testing.T) {
+	t.Parallel()
+
+	check := &TargetCreateDBPrivilegeCheck{
+		Target: func(context.Context) (postgres.Querier, error) {
+			return &mocks.Querier{
+				QueryRowFn: func(_ context.Context, dest []any, query string, _ ...any) error {
+					require.Contains(t, query, "rolcreatedb OR rolsuper")
+					require.Len(t, dest, 2)
+					role, ok := dest[0].(*string)
+					require.True(t, ok)
+					hasCreateDB, ok := dest[1].(*bool)
+					require.True(t, ok)
+					*role = "postgres"
+					*hasCreateDB = true
+					return nil
+				},
+			}, nil
+		},
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Empty(t, findings)
+}
+
 func TestTargetCreateDBPrivilegeCheck_Run_MissingCreateDBReturnsFinding(t *testing.T) {
 	t.Parallel()
 
@@ -641,38 +668,6 @@ func TestBuildChecks_SelectedAccessOnly(t *testing.T) {
 	require.Len(t, checks, 2)
 	require.Equal(t, "source_table_select_privileges", checks[0].Name())
 	require.Equal(t, "source_sequence_select_privileges", checks[1].Name())
-}
-
-func TestRemoveDatabaseFromConnectionString(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		connection string
-		want       string
-	}{
-		{
-			name:       "database is removed",
-			connection: "postgres://pgstream:secret@localhost:5432/target_db?sslmode=disable",
-			want:       "postgres://pgstream:secret@localhost:5432/?sslmode=disable",
-		},
-		{
-			name:       "postgres database is preserved",
-			connection: "postgres://pgstream:secret@localhost:5432/postgres?sslmode=disable",
-			want:       "postgres://pgstream:secret@localhost:5432/postgres?sslmode=disable",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := removeDatabaseFromConnectionString(tc.connection)
-
-			require.NoError(t, err)
-			require.Equal(t, tc.want, got)
-		})
-	}
 }
 
 func sourceWithRows(t *testing.T, rows []sourceTableSelectPrivilegeRow) postgres.AcquireFunc {

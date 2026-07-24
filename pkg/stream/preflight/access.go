@@ -105,7 +105,7 @@ ORDER BY table_schema, table_name, sequence_schema, sequence_name
 const targetCreateDBPrivilegeQuery = `
 SELECT 
 	current_user,
-	rolcreatedb 
+	rolcreatedb OR rolsuper
 FROM pg_roles
 WHERE rolname = current_user
 `

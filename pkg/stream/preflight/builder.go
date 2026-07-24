@@ -4,7 +4,6 @@ package preflight
 
 import (
 	"context"
-	"strings"
 
 	"github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/stream"
@@ -140,7 +139,7 @@ func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 	if cfg.SnapshotCreateTargetDB() {
 		if targetURL := cfg.SnapshotTargetPostgresURL(); targetURL != "" {
 			var err error
-			targetURL, err = removeDatabaseFromConnectionString(targetURL)
+			targetURL, err = postgres.RemoveDatabaseFromConnectionString(targetURL)
 			if err != nil {
 				checks = append(checks, &TargetCreateDBPrivilegeCheck{
 					Target: func(context.Context) (postgres.Querier, error) {
@@ -155,29 +154,7 @@ func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 		}
 	}
 
-	return checks, func(ctx context.Context) error {
-		var firstErr error
-		for _, cleanup := range cleanups {
-			if err := cleanup(ctx); err != nil && firstErr == nil {
-				firstErr = err
-			}
-		}
-		return firstErr
-	}
-}
-
-// removeDatabaseFromConnectionString lets the CREATEDB preflight connect to
-// the target server before the configured target database exists.
-func removeDatabaseFromConnectionString(url string) (string, error) {
-	pgCfg, err := postgres.ParseConfig(url)
-	if err != nil {
-		return "", err
-	}
-	if pgCfg.Database == "" || pgCfg.Database == "postgres" {
-		return url, nil
-	}
-
-	return strings.ReplaceAll(url, "/"+pgCfg.Database, "/"), nil
+	return checks, joinCleanups(cleanups)
 }
 
 // BuildSchemaChecks returns the schema-preflight checks applicable to cfg,
