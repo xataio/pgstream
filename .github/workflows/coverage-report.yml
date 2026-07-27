@@ -27,7 +27,7 @@ jobs:
       github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Download coverage profile
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: code-coverage
           path: coverage-data
@@ -76,7 +76,7 @@ jobs:
       - name: Download base coverage profile
         if: steps.resolve.outputs.base_run_id != ''
         continue-on-error: true # baseline may have expired; delta is optional
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: code-coverage
           path: base-data
