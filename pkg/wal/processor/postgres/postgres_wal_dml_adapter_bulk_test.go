@@ -295,6 +295,74 @@ func TestBuildBulkInsertQueries(t *testing.T) {
 	require.Equal(t, 2, strings.Count(q.sql, "($"))
 }
 
+// TestBuildBulkInsertQueries_NeedsTextCopy pins the COPY-format decision on the
+// bulk path: a batch touching a user-defined enum column must be routed to
+// text-format COPY, since pgx has no binary codec for the enum's OID.
+func TestBuildBulkInsertQueries_NeedsTextCopy(t *testing.T) {
+	t.Parallel()
+
+	newEvents := func(moodType string) []*wal.Data {
+		return []*wal.Data{
+			{
+				Action: "I",
+				Schema: "public",
+				Table:  "users",
+				Columns: []wal.Column{
+					{Name: "id", Type: "bigint", Value: float64(1)},
+					{Name: "mood", Type: moodType, Value: "happy"},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name        string
+		events      []*wal.Data
+		enumColumns map[string]struct{}
+
+		wantNeedsTextCopy bool
+	}{
+		{
+			name:              "no enum columns",
+			events:            newEvents("text"),
+			enumColumns:       nil,
+			wantNeedsTextCopy: false,
+		},
+		{
+			name:              "enum column in the batch",
+			events:            newEvents("mood"),
+			enumColumns:       map[string]struct{}{`"mood"`: {}},
+			wantNeedsTextCopy: true,
+		},
+		{
+			name:              "enum column of another table only",
+			events:            newEvents("text"),
+			enumColumns:       map[string]struct{}{`"status"`: {}},
+			wantNeedsTextCopy: false,
+		},
+		{
+			name:              "static text-only type",
+			events:            newEvents("ltree"),
+			enumColumns:       nil,
+			wantNeedsTextCopy: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			queries := newTestDMLAdapter(t).buildBulkInsertQueries(tc.events, schemaInfo{
+				generatedColumns: map[string]struct{}{},
+				sequenceColumns:  map[string]string{},
+				enumColumns:      tc.enumColumns,
+			})
+			require.Len(t, queries, 1)
+			require.Equal(t, tc.wantNeedsTextCopy, queries[0].needsTextCopy)
+		})
+	}
+}
+
 func TestBuildBulkInsertQueries_WithSequence(t *testing.T) {
 	t.Parallel()
 
@@ -515,6 +583,15 @@ func deleteEvent(schema, table, colName, colType string, colValue any) *wal.Data
 func newTestDMLAdapter(t *testing.T) *dmlAdapter {
 	t.Helper()
 	a, err := newDMLAdapter("", false, loglib.NewNoopLogger())
+	require.NoError(t, err)
+	return a
+}
+
+// newTestDMLAdapterForCopy returns an adapter in bulk-COPY mode, where values
+// are rewritten for the COPY encoder.
+func newTestDMLAdapterForCopy(t *testing.T) *dmlAdapter {
+	t.Helper()
+	a, err := newDMLAdapter("", true, loglib.NewNoopLogger())
 	require.NoError(t, err)
 	return a
 }

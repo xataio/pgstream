@@ -1295,3 +1295,126 @@ func Test_SnapshotToPostgres_LargeIntegerPrecision(t *testing.T) {
 		run("batch")
 	})
 }
+
+// Test_SnapshotToPostgres_EnumColumn verifies that a table with user-defined
+// enum columns snapshots correctly under bulk ingest. pgx's binary COPY has no
+// codec registered for database-specific enum OIDs, so the writer must fall
+// back to text-format COPY for such columns, where each value is written as its
+// postgres text representation and parsed by the target's type input function.
+// Before the fix, bulk ingest failed on enum columns with "unable to encode ...
+// into binary format ... cannot find encode plan", and disabling bulk ingest was
+// the only workaround.
+//
+// All four shapes the schema observer reports are covered: a scalar enum, an
+// array of enums, a domain over an enum, and a domain over an array of enums.
+func Test_SnapshotToPostgres_EnumColumn(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	run := func(suffix string, opts ...option) {
+		enumType := fmt.Sprintf("mood_%s", suffix)
+		testTable := fmt.Sprintf("enum_%s", suffix)
+
+		domainType := fmt.Sprintf("mood_domain_%s", suffix)
+		arrayDomainType := fmt.Sprintf("mood_arr_domain_%s", suffix)
+
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(`CREATE TYPE %s AS ENUM ('happy','sad','neutral')`, enumType))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(`CREATE DOMAIN %s AS %s`, domainType, enumType))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(`CREATE DOMAIN %s AS %s[]`, arrayDomainType, enumType))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`CREATE TABLE %s(id int PRIMARY KEY, mood %s NOT NULL, note %s, moods %s[], dom %s, dom_arr %s)`,
+			testTable, enumType, enumType, enumType, domainType, arrayDomainType))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`INSERT INTO %s(id, mood, note, moods, dom, dom_arr) VALUES
+				(1,'happy','neutral','{happy,sad}','happy','{neutral}'),
+				(2,'sad',NULL,NULL,NULL,NULL),
+				(3,'neutral','happy','{}','sad','{happy,sad}')`, testTable))
+
+		cfg := &stream.Config{
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
+			Processor: testPostgresProcessorCfg(opts...),
+		}
+		initStream(t, ctx, snapshotPGURL)
+		runSnapshot(t, ctx, cfg)
+
+		targetConn, err := pglib.NewConn(ctx, targetPGURL)
+		require.NoError(t, err)
+		sourceConn, err := pglib.NewConn(ctx, snapshotPGURL)
+		require.NoError(t, err)
+
+		timer := time.NewTimer(20 * time.Second)
+		defer timer.Stop()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		type row struct {
+			id     int
+			mood   string
+			note   *string
+			moods  *string
+			dom    *string
+			domArr *string
+		}
+		query := fmt.Sprintf(
+			"SELECT id, mood::text, note::text, moods::text, dom::text, dom_arr::text FROM %s ORDER BY id",
+			testTable)
+		fetch := func(conn pglib.Querier) ([]row, error) {
+			rows, err := conn.Query(ctx, query)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+			out := []row{}
+			for rows.Next() {
+				var r row
+				if err := rows.Scan(&r.id, &r.mood, &r.note, &r.moods, &r.dom, &r.domArr); err != nil {
+					return nil, err
+				}
+				out = append(out, r)
+			}
+			return out, rows.Err()
+		}
+
+		want, err := fetch(sourceConn)
+		require.NoError(t, err)
+		require.Len(t, want, 3)
+
+		validation := func() bool {
+			got, err := fetch(targetConn)
+			if err != nil || len(got) != len(want) {
+				return false
+			}
+			require.Equal(t, want, got)
+			return true
+		}
+
+		for {
+			select {
+			case <-timer.C:
+				cancel()
+				t.Error("timeout waiting for enum snapshot sync")
+				return
+			case <-ticker.C:
+				if validation() {
+					return
+				}
+			}
+		}
+	}
+
+	t.Run("bulk ingest", func(t *testing.T) {
+		run("bulk", withBulkIngestionEnabled())
+	})
+	t.Run("batch writer", func(t *testing.T) {
+		run("batch")
+	})
+}

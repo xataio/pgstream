@@ -273,7 +273,7 @@ func (a *dmlAdapter) buildBulkInsertQueries(events []*wal.Data, si schemaInfo) [
 			schema:        events[0].Schema,
 			table:         events[0].Table,
 			columnNames:   names,
-			needsTextCopy: needsTextCopy(types),
+			needsTextCopy: needsTextCopyForColumns(names, types, si.enumColumns),
 			sql:           sql,
 			args:          args,
 		})

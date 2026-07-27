@@ -111,7 +111,7 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 			table:         d.Table,
 			schema:        d.Schema,
 			columnNames:   names,
-			needsTextCopy: needsTextCopy(types),
+			needsTextCopy: needsTextCopyForColumns(names, types, schemaInfo.enumColumns),
 			sql: fmt.Sprintf("INSERT INTO %s(%s) OVERRIDING SYSTEM VALUE VALUES(%s)%s",
 				quotedTableName(d.Schema, d.Table), strings.Join(names, ", "),
 				strings.Join(placeholders, ", "),
@@ -307,14 +307,15 @@ func (a *dmlAdapter) filterRowColumnsForAction(cols []wal.Column, schemaInfo sch
 		val = getTypedRangeValue(c.Type, val)
 
 		if a.forCopy {
-			val = a.updateValueForCopy(val, c.Type)
+			_, isEnum := schemaInfo.enumColumns[quoted]
+			val = a.updateValueForCopy(val, c.Type, isEnum)
 		}
 		rowValues = append(rowValues, val)
 	}
 	return rowColumns, rowTypes, rowValues
 }
 
-func (a *dmlAdapter) updateValueForCopy(value any, colType string) any {
+func (a *dmlAdapter) updateValueForCopy(value any, colType string, isEnum bool) any {
 	// For COPY, we might need to update the value for some data types,
 	// so that it will be able to be encoded into binary format correctly.
 	switch colType {
@@ -334,6 +335,13 @@ func (a *dmlAdapter) updateValueForCopy(value any, colType string) any {
 	// need to be converted to Go slices. The pgx COPY encoder expects proper Go types,
 	// not text representations.
 	if isArray(colType) {
+		// An array of a user-defined enum never reaches binary COPY: pgx has no
+		// codec for the element OID, so the batch is routed to text-format COPY,
+		// which writes the postgres array literal verbatim. Parsing it into a Go
+		// slice here would hand the text encoder a type it cannot render back.
+		if isEnum {
+			return value
+		}
 		// If the value is a string (PostgreSQL array literal like "{val1,val2}"),
 		// we need to parse it into a Go slice for binary COPY format
 		if strVal, ok := value.(string); ok {
@@ -485,6 +493,23 @@ var textOnlyCopyTypes = map[string]struct{}{
 func needsTextCopy(columnTypes []string) bool {
 	for _, t := range columnTypes {
 		if _, ok := textOnlyCopyTypes[t]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// needsTextCopyForColumns reports whether a batch covering the given columns
+// must fall back to text-format COPY instead of pgx's binary COPY. This is the
+// case when a column has a static text-only type (see textOnlyCopyTypes) or a
+// user-defined enum type, whose database-specific OID pgx has no binary codec
+// registered for. columnNames must be quoted to match the enumColumns set.
+func needsTextCopyForColumns(columnNames, columnTypes []string, enumColumns map[string]struct{}) bool {
+	if needsTextCopy(columnTypes) {
+		return true
+	}
+	for _, name := range columnNames {
+		if _, ok := enumColumns[name]; ok {
 			return true
 		}
 	}

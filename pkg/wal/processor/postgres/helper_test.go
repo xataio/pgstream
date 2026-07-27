@@ -29,27 +29,17 @@ func (m *mockAdapter) close() error {
 }
 
 type mockSchemaObserver struct {
-	getGeneratedColumnNamesFn      func(ctx context.Context, schema, table string) (map[string]struct{}, error)
-	getAlwaysIdentityColumnNamesFn func(ctx context.Context, schema, table string) (map[string]struct{}, error)
-	getSequenceColumnsFn           func(ctx context.Context, schema, table string) (map[string]string, error)
-	isMaterializedViewFn           func(schema, table string) bool
-	updateFn                       func(ddlEvent *wal.DDLEvent)
-	closeFn                        func() error
+	getSchemaInfoFn      func(ctx context.Context, schema, table string) (schemaInfo, error)
+	isMaterializedViewFn func(schema, table string) bool
+	updateFn             func(ddlEvent *wal.DDLEvent)
+	closeFn              func() error
 }
 
-func (m *mockSchemaObserver) getGeneratedColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error) {
-	return m.getGeneratedColumnNamesFn(ctx, schema, table)
-}
-
-func (m *mockSchemaObserver) getAlwaysIdentityColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error) {
-	if m.getAlwaysIdentityColumnNamesFn == nil {
-		return nil, nil
+func (m *mockSchemaObserver) getSchemaInfo(ctx context.Context, schema, table string) (schemaInfo, error) {
+	if m.getSchemaInfoFn == nil {
+		return schemaInfo{}, nil
 	}
-	return m.getAlwaysIdentityColumnNamesFn(ctx, schema, table)
-}
-
-func (m *mockSchemaObserver) getSequenceColumns(ctx context.Context, schema, table string) (map[string]string, error) {
-	return m.getSequenceColumnsFn(ctx, schema, table)
+	return m.getSchemaInfoFn(ctx, schema, table)
 }
 
 func (m *mockSchemaObserver) isMaterializedView(ctx context.Context, schema, table string) bool {
