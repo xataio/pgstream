@@ -138,14 +138,20 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) 
 		if err != nil {
 			return fmt.Errorf("marshalling event: %w", err)
 		}
-		// check if walEventBytes is larger than 95% of the Kafka accepted max
+		// the key counts towards the record size the broker enforces, and it
+		// carries row data (primary key values), so it has to be measured with
+		// the value rather than after the check
+		key := w.getMessageKey(walEvent.Data)
+
+		// check if the record is larger than 95% of the Kafka accepted max
 		// message size to allow for some buffer for the rest of the message
-		if len(walDataBytes) > int(0.95*float64(w.maxBatchBytes)) {
+		if len(walDataBytes)+len(key) > int(0.95*float64(w.maxBatchBytes)) {
 			w.logger.Warn(errRecordTooLarge,
 				"kafka batch writer: wal event is larger than 95% of max bytes allowed",
 				loglib.Fields{
 					"max_bytes": w.maxBatchBytes,
-					"size":      len(walDataBytes),
+					"size":      len(walDataBytes) + len(key),
+					"key_size":  len(key),
 					"table":     walEvent.Data.Table,
 					"schema":    walEvent.Data.Schema,
 				})
@@ -153,7 +159,7 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) 
 		}
 
 		kafkaMsg = kafka.Message{
-			Key:   w.getMessageKey(walEvent.Data),
+			Key:   key,
 			Value: walDataBytes,
 		}
 	}
@@ -237,9 +243,34 @@ func (w BatchWriter) getMessageKey(walData *wal.Data) []byte {
 	}
 }
 
+// The message key encodes a row identity as
+//
+//	<schema>.<table>:<value>,<value>,...
+//
+// Each component is escaped so that the delimiters can only appear as
+// structure, never as data. Without it the encoding is not injective and
+// distinct rows share a message key: ["a,b","c"] and ["a","b,c"] both render as
+// "a,b,c", and schema "a.b"+table "c" renders the same as schema "a"+table
+// "b.c" — colliding rows lose their separate partitioning identity, and on a
+// compacted topic one silently shadows the other.
+//
+// Identifiers and values use different escape sets on purpose. Only the
+// delimiters that actually terminate a component need escaping there, and every
+// byte escaped is a message key that moves to a different partition on upgrade,
+// so the sets are kept as small as correctness allows. Values may contain "."
+// and ":" freely, since the value list is everything after the first unescaped
+// ":"; identifiers may contain "," freely for the same reason.
+//
+// Both replacers are logically constant and safe for concurrent use.
+var (
+	keyValueEscaper      = strings.NewReplacer(`\`, `\\`, `,`, `\,`)
+	keyIdentifierEscaper = strings.NewReplacer(`\`, `\\`, `.`, `\.`, `:`, `\:`)
+)
+
 // primaryKeyMessageKey returns a key composed of the schema qualified table
 // name and the values of the event primary key columns, as identified by the
-// injector in the wal metadata. It returns nil if the primary key columns or
+// injector in the wal metadata. Identifiers and values are escaped so that
+// distinct rows never share a key. It returns nil if the primary key columns or
 // their values can't be found in the event.
 func primaryKeyMessageKey(walData *wal.Data) []byte {
 	colIDs := walData.Metadata.InternalColIDs
@@ -258,14 +289,18 @@ func primaryKeyMessageKey(walData *wal.Data) []byte {
 		if !found {
 			return nil
 		}
-		values = append(values, fmt.Sprintf("%v", col.Value))
+		values = append(values, keyValueEscaper.Replace(fmt.Sprintf("%v", col.Value)))
 	}
 
 	return fmt.Appendf(tableMessageKey(walData), ":%s", strings.Join(values, ","))
 }
 
+// tableMessageKey returns the schema qualified table name, with both
+// identifiers escaped so that the "." separating them is unambiguous —
+// postgres quoted identifiers may contain it.
 func tableMessageKey(walData *wal.Data) []byte {
-	return []byte(walData.Schema + "." + walData.Table)
+	return []byte(keyIdentifierEscaper.Replace(walData.Schema) + "." +
+		keyIdentifierEscaper.Replace(walData.Table))
 }
 
 func findColumn(cols []wal.Column, id string) (wal.Column, bool) {
