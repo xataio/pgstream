@@ -5,6 +5,7 @@ package postgres
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -230,6 +231,7 @@ func MapError(err error) error {
 
 	return err
 }
+
 func encodingErrDetails(msg string) string {
 	if m := encodeArgsErrDetails.FindStringSubmatch(msg); m != nil {
 		return m[1] + " " + m[2]
