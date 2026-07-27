@@ -10,22 +10,26 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/adapter"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/filter"
+	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
 func TestConfig_ReplicationTableSelection(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		cfg            *Config
-		wantInclude    []string
-		wantExclude    []string
-		wantInScope    [][2]string
-		wantOutOfScope [][2]string
+		name              string
+		cfg               *Config
+		wantInclude       []string
+		wantExclude       []string
+		wantUnfiltered    bool
+		wantNotUnfiltered bool
+		wantInScope       [][2]string
+		wantOutOfScope    [][2]string
 	}{
 		{
-			name: "no filter configured returns unfiltered selection",
-			cfg:  &Config{},
+			name:           "no filter configured returns unfiltered selection",
+			cfg:            &Config{},
+			wantUnfiltered: true,
 		},
 		{
 			name: "empty filter returns unfiltered selection",
@@ -93,6 +97,72 @@ func TestConfig_ReplicationTableSelection(t *testing.T) {
 			wantInScope:    [][2]string{{"public", "users"}},
 			wantOutOfScope: [][2]string{{"public", "audit_log"}},
 		},
+		{
+			name: "listener present but no plugin scoping stays unfiltered",
+			cfg: &Config{
+				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{}},
+			},
+			wantUnfiltered: true,
+			wantInScope:    [][2]string{{"public", "anything"}},
+		},
+		{
+			name: "plugin add_tables scopes replication (filter unset)",
+			cfg: &Config{
+				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{
+					Replication: pgreplication.Config{
+						PluginArguments: pgreplication.PluginArguments{AddTables: "someschema.*"},
+					},
+				}},
+			},
+			// plugin-only scoping doesn't populate the filter include/exclude
+			// lists, but the selection is no longer unfiltered.
+			wantNotUnfiltered: true,
+			wantInScope:       [][2]string{{"someschema", "foo"}},
+			wantOutOfScope:    [][2]string{{"public", "typeorm_metadata"}, {"public", "users"}},
+		},
+		{
+			name: "plugin filter_tables scopes replication (filter unset)",
+			cfg: &Config{
+				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{
+					Replication: pgreplication.Config{
+						PluginArguments: pgreplication.PluginArguments{FilterTables: "public.*"},
+					},
+				}},
+			},
+			wantNotUnfiltered: true,
+			wantInScope:       [][2]string{{"labs", "onboarding"}},
+			wantOutOfScope:    [][2]string{{"public", "typeorm_metadata"}},
+		},
+		{
+			name: "plugin filter_tables with multiple comma-separated schemas",
+			cfg: &Config{
+				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{
+					Replication: pgreplication.Config{
+						PluginArguments: pgreplication.PluginArguments{FilterTables: "pipelines.* , private.*"},
+					},
+				}},
+			},
+			wantInScope:    [][2]string{{"public", "users"}},
+			wantOutOfScope: [][2]string{{"pipelines", "runs"}, {"private", "secrets"}},
+		},
+		{
+			name: "plugin add_tables AND modifiers.filter both apply",
+			cfg: &Config{
+				Listener: ListenerConfig{Postgres: &PostgresListenerConfig{
+					Replication: pgreplication.Config{
+						PluginArguments: pgreplication.PluginArguments{AddTables: "app.*"},
+					},
+				}},
+				Processor: ProcessorConfig{
+					Filter: &filter.Config{ExcludeTables: []string{"app.secrets"}},
+				},
+			},
+			wantExclude: []string{"app.secrets"},
+			wantInScope: [][2]string{{"app", "users"}},
+			// app.secrets excluded by the filter; anything outside app.* excluded
+			// by the plugin add_tables whitelist.
+			wantOutOfScope: [][2]string{{"app", "secrets"}, {"other", "t"}},
+		},
 	}
 
 	for _, tc := range tests {
@@ -101,6 +171,12 @@ func TestConfig_ReplicationTableSelection(t *testing.T) {
 			got := tc.cfg.ReplicationTableSelection()
 			require.Equal(t, tc.wantInclude, got.Include())
 			require.Equal(t, tc.wantExclude, got.Exclude())
+			if tc.wantUnfiltered {
+				require.True(t, got.IsUnfiltered(), "expected selection to be unfiltered")
+			}
+			if tc.wantNotUnfiltered {
+				require.False(t, got.IsUnfiltered(), "expected selection to be filtered (plugin scoping present)")
+			}
 			for _, st := range tc.wantInScope {
 				require.True(t, got.IsTableInScope(st[0], st[1]), "expected %s.%s to be in scope", st[0], st[1])
 			}
