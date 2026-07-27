@@ -161,16 +161,16 @@ func TestPGSchemaObserver_getEnumColumnNames(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		tableColumns map[string]map[string]struct{}
+		tableColumns map[string]map[string]enumColumn
 		pgConn       pglib.Querier
 
-		wantColumns      map[string]struct{}
-		wantTableColumns map[string]map[string]struct{}
+		wantColumns      map[string]enumColumn
+		wantTableColumns map[string]map[string]enumColumn
 		wantErr          error
 	}{
 		{
 			name:         "ok - queries and caches enum column",
-			tableColumns: map[string]map[string]struct{}{},
+			tableColumns: map[string]map[string]enumColumn{},
 			pgConn: &pgmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					require.Equal(t, enumTableColumnsQuery, query)
@@ -179,10 +179,17 @@ func TestPGSchemaObserver_getEnumColumnNames(t *testing.T) {
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
 						ScanFn: func(_ uint, dest ...any) error {
-							require.Len(t, dest, 1)
+							require.Len(t, dest, 4)
 							colName, ok := dest[0].(*string)
 							require.True(t, ok, fmt.Sprintf("column name, expected *string, got %T", dest[0]))
 							*colName = "mood"
+							enumType, ok := dest[1].(*string)
+							require.True(t, ok, fmt.Sprintf("enum type, expected *string, got %T", dest[1]))
+							*enumType = "public.mood"
+							_, ok = dest[2].(*bool)
+							require.True(t, ok, fmt.Sprintf("is_array, expected *bool, got %T", dest[2]))
+							_, ok = dest[3].(*bool)
+							require.True(t, ok, fmt.Sprintf("is_domain, expected *bool, got %T", dest[3]))
 							return nil
 						},
 						ErrFn: func() error { return nil },
@@ -190,16 +197,16 @@ func TestPGSchemaObserver_getEnumColumnNames(t *testing.T) {
 				},
 			},
 
-			wantColumns: map[string]struct{}{moodColumn: {}},
-			wantTableColumns: map[string]map[string]struct{}{
-				quotedQualifiedTableName: {moodColumn: {}},
+			wantColumns: map[string]enumColumn{moodColumn: {enumType: "public.mood"}},
+			wantTableColumns: map[string]map[string]enumColumn{
+				quotedQualifiedTableName: {moodColumn: {enumType: "public.mood"}},
 			},
 			wantErr: nil,
 		},
 		{
 			name: "ok - cache hit, no query",
-			tableColumns: map[string]map[string]struct{}{
-				quotedQualifiedTableName: {moodColumn: {}},
+			tableColumns: map[string]map[string]enumColumn{
+				quotedQualifiedTableName: {moodColumn: {enumType: "public.mood"}},
 			},
 			pgConn: &pgmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
@@ -207,15 +214,15 @@ func TestPGSchemaObserver_getEnumColumnNames(t *testing.T) {
 				},
 			},
 
-			wantColumns: map[string]struct{}{moodColumn: {}},
-			wantTableColumns: map[string]map[string]struct{}{
-				quotedQualifiedTableName: {moodColumn: {}},
+			wantColumns: map[string]enumColumn{moodColumn: {enumType: "public.mood"}},
+			wantTableColumns: map[string]map[string]enumColumn{
+				quotedQualifiedTableName: {moodColumn: {enumType: "public.mood"}},
 			},
 			wantErr: nil,
 		},
 		{
 			name:         "error - querying enum columns",
-			tableColumns: map[string]map[string]struct{}{},
+			tableColumns: map[string]map[string]enumColumn{},
 			pgConn: &pgmocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					return nil, errTest
@@ -223,7 +230,7 @@ func TestPGSchemaObserver_getEnumColumnNames(t *testing.T) {
 			},
 
 			wantColumns:      nil,
-			wantTableColumns: map[string]map[string]struct{}{},
+			wantTableColumns: map[string]map[string]enumColumn{},
 			wantErr:          errTest,
 		},
 	}
@@ -293,9 +300,9 @@ func TestPGSchemaObserver_invalidateEnumColumns(t *testing.T) {
 			t.Parallel()
 
 			o := &pgSchemaObserver{
-				enumTableColumns: synclib.NewMapFromMap(map[string]map[string]struct{}{
-					quotedTable:      {`"mood"`: {}},
-					quotedOtherTable: {`"status"`: {}},
+				enumTableColumns: synclib.NewMapFromMap(map[string]map[string]enumColumn{
+					quotedTable:      {`"mood"`: {enumType: "public.mood"}},
+					quotedOtherTable: {`"status"`: {enumType: "public.status"}},
 				}),
 				logger: loglib.NewNoopLogger(),
 			}
@@ -320,7 +327,7 @@ func TestPGSchemaObserver_getEnumColumnNames_invalidatedWhileQuerying(t *testing
 	quotedTable := `"test_schema"."test_table"`
 
 	o := &pgSchemaObserver{
-		enumTableColumns: synclib.NewMap[string, map[string]struct{}](),
+		enumTableColumns: synclib.NewMap[string, map[string]enumColumn](),
 		logger:           loglib.NewNoopLogger(),
 	}
 
@@ -334,9 +341,13 @@ func TestPGSchemaObserver_getEnumColumnNames_invalidatedWhileQuerying(t *testing
 				CloseFn: func() {},
 				NextFn:  func(i uint) bool { return i == 1 },
 				ScanFn: func(_ uint, dest ...any) error {
+					require.Len(t, dest, 4)
 					colName, ok := dest[0].(*string)
 					require.True(t, ok)
 					*colName = "mood"
+					enumType, ok := dest[1].(*string)
+					require.True(t, ok)
+					*enumType = "public.mood"
 					return nil
 				},
 				ErrFn: func() error { return nil },
@@ -346,7 +357,7 @@ func TestPGSchemaObserver_getEnumColumnNames_invalidatedWhileQuerying(t *testing
 
 	colNames, err := o.getEnumColumnNames(context.TODO(), testSchema, testTable)
 	require.NoError(t, err)
-	require.Equal(t, map[string]struct{}{`"mood"`: {}}, colNames, "the caller still gets the queried result")
+	require.Equal(t, map[string]enumColumn{`"mood"`: {enumType: "public.mood"}}, colNames, "the caller still gets the queried result")
 
 	_, found := o.enumTableColumns.Get(quotedTable)
 	require.False(t, found, "result raced by an invalidation must not be cached")
@@ -369,7 +380,7 @@ func TestPGSchemaObserver_getSchemaInfo(t *testing.T) {
 			alwaysIdentityTableColumns: newSeededMap(failing != "alwaysIdentity",
 				map[string]struct{}{`"id"`: {}}),
 			columnTableSequences: newSeededSequenceMap(failing != "sequences"),
-			enumTableColumns:     newSeededMap(failing != "enum", map[string]struct{}{`"mood"`: {}}),
+			enumTableColumns:     newSeededMap(failing != "enum", map[string]enumColumn{`"mood"`: {enumType: "public.mood"}}),
 		}
 	}
 
@@ -388,7 +399,7 @@ func TestPGSchemaObserver_getSchemaInfo(t *testing.T) {
 				generatedColumns:      map[string]struct{}{`"gen"`: {}},
 				alwaysIdentityColumns: map[string]struct{}{`"id"`: {}},
 				sequenceColumns:       map[string]string{`"id"`: `"test_schema"."seq"`},
-				enumColumns:           map[string]struct{}{`"mood"`: {}},
+				enumColumns:           map[string]enumColumn{`"mood"`: {enumType: "public.mood"}},
 			},
 			wantErr: nil,
 		},
@@ -433,8 +444,8 @@ func TestPGSchemaObserver_getSchemaInfo(t *testing.T) {
 	}
 }
 
-func newSeededMap(seed bool, value map[string]struct{}) *synclib.Map[string, map[string]struct{}] {
-	m := synclib.NewMap[string, map[string]struct{}]()
+func newSeededMap[T any](seed bool, value map[string]T) *synclib.Map[string, map[string]T] {
+	m := synclib.NewMap[string, map[string]T]()
 	if seed {
 		m.Set(pglib.QuoteQualifiedIdentifier(testSchema, testTable), value)
 	}

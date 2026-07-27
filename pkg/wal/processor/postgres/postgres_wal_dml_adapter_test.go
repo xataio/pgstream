@@ -921,7 +921,7 @@ func Test_needsTextCopyForColumns(t *testing.T) {
 		name        string
 		columnNames []string
 		columnTypes []string
-		enumColumns map[string]struct{}
+		enumColumns map[string]enumColumn
 
 		want bool
 	}{
@@ -943,14 +943,14 @@ func Test_needsTextCopyForColumns(t *testing.T) {
 			name:        "enum column",
 			columnNames: []string{`"id"`, `"mood"`},
 			columnTypes: []string{"integer", "mood"},
-			enumColumns: map[string]struct{}{`"mood"`: {}},
+			enumColumns: map[string]enumColumn{`"mood"`: {enumType: "public.mood"}},
 			want:        true,
 		},
 		{
 			name:        "enum type present but column filtered out",
 			columnNames: []string{`"id"`},
 			columnTypes: []string{"integer"},
-			enumColumns: map[string]struct{}{`"mood"`: {}},
+			enumColumns: map[string]enumColumn{`"mood"`: {enumType: "public.mood"}},
 			want:        false,
 		},
 	}

@@ -1073,3 +1073,148 @@ func Test_PostgresToPostgres_LargeIntegerPrecisionWAL(t *testing.T) {
 		})
 	})
 }
+
+// Test_PostgresToPostgres_EnumPrimaryKeyDelete verifies that replicated DELETE
+// events on a table whose replica identity contains a user-defined enum column
+// are applied on the target.
+//
+// The repro from #1037: BatchWriter.buildCoalescedQueries routes every run of
+// consecutive same-table DELETEs — even a run of length 1 — through the bulk
+// delete builders, which bind one Go slice per identity column. pgx registers
+// no codec for the database-specific enum *array* OID, so binding against
+// `$2::asset_kind[]` failed client-side with "unable to encode
+// []interface {}{...} into text format for unknown type". Because that is a
+// client-side error rather than a recognized pglib error type, it was treated
+// as internal and poisoned the whole batch. Identity values for enum columns
+// are now bound as text[] and cast back on the target.
+//
+// The #1035 enum fix covered only the snapshot bulk-ingest COPY path.
+func Test_PostgresToPostgres_EnumPrimaryKeyDelete(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfg(t),
+		Processor: testPostgresProcessorCfg(),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runStream(t, ctx, cfg)
+
+	enumType := "pg2pg_asset_kind"
+	domainType := "pg2pg_asset_kind_dom"
+	compositeTable := "pg2pg_asset_composite"
+	singleTable := "pg2pg_asset_single"
+	domainTable := "pg2pg_asset_domain"
+
+	// The types must exist on both sides before the tables referencing them are
+	// created. Creating them on the source can race the same DDL arriving on
+	// the target through replication, and neither CREATE TYPE nor CREATE DOMAIN
+	// supports IF NOT EXISTS, so swallow the duplicate.
+	ifNotExists := func(stmt string) string {
+		return fmt.Sprintf(
+			`DO $$ BEGIN %s; EXCEPTION WHEN duplicate_object THEN NULL; END $$`, stmt)
+	}
+	for _, url := range []string{pgurl, targetPGURL} {
+		execQueryWithURL(t, ctx, url, ifNotExists(
+			fmt.Sprintf(`CREATE TYPE %s AS ENUM ('BiteScan','UpperJawScan','LowerJawScan')`, enumType)))
+		execQueryWithURL(t, ctx, url, ifNotExists(fmt.Sprintf(`CREATE DOMAIN %s AS %s`, domainType, enumType)))
+	}
+	t.Cleanup(func() {
+		// cleanup runs after the test's deferred cancel(), so it needs a live
+		// context of its own.
+		cleanupCtx := context.Background()
+		for _, url := range []string{pgurl, targetPGURL} {
+			execQueryWithURL(t, cleanupCtx, url,
+				fmt.Sprintf("DROP TABLE IF EXISTS %s, %s, %s", compositeTable, singleTable, domainTable))
+			execQueryWithURL(t, cleanupCtx, url, fmt.Sprintf("DROP DOMAIN IF EXISTS %s", domainType))
+			execQueryWithURL(t, cleanupCtx, url, fmt.Sprintf("DROP TYPE IF EXISTS %s", enumType))
+		}
+	})
+
+	// composite PK containing an enum column, exactly as reported
+	execQuery(t, ctx, fmt.Sprintf(`
+		CREATE TABLE %s (
+			export_id uuid NOT NULL,
+			kind %s NOT NULL,
+			number int NOT NULL,
+			PRIMARY KEY (export_id, kind, number)
+		)`, compositeTable, enumType))
+	// single-column enum PK, which takes the ANY($1::text[]::enum[]) branch
+	execQuery(t, ctx, fmt.Sprintf(`CREATE TABLE %s (kind %s PRIMARY KEY)`, singleTable, enumType))
+	// a domain over the enum needs the column side cast too: the enum
+	// comparison operators are polymorphic over anyenum, which does not accept
+	// a domain. Deletes on this shape failed on every path before, including
+	// the per-row form, with "operator does not exist: dom = dom".
+	execQuery(t, ctx, fmt.Sprintf(`CREATE TABLE %s (kind %s PRIMARY KEY)`, domainTable, domainType))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	waitForCount := func(t *testing.T, table string, want int) {
+		t.Helper()
+		require.Eventually(t, func() bool {
+			var count int
+			if err := targetConn.QueryRow(ctx, []any{&count}, fmt.Sprintf("SELECT count(*) FROM %s", table)); err != nil {
+				// the table may not have been replicated yet
+				return false
+			}
+			return count == want
+		}, 20*time.Second, 200*time.Millisecond,
+			"table %s: want %d rows on target", table, want)
+	}
+
+	execQuery(t, ctx, fmt.Sprintf(
+		`INSERT INTO %s VALUES ('550e8400-e29b-41d4-a716-446655440000','BiteScan',1),
+		                       ('550e8400-e29b-41d4-a716-446655440001','UpperJawScan',2)`, compositeTable))
+	execQuery(t, ctx, fmt.Sprintf(`INSERT INTO %s VALUES ('BiteScan'),('UpperJawScan')`, singleTable))
+	execQuery(t, ctx, fmt.Sprintf(`INSERT INTO %s VALUES ('BiteScan'),('UpperJawScan')`, domainTable))
+
+	waitForCount(t, compositeTable, 2)
+	waitForCount(t, singleTable, 2)
+	waitForCount(t, domainTable, 2)
+
+	t.Run("delete on composite enum PK", func(t *testing.T) {
+		execQuery(t, ctx, fmt.Sprintf("DELETE FROM %s WHERE kind = 'BiteScan'", compositeTable))
+		waitForCount(t, compositeTable, 1)
+
+		var kind string
+		err := targetConn.QueryRow(ctx, []any{&kind}, fmt.Sprintf("SELECT kind::text FROM %s", compositeTable))
+		require.NoError(t, err)
+		require.Equal(t, "UpperJawScan", kind, "the wrong row was deleted")
+	})
+
+	t.Run("delete on single-column enum PK", func(t *testing.T) {
+		execQuery(t, ctx, fmt.Sprintf("DELETE FROM %s WHERE kind = 'BiteScan'", singleTable))
+		waitForCount(t, singleTable, 1)
+
+		var kind string
+		err := targetConn.QueryRow(ctx, []any{&kind}, fmt.Sprintf("SELECT kind::text FROM %s", singleTable))
+		require.NoError(t, err)
+		require.Equal(t, "UpperJawScan", kind, "the wrong row was deleted")
+	})
+
+	t.Run("delete on domain-over-enum PK", func(t *testing.T) {
+		// the source statement needs ::text too — postgres has no
+		// `domain = unknown` operator either, which is how exotic this shape is
+		execQuery(t, ctx, fmt.Sprintf("DELETE FROM %s WHERE kind::text = 'BiteScan'", domainTable))
+		waitForCount(t, domainTable, 1)
+
+		var kind string
+		err := targetConn.QueryRow(ctx, []any{&kind}, fmt.Sprintf("SELECT kind::text FROM %s", domainTable))
+		require.NoError(t, err)
+		require.Equal(t, "UpperJawScan", kind, "the wrong row was deleted")
+	})
+
+	t.Run("delete remaining rows", func(t *testing.T) {
+		execQuery(t, ctx, fmt.Sprintf("DELETE FROM %s", compositeTable))
+		execQuery(t, ctx, fmt.Sprintf("DELETE FROM %s", singleTable))
+		execQuery(t, ctx, fmt.Sprintf("DELETE FROM %s", domainTable))
+		waitForCount(t, compositeTable, 0)
+		waitForCount(t, singleTable, 0)
+		waitForCount(t, domainTable, 0)
+	})
+}

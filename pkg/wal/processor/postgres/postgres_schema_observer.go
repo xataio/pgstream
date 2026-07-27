@@ -37,9 +37,10 @@ type pgSchemaObserver struct {
 	materializedViews *synclib.Map[string, map[string]struct{}]
 	// columnTableSequences is a map of schema.table to a map of sequence column names.
 	columnTableSequences *synclib.Map[string, map[string]string]
-	// enumTableColumns is a map of schema.table to a set of quoted column names
-	// whose type is a user-defined enum.
-	enumTableColumns *synclib.Map[string, map[string]struct{}]
+	// enumTableColumns is a map of schema.table to the quoted column names whose
+	// type resolves to a user-defined enum, each with the catalog-resolved
+	// information needed to cast it (see enumColumn).
+	enumTableColumns *synclib.Map[string, map[string]enumColumn]
 	// enumCacheEpoch is bumped by every enum invalidation. Unlike its sibling
 	// caches, enumTableColumns is repopulated by a live query rather than from
 	// the DDL event payload, so a lookup that started before an invalidation
@@ -78,7 +79,7 @@ func newPGSchemaObserver(ctx context.Context, cfg *Config, logger loglib.Logger)
 		alwaysIdentityTableColumns: synclib.NewMap[string, map[string]struct{}](),
 		materializedViews:          synclib.NewMap[string, map[string]struct{}](),
 		columnTableSequences:       synclib.NewMap[string, map[string]string](),
-		enumTableColumns:           synclib.NewMap[string, map[string]struct{}](),
+		enumTableColumns:           synclib.NewMap[string, map[string]enumColumn](),
 		logger:                     logger,
 	}, nil
 }
@@ -167,7 +168,7 @@ func (o *pgSchemaObserver) getSequenceColumns(ctx context.Context, schema, table
 // getEnumColumnNames returns the set of quoted column names for the given
 // schema.table whose type is a user-defined enum. If not cached, it queries
 // postgres.
-func (o *pgSchemaObserver) getEnumColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error) {
+func (o *pgSchemaObserver) getEnumColumnNames(ctx context.Context, schema, table string) (map[string]enumColumn, error) {
 	key := pglib.QuoteQualifiedIdentifier(schema, table)
 
 	columns, found := o.enumTableColumns.Get(key)
@@ -391,16 +392,34 @@ func (o *pgSchemaObserver) queryAlwaysIdentityColumnNames(ctx context.Context, s
 }
 
 // enumTableColumnsQuery returns the columns of a table whose type resolves to a
-// user-defined enum. pgx registers no binary codec for such database-specific
-// OIDs, so these columns force text-format COPY, where the value is written as
-// the literal postgres text representation and parsed by the target's type
-// input function.
+// user-defined enum, together with what a query must cast to in order to talk
+// about them. pgx registers no binary codec for such database-specific OIDs, so
+// these columns force text-format COPY, where the value is written as the
+// literal postgres text representation and parsed by the target's type input
+// function, and they force text[] parameter binding on the bulk delete path
+// (see bindAsText).
 //
 // Four shapes are covered: a scalar enum, an array of enums, a domain over an
 // enum, and a domain over an array of enums. A domain over a domain is not
 // resolved (it would need a recursive walk of typbasetype) and still takes the
 // binary path.
-const enumTableColumnsQuery = `SELECT a.attname
+//
+// enumType is the enum itself — resolved through the array element type and the
+// domain base type — schema-qualified and quoted by postgres. Casting to the
+// *column's declared* type is not equivalent: the enum comparison operators are
+// polymorphic over anyenum, which does not accept a domain, so `dom = dom` has
+// no operator while `dom::the_enum = the_enum` does. It is also read from the
+// target catalog rather than from the replication stream, so it is safe to
+// interpolate into a statement.
+//
+// isArray reports whether the column resolves to an *array* of the enum (either
+// directly or through a domain), which needs a different comparison shape, and
+// isDomain whether the column is a domain, which additionally needs the column
+// side cast to the base enum.
+const enumTableColumnsQuery = `SELECT a.attname,
+	quote_ident(enumns.nspname) || '.' || quote_ident(enumt.typname) AS enum_type,
+	(COALESCE(elem.typtype, '') = 'e' OR COALESCE(baseelem.typtype, '') = 'e') AS is_array,
+	t.typtype = 'd' AS is_domain
 	FROM pg_attribute a
 	JOIN pg_class c ON c.oid = a.attrelid
 	JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -408,6 +427,13 @@ const enumTableColumnsQuery = `SELECT a.attname
 	LEFT JOIN pg_type elem ON elem.oid = t.typelem
 	LEFT JOIN pg_type base ON base.oid = t.typbasetype
 	LEFT JOIN pg_type baseelem ON baseelem.oid = base.typelem
+	JOIN pg_type enumt ON enumt.oid = CASE
+		WHEN t.typtype = 'e' THEN t.oid
+		WHEN t.typtype = 'b' AND elem.typtype = 'e' THEN elem.oid
+		WHEN t.typtype = 'd' AND base.typtype = 'e' THEN base.oid
+		WHEN t.typtype = 'd' AND baseelem.typtype = 'e' THEN baseelem.oid
+	END
+	JOIN pg_namespace enumns ON enumns.oid = enumt.typnamespace
 	WHERE n.nspname = $1 AND c.relname = $2
 	AND a.attnum > 0 AND NOT a.attisdropped
 	AND (
@@ -416,11 +442,11 @@ const enumTableColumnsQuery = `SELECT a.attname
 		OR (t.typtype = 'd' AND (base.typtype = 'e' OR baseelem.typtype = 'e'))
 	)`
 
-func (o *pgSchemaObserver) queryEnumColumnNames(ctx context.Context, schemaName, tableName string) (map[string]struct{}, error) {
+func (o *pgSchemaObserver) queryEnumColumnNames(ctx context.Context, schemaName, tableName string) (map[string]enumColumn, error) {
 	ctx, cancel := context.WithTimeout(ctx, schemaQueryTimeout)
 	defer cancel()
 
-	columnNames := map[string]struct{}{}
+	columns := map[string]enumColumn{}
 	rows, err := o.pgConn.Query(ctx, enumTableColumnsQuery, schemaName, tableName)
 	if err != nil {
 		return nil, fmt.Errorf("getting table enum column names for table %s.%s: %w", schemaName, tableName, err)
@@ -429,17 +455,18 @@ func (o *pgSchemaObserver) queryEnumColumnNames(ctx context.Context, schemaName,
 
 	for rows.Next() {
 		var columnName string
-		if err := rows.Scan(&columnName); err != nil {
+		var col enumColumn
+		if err := rows.Scan(&columnName, &col.enumType, &col.isArray, &col.isDomain); err != nil {
 			return nil, fmt.Errorf("scanning table enum column name: %w", err)
 		}
-		columnNames[pglib.QuoteIdentifier(columnName)] = struct{}{}
+		columns[pglib.QuoteIdentifier(columnName)] = col
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	return columnNames, nil
+	return columns, nil
 }
 
 const materializedViewsQuery = `SELECT matviewname FROM pg_matviews WHERE schemaname = $1`

@@ -558,6 +558,22 @@ func TestQuerier_isRetriableError(t *testing.T) {
 			err:             fmt.Errorf("operation failed: %w", errors.New("generic error")),
 			wantIsRetriable: true,
 		},
+		{
+			name:            "value encoding error",
+			err:             &postgres.ErrValueEncoding{},
+			wantIsRetriable: false,
+		},
+		{
+			// isRetriableError maps through MapError, so a raw pgx encoding
+			// failure must be recognized even before anything types it. The
+			// default policy has no attempt or elapsed-time bound, so treating
+			// this as retriable wedges replication instead of letting the
+			// writer drop the one failing query.
+			name: "raw pgx encoding failure",
+			err: errors.New(`failed to encode args[1]: unable to encode []interface {}{"BiteScan"} ` +
+				`into text format for unknown type (OID 16384): cannot find encode plan`),
+			wantIsRetriable: false,
+		},
 	}
 
 	for _, tc := range tests {

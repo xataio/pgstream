@@ -504,7 +504,7 @@ func needsTextCopy(columnTypes []string) bool {
 // case when a column has a static text-only type (see textOnlyCopyTypes) or a
 // user-defined enum type, whose database-specific OID pgx has no binary codec
 // registered for. columnNames must be quoted to match the enumColumns set.
-func needsTextCopyForColumns(columnNames, columnTypes []string, enumColumns map[string]struct{}) bool {
+func needsTextCopyForColumns(columnNames, columnTypes []string, enumColumns map[string]enumColumn) bool {
 	if needsTextCopy(columnTypes) {
 		return true
 	}

@@ -127,11 +127,18 @@ func (w *Writer) initMetrics() error {
 
 // recordDroppedQuery accounts for a single query dropped due to a non-internal
 // (DATALOSS) failure and logs the divergence prominently.
-func (w *Writer) recordDroppedQuery(q *query) {
+// recordDroppedQuery reports a query the writer gave up on. cause is what made
+// it undeliverable: without it the DATALOSS warning says what diverged but not
+// why, leaving an operator to correlate by timestamp against the error logged
+// where the query failed. schema and table are surfaced as their own fields so
+// the diverging table can be alerted on without parsing the SQL.
+func (w *Writer) recordDroppedQuery(q *query, cause error) {
 	dropped := w.droppedQueries.Add(1)
-	w.logger.Warn(nil, "dropping failed query and advancing checkpoint, replica may diverge", loglib.Fields{
+	w.logger.Warn(cause, "dropping failed query and advancing checkpoint, replica may diverge", loglib.Fields{
 		"sql":             q.sql,
 		"args":            q.args,
+		"schema":          q.schema,
+		"table":           q.table,
 		"severity":        "DATALOSS",
 		"dropped_queries": dropped,
 	})

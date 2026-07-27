@@ -34,11 +34,32 @@ type schemaInfo struct {
 	generatedColumns      map[string]struct{}
 	alwaysIdentityColumns map[string]struct{}
 	sequenceColumns       map[string]string
-	// enumColumns is the set of quoted column names whose type is a
-	// user-defined enum. pgx has no binary codec registered for such
-	// database-specific OIDs, so batches touching these columns must use
-	// text-format COPY instead of binary COPY (see needsTextCopyForColumns).
-	enumColumns map[string]struct{}
+	// enumColumns maps quoted column names whose type resolves to a
+	// user-defined enum to what a query needs in order to cast them. pgx has no
+	// binary codec registered for such database-specific OIDs, so batches
+	// touching these columns must use text-format COPY instead of binary COPY
+	// (see needsTextCopyForColumns), and the bulk delete path must bind their
+	// values as text[] and cast them back on the target (see bindAsText).
+	enumColumns map[string]enumColumn
+}
+
+// enumColumn describes how to cast a column whose type resolves to a
+// user-defined enum. Every field is resolved from the target catalog by
+// enumTableColumnsQuery, never from the replication stream, so enumType is safe
+// to interpolate into a statement.
+type enumColumn struct {
+	// enumType is the enum itself, schema-qualified and quoted — resolved
+	// through the array element type and the domain base type, since the
+	// column's own type name is not always usable in a comparison.
+	enumType string
+	// isArray reports whether the column resolves to an array of the enum,
+	// which compares as a whole array rather than element-wise.
+	isArray bool
+	// isDomain reports whether the column is a domain over the enum. The enum
+	// comparison operators are polymorphic over anyenum, which does not accept
+	// a domain, so the column side needs an explicit cast to the base enum —
+	// which forfeits use of any plain index on that column.
+	isDomain bool
 }
 
 type adapter struct {
