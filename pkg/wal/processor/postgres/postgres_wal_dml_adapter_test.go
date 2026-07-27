@@ -914,6 +914,70 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 	}
 }
 
+func Test_needsTextCopyForColumns(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		columnNames []string
+		columnTypes []string
+		enumColumns map[string]struct{}
+
+		want bool
+	}{
+		{
+			name:        "no text-only columns",
+			columnNames: []string{`"id"`, `"name"`},
+			columnTypes: []string{"integer", "text"},
+			enumColumns: nil,
+			want:        false,
+		},
+		{
+			name:        "static text-only type",
+			columnNames: []string{`"id"`, `"location"`},
+			columnTypes: []string{"integer", "ltree"},
+			enumColumns: nil,
+			want:        true,
+		},
+		{
+			name:        "enum column",
+			columnNames: []string{`"id"`, `"mood"`},
+			columnTypes: []string{"integer", "mood"},
+			enumColumns: map[string]struct{}{`"mood"`: {}},
+			want:        true,
+		},
+		{
+			name:        "enum type present but column filtered out",
+			columnNames: []string{`"id"`},
+			columnTypes: []string{"integer"},
+			enumColumns: map[string]struct{}{`"mood"`: {}},
+			want:        false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, needsTextCopyForColumns(tc.columnNames, tc.columnTypes, tc.enumColumns))
+		})
+	}
+}
+
+func Test_updateValueForCopy_enumArray(t *testing.T) {
+	t.Parallel()
+
+	a := newTestDMLAdapterForCopy(t)
+
+	// A non-enum array is parsed into a Go slice so pgx's binary COPY encoder
+	// can handle it.
+	require.Equal(t, []string{"a", "b"}, a.updateValueForCopy("{a,b}", "text[]", false))
+
+	// An array of a user-defined enum goes out through text-format COPY, which
+	// writes the postgres array literal verbatim — parsing it into a slice here
+	// would leave the text encoder with a value it cannot render.
+	require.Equal(t, "{happy,sad}", a.updateValueForCopy("{happy,sad}", "mood[]", true))
+}
+
 func Test_newDMLAdapter(t *testing.T) {
 	t.Parallel()
 

@@ -16,9 +16,7 @@ type walAdapter interface {
 }
 
 type schemaObserver interface {
-	getGeneratedColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error)
-	getAlwaysIdentityColumnNames(ctx context.Context, schema, table string) (map[string]struct{}, error)
-	getSequenceColumns(ctx context.Context, schema, table string) (map[string]string, error)
+	getSchemaInfo(ctx context.Context, schema, table string) (schemaInfo, error)
 	isMaterializedView(ctx context.Context, schema, table string) bool
 	update(ddlEvent *wal.DDLEvent)
 	close() error
@@ -36,6 +34,11 @@ type schemaInfo struct {
 	generatedColumns      map[string]struct{}
 	alwaysIdentityColumns map[string]struct{}
 	sequenceColumns       map[string]string
+	// enumColumns is the set of quoted column names whose type is a
+	// user-defined enum. pgx has no binary codec registered for such
+	// database-specific OIDs, so batches touching these columns must use
+	// text-format COPY instead of binary COPY (see needsTextCopyForColumns).
+	enumColumns map[string]struct{}
 }
 
 type adapter struct {
@@ -50,19 +53,19 @@ type (
 	ddlEventAdapter func(*wal.Data) (*wal.DDLEvent, error)
 )
 
-func newAdapter(ctx context.Context, logger loglib.Logger, ignoreDDL bool, pgURL string, onConflictAction string, forCopy bool) (*adapter, error) {
-	schemaObserver, err := newPGSchemaObserver(ctx, pgURL, logger)
+func newAdapter(ctx context.Context, logger loglib.Logger, cfg *Config, forCopy bool) (*adapter, error) {
+	schemaObserver, err := newPGSchemaObserver(ctx, cfg, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	dmlAdapter, err := newDMLAdapter(onConflictAction, forCopy, logger)
+	dmlAdapter, err := newDMLAdapter(cfg.OnConflictAction, forCopy, logger)
 	if err != nil {
 		return nil, err
 	}
 
 	var ddl ddlQueryAdapter
-	if !ignoreDDL {
+	if !cfg.IgnoreDDL {
 		ddl = newDDLAdapter()
 	}
 
@@ -96,26 +99,12 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 		return a.ddlAdapter.walDataToQueries(ctx, e.Data)
 
 	default:
-		generatedColumns, err := a.schemaObserver.getGeneratedColumnNames(ctx, e.Data.Schema, e.Data.Table)
+		info, err := a.schemaObserver.getSchemaInfo(ctx, e.Data.Schema, e.Data.Table)
 		if err != nil {
 			return nil, err
 		}
 
-		alwaysIdentityColumns, err := a.schemaObserver.getAlwaysIdentityColumnNames(ctx, e.Data.Schema, e.Data.Table)
-		if err != nil {
-			return nil, err
-		}
-
-		columnSequences, err := a.schemaObserver.getSequenceColumns(ctx, e.Data.Schema, e.Data.Table)
-		if err != nil {
-			return nil, err
-		}
-
-		qs, err := a.dmlAdapter.walDataToQueries(e.Data, schemaInfo{
-			generatedColumns:      generatedColumns,
-			alwaysIdentityColumns: alwaysIdentityColumns,
-			sequenceColumns:       columnSequences,
-		})
+		qs, err := a.dmlAdapter.walDataToQueries(e.Data, info)
 		if err != nil {
 			return nil, err
 		}
@@ -144,28 +133,14 @@ func (a *adapter) walEventToMessage(ctx context.Context, e *wal.Event) (*walMess
 		return &walMessage{data: e.Data, isDDL: true}, nil
 
 	default:
-		generatedColumns, err := a.schemaObserver.getGeneratedColumnNames(ctx, e.Data.Schema, e.Data.Table)
-		if err != nil {
-			return nil, err
-		}
-
-		alwaysIdentityColumns, err := a.schemaObserver.getAlwaysIdentityColumnNames(ctx, e.Data.Schema, e.Data.Table)
-		if err != nil {
-			return nil, err
-		}
-
-		columnSequences, err := a.schemaObserver.getSequenceColumns(ctx, e.Data.Schema, e.Data.Table)
+		info, err := a.schemaObserver.getSchemaInfo(ctx, e.Data.Schema, e.Data.Table)
 		if err != nil {
 			return nil, err
 		}
 
 		return &walMessage{
-			data: e.Data,
-			schemaInfo: schemaInfo{
-				generatedColumns:      generatedColumns,
-				alwaysIdentityColumns: alwaysIdentityColumns,
-				sequenceColumns:       columnSequences,
-			},
+			data:       e.Data,
+			schemaInfo: info,
 		}, nil
 	}
 }
