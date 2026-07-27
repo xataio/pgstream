@@ -42,7 +42,7 @@ func TestAdapter_walEventToMessage(t *testing.T) {
 
 	testGeneratedCols := map[string]struct{}{"gen": {}}
 	testSeqCols := map[string]string{"id": "users_id_seq"}
-	testEnumCols := map[string]struct{}{`"mood"`: {}}
+	testEnumCols := map[string]enumColumn{`"mood"`: {enumType: "public.mood"}}
 
 	tests := []struct {
 		name            string
@@ -423,7 +423,7 @@ func TestAdapter_threadsSchemaInfo(t *testing.T) {
 		generatedColumns:      map[string]struct{}{`"gen"`: {}},
 		alwaysIdentityColumns: map[string]struct{}{`"id"`: {}},
 		sequenceColumns:       map[string]string{`"id"`: `"public"."users_id_seq"`},
-		enumColumns:           map[string]struct{}{`"mood"`: {}},
+		enumColumns:           map[string]enumColumn{`"mood"`: {enumType: "public.mood"}},
 	}
 
 	event := &wal.Event{Data: &wal.Data{Schema: "public", Table: "users", Action: "I"}}

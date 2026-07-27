@@ -112,6 +112,18 @@ func (e *ErrFeatureNotSupported) Error() string {
 	return fmt.Sprintf("feature not supported: %s", e.Details)
 }
 
+type ErrValueEncoding struct {
+	Details string
+}
+
+func (e *ErrValueEncoding) Error() string {
+	return fmt.Sprintf("value encoding: %s", e.Details)
+}
+
+const encodeArgsErrFragment = "failed to encode args["
+
+var encodeArgsErrDetails = regexp.MustCompile(`^(.*?failed to encode args\[\d+\]).*?(for [^:]+)`)
+
 // MapError maps a Postgres error to a more specific error type
 func MapError(err error) error {
 	if pgconn.Timeout(err) {
@@ -206,5 +218,21 @@ func MapError(err error) error {
 		}
 	}
 
+	// A client-side encoding failure is recognized last, and only when nothing
+	// carried a SQLSTATE: it never reaches the server, so it can never be a
+	// PgError. Checking it earlier would let a genuine server error whose
+	// message happens to quote the fragment — postgres embeds row values in
+	// messages, and pgstream is often pointed at tables holding log text — be
+	// misclassified, changing how the writer and the retrier handle it.
+	if err != nil && pgErr == nil && strings.Contains(err.Error(), encodeArgsErrFragment) {
+		return &ErrValueEncoding{Details: encodingErrDetails(err.Error())}
+	}
+
 	return err
+}
+func encodingErrDetails(msg string) string {
+	if m := encodeArgsErrDetails.FindStringSubmatch(msg); m != nil {
+		return m[1] + " " + m[2]
+	}
+	return encodeArgsErrFragment
 }
