@@ -740,6 +740,35 @@ func TestNewSender_autoTuneDisabledWithConcurrency(t *testing.T) {
 	})
 }
 
+// TestNewSender_WithDroppedCounter covers the wiring rather than the counting:
+// a sender that records into a counter of its own still logs every drop, so
+// only the writer's totals and the metrics derived from them go missing, and
+// they are permanently zero rather than absent.
+func TestNewSender_WithDroppedCounter(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	noopSendFn := func(context.Context, *Batch[*mockMessage]) error { return nil }
+
+	t.Run("the owning writer's counter is used", func(t *testing.T) {
+		t.Parallel()
+		counter := NewDroppedCounter()
+		sender, err := NewSender(ctx, &Config{}, noopSendFn, log.NewNoopLogger(),
+			WithDroppedCounter[*mockMessage](counter))
+		require.NoError(t, err)
+		defer sender.Close()
+		require.Same(t, counter, sender.dropped)
+	})
+
+	t.Run("a sender built without one keeps its own", func(t *testing.T) {
+		t.Parallel()
+		sender, err := NewSender(ctx, &Config{}, noopSendFn, log.NewNoopLogger())
+		require.NoError(t, err)
+		defer sender.Close()
+		require.NotNil(t, sender.dropped)
+	})
+}
+
 func TestConfig_GetSendConcurrency(t *testing.T) {
 	t.Parallel()
 

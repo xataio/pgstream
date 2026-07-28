@@ -79,6 +79,10 @@ func NewSender[T Message](ctx context.Context, config *Config, sendfn sendBatchF
 		sendConcurrency:   config.GetSendConcurrency(),
 	}
 
+	for _, opt := range opts {
+		opt(s)
+	}
+
 	if config.AutoTune.Enabled {
 		// The batch bytes auto-tuner relies on a per-batch serial-timing model
 		// that is corrupted by concurrent sends, so it is incompatible with a
