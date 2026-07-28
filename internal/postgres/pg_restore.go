@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -143,17 +144,36 @@ func buildRestoreError(out []byte, execErr error) error {
 // large; the tail holds the failure, the head holds statements that succeeded.
 const maxRestoreOutputBytes = 4096
 
+// passwordLiteral matches the quoted secret in a role statement that carries
+// one: CREATE/ALTER ROLE and CREATE/ALTER USER all spell it `PASSWORD '...'`,
+// optionally preceded by ENCRYPTED, so matching the literal rather than the
+// statement covers every variant. The alternation consumes doubled quotes so an
+// escaped quote inside the secret does not end the match early.
+var passwordLiteral = regexp.MustCompile(`(?i)PASSWORD\s+'(?:[^']|'')*'`)
+
+// redactSecrets removes credential material from restore output before it is
+// carried in an error. A roles dump restores through the same `psql
+// --echo-errors` path as everything else, so a failure part way through it
+// echoes `CREATE ROLE ... PASSWORD '<scram hash>'` back to stderr; that error is
+// both logged and persisted to the snapshot request store, where the hash would
+// be offline-crackable by anyone with log or target-database access. The
+// statement keyword is left intact: knowing which role statement failed is the
+// diagnostic value, the secret is not.
+func redactSecrets(s string) string {
+	return passwordLiteral.ReplaceAllString(s, "PASSWORD '[REDACTED]'")
+}
+
 // tailOutput returns the last maxBytes of out, trimmed, prefixed with an
-// ellipsis when truncated.
+// ellipsis when truncated, and with credential material redacted.
 func tailOutput(out []byte, maxBytes int) string {
 	trimmed := bytes.TrimSpace(out)
 	if len(trimmed) == 0 {
 		return ""
 	}
 	if len(trimmed) <= maxBytes {
-		return string(trimmed)
+		return redactSecrets(string(trimmed))
 	}
-	return "..." + string(trimmed[len(trimmed)-maxBytes:])
+	return "..." + redactSecrets(string(trimmed[len(trimmed)-maxBytes:]))
 }
 
 func removeDatabaseFromConnectionString(url string) (string, error) {
@@ -190,7 +210,10 @@ func parsePgRestoreOutputErrs(out []byte) error {
 				if isOwnershipError(currentErr) && isCommentStatement(line) {
 					currentErr = &ErrCommentOwnership{Details: currentErr.Error()}
 				}
-				currentErr = fmt.Errorf("%w: %s", currentErr, truncateStatement(line))
+				// redact before truncating: truncation can cut a password
+				// literal in half, which would strip the closing quote and
+				// leave a partial secret that no longer matches the pattern
+				currentErr = fmt.Errorf("%w: %s", currentErr, truncateStatement(redactSecrets(line)))
 			}
 			inStatement = !endsStatement(line)
 		case isErrorLine(line):
