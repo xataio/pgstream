@@ -73,12 +73,13 @@ func (r rowIdentity) messageKey() string {
 func decodeMessageKey(key string) (rowIdentity, error) {
 	var (
 		id       rowIdentity
-		current  []byte
 		haveSep  bool
 		haveCol  bool
 		decoded  []string
 		escaping bool
 	)
+
+	current := make([]byte, 0, len(key))
 
 	for i := 0; i < len(key); i++ {
 		c := key[i]
@@ -90,13 +91,13 @@ func decodeMessageKey(key string) (rowIdentity, error) {
 			escaping = true
 		case c == '.' && !haveSep:
 			id.schema = string(current)
-			current, haveSep = nil, true
+			current, haveSep = current[:0], true
 		case c == ':' && haveSep && !haveCol:
 			id.table = string(current)
-			current, haveCol = nil, true
+			current, haveCol = current[:0], true
 		case c == ',' && haveCol:
 			decoded = append(decoded, string(current))
-			current = nil
+			current = current[:0]
 		default:
 			current = append(current, c)
 		}
