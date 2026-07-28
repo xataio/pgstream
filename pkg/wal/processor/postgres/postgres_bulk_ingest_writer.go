@@ -61,7 +61,10 @@ func NewBulkIngestWriter(ctx context.Context, config *Config, opts ...WriterOpti
 
 	biw.batchSenderBuilder = func(ctx context.Context, schema, table string) (queryBatchSender, error) {
 		logger := w.logger.WithFields(loglib.Fields{"schema": schema, "table": table})
-		return batch.NewSender(ctx, &config.BatchConfig, biw.sendBatch, logger)
+		// every per-table sender shares the writer's counter, so the drop
+		// totals and metrics cover the run rather than one table
+		return batch.NewSender(ctx, &config.BatchConfig, biw.sendBatch, logger,
+			batch.WithDroppedCounter[*query](w.dropped))
 	}
 
 	return biw, nil

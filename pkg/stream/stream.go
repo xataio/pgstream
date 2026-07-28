@@ -80,6 +80,7 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 			pgreplication.NewLSNParser(),
 			search.WithCheckpoint(checkpoint),
 			search.WithLogger(logger),
+			search.WithInstrumentation(instrumentation),
 		)
 		if err != nil {
 			return nil, err
