@@ -689,3 +689,40 @@ func TestRedactSecrets_copyRowContext(t *testing.T) {
 		})
 	}
 }
+
+func TestTailOutput_redactsSecretsStraddlingTheCut(t *testing.T) {
+	t.Parallel()
+
+	// Redaction has to run before the output is cut down. When a secret
+	// straddles the cut, the prefix the pattern matches on sits in the
+	// discarded head, so redacting the tail alone would leave the trailing
+	// fragment of the hash in the error.
+	tests := []struct {
+		name       string
+		output     string
+		maxBytes   int
+		mustNotHit string
+	}{
+		{
+			name:       "password literal straddling the cut",
+			output:     strings.Repeat("x", 200) + `CREATE ROLE app PASSWORD 'SCRAM-SHA-256$4096:TOPSECRETHASH';`,
+			maxBytes:   24,
+			mustNotHit: "TOPSECRETHASH",
+		},
+		{
+			name:       "copy row payload straddling the cut",
+			output:     strings.Repeat("x", 200) + `CONTEXT:  COPY users, line 42: "1	alice@example.com	555-0100"`,
+			maxBytes:   24,
+			mustNotHit: "alice@example.com",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := tailOutput([]byte(tc.output), tc.maxBytes)
+			require.NotContains(t, got, tc.mustNotHit)
+		})
+	}
+}

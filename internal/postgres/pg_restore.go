@@ -158,10 +158,11 @@ func tailOutput(out []byte, maxBytes int) string {
 	if len(trimmed) == 0 {
 		return ""
 	}
-	if len(trimmed) <= maxBytes {
-		return redactSecrets(string(trimmed))
+	redacted := redactSecrets(string(trimmed))
+	if len(redacted) <= maxBytes {
+		return redacted
 	}
-	return "..." + redactSecrets(string(trimmed[len(trimmed)-maxBytes:]))
+	return "..." + redacted[len(redacted)-maxBytes:]
 }
 
 func removeDatabaseFromConnectionString(url string) (string, error) {
