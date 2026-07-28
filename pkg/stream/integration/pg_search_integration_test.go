@@ -60,25 +60,39 @@ func Test_PostgresToSearch(t *testing.T) {
 						return false
 					}
 
+					idField := fmt.Sprintf("%s-1", testTablePgstreamID)
+					nameField := fmt.Sprintf("%s-2", testTablePgstreamID)
+
+					// the index exists before the indexer has finished applying
+					// the schema event's field mappings, so keep waiting until
+					// every field is there. Asserting on a mapping that is
+					// still being built fails the test outright, because these
+					// requires run inside the retry loop.
 					mapping := getIndexMapping(t, ctx, client, testIndex)
+					for _, field := range []string{"_table", idField, nameField, testTable} {
+						if _, found := mapping[field]; !found {
+							return false
+						}
+					}
+
 					require.Equal(t, map[string]any{"type": "keyword"}, mapping["_table"])
-					require.Equal(t, map[string]any{"type": "long"}, mapping[fmt.Sprintf("%s-1", testTablePgstreamID)])
+					require.Equal(t, map[string]any{"type": "long"}, mapping[idField])
 					require.Equal(t, map[string]any{
 						"fields": map[string]any{
 							"text": map[string]any{"type": "text"},
 						},
 						"ignore_above": float64(32766),
 						"type":         "keyword",
-					}, mapping[fmt.Sprintf("%s-2", testTablePgstreamID)])
+					}, mapping[nameField])
 					require.Equal(t, map[string]any{
 						"properties": map[string]any{
 							"id": map[string]any{
 								"type": "alias",
-								"path": fmt.Sprintf("%s-1", testTablePgstreamID),
+								"path": idField,
 							},
 							"name": map[string]any{
 								"type": "alias",
-								"path": fmt.Sprintf("%s-2", testTablePgstreamID),
+								"path": nameField,
 							},
 						},
 					}, mapping[testTable])
