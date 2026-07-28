@@ -5,10 +5,10 @@ package transformers
 import (
 	"bytes"
 	"fmt"
-	"text/template"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"github.com/xataio/pgstream/pkg/transformers/internal/template"
 )
 
 var (

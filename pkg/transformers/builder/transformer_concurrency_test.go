@@ -12,6 +12,15 @@ import (
 	"github.com/xataio/pgstream/pkg/transformers"
 )
 
+// randomTemplateFuncs calls the greenmask toolkit template functions that are
+// backed by state shared across the function map: the rng behind the random
+// and noise functions, and the pgtype.Map behind the interval ones (issue
+// #1043).
+const randomTemplateFuncs = `{{ randomInt 1 1000 }} {{ randomFloat 0 1 2 }} {{ randomString 4 8 }} ` +
+	`{{ randomBool }} {{ noiseInt 0.5 100 }} {{ noiseFloat 0.5 2 100.0 }} ` +
+	`{{ randomDate (dateModify "-24h" now) now }} {{ noiseDatePgInterval "1 day" now }} ` +
+	`{{ tsModify "1 day" now }}`
+
 // concurrencyTestCase exercises a transformer from multiple goroutines, the
 // way pgstream snapshot workers share a single transformer per column. Run
 // with the race detector enabled, it catches transformers that share rng or
@@ -38,7 +47,10 @@ func TestTransformers_ConcurrentTransform(t *testing.T) {
 			input: "user@example.com",
 		},
 		transformers.Template: {
-			params: transformers.ParameterValues{"template": "{{ .GetValue }} - transformed"},
+			// the greenmask toolkit template functions draw from state shared
+			// by the whole function map, so the template must exercise them to
+			// catch issue #1043
+			params: transformers.ParameterValues{"template": "{{ .GetValue }} - " + randomTemplateFuncs},
 			input:  "hello",
 		},
 		transformers.JSON: {
@@ -47,7 +59,7 @@ func TestTransformers_ConcurrentTransform(t *testing.T) {
 					map[string]any{
 						"operation":       "set",
 						"path":            "/greeting",
-						"value":           "hello world",
+						"value_template":  randomTemplateFuncs,
 						"error_not_exist": false,
 					},
 				},
@@ -58,9 +70,9 @@ func TestTransformers_ConcurrentTransform(t *testing.T) {
 			params: transformers.ParameterValues{
 				"operations": []any{
 					map[string]any{
-						"operation": "set",
-						"key":       "test",
-						"value":     "value",
+						"operation":      "set",
+						"key":            "test",
+						"value_template": randomTemplateFuncs,
 					},
 				},
 			},

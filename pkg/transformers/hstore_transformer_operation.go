@@ -5,9 +5,9 @@ package transformers
 import (
 	"bytes"
 	"fmt"
-	"text/template"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/xataio/pgstream/pkg/transformers/internal/template"
 )
 
 type hstoreOperation struct {
