@@ -46,6 +46,9 @@ const (
 	updateTimeout          = time.Minute
 
 	wildcard = "*"
+
+	updateRetries  = 3
+	updateInterval = 500 * time.Millisecond
 )
 
 // NewSnapshotRecorder will return the generator on input wrapped with an
@@ -194,22 +197,10 @@ func (s *SnapshotRecorder) markSnapshotCompleted(ctx context.Context, requests [
 	for _, req := range requests {
 		eg.Go(func() error {
 			schemaErrs := getSchemaErrors(req.Schema, err)
-			// captured before MarkCompleted mutates it: if the store write
-			// below fails, this is the status that remains persisted, and it is
-			// the one an operator has to repair
 			persistedStatus := req.Status
 			req.MarkCompleted(req.Schema, schemaErrs)
 			if updateErr := s.updateWithRetry(ctx, req); updateErr != nil {
-				// A request left in a non-terminal state is never retried:
-				// HasFailedForTable only reports a failure for a completed
-				// request, so its tables are treated as already covered and
-				// silently skipped by every subsequent run. Log it regardless of
-				// how the error is routed below -- when err != nil the error is
-				// folded into schemaErrs, which is written by the very store
-				// call that just failed, so it would otherwise vanish. Name the
-				// state to repair: without it an operator has the symptom but
-				// not the row to fix.
-				s.logger.Error(updateErr, "recording snapshot request completion, request stuck in non-terminal state and will never be retried: mark it completed with an error in the snapshot store to bring its tables back into scope", loglib.Fields{
+				s.logger.Error(updateErr, "recording snapshot request completion, request stuck in non-terminal state and will never be retried", loglib.Fields{
 					"severity":         "DATALOSS",
 					"schema":           req.Schema,
 					"mode":             req.GetMode(),
@@ -230,20 +221,6 @@ func (s *SnapshotRecorder) markSnapshotCompleted(ctx context.Context, requests [
 	return err
 }
 
-const (
-	// updateRetries bounds the attempts to persist a request's terminal state.
-	// Losing that write strands the request: its tables are then treated as
-	// already covered and skipped by every later run, so a transient store
-	// error is worth a few retries rather than one shot. Kept small, and with a
-	// short interval, so the attempts fit inside updateTimeout.
-	updateRetries  = 3
-	updateInterval = 500 * time.Millisecond
-)
-
-// updateWithRetry persists the request's terminal state, retrying a bounded
-// number of times. The update is idempotent (it matches on schema, table names
-// and mode, and skips rows already completed), so a retry after a partial
-// failure cannot double-apply.
 func (s *SnapshotRecorder) updateWithRetry(ctx context.Context, req *snapshot.Request) error {
 	bo := backoff.NewConstantBackoff(ctx, &backoff.ConstantConfig{
 		MaxRetries: updateRetries,
@@ -257,7 +234,8 @@ func (s *SnapshotRecorder) updateWithRetry(ctx context.Context, req *snapshot.Re
 				"schema": req.Schema,
 				"mode":   req.GetMode(),
 			})
-		})
+		},
+	)
 }
 
 func (s *SnapshotRecorder) filterOutExistingSnapshots(ctx context.Context, ss *snapshot.Snapshot) error {
