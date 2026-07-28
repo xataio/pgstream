@@ -151,6 +151,15 @@ const maxRestoreOutputBytes = 4096
 // escaped quote inside the secret does not end the match early.
 var passwordLiteral = regexp.MustCompile(`(?i)PASSWORD\s+'(?:[^']|'')*'`)
 
+// copyRowContext matches the row payload psql appends when a COPY fails:
+//
+//	CONTEXT:  COPY users, line 42: "1\tal...@example.com\t..."
+//
+// The table and line number are the diagnostic; the quoted payload is a
+// verbatim source row, which has no place in operational logs for a tool whose
+// purpose includes anonymising exactly those values.
+var copyRowContext = regexp.MustCompile(`(?i)(CONTEXT:\s+COPY\s+[^,]+,\s+line\s+\d+):\s+".*"`)
+
 // redactSecrets removes credential material from restore output before it is
 // carried in an error. A roles dump restores through the same `psql
 // --echo-errors` path as everything else, so a failure part way through it
@@ -160,7 +169,8 @@ var passwordLiteral = regexp.MustCompile(`(?i)PASSWORD\s+'(?:[^']|'')*'`)
 // statement keyword is left intact: knowing which role statement failed is the
 // diagnostic value, the secret is not.
 func redactSecrets(s string) string {
-	return passwordLiteral.ReplaceAllString(s, "PASSWORD '[REDACTED]'")
+	s = passwordLiteral.ReplaceAllString(s, "PASSWORD '[REDACTED]'")
+	return copyRowContext.ReplaceAllString(s, "$1: [REDACTED ROW]")
 }
 
 // tailOutput returns the last maxBytes of out, trimmed, prefixed with an

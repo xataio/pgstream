@@ -649,3 +649,43 @@ func TestTailOutput_redactsSecrets(t *testing.T) {
 	require.Contains(t, got, "server closed the connection unexpectedly")
 	require.Contains(t, got, "CREATE ROLE app")
 }
+
+func TestRedactSecrets_copyRowContext(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+
+		want string
+	}{
+		{
+			name: "copy row payload redacted, table and line kept",
+			in:   `CONTEXT:  COPY users, line 42: "1	alice@example.com	555-0100"`,
+			want: `CONTEXT:  COPY users, line 42: [REDACTED ROW]`,
+		},
+		{
+			name: "qualified table name",
+			in:   `CONTEXT:  COPY labs.patient_snapshot_us, line 9001: "secret"`,
+			want: `CONTEXT:  COPY labs.patient_snapshot_us, line 9001: [REDACTED ROW]`,
+		},
+		{
+			name: "copy context without a payload is untouched",
+			in:   `CONTEXT:  COPY users, line 42`,
+			want: `CONTEXT:  COPY users, line 42`,
+		},
+		{
+			name: "unrelated context line is untouched",
+			in:   `CONTEXT:  PL/pgSQL function f() line 3 at RAISE`,
+			want: `CONTEXT:  PL/pgSQL function f() line 3 at RAISE`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, redactSecrets(tc.in))
+		})
+	}
+}
