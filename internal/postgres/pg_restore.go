@@ -17,10 +17,19 @@ import (
 )
 
 const (
-	pgRestoreCmd    = "pg_restore"
-	psqlCmd         = "psql"
-	postgres        = "postgres"
-	maxStatementLen = 500
+	pgRestoreCmd          = "pg_restore"
+	psqlCmd               = "psql"
+	postgres              = "postgres"
+	maxStatementLen       = 500
+	maxRestoreOutputBytes = 4096
+)
+
+var (
+	// passwordLiteral matches the quoted secret in a role statement that carries
+	// one: CREATE/ALTER ROLE and CREATE/ALTER USER all spell it `PASSWORD '...'`
+	passwordLiteral = regexp.MustCompile(`(?i)PASSWORD\s+'(?:[^']|'')*'`)
+	// copyRowContext matches the row payload psql appends when a COPY fails
+	copyRowContext = regexp.MustCompile(`(?i)(CONTEXT:\s+COPY\s+[^,]+,\s+line\s+\d+):\s+".*"`)
 )
 
 type PGRestoreOptions struct {
@@ -127,10 +136,6 @@ func buildRestoreError(out []byte, execErr error) error {
 		return fmt.Errorf("error restoring dump: %w", parseErr)
 	}
 	if execErr != nil {
-		// Nothing in the output parsed as a recognised error, so execErr on its
-		// own is opaque ("exit status 2" carries no cause). The captured output
-		// is the only record of what actually happened — a lost connection, an
-		// OOM-killed backend — so it must not be discarded here.
 		if tail := tailOutput(out, maxRestoreOutputBytes); tail != "" {
 			return fmt.Errorf("error restoring dump: %w: output: %s", execErr, tail)
 		}
@@ -139,35 +144,8 @@ func buildRestoreError(out []byte, execErr error) error {
 	return nil
 }
 
-// maxRestoreOutputBytes bounds how much of a failed restore's output is carried
-// in the error. Restores echo the dump on error, so the whole buffer can be
-// large; the tail holds the failure, the head holds statements that succeeded.
-const maxRestoreOutputBytes = 4096
-
-// passwordLiteral matches the quoted secret in a role statement that carries
-// one: CREATE/ALTER ROLE and CREATE/ALTER USER all spell it `PASSWORD '...'`,
-// optionally preceded by ENCRYPTED, so matching the literal rather than the
-// statement covers every variant. The alternation consumes doubled quotes so an
-// escaped quote inside the secret does not end the match early.
-var passwordLiteral = regexp.MustCompile(`(?i)PASSWORD\s+'(?:[^']|'')*'`)
-
-// copyRowContext matches the row payload psql appends when a COPY fails:
-//
-//	CONTEXT:  COPY users, line 42: "1\tal...@example.com\t..."
-//
-// The table and line number are the diagnostic; the quoted payload is a
-// verbatim source row, which has no place in operational logs for a tool whose
-// purpose includes anonymising exactly those values.
-var copyRowContext = regexp.MustCompile(`(?i)(CONTEXT:\s+COPY\s+[^,]+,\s+line\s+\d+):\s+".*"`)
-
 // redactSecrets removes credential material from restore output before it is
-// carried in an error. A roles dump restores through the same `psql
-// --echo-errors` path as everything else, so a failure part way through it
-// echoes `CREATE ROLE ... PASSWORD '<scram hash>'` back to stderr; that error is
-// both logged and persisted to the snapshot request store, where the hash would
-// be offline-crackable by anyone with log or target-database access. The
-// statement keyword is left intact: knowing which role statement failed is the
-// diagnostic value, the secret is not.
+// carried in an error.
 func redactSecrets(s string) string {
 	s = passwordLiteral.ReplaceAllString(s, "PASSWORD '[REDACTED]'")
 	return copyRowContext.ReplaceAllString(s, "$1: [REDACTED ROW]")
@@ -220,9 +198,6 @@ func parsePgRestoreOutputErrs(out []byte) error {
 				if isOwnershipError(currentErr) && isCommentStatement(line) {
 					currentErr = &ErrCommentOwnership{Details: currentErr.Error()}
 				}
-				// redact before truncating: truncation can cut a password
-				// literal in half, which would strip the closing quote and
-				// leave a partial secret that no longer matches the pattern
 				currentErr = fmt.Errorf("%w: %s", currentErr, truncateStatement(redactSecrets(line)))
 			}
 			inStatement = !endsStatement(line)
