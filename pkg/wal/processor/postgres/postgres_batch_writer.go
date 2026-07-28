@@ -52,7 +52,8 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...WriterOption) (
 	// postgres.Config, and bulk ingest defaults SendConcurrency to >1.
 	batchConfig := config.BatchConfig
 	batchConfig.SendConcurrency = 1
-	bw.batchSender, err = batch.NewSender(ctx, &batchConfig, bw.sendBatch, w.logger)
+	bw.batchSender, err = batch.NewSender(ctx, &batchConfig, bw.sendBatch, w.logger,
+		batch.WithDroppedCounter[*walMessage](w.dropped))
 	if err != nil {
 		return nil, err
 	}

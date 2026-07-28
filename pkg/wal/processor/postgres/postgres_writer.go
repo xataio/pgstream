@@ -30,6 +30,10 @@ type Writer struct {
 	droppedQueries       atomic.Uint64
 	instrumentation      *otel.Instrumentation
 	droppedQueriesMetric metric.Int64ObservableCounter
+
+	// dropped is shared with every batch sender this writer builds, so the
+	// totals and metrics span the writer rather than a single table.
+	dropped *batch.DroppedCounter
 }
 
 type queryBatchSender interface {
@@ -50,6 +54,7 @@ func newWriter(ctx context.Context, config *Config, writerType string, opts ...W
 		writerType:      writerType,
 		disableTriggers: config.DisableTriggers,
 		strictMode:      config.StrictMode,
+		dropped:         batch.NewDroppedCounter(),
 	}
 
 	for _, opt := range opts {
@@ -80,6 +85,9 @@ func newWriter(ctx context.Context, config *Config, writerType string, opts ...W
 	if w.instrumentation.IsEnabled() {
 		w.adapter = newInstrumentedWalAdapter(w.adapter, w.instrumentation)
 		if err := w.initMetrics(); err != nil {
+			return nil, fmt.Errorf("initialising postgres writer metrics: %w", err)
+		}
+		if err := w.dropped.RegisterMetrics(w.instrumentation, writerType); err != nil {
 			return nil, fmt.Errorf("initialising postgres writer metrics: %w", err)
 		}
 	}
@@ -145,6 +153,7 @@ func (w *Writer) recordDroppedQuery(q *query, cause error) {
 }
 
 func (w *Writer) close() error {
+	w.dropped.LogTotals(w.logger)
 	if err := w.adapter.close(); err != nil {
 		w.logger.Error(err, "closing adapter")
 	}
