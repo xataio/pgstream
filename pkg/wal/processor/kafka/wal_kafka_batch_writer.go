@@ -193,8 +193,9 @@ func (w *BatchWriter) Name() string {
 }
 
 func (w *BatchWriter) Close() error {
+	err := errors.Join(w.batchSender.Close(), w.writer.Close())
 	w.dropped.LogTotals(w.logger)
-	return errors.Join(w.batchSender.Close(), w.writer.Close())
+	return err
 }
 
 func (w *BatchWriter) sendBatch(ctx context.Context, batch *batch.Batch[kafka.Message]) error {

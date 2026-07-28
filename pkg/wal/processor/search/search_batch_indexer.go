@@ -150,8 +150,9 @@ func (i *BatchIndexer) Name() string {
 }
 
 func (i *BatchIndexer) Close() error {
+	err := i.batchSender.Close()
 	i.dropped.LogTotals(i.logger)
-	return i.batchSender.Close()
+	return err
 }
 
 func (i *BatchIndexer) sendBatch(ctx context.Context, batch *batch.Batch[*msg]) error {

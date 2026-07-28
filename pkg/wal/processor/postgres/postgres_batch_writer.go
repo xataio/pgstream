@@ -99,7 +99,8 @@ func (w *BatchWriter) Name() string {
 
 func (w *BatchWriter) Close() error {
 	w.logger.Debug("closing batch writer")
-	return errors.Join(w.batchSender.Close(), w.close())
+	senderErr := w.batchSender.Close()
+	return errors.Join(senderErr, w.close())
 }
 
 func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]) error {
