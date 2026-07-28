@@ -1113,9 +1113,15 @@ func Test_PostgresToPostgres_EnumPrimaryKeyDelete(t *testing.T) {
 	// created. Creating them on the source can race the same DDL arriving on
 	// the target through replication, and neither CREATE TYPE nor CREATE DOMAIN
 	// supports IF NOT EXISTS, so swallow the duplicate.
+	//
+	// Both outcomes of that race have to be caught. A backend that sees the
+	// existing type during its catalog lookup raises duplicate_object, but one
+	// that loses the race to a concurrent insert gets past the lookup and fails
+	// on the pg_type_typname_nsp_index unique constraint instead, which is
+	// unique_violation.
 	ifNotExists := func(stmt string) string {
 		return fmt.Sprintf(
-			`DO $$ BEGIN %s; EXCEPTION WHEN duplicate_object THEN NULL; END $$`, stmt)
+			`DO $$ BEGIN %s; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$`, stmt)
 	}
 	for _, url := range []string{pgurl, targetPGURL} {
 		execQueryWithURL(t, ctx, url, ifNotExists(
