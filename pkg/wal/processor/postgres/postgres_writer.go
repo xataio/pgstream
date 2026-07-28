@@ -61,6 +61,23 @@ func newWriter(ctx context.Context, config *Config, writerType string, opts ...W
 		opt(w)
 	}
 
+	// State the suppression posture where the flags live, rather than at stream
+	// assembly: both of these turn a write failure into silently missing rows,
+	// are easy to set once and forget, and are otherwise only visible by
+	// counting log lines after the fact.
+	if config.BatchConfig.IgnoreSendErrors {
+		w.logger.Warn(nil, "ignore_send_errors is enabled: batches that fail to send will be dropped and the run will continue", loglib.Fields{
+			"posture":     "at_risk",
+			"writer_type": writerType,
+		})
+	}
+	// strict mode only governs the per-query drop-and-continue path, which the
+	// bulk ingest writer never reaches, so saying so there would describe
+	// behaviour the running writer does not have.
+	if !config.StrictMode && writerType == batchWriter {
+		w.logger.Info("strict_mode is disabled: non-internal query failures will be dropped and counted rather than stopping the pipeline")
+	}
+
 	var err error
 	if config.RetryPolicy.DisableRetries {
 		w.pgConn, err = pglib.NewConnPool(ctx, config.URL)
