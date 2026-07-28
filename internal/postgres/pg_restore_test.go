@@ -311,8 +311,9 @@ func TestBuildRestoreError(t *testing.T) {
 		output  []byte
 		execErr error
 
-		wantNil     bool
-		wantContain string
+		wantNil         bool
+		wantContain     string
+		wantAlsoContain string
 	}{
 		{
 			name:    "no error - success",
@@ -321,16 +322,27 @@ func TestBuildRestoreError(t *testing.T) {
 			wantNil: true,
 		},
 		{
-			name:        "exec error with no parseable output",
-			output:      []byte("some unexpected output\n"),
-			execErr:     execErr,
-			wantContain: "exit status 1",
+			// the output is the only record of the cause when nothing in it
+			// parses as a recognised error, so it must survive into the error
+			name:            "exec error with no parseable output preserves the output",
+			output:          []byte("some unexpected output\n"),
+			execErr:         execErr,
+			wantContain:     "exit status 1",
+			wantAlsoContain: "some unexpected output",
 		},
 		{
-			name:        "exec error with empty output",
-			output:      []byte{},
-			execErr:     execErr,
-			wantContain: "exit status 1",
+			name:            "exec error with a lost connection preserves the cause",
+			output:          []byte("server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally\n"),
+			execErr:         errors.New("exit status 2"),
+			wantContain:     "exit status 2",
+			wantAlsoContain: "server closed the connection unexpectedly",
+		},
+		{
+			name:            "exec error with empty output says so",
+			output:          []byte{},
+			execErr:         execErr,
+			wantContain:     "exit status 1",
+			wantAlsoContain: "no output captured",
 		},
 		{
 			name:        "exec error with parseable ERROR lines",
@@ -357,7 +369,55 @@ func TestBuildRestoreError(t *testing.T) {
 			}
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantContain)
+			if tc.wantAlsoContain != "" {
+				assert.Contains(t, err.Error(), tc.wantAlsoContain)
+			}
 			assert.NotContains(t, err.Error(), "%!w(<nil>)")
+		})
+	}
+}
+
+func TestTailOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		output   []byte
+		maxBytes int
+
+		want string
+	}{
+		{
+			name:     "empty",
+			output:   []byte{},
+			maxBytes: 16,
+			want:     "",
+		},
+		{
+			name:     "whitespace only",
+			output:   []byte("  \n\t "),
+			maxBytes: 16,
+			want:     "",
+		},
+		{
+			name:     "shorter than the limit is returned trimmed",
+			output:   []byte("  connection lost\n"),
+			maxBytes: 16,
+			want:     "connection lost",
+		},
+		{
+			name:     "longer than the limit keeps the tail",
+			output:   []byte("aaaaaaaaaabbbb"),
+			maxBytes: 4,
+			want:     "...bbbb",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, tailOutput(tc.output, tc.maxBytes))
 		})
 	}
 }

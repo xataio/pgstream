@@ -126,9 +126,34 @@ func buildRestoreError(out []byte, execErr error) error {
 		return fmt.Errorf("error restoring dump: %w", parseErr)
 	}
 	if execErr != nil {
-		return fmt.Errorf("error restoring dump: %w", execErr)
+		// Nothing in the output parsed as a recognised error, so execErr on its
+		// own is opaque ("exit status 2" carries no cause). The captured output
+		// is the only record of what actually happened — a lost connection, an
+		// OOM-killed backend — so it must not be discarded here.
+		if tail := tailOutput(out, maxRestoreOutputBytes); tail != "" {
+			return fmt.Errorf("error restoring dump: %w: output: %s", execErr, tail)
+		}
+		return fmt.Errorf("error restoring dump: %w: no output captured", execErr)
 	}
 	return nil
+}
+
+// maxRestoreOutputBytes bounds how much of a failed restore's output is carried
+// in the error. Restores echo the dump on error, so the whole buffer can be
+// large; the tail holds the failure, the head holds statements that succeeded.
+const maxRestoreOutputBytes = 4096
+
+// tailOutput returns the last maxBytes of out, trimmed, prefixed with an
+// ellipsis when truncated.
+func tailOutput(out []byte, maxBytes int) string {
+	trimmed := bytes.TrimSpace(out)
+	if len(trimmed) == 0 {
+		return ""
+	}
+	if len(trimmed) <= maxBytes {
+		return string(trimmed)
+	}
+	return "..." + string(trimmed[len(trimmed)-maxBytes:])
 }
 
 func removeDatabaseFromConnectionString(url string) (string, error) {
