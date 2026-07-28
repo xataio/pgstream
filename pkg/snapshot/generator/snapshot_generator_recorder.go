@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/xataio/pgstream/pkg/backoff"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	snapshotstore "github.com/xataio/pgstream/pkg/snapshot/store"
@@ -198,7 +199,7 @@ func (s *SnapshotRecorder) markSnapshotCompleted(ctx context.Context, requests [
 			// the one an operator has to repair
 			persistedStatus := req.Status
 			req.MarkCompleted(req.Schema, schemaErrs)
-			if updateErr := s.store.UpdateSnapshotRequest(ctx, req); updateErr != nil {
+			if updateErr := s.updateWithRetry(ctx, req); updateErr != nil {
 				// A request left in a non-terminal state is never retried:
 				// HasFailedForTable only reports a failure for a completed
 				// request, so its tables are treated as already covered and
@@ -227,6 +228,36 @@ func (s *SnapshotRecorder) markSnapshotCompleted(ctx context.Context, requests [
 		return err
 	}
 	return err
+}
+
+const (
+	// updateRetries bounds the attempts to persist a request's terminal state.
+	// Losing that write strands the request: its tables are then treated as
+	// already covered and skipped by every later run, so a transient store
+	// error is worth a few retries rather than one shot. Kept small, and with a
+	// short interval, so the attempts fit inside updateTimeout.
+	updateRetries  = 3
+	updateInterval = 500 * time.Millisecond
+)
+
+// updateWithRetry persists the request's terminal state, retrying a bounded
+// number of times. The update is idempotent (it matches on schema, table names
+// and mode, and skips rows already completed), so a retry after a partial
+// failure cannot double-apply.
+func (s *SnapshotRecorder) updateWithRetry(ctx context.Context, req *snapshot.Request) error {
+	bo := backoff.NewConstantBackoff(ctx, &backoff.ConstantConfig{
+		MaxRetries: updateRetries,
+		Interval:   updateInterval,
+	})
+
+	return bo.RetryNotify(
+		func() error { return s.store.UpdateSnapshotRequest(ctx, req) },
+		func(err error, _ time.Duration) {
+			s.logger.Warn(err, "retrying snapshot request update", loglib.Fields{
+				"schema": req.Schema,
+				"mode":   req.GetMode(),
+			})
+		})
 }
 
 func (s *SnapshotRecorder) filterOutExistingSnapshots(ctx context.Context, ss *snapshot.Snapshot) error {

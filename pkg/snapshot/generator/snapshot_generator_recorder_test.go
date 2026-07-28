@@ -234,7 +234,9 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 							Status: snapshot.StatusInProgress,
 						}, r)
 						return nil
-					case 2:
+					// the completion update is retried, so every attempt after the
+					// in-progress one must fail the same way
+					case 2, 3, 4, 5:
 						require.Equal(t, &snapshot.Request{
 							Schema: testSchema,
 							Tables: testTables,
@@ -281,7 +283,9 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 							Status: snapshot.StatusInProgress,
 						}, r)
 						return nil
-					case 2:
+					// the completion update is retried, so every attempt after the
+					// in-progress one must fail the same way
+					case 2, 3, 4, 5:
 						require.Equal(t, &snapshot.Request{
 							Schema: testSchema,
 							Tables: testTables,
@@ -351,7 +355,9 @@ func TestSnapshotRecorder_CreateSnapshot(t *testing.T) {
 							Status: snapshot.StatusInProgress,
 						}, r)
 						return nil
-					case 2:
+					// the completion update is retried, so every attempt after the
+					// in-progress one must fail the same way
+					case 2, 3, 4, 5:
 						require.Equal(t, &snapshot.Request{
 							Schema: testSchema,
 							Tables: testTables,
