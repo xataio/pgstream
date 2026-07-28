@@ -7,11 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"text/template"
 
-	"github.com/Masterminds/sprig/v3"
-	greenmasktoolkit "github.com/eminano/greenmask/pkg/toolkit"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/xataio/pgstream/pkg/transformers/internal/template"
 )
 
 const (
@@ -50,10 +48,7 @@ func NewHstoreTransformer(params ParameterValues) (*HstoreTransformer, error) {
 	// prepare the template objects for operations that has template values
 	for idx, o := range operations {
 		if o.valueTemplate != "" {
-			tmpl, err := template.New(fmt.Sprintf("op[%d] %s %s", idx, o.operation, o.key)).
-				Funcs(greenmasktoolkit.FuncMap()).
-				Funcs(sprig.FuncMap()).
-				Parse(o.valueTemplate)
+			tmpl, err := template.New(fmt.Sprintf("op[%d] %s %s", idx, o.operation, o.key), o.valueTemplate)
 			if err != nil {
 				return nil, fmt.Errorf("hstore_transformer: error parsing template op[%d] with key \"%s\": %w", idx, o.key, err)
 			}
