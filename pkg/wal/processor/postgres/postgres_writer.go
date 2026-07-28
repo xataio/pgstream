@@ -101,9 +101,6 @@ func newWriter(ctx context.Context, config *Config, writerType string, opts ...W
 
 	if w.instrumentation.IsEnabled() {
 		w.adapter = newInstrumentedWalAdapter(w.adapter, w.instrumentation)
-		if err := w.initMetrics(); err != nil {
-			return nil, fmt.Errorf("initialising postgres writer metrics: %w", err)
-		}
 		if err := w.dropped.RegisterMetrics(w.instrumentation, writerType); err != nil {
 			return nil, fmt.Errorf("initialising postgres writer metrics: %w", err)
 		}
@@ -121,7 +118,13 @@ func (w *Writer) DroppedQueries() uint64 {
 
 const droppedQueriesMetricName = "pgstream.postgres.writer.dropped_queries"
 
-func (w *Writer) initMetrics() error {
+// initDroppedQueriesMetric registers the per-query drop counter. Only the batch
+// writer reaches recordDroppedQuery, so only the batch writer registers this:
+// exporting it for the bulk ingest writer too would publish a permanent zero
+// under a writer_type label naming a component that does silently drop data, by
+// whole batches. Called by NewBatchWriter rather than by the shared
+// constructor, so the restriction is structural rather than a type check.
+func (w *Writer) initDroppedQueriesMetric() error {
 	if w.instrumentation == nil || w.instrumentation.Meter == nil {
 		return nil
 	}

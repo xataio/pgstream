@@ -58,6 +58,10 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...WriterOption) (
 		return nil, err
 	}
 
+	if err := w.initDroppedQueriesMetric(); err != nil {
+		return nil, fmt.Errorf("initialising postgres batch writer metrics: %w", err)
+	}
+
 	return bw, nil
 }
 
