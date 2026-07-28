@@ -30,6 +30,10 @@ type Writer struct {
 	droppedQueries       atomic.Uint64
 	instrumentation      *otel.Instrumentation
 	droppedQueriesMetric metric.Int64ObservableCounter
+
+	// dropped is shared with every batch sender this writer builds, so the
+	// totals and metrics span the writer rather than a single table.
+	dropped *batch.DroppedCounter
 }
 
 type queryBatchSender interface {
@@ -50,10 +54,28 @@ func newWriter(ctx context.Context, config *Config, writerType string, opts ...W
 		writerType:      writerType,
 		disableTriggers: config.DisableTriggers,
 		strictMode:      config.StrictMode,
+		dropped:         batch.NewDroppedCounter(),
 	}
 
 	for _, opt := range opts {
 		opt(w)
+	}
+
+	// State the suppression posture where the flags live, rather than at stream
+	// assembly: both of these turn a write failure into silently missing rows,
+	// are easy to set once and forget, and are otherwise only visible by
+	// counting log lines after the fact.
+	if config.BatchConfig.IgnoreSendErrors {
+		w.logger.Warn(nil, "ignore_send_errors is enabled: batches that fail to send will be dropped and the run will continue", loglib.Fields{
+			"posture":     "at_risk",
+			"writer_type": writerType,
+		})
+	}
+	// strict mode only governs the per-query drop-and-continue path, which the
+	// bulk ingest writer never reaches, so saying so there would describe
+	// behaviour the running writer does not have.
+	if !config.StrictMode && writerType == batchWriter {
+		w.logger.Info("strict_mode is disabled: non-internal query failures will be dropped and counted rather than stopping the pipeline")
 	}
 
 	var err error
@@ -79,7 +101,7 @@ func newWriter(ctx context.Context, config *Config, writerType string, opts ...W
 
 	if w.instrumentation.IsEnabled() {
 		w.adapter = newInstrumentedWalAdapter(w.adapter, w.instrumentation)
-		if err := w.initMetrics(); err != nil {
+		if err := w.dropped.RegisterMetrics(w.instrumentation, writerType); err != nil {
 			return nil, fmt.Errorf("initialising postgres writer metrics: %w", err)
 		}
 	}
@@ -96,7 +118,13 @@ func (w *Writer) DroppedQueries() uint64 {
 
 const droppedQueriesMetricName = "pgstream.postgres.writer.dropped_queries"
 
-func (w *Writer) initMetrics() error {
+// initDroppedQueriesMetric registers the per-query drop counter. Only the batch
+// writer reaches recordDroppedQuery, so only the batch writer registers this:
+// exporting it for the bulk ingest writer too would publish a permanent zero
+// under a writer_type label naming a component that does silently drop data, by
+// whole batches. Called by NewBatchWriter rather than by the shared
+// constructor, so the restriction is structural rather than a type check.
+func (w *Writer) initDroppedQueriesMetric() error {
 	if w.instrumentation == nil || w.instrumentation.Meter == nil {
 		return nil
 	}
@@ -145,6 +173,7 @@ func (w *Writer) recordDroppedQuery(q *query, cause error) {
 }
 
 func (w *Writer) close() error {
+	w.dropped.LogTotals(w.logger)
 	if err := w.adapter.close(); err != nil {
 		w.logger.Error(err, "closing adapter")
 	}

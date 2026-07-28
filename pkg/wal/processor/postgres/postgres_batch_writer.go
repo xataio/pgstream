@@ -52,9 +52,14 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...WriterOption) (
 	// postgres.Config, and bulk ingest defaults SendConcurrency to >1.
 	batchConfig := config.BatchConfig
 	batchConfig.SendConcurrency = 1
-	bw.batchSender, err = batch.NewSender(ctx, &batchConfig, bw.sendBatch, w.logger)
+	bw.batchSender, err = batch.NewSender(ctx, &batchConfig, bw.sendBatch, w.logger,
+		batch.WithDroppedCounter[*walMessage](w.dropped))
 	if err != nil {
 		return nil, err
+	}
+
+	if err := w.initDroppedQueriesMetric(); err != nil {
+		return nil, fmt.Errorf("initialising postgres batch writer metrics: %w", err)
 	}
 
 	return bw, nil
@@ -94,7 +99,8 @@ func (w *BatchWriter) Name() string {
 
 func (w *BatchWriter) Close() error {
 	w.logger.Debug("closing batch writer")
-	return errors.Join(w.batchSender.Close(), w.close())
+	senderErr := w.batchSender.Close()
+	return errors.Join(senderErr, w.close())
 }
 
 func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]) error {
