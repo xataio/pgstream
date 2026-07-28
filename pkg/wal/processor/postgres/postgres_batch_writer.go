@@ -152,7 +152,7 @@ func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]
 							if w.strictMode {
 								return fmt.Errorf("strict mode: stopping on non-internal DDL failure: %w", err)
 							}
-							w.recordDroppedQuery(q)
+							w.recordDroppedQuery(q, err)
 							continue
 						}
 						return err
@@ -201,7 +201,7 @@ func (w *BatchWriter) buildCoalescedQueries(run []*walMessage) ([]*query, error)
 		for i, m := range run {
 			events[i] = m.data
 		}
-		return w.dmlAdapter.buildBulkDeleteQuery(events)
+		return w.dmlAdapter.buildBulkDeleteQuery(events, run[0].schemaInfo)
 	case "I":
 		events := make([]*wal.Data, len(run))
 		for i, m := range run {
@@ -244,6 +244,9 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 	retryQueries := []*query{}
 	var droppedQuery *query
 	err := w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
+		retryQueries = []*query{}
+		droppedQuery = nil
+
 		if err := w.setReplicationRoleToReplica(ctx, tx); err != nil {
 			return err
 		}
@@ -274,7 +277,7 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 		if w.strictMode {
 			return nil, fmt.Errorf("strict mode: stopping on non-internal query failure: %w", err)
 		}
-		w.recordDroppedQuery(droppedQuery)
+		w.recordDroppedQuery(droppedQuery, err)
 	}
 
 	// if there were no errors or no internal errors in the tx, return the
@@ -290,6 +293,7 @@ func (w *BatchWriter) isInternalError(err error) bool {
 	var errRelationAlreadyExists *pglib.ErrRelationAlreadyExists
 	var errPreconditionFailed *pglib.ErrPreconditionFailed
 	var errFeatureNotSupported *pglib.ErrFeatureNotSupported
+	var errValueEncoding *pglib.ErrValueEncoding
 	switch {
 	case errors.As(err, &errRelationDoesNotExist),
 		errors.As(err, &errConstraintViolation),
@@ -297,7 +301,8 @@ func (w *BatchWriter) isInternalError(err error) bool {
 		errors.As(err, &errDataException),
 		errors.As(err, &errRelationAlreadyExists),
 		errors.As(err, &errPreconditionFailed),
-		errors.As(err, &errFeatureNotSupported):
+		errors.As(err, &errFeatureNotSupported),
+		errors.As(err, &errValueEncoding):
 		return false
 	default:
 		return true

@@ -294,8 +294,9 @@ func (c *Config) RequiredTables() []string {
 }
 
 // TableSelection captures the include/exclude filter pgstream applies to the
-// WAL stream. Empty include means "every user table is in scope"; exclude
-// names tables to skip. Include and exclude are mutually exclusive at the
+// WAL stream including plugin fitlters. Empty include means "every user table
+// is in scope"; exclude names tables to skip.
+// Include and exclude are mutually exclusive at the
 // source-config level (validated by the filter package).
 type TableSelection struct {
 	include       []string
@@ -303,6 +304,7 @@ type TableSelection struct {
 	includeMap    pglib.SchemaTableMap
 	excludeMap    pglib.SchemaTableMap
 	schemaOnlyMap pglib.SchemaTableMap
+	plugin        *TableSelection
 }
 
 func NewTableSelection(include, exclude []string) (TableSelection, error) {
@@ -323,14 +325,28 @@ func NewTableSelection(include, exclude []string) (TableSelection, error) {
 	return s, nil
 }
 
+// IsUnfiltered reports whether the selection places no table out of scope.
+// Note the weakened invariant since plugin scoping was added: a plugin-only
+// selection is NOT unfiltered even though Include() and Exclude() are both
+// empty. Consumers must not assume "!IsUnfiltered() ⇒ include or exclude is
+// non-empty" — check IsTableInScope per table instead.
 func (s TableSelection) IsUnfiltered() bool {
+	if s.plugin != nil && !s.plugin.IsUnfiltered() {
+		return false
+	}
 	return len(s.include) == 0 && len(s.exclude) == 0
 }
 
 // IsTableInScope mirrors the precedence the wal filter applies to data (DML)
 // events: exclude beats everything, an exact include entry beats a schema-only
-// match, and a schema-only match beats a wildcard include.
+// match, and a schema-only match beats a wildcard include. When wal2json
+// plugin-level scoping is configured it is applied first as an AND gate — a
+// table the plugin never emits WAL for is never in scope, regardless of the
+// modifiers.filter lists.
 func (s TableSelection) IsTableInScope(schema, table string) bool {
+	if s.plugin != nil && !s.plugin.IsTableInScope(schema, table) {
+		return false
+	}
 	if s.excludeMap.ContainsSchemaTable(schema, table) {
 		return false
 	}
@@ -365,19 +381,50 @@ func (c *Config) SnapshotTableSelection() TableSelection {
 }
 
 func (c *Config) ReplicationTableSelection() TableSelection {
-	if c.Processor.Filter == nil {
-		return TableSelection{}
+	var sel TableSelection
+	if c.Processor.Filter != nil {
+		// IsValid is the gate that catches malformed entries; if a caller skipped
+		// it the constructor error is swallowed and the lazy fallback in
+		// IsTableInScope produces a defined (over-permissive) answer.
+		// Schema-only tables have their data events filtered out, so they don't
+		// need a replica identity; IsTableInScope applies the same per-table
+		// precedence as the wal filter.
+		filter := c.Processor.Filter
+		sel, _ = NewTableSelection(filter.IncludeTables, filter.ExcludeTables)
+		sel.schemaOnlyMap, _ = pglib.NewSchemaTableMap(filter.SchemaOnlyTables)
 	}
-	// IsValid is the gate that catches malformed entries; if a caller skipped
-	// it the constructor error is swallowed and the lazy fallback in
-	// IsTableInScope produces a defined (over-permissive) answer.
-	// Schema-only tables have their data events filtered out, so they don't
-	// need a replica identity; IsTableInScope applies the same per-table
-	// precedence as the wal filter.
-	filter := c.Processor.Filter
-	sel, _ := NewTableSelection(filter.IncludeTables, filter.ExcludeTables)
-	sel.schemaOnlyMap, _ = pglib.NewSchemaTableMap(filter.SchemaOnlyTables)
+	// pgstream has two independent table-scoping mechanisms: the processor
+	// filter above, and the wal2json plugin
+	sel.plugin = c.pluginTableSelection()
 	return sel
+}
+
+func (c *Config) pluginTableSelection() *TableSelection {
+	if c.Listener.Postgres == nil {
+		return nil
+	}
+	args := c.Listener.Postgres.Replication.PluginArguments
+	addTables := splitPluginTables(args.AddTables)
+	filterTables := splitPluginTables(args.FilterTables)
+	if len(addTables) == 0 && len(filterTables) == 0 {
+		return nil
+	}
+	plugin, _ := NewTableSelection(addTables, filterTables)
+	return &plugin
+}
+
+func splitPluginTables(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func (c *Config) AccessTableSelection() TableSelection {

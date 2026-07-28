@@ -162,6 +162,7 @@ func (q *Querier) isRetriableError(err error) bool {
 	doesNotExist := &postgres.ErrRelationDoesNotExist{}
 	programLimitExceeded := &postgres.ErrProgramLimitExceeded{}
 	featureNotSupported := &postgres.ErrFeatureNotSupported{}
+	valueEncoding := &postgres.ErrValueEncoding{}
 	switch {
 	case errors.As(mappedErr, &permissionDenied),
 		errors.As(mappedErr, &constraintViolation),
@@ -170,7 +171,8 @@ func (q *Querier) isRetriableError(err error) bool {
 		errors.As(mappedErr, &syntaxError),
 		errors.As(mappedErr, &doesNotExist),
 		errors.As(mappedErr, &programLimitExceeded),
-		errors.As(mappedErr, &featureNotSupported):
+		errors.As(mappedErr, &featureNotSupported),
+		errors.As(mappedErr, &valueEncoding):
 		return false
 	}
 
