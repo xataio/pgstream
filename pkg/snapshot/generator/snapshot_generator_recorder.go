@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	snapshotstore "github.com/xataio/pgstream/pkg/snapshot/store"
 	"golang.org/x/sync/errgroup"
@@ -17,10 +18,21 @@ import (
 // SnapshotRecorder is a decorator around a snapshot generator that will record
 // the snapshot request status.
 type SnapshotRecorder struct {
+	logger              loglib.Logger
 	wrapped             SnapshotGenerator
 	store               snapshotstore.Store
 	repeatableSnapshots bool
 	schemaWorkers       uint
+}
+
+type Option func(*SnapshotRecorder)
+
+func WithLogger(logger loglib.Logger) Option {
+	return func(s *SnapshotRecorder) {
+		s.logger = loglib.NewLogger(logger).WithFields(loglib.Fields{
+			loglib.ModuleField: "snapshot_generator_recorder",
+		})
+	}
 }
 
 type Config struct {
@@ -38,13 +50,20 @@ const (
 // NewSnapshotRecorder will return the generator on input wrapped with an
 // activity recorder that will keep track of the status of the snapshot
 // requests.
-func NewSnapshotRecorder(cfg *Config, store snapshotstore.Store, generator SnapshotGenerator) *SnapshotRecorder {
-	return &SnapshotRecorder{
+func NewSnapshotRecorder(cfg *Config, store snapshotstore.Store, generator SnapshotGenerator, opts ...Option) *SnapshotRecorder {
+	sr := &SnapshotRecorder{
+		logger:              loglib.NewNoopLogger(),
 		wrapped:             generator,
 		store:               store,
 		repeatableSnapshots: cfg.RepeatableSnapshots,
 		schemaWorkers:       cfg.snapshotWorkers(),
 	}
+
+	for _, opt := range opts {
+		opt(sr)
+	}
+
+	return sr
 }
 
 func (s *SnapshotRecorder) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) error {
@@ -174,8 +193,27 @@ func (s *SnapshotRecorder) markSnapshotCompleted(ctx context.Context, requests [
 	for _, req := range requests {
 		eg.Go(func() error {
 			schemaErrs := getSchemaErrors(req.Schema, err)
+			// captured before MarkCompleted mutates it: if the store write
+			// below fails, this is the status that remains persisted, and it is
+			// the one an operator has to repair
+			persistedStatus := req.Status
 			req.MarkCompleted(req.Schema, schemaErrs)
 			if updateErr := s.store.UpdateSnapshotRequest(ctx, req); updateErr != nil {
+				// A request left in a non-terminal state is never retried:
+				// HasFailedForTable only reports a failure for a completed
+				// request, so its tables are treated as already covered and
+				// silently skipped by every subsequent run. Log it regardless of
+				// how the error is routed below -- when err != nil the error is
+				// folded into schemaErrs, which is written by the very store
+				// call that just failed, so it would otherwise vanish. Name the
+				// state to repair: without it an operator has the symptom but
+				// not the row to fix.
+				s.logger.Error(updateErr, "recording snapshot request completion, request stuck in non-terminal state and will never be retried: mark it completed with an error in the snapshot store to bring its tables back into scope", loglib.Fields{
+					"severity":         "DATALOSS",
+					"schema":           req.Schema,
+					"mode":             req.GetMode(),
+					"persisted_status": persistedStatus,
+				})
 				if err == nil {
 					return updateErr
 				}
