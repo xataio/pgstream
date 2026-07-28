@@ -79,6 +79,7 @@ source:
 target:
   postgres:
     url: "postgresql://user:password@localhost:5432/mytargetdatabase"
+    max_connections: 50 # maximum number of connections per pool to the target database. Defaults to 50; overrides pool_max_conns in the URL when set.
     batch:
       timeout: 1000 # batch timeout in milliseconds. Defaults to 30s
       size: 100 # number of messages in a batch. Defaults to 20000
