@@ -27,6 +27,12 @@ type Sender[T Message] struct {
 	sendErr          error
 	ignoreSendErrors bool
 
+	// dropped accumulates what ignoreSendErrors has silently discarded. It is
+	// usually supplied by the owning writer and shared with its other senders,
+	// so the totals and the exported metrics cover the writer rather than one
+	// table. A sender built without one keeps its own.
+	dropped *DroppedCounter
+
 	maxBatchBytes     int64
 	maxBatchSize      int64
 	batchSendInterval time.Duration
@@ -43,8 +49,22 @@ type sendBatchFn[T Message] func(context.Context, *Batch[T]) error
 
 var errSendStopped = errors.New("stop processing, sending has stopped")
 
-func NewSender[T Message](ctx context.Context, config *Config, sendfn sendBatchFn[T], logger loglib.Logger) (*Sender[T], error) {
+type Option[T Message] func(*Sender[T])
+
+// WithDroppedCounter shares the owning writer's counter with this sender, so
+// the drop totals and the metrics derived from them span every sender the
+// writer builds rather than a single table's.
+func WithDroppedCounter[T Message](c *DroppedCounter) Option[T] {
+	return func(s *Sender[T]) {
+		if c != nil {
+			s.dropped = c
+		}
+	}
+}
+
+func NewSender[T Message](ctx context.Context, config *Config, sendfn sendBatchFn[T], logger loglib.Logger, opts ...Option[T]) (*Sender[T], error) {
 	s := &Sender[T]{
+		dropped:           NewDroppedCounter(),
 		batchSendInterval: config.GetBatchTimeout(),
 		maxBatchBytes:     config.GetMaxBatchBytes(),
 		maxBatchSize:      config.GetMaxBatchSize(),
@@ -254,10 +274,11 @@ func (s *Sender[T]) startSendDrainers(batchChan chan *Batch[T]) (*sync.WaitGroup
 				err := s.sendBatch(context.Background(), batch)
 				s.queueBytesSema.Release(int64(batch.totalBytes))
 				if err != nil {
-					s.logger.Error(err, "failed to send batch")
 					if s.ignoreSendErrors {
+						s.recordDroppedBatch(err, batch)
 						continue
 					}
+					s.logger.Error(err, "failed to send batch")
 					s.recordSendErr(err)
 					sendErrChan <- err
 					return
@@ -283,10 +304,11 @@ func (s *Sender[T]) startSendDrainers(batchChan chan *Batch[T]) (*sync.WaitGroup
 				err := s.sendBatch(sendCtx, batch)
 				s.queueBytesSema.Release(int64(batch.totalBytes))
 				if err != nil {
-					s.logger.Error(err, "failed to send batch")
 					if s.ignoreSendErrors {
+						s.recordDroppedBatch(err, batch)
 						continue
 					}
+					s.logger.Error(err, "failed to send batch")
 					firstErr.Do(func() {
 						s.recordSendErr(err)
 						// abort in-flight COPYs in the other drainers
@@ -322,6 +344,22 @@ func (s *Sender[T]) Close() error {
 		return nil
 	}
 	return sendErr
+}
+
+// recordDroppedBatch accounts for a batch discarded by ignoreSendErrors and
+// logs it as data loss. The DATALOSS severity matches the convention used at
+// every other silent-loss site in the codebase, so a single alert rule keyed on
+// it covers them all.
+func (s *Sender[T]) recordDroppedBatch(err error, batch *Batch[T]) {
+	msgCount := len(batch.GetMessages())
+	batches, messages := s.dropped.record(uint64(msgCount))
+	s.logger.Error(err, "failed to send batch: dropping it and continuing", loglib.Fields{
+		"severity":         "DATALOSS",
+		"batch_messages":   msgCount,
+		"batch_bytes":      batch.totalBytes,
+		"dropped_batches":  batches,
+		"dropped_messages": messages,
+	})
 }
 
 func (s *Sender[T]) recordSendErr(err error) {

@@ -319,6 +319,7 @@ func TestSender_send(t *testing.T) {
 				wg:                &sync.WaitGroup{},
 				cancelFn:          func() {},
 				ignoreSendErrors:  tc.ignoreErrors,
+				dropped:           NewDroppedCounter(),
 			}
 			defer sender.Close()
 
@@ -353,6 +354,60 @@ func TestSender_send(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("send errors ignored, dropped batches counted", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+
+		doneChan := make(chan struct{}, 1)
+		defer close(doneChan)
+
+		once := sync.Once{}
+		sender := &Sender[*mockMessage]{
+			batchSendInterval: 100 * time.Millisecond,
+			maxBatchSize:      10,
+			msgChan:           make(chan *WALMessage[*mockMessage]),
+			queueBytesSema:    &syncmocks.WeightedSemaphore{ReleaseFn: func(uint64, int64) {}},
+			sendDone:          make(chan struct{}),
+			once:              &sync.Once{},
+			logger:            log.NewNoopLogger(),
+			sendBatchFn: func(ctx context.Context, b *Batch[*mockMessage]) error {
+				defer once.Do(func() { doneChan <- struct{}{} })
+				return errTest
+			},
+			wg:               &sync.WaitGroup{},
+			cancelFn:         func() {},
+			ignoreSendErrors: true,
+			dropped:          NewDroppedCounter(),
+		}
+		defer sender.Close()
+
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := sender.send(ctx)
+			require.ErrorIs(t, err, context.Canceled)
+		}()
+
+		sender.msgChan <- testWALMsg(1)
+
+		select {
+		case <-doneChan:
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for the batch to be sent")
+		}
+		// cancel and wait for send to return: it closes the batch channel and
+		// waits on the drainers, so the drop has been accounted for by then.
+		cancel()
+		wg.Wait()
+
+		require.Equal(t, uint64(1), sender.dropped.Batches())
+		require.Equal(t, uint64(1), sender.dropped.Messages())
+	})
 
 	t.Run("graceful shutdown, drain in-flight batch", func(t *testing.T) {
 		t.Parallel()
