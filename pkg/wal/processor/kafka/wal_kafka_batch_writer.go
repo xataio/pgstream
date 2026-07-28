@@ -29,6 +29,11 @@ type BatchWriter struct {
 	maxBatchBytes int64
 	partitionKey  PartitionKey
 
+	// dropped accumulates what ignore_send_errors has discarded, and is shared
+	// with the sender so the totals and metrics cover this writer.
+	dropped         *batch.DroppedCounter
+	instrumentation *otel.Instrumentation
+
 	// optional checkpointer callback to mark what was safely processed
 	checkpointer checkpointer.Checkpoint
 
@@ -84,13 +89,27 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...Option) (*Batch
 		opt(w)
 	}
 
-	w.batchSender, err = batch.NewSender(ctx, &config.Batch, w.sendBatch, w.logger)
+	w.dropped = batch.NewDroppedCounter()
+	if config.Batch.IgnoreSendErrors {
+		w.logger.Warn(nil, "ignore_send_errors is enabled: batches that fail to send will be dropped and the run will continue", loglib.Fields{
+			"posture":     "at_risk",
+			"writer_type": kafkaWriterType,
+		})
+	}
+	if err := w.dropped.RegisterMetrics(w.instrumentation, kafkaWriterType); err != nil {
+		return nil, fmt.Errorf("initialising kafka batch writer metrics: %w", err)
+	}
+
+	w.batchSender, err = batch.NewSender(ctx, &config.Batch, w.sendBatch, w.logger,
+		batch.WithDroppedCounter[kafka.Message](w.dropped))
 	if err != nil {
 		return nil, err
 	}
 
 	return w, nil
 }
+
+const kafkaWriterType = "kafka_batch_writer"
 
 func WithLogger(l loglib.Logger) Option {
 	return func(w *BatchWriter) {
@@ -108,6 +127,7 @@ func WithCheckpoint(c checkpointer.Checkpoint) Option {
 
 func WithInstrumentation(i *otel.Instrumentation) Option {
 	return func(w *BatchWriter) {
+		w.instrumentation = i
 		instrumentedWriter, err := kafkainstrumentation.NewWriter(w.writer, i)
 		if err != nil {
 			w.logger.Error(err, "initialising kafka writer instrumentation")
@@ -173,6 +193,7 @@ func (w *BatchWriter) Name() string {
 }
 
 func (w *BatchWriter) Close() error {
+	w.dropped.LogTotals(w.logger)
 	return errors.Join(w.batchSender.Close(), w.writer.Close())
 }
 
