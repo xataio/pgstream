@@ -11,15 +11,25 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
 
 const (
-	pgRestoreCmd    = "pg_restore"
-	psqlCmd         = "psql"
-	postgres        = "postgres"
-	maxStatementLen = 500
+	pgRestoreCmd          = "pg_restore"
+	psqlCmd               = "psql"
+	postgres              = "postgres"
+	maxStatementLen       = 500
+	maxRestoreOutputBytes = 4096
+)
+
+var (
+	// passwordLiteral matches the quoted secret in a role statement that carries
+	// one: CREATE/ALTER ROLE and CREATE/ALTER USER all spell it `PASSWORD '...'`
+	passwordLiteral = regexp.MustCompile(`(?i)PASSWORD\s+'(?:[^']|'')*'`)
+	// copyRowContext matches the row payload psql appends when a COPY fails
+	copyRowContext = regexp.MustCompile(`(?i)(CONTEXT:\s+COPY\s+[^,]+,\s+line\s+\d+):\s+".*"`)
 )
 
 type PGRestoreOptions struct {
@@ -126,9 +136,33 @@ func buildRestoreError(out []byte, execErr error) error {
 		return fmt.Errorf("error restoring dump: %w", parseErr)
 	}
 	if execErr != nil {
-		return fmt.Errorf("error restoring dump: %w", execErr)
+		if tail := tailOutput(out, maxRestoreOutputBytes); tail != "" {
+			return fmt.Errorf("error restoring dump: %w: output: %s", execErr, tail)
+		}
+		return fmt.Errorf("error restoring dump: %w: no output captured", execErr)
 	}
 	return nil
+}
+
+// redactSecrets removes credential material from restore output before it is
+// carried in an error.
+func redactSecrets(s string) string {
+	s = passwordLiteral.ReplaceAllString(s, "PASSWORD '[REDACTED]'")
+	return copyRowContext.ReplaceAllString(s, "$1: [REDACTED ROW]")
+}
+
+// tailOutput returns the last maxBytes of out, trimmed, prefixed with an
+// ellipsis when truncated, and with credential material redacted.
+func tailOutput(out []byte, maxBytes int) string {
+	trimmed := bytes.TrimSpace(out)
+	if len(trimmed) == 0 {
+		return ""
+	}
+	redacted := redactSecrets(string(trimmed))
+	if len(redacted) <= maxBytes {
+		return redacted
+	}
+	return "..." + redacted[len(redacted)-maxBytes:]
 }
 
 func RemoveDatabaseFromConnectionString(url string) (string, error) {
@@ -165,7 +199,7 @@ func parsePgRestoreOutputErrs(out []byte) error {
 				if isOwnershipError(currentErr) && isCommentStatement(line) {
 					currentErr = &ErrCommentOwnership{Details: currentErr.Error()}
 				}
-				currentErr = fmt.Errorf("%w: %s", currentErr, truncateStatement(line))
+				currentErr = fmt.Errorf("%w: %s", currentErr, truncateStatement(redactSecrets(line)))
 			}
 			inStatement = !endsStatement(line)
 		case isErrorLine(line):
