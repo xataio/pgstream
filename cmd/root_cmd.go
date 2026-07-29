@@ -68,6 +68,7 @@ func Prepare() *cobra.Command {
 	initCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be created by pgstream on the source url")
 	initCmd.Flags().Bool("with-injector", false, "Whether to initialise pgstream with the injector database migrations")
 	initCmd.Flags().Bool("migrations-only", false, "Whether to only run the initialization database migrations")
+	initCmd.Flags().Bool("slot-only", false, "Whether to only create the replication slot, without running the database migrations. Useful when creating the slot on a read replica, where the migrations cannot be applied")
 	initCmd.Flags().Bool("upgrade", false, "Clean up v0.9.x state before initializing (idempotent, safe for repeated use)")
 
 	// destroy cmd
@@ -75,6 +76,7 @@ func Prepare() *cobra.Command {
 	destroyCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be deleted by pgstream from the source url")
 	destroyCmd.Flags().Bool("with-injector", false, "Whether to also destroy the injector related database objects")
 	destroyCmd.Flags().Bool("migrations-only", false, "Whether to only revert the database migrations")
+	destroyCmd.Flags().Bool("slot-only", false, "Whether to only drop the replication slot, leaving the pgstream schema and migrations in place")
 
 	// tear down cmd
 	tearDownCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream tear down will be run")

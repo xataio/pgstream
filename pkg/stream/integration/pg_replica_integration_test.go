@@ -185,18 +185,16 @@ func createLogicalSlotOnStandby(t *testing.T, ctx context.Context, primaryURL, r
 
 	slotName := fmt.Sprintf("pgstream_replica_it_%d", time.Now().UnixNano())
 
+	// slot-only init is what makes this workable against a standby: it creates
+	// the slot without attempting the pgstream schema or migrations, which
+	// would fail on a read only server
 	created := make(chan error, 1)
 	go func() {
-		conn, err := pglib.NewConn(ctx, replicaURL)
-		if err != nil {
-			created <- err
-			return
-		}
-		defer conn.Close(ctx)
-
-		var name string
-		created <- conn.QueryRow(ctx, []any{&name},
-			"SELECT slot_name FROM pg_create_logical_replication_slot($1, 'wal2json')", slotName)
+		created <- stream.Init(ctx, &stream.InitConfig{
+			PostgresURL:         replicaURL,
+			ReplicationSlotName: slotName,
+			SlotOnly:            true,
+		})
 	}()
 
 	primaryConn, err := pglib.NewConn(ctx, primaryURL)

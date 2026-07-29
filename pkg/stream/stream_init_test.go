@@ -176,6 +176,31 @@ func TestWithUpgrade(t *testing.T) {
 	require.True(t, cfg.Upgrade)
 }
 
+func TestWithSlotOnly(t *testing.T) {
+	t.Parallel()
+
+	cfg := &InitConfig{}
+	WithSlotOnly()(cfg)
+	require.True(t, cfg.SlotOnly)
+}
+
+// TestInit_MigrationsOnlyAndSlotOnly checks the two restrictions are rejected
+// together rather than one silently winning: they select disjoint halves of the
+// work, so asking for both is always a configuration mistake.
+func TestInit_MigrationsOnlyAndSlotOnly(t *testing.T) {
+	t.Parallel()
+
+	cfg := &InitConfig{
+		PostgresURL:    "postgres://user:pass@localhost:5432/db",
+		MigrationsOnly: true,
+		SlotOnly:       true,
+	}
+
+	// no connection is attempted: the conflict is caught before any I/O
+	require.ErrorIs(t, Init(context.Background(), cfg), errMigrationsAndSlotOnly)
+	require.ErrorIs(t, Destroy(context.Background(), cfg), errMigrationsAndSlotOnly)
+}
+
 // setupV09xState creates the database objects that v0.9.x would have created.
 func setupV09xState(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()

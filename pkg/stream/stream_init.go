@@ -22,6 +22,7 @@ type InitConfig struct {
 	ReplicationSlotName       string
 	InjectorMigrationsEnabled bool
 	MigrationsOnly            bool
+	SlotOnly                  bool
 	Upgrade                   bool
 	// PhaseTracker is optional runtime state for stream.Run; Init/Destroy ignore it.
 	PhaseTracker *phase.Tracker
@@ -32,6 +33,12 @@ type InitOption func(*InitConfig)
 func WithMigrationsOnly() InitOption {
 	return func(cfg *InitConfig) {
 		cfg.MigrationsOnly = true
+	}
+}
+
+func WithSlotOnly() InitOption {
+	return func(cfg *InitConfig) {
+		cfg.SlotOnly = true
 	}
 }
 
@@ -53,13 +60,19 @@ const (
 	pgstreamSchema = "pgstream"
 )
 
-var errMissingPostgresURL = errors.New("postgres URL is required")
+var (
+	errMissingPostgresURL    = errors.New("postgres URL is required")
+	errMigrationsAndSlotOnly = errors.New("migrations-only and slot-only are mutually exclusive")
+)
 
 // Init initialises the pgstream state in the postgres database provided, along
 // with creating the relevant replication slot if it doesn't already exist.
 func Init(ctx context.Context, config *InitConfig) error {
 	if config.PostgresURL == "" {
 		return errMissingPostgresURL
+	}
+	if config.MigrationsOnly && config.SlotOnly {
+		return errMigrationsAndSlotOnly
 	}
 
 	conn, err := newPGConn(ctx, config.PostgresURL)
@@ -68,36 +81,40 @@ func Init(ctx context.Context, config *InitConfig) error {
 	}
 	defer conn.Close(ctx)
 
-	// first create the pgstream schema so that the migrations table is
-	// created under it
-	if err := createPGStreamSchema(ctx, conn); err != nil {
-		return fmt.Errorf("failed to create pgstream schema: %w", err)
-	}
-
-	if config.Upgrade {
-		if err := cleanupV09xState(ctx, conn); err != nil {
-			return fmt.Errorf("failed to clean up v0.9.x state: %w", err)
+	// the schema and migrations are skipped entirely in slot-only mode: the
+	// target may be a read only standby, where every statement below would fail
+	if !config.SlotOnly {
+		// first create the pgstream schema so that the migrations table is
+		// created under it
+		if err := createPGStreamSchema(ctx, conn); err != nil {
+			return fmt.Errorf("failed to create pgstream schema: %w", err)
 		}
-	}
 
-	migrationAssets := []*migratorlib.MigrationAssets{
-		migratorlib.GetCoreMigrationAssets(),
-	}
-	if config.InjectorMigrationsEnabled {
-		migrationAssets = append(migrationAssets, migratorlib.GetInjectorMigrationAssets())
-	}
-	migrator, err := migratorlib.NewPGMigrator(config.PostgresURL, migrationAssets)
-	if err != nil {
-		return fmt.Errorf("error creating postgres migrator: %w", err)
-	}
+		if config.Upgrade {
+			if err := cleanupV09xState(ctx, conn); err != nil {
+				return fmt.Errorf("failed to clean up v0.9.x state: %w", err)
+			}
+		}
 
-	if err := migrator.Up(); err != nil && !errors.Is(err, migratorlib.ErrNoChange) {
-		return fmt.Errorf("failed to run internal pgstream migrations: %w", err)
-	}
+		migrationAssets := []*migratorlib.MigrationAssets{
+			migratorlib.GetCoreMigrationAssets(),
+		}
+		if config.InjectorMigrationsEnabled {
+			migrationAssets = append(migrationAssets, migratorlib.GetInjectorMigrationAssets())
+		}
+		migrator, err := migratorlib.NewPGMigrator(config.PostgresURL, migrationAssets)
+		if err != nil {
+			return fmt.Errorf("error creating postgres migrator: %w", err)
+		}
 
-	// if only migrations need to be run, return early
-	if config.MigrationsOnly {
-		return nil
+		if err := migrator.Up(); err != nil && !errors.Is(err, migratorlib.ErrNoChange) {
+			return fmt.Errorf("failed to run internal pgstream migrations: %w", err)
+		}
+
+		// if only migrations need to be run, return early
+		if config.MigrationsOnly {
+			return nil
+		}
 	}
 
 	if config.ReplicationSlotName == "" {
@@ -134,12 +151,21 @@ func Destroy(ctx context.Context, config *InitConfig) error {
 	if config.PostgresURL == "" {
 		return errMissingPostgresURL
 	}
+	if config.MigrationsOnly && config.SlotOnly {
+		return errMigrationsAndSlotOnly
+	}
 
 	conn, err := newPGConn(ctx, config.PostgresURL)
 	if err != nil {
 		return err
 	}
 	defer conn.Close(ctx)
+
+	// in slot-only mode the pgstream schema is left in place, so the emit_ddl
+	// event trigger keeps working for anything still replicating from it
+	if config.SlotOnly {
+		return dropConfiguredReplicationSlot(ctx, conn, config)
+	}
 
 	migrationAssets := []*migratorlib.MigrationAssets{
 		migratorlib.GetCoreMigrationAssets(),
@@ -171,7 +197,14 @@ func Destroy(ctx context.Context, config *InitConfig) error {
 		return fmt.Errorf("failed to drop pgstream schema: %w", err)
 	}
 
+	return dropConfiguredReplicationSlot(ctx, conn, config)
+}
+
+// dropConfiguredReplicationSlot resolves the slot name the same way Init does,
+// defaulting it from the database name when it isn't configured, and drops it.
+func dropConfiguredReplicationSlot(ctx context.Context, conn *pgx.Conn, config *InitConfig) error {
 	if config.ReplicationSlotName == "" {
+		var err error
 		config.ReplicationSlotName, err = getReplicationSlotName(config.PostgresURL)
 		if err != nil {
 			return err
@@ -182,11 +215,7 @@ func Destroy(ctx context.Context, config *InitConfig) error {
 		return err
 	}
 
-	if err := dropReplicationSlot(ctx, conn, config.ReplicationSlotName); err != nil {
-		return err
-	}
-
-	return nil
+	return dropReplicationSlot(ctx, conn, config.ReplicationSlotName)
 }
 
 func createPGStreamSchema(ctx context.Context, conn *pgx.Conn) error {

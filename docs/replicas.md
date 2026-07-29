@@ -65,13 +65,12 @@ primary indefinitely — the exact disk pressure you are trying to avoid. See
 
 If you already created one, drop it:
 
-```sql
--- on the primary
-SELECT pg_drop_replication_slot('pgstream_<dbname>_slot');
+```bash
+pgstream destroy --postgres-url <primary-url> --slot-only
 ```
 
-> ⚠️ Use `pg_drop_replication_slot`, **not** `pgstream destroy`. Destroy would also remove the
-> pgstream schema and the `emit_ddl` event trigger, which must stay on the primary.
+> ⚠️ Use `--slot-only`. A plain `pgstream destroy` would also remove the pgstream schema and
+> the `emit_ddl` event trigger, which must stay on the primary.
 
 > ⚠️ Two different slots live on the primary and only the `slot_type` column tells them apart.
 > Drop the unused **logical** slot; **keep** the replica's own **physical** slot, which is what
@@ -88,15 +87,27 @@ hot_standby_feedback = on
 
 ### 3. Create the logical replication slot on the replica
 
-```sql
--- on the replica
-SELECT pg_create_logical_replication_slot('pgstream_<dbname>_slot', 'wal2json');
+```bash
+pgstream init --postgres-url <replica-url> --slot-only
 ```
 
+`--slot-only` creates the replication slot and skips the schema and migrations, which is what
+makes this work against a read only standby. See [CLI: init](cli.md#init).
+
 The slot name only has to match what pgstream looks for on the source URL. If
-`source.postgres.replication.replication_slot` is left empty, pgstream derives
-`pgstream_<dbname>_slot` from the URL's database name; since the replica is a physical copy
-its database name is the same, so the default resolves identically on both hosts.
+`--replication-slot` and `source.postgres.replication.replication_slot` are both left empty,
+pgstream derives `pgstream_<dbname>_slot` from the URL's database name; since the replica is
+a physical copy its database name is the same, so the default resolves identically on both
+hosts.
+
+> ⚠️ **If this command does not return promptly, it is waiting, not failing.** Creating a
+> logical slot on a standby blocks until the primary emits an `xl_running_xacts` record, which
+> is what lets the standby build a consistent catalog snapshot. An idle primary may never emit
+> one. Unblock it by running this on the **primary**:
+>
+> ```sql
+> SELECT pg_log_standby_snapshot();
+> ```
 
 ### 4. Run pgstream against the replica
 

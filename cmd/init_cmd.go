@@ -103,6 +103,9 @@ func initDestroyFlagBinding(cmd *cobra.Command, _ []string) {
 	if f := cmd.Flags().Lookup("migrations-only"); f != nil {
 		viper.BindPFlag("migrations-only", f)
 	}
+	if f := cmd.Flags().Lookup("slot-only"); f != nil {
+		viper.BindPFlag("slot-only", f)
+	}
 	if f := cmd.Flags().Lookup("upgrade"); f != nil {
 		viper.BindPFlag("upgrade", f)
 	}
@@ -127,6 +130,9 @@ func getInitOptions() []stream.InitOption {
 	initOpts := []stream.InitOption{}
 	if viper.GetBool("migrations-only") {
 		initOpts = append(initOpts, stream.WithMigrationsOnly())
+	}
+	if viper.GetBool("slot-only") {
+		initOpts = append(initOpts, stream.WithSlotOnly())
 	}
 	if viper.GetBool("upgrade") {
 		initOpts = append(initOpts, stream.WithUpgrade())
