@@ -49,7 +49,11 @@ func WithLogger(logger loglib.Logger) Option {
 func (s *SnapshotGeneratorAdapter) CreateSnapshot(ctx context.Context) (err error) {
 	startTime := time.Now()
 	defer func() {
-		s.logger.Info("snapshot generation completed", loglib.Fields{"err": err, "duration": time.Since(startTime).String()})
+		if err != nil {
+			s.logger.Error(err, "snapshot generation failed", loglib.Fields{"duration": time.Since(startTime).String()})
+			return
+		}
+		s.logger.Info("snapshot generation completed", loglib.Fields{"duration": time.Since(startTime).String()})
 	}()
 
 	snapshot := &snapshot.Snapshot{
