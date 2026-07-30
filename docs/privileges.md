@@ -26,3 +26,14 @@ For cloud-provider-specific instructions and constraints, please see:
 
 - `pgstreamsource` → user defined in the **pgstream source URL**
 - `pgstreamtarget` → user defined in the **pgstream target URL**
+
+---
+
+## Security note: DDL replication and the target role
+
+When DDL replication is enabled, DDL statements captured on the source are replayed on the target using the `pgstreamtarget` role. pgstream assumes the source and target are within the same trust domain.
+
+If roles that can run DDL on the source are **less trusted** than `pgstreamtarget`, they can cause SQL to run on the target with the target role's privileges. To limit the impact:
+
+- Grant `pgstreamtarget` only the privileges it needs to apply schema and data changes. Avoid `SUPERUSER`, `CREATEROLE`, and `CREATEDB` unless a feature explicitly requires them.
+- If your source and target roles have different trust levels, disable DDL replication (see [`ignore_ddl`](configuration.md)).

@@ -116,7 +116,7 @@ target:
       constant:
         max_retries: 5 # maximum number of retries
         interval: 1000 # interval in milliseconds
-    ignore_ddl: false # whether to disable processing of DDL events on the target Postgres database. Defaults to false.
+    ignore_ddl: false # whether to disable processing of DDL events on the target Postgres database. Defaults to false. Consider enabling this if source and target roles have different trust levels (see docs/privileges.md).
   kafka:
     servers: ["localhost:9092"]
     topic:
@@ -381,7 +381,7 @@ One of exponential/constant/disable retries backoff policies can be provided for
 | PGSTREAM_POSTGRES_WRITER_BACKOFF_INTERVAL                      | 0                               | No       | Constant interval for the backoff policy to be applied to the Postgres connection retries.                                                                                                                     |
 | PGSTREAM_POSTGRES_WRITER_BACKOFF_MAX_RETRIES                   | 0                               | No       | Max retries for the backoff policy to be applied to the Postgres connection retries.                                                                                                                           |
 | PGSTREAM_POSTGRES_WRITER_DISABLE_RETRIES                       | False                           | No       | Disable any retry policy.                                                                                                                                                                                      |
-| PGSTREAM_POSTGRES_WRITER_IGNORE_DDL                            | False                           | No       | Disable processing of DDL events on the target Postgres database.                                                                                                                                              |
+| PGSTREAM_POSTGRES_WRITER_IGNORE_DDL                            | False                           | No       | Disable processing of DDL events on the target Postgres database. Consider enabling if source and target roles have different trust levels (see [privileges](privileges.md)).                                    |
 | PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_ENABLE                | False                           | No       | Whether to enable auto tuning of batch bytes.                                                                                                                                                                  |
 | PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_MIN_BYTES             | 1048576 (1MB)                   | No       | Minimum batch size in bytes used by the auto tune process.                                                                                                                                                     |
 | PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_MAX_BYTES             | 52428800 (50MB)                 | No       | Maximum batch size in bytes used by the auto tune process.                                                                                                                                                     |
