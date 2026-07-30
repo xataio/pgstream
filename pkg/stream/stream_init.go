@@ -6,10 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	migratorlib "github.com/xataio/pgstream/internal/migrator"
 	"github.com/xataio/pgstream/internal/phase"
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	loglib "github.com/xataio/pgstream/pkg/log"
 
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/jackc/pgerrcode"
@@ -22,16 +24,34 @@ type InitConfig struct {
 	ReplicationSlotName       string
 	InjectorMigrationsEnabled bool
 	MigrationsOnly            bool
+	SlotOnly                  bool
 	Upgrade                   bool
 	// PhaseTracker is optional runtime state for stream.Run; Init/Destroy ignore it.
 	PhaseTracker *phase.Tracker
+	// Logger is optional. Init uses it to report progress that would otherwise
+	// be invisible, such as a replication slot creation that is blocked rather
+	// than slow. Defaults to a no-op logger.
+	Logger loglib.Logger
 }
 
 type InitOption func(*InitConfig)
 
+// WithInitLogger sets the logger Init and Destroy report progress through.
+func WithInitLogger(logger loglib.Logger) InitOption {
+	return func(cfg *InitConfig) {
+		cfg.Logger = logger
+	}
+}
+
 func WithMigrationsOnly() InitOption {
 	return func(cfg *InitConfig) {
 		cfg.MigrationsOnly = true
+	}
+}
+
+func WithSlotOnly() InitOption {
+	return func(cfg *InitConfig) {
+		cfg.SlotOnly = true
 	}
 }
 
@@ -53,13 +73,34 @@ const (
 	pgstreamSchema = "pgstream"
 )
 
-var errMissingPostgresURL = errors.New("postgres URL is required")
+var (
+	errMissingPostgresURL    = errors.New("postgres URL is required")
+	errMigrationsAndSlotOnly = errors.New("migrations-only and slot-only are mutually exclusive")
+	// upgrade only cleans up v0.9.x schema state, which slot-only skips
+	// entirely, so accepting both would silently drop the upgrade
+	errUpgradeAndSlotOnly = errors.New("upgrade and slot-only are mutually exclusive")
+)
+
+// validateRestrictions rejects flag combinations that select disjoint halves of
+// the work, so a caller never gets one silently ignored.
+func (c *InitConfig) validateRestrictions() error {
+	if c.MigrationsOnly && c.SlotOnly {
+		return errMigrationsAndSlotOnly
+	}
+	if c.Upgrade && c.SlotOnly {
+		return errUpgradeAndSlotOnly
+	}
+	return nil
+}
 
 // Init initialises the pgstream state in the postgres database provided, along
 // with creating the relevant replication slot if it doesn't already exist.
 func Init(ctx context.Context, config *InitConfig) error {
 	if config.PostgresURL == "" {
 		return errMissingPostgresURL
+	}
+	if err := config.validateRestrictions(); err != nil {
+		return err
 	}
 
 	conn, err := newPGConn(ctx, config.PostgresURL)
@@ -68,36 +109,40 @@ func Init(ctx context.Context, config *InitConfig) error {
 	}
 	defer conn.Close(ctx)
 
-	// first create the pgstream schema so that the migrations table is
-	// created under it
-	if err := createPGStreamSchema(ctx, conn); err != nil {
-		return fmt.Errorf("failed to create pgstream schema: %w", err)
-	}
-
-	if config.Upgrade {
-		if err := cleanupV09xState(ctx, conn); err != nil {
-			return fmt.Errorf("failed to clean up v0.9.x state: %w", err)
+	// the schema and migrations are skipped entirely in slot-only mode: the
+	// target may be a read only standby, where every statement below would fail
+	if !config.SlotOnly {
+		// first create the pgstream schema so that the migrations table is
+		// created under it
+		if err := createPGStreamSchema(ctx, conn); err != nil {
+			return fmt.Errorf("failed to create pgstream schema: %w", err)
 		}
-	}
 
-	migrationAssets := []*migratorlib.MigrationAssets{
-		migratorlib.GetCoreMigrationAssets(),
-	}
-	if config.InjectorMigrationsEnabled {
-		migrationAssets = append(migrationAssets, migratorlib.GetInjectorMigrationAssets())
-	}
-	migrator, err := migratorlib.NewPGMigrator(config.PostgresURL, migrationAssets)
-	if err != nil {
-		return fmt.Errorf("error creating postgres migrator: %w", err)
-	}
+		if config.Upgrade {
+			if err := cleanupV09xState(ctx, conn); err != nil {
+				return fmt.Errorf("failed to clean up v0.9.x state: %w", err)
+			}
+		}
 
-	if err := migrator.Up(); err != nil && !errors.Is(err, migratorlib.ErrNoChange) {
-		return fmt.Errorf("failed to run internal pgstream migrations: %w", err)
-	}
+		migrationAssets := []*migratorlib.MigrationAssets{
+			migratorlib.GetCoreMigrationAssets(),
+		}
+		if config.InjectorMigrationsEnabled {
+			migrationAssets = append(migrationAssets, migratorlib.GetInjectorMigrationAssets())
+		}
+		migrator, err := migratorlib.NewPGMigrator(config.PostgresURL, migrationAssets)
+		if err != nil {
+			return fmt.Errorf("error creating postgres migrator: %w", err)
+		}
 
-	// if only migrations need to be run, return early
-	if config.MigrationsOnly {
-		return nil
+		if err := migrator.Up(); err != nil && !errors.Is(err, migratorlib.ErrNoChange) {
+			return fmt.Errorf("failed to run internal pgstream migrations: %w", err)
+		}
+
+		// if only migrations need to be run, return early
+		if config.MigrationsOnly {
+			return nil
+		}
 	}
 
 	if config.ReplicationSlotName == "" {
@@ -121,11 +166,51 @@ func Init(ctx context.Context, config *InitConfig) error {
 		return nil
 	}
 
-	if err := createReplicationSlot(ctx, conn, config.ReplicationSlotName); err != nil {
+	stopHint := warnOnSlowSlotCreation(ctx, config)
+	err = createReplicationSlot(ctx, conn, config.ReplicationSlotName)
+	stopHint()
+	if err != nil {
 		return fmt.Errorf("failed to create replication slot: %w", err)
 	}
 
 	return nil
+}
+
+// slotCreationHintDelay is how long slot creation is allowed to run before the
+// hint is logged. Long enough that a normally slow creation stays quiet, short
+// enough to reach someone still watching the command.
+const slotCreationHintDelay = 10 * time.Second
+
+// warnOnSlowSlotCreation logs a hint if slot creation has not finished within
+// slotCreationHintDelay, and returns a function that cancels it.
+//
+// Creating a logical slot on a standby blocks until the primary emits an
+// xl_running_xacts record, which is what lets the standby build a consistent
+// catalog snapshot. A primary taking writes emits one within seconds, but one
+// that has gone quiet may never emit one at all — so the call can wait forever
+// with no error and no timeout. Without this hint that is indistinguishable
+// from a slow connection, and the fix (a statement on a different server) is
+// not something a caller would guess.
+func warnOnSlowSlotCreation(ctx context.Context, config *InitConfig) (stop func()) {
+	logger := config.Logger
+	if logger == nil {
+		return func() {}
+	}
+
+	hintCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-hintCtx.Done():
+		case <-time.After(slotCreationHintDelay):
+			logger.Warn(nil, "still waiting to create the replication slot", loglib.Fields{
+				"slot_name": config.ReplicationSlotName,
+				"hint": "if the source is a read replica, this waits for a running-xacts record from its primary. " +
+					"Run 'SELECT pg_log_standby_snapshot()' on the primary to unblock it",
+			})
+		}
+	}()
+
+	return cancel
 }
 
 // Destroy removes the pgstream state from the postgres database provided,
@@ -134,12 +219,21 @@ func Destroy(ctx context.Context, config *InitConfig) error {
 	if config.PostgresURL == "" {
 		return errMissingPostgresURL
 	}
+	if err := config.validateRestrictions(); err != nil {
+		return err
+	}
 
 	conn, err := newPGConn(ctx, config.PostgresURL)
 	if err != nil {
 		return err
 	}
 	defer conn.Close(ctx)
+
+	// in slot-only mode the pgstream schema is left in place, so the emit_ddl
+	// event trigger keeps working for anything still replicating from it
+	if config.SlotOnly {
+		return dropConfiguredReplicationSlot(ctx, conn, config)
+	}
 
 	migrationAssets := []*migratorlib.MigrationAssets{
 		migratorlib.GetCoreMigrationAssets(),
@@ -171,7 +265,14 @@ func Destroy(ctx context.Context, config *InitConfig) error {
 		return fmt.Errorf("failed to drop pgstream schema: %w", err)
 	}
 
+	return dropConfiguredReplicationSlot(ctx, conn, config)
+}
+
+// dropConfiguredReplicationSlot resolves the slot name the same way Init does,
+// defaulting it from the database name when it isn't configured, and drops it.
+func dropConfiguredReplicationSlot(ctx context.Context, conn *pgx.Conn, config *InitConfig) error {
 	if config.ReplicationSlotName == "" {
+		var err error
 		config.ReplicationSlotName, err = getReplicationSlotName(config.PostgresURL)
 		if err != nil {
 			return err
@@ -182,11 +283,7 @@ func Destroy(ctx context.Context, config *InitConfig) error {
 		return err
 	}
 
-	if err := dropReplicationSlot(ctx, conn, config.ReplicationSlotName); err != nil {
-		return err
-	}
-
-	return nil
+	return dropReplicationSlot(ctx, conn, config.ReplicationSlotName)
 }
 
 func createPGStreamSchema(ctx context.Context, conn *pgx.Conn) error {

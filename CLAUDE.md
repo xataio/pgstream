@@ -19,7 +19,7 @@ make test
 go test -run TestName ./pkg/path/to/package
 
 # Run integration tests (requires Docker for testcontainers)
-PGSTREAM_INTEGRATION_TESTS=true go test -timeout 180s github.com/xataio/pgstream/pkg/stream/integration
+PGSTREAM_INTEGRATION_TESTS=true go test -timeout 600s github.com/xataio/pgstream/pkg/stream/integration
 
 # Lint (golangci-lint v2)
 make lint

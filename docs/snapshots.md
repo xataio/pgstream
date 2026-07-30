@@ -42,4 +42,6 @@ fine.
 > `pgstream check` includes a preflight check that probes the source and reports a clear
 > error when it detects a load-balanced source, so you can catch this before a snapshot runs.
 
+To keep snapshot load off a primary that cannot afford it, the snapshot can be taken from a physical read replica instead. See [Running pgstream from a read replica](replicas.md).
+
 For more details into the snapshot implementation and performance benchmarking, check out this [blogpost](https://xata.io/blog/behind-the-scenes-speeding-up-pgstream-snapshots-for-postgresql). For details on how to use and configure the snapshot mode, check the [snapshot tutorial](tutorials/postgres_snapshot.md).
