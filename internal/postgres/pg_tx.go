@@ -170,7 +170,10 @@ func writeCopyTextValue(buf *bytes.Buffer, tm *pgtype.Map, oid uint32, v any) er
 		buf.WriteString(`\N`)
 		return nil
 	}
-	encoded, err := tm.Encode(oid, pgtype.TextFormatCode, v, nil)
+	// The destination buffer must be non-nil: with a nil buffer, encoding a
+	// non-NULL empty string returns (nil, nil) and would be indistinguishable
+	// from SQL NULL below.
+	encoded, err := tm.Encode(oid, pgtype.TextFormatCode, v, make([]byte, 0, 16))
 	if err != nil {
 		return err
 	}
