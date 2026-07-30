@@ -152,6 +152,36 @@ See [Configuration](configuration.md) for the full set of options.
   FROM pg_replication_slots WHERE slot_name = 'pgstream_<dbname>_slot';
   ```
 
+- **`hot_standby_feedback` holds back vacuum on the primary.** It takes no locks there — it
+  only moves the primary's vacuum horizon — so it cannot cause the DDL lock contention that
+  motivates moving the snapshot off the primary in the first place. What it does cost is bloat,
+  and the cost differs sharply by phase:
+
+  - **Steady-state replication** is cheap. A logical slot needs only `catalog_xmin`, so the
+    retained rows are in the system catalogs rather than user tables.
+  - **The snapshot phase is not.** The parallel data snapshot holds a `REPEATABLE READ`
+    transaction open on the replica for as long as the snapshot runs, and that is a real reader
+    with a data `xmin`. While it is open the primary cannot vacuum the tables being snapshotted.
+
+  Measured on a primary/standby pair with a snapshot-style transaction open on the standby:
+
+  ```
+  VACUUM (VERBOSE) on the primary:
+    tuples: 0 removed, 6000 remain, 5000 are dead but not yet removable
+    removable cutoff: 742    <- pinned at the xmin fed back by the standby
+  ```
+
+  So budget for the primary not vacuuming the snapshotted tables for the duration of the
+  snapshot, and let autovacuum catch up afterwards. Watch `n_dead_tup` on the largest tables.
+  In the extreme — a horizon pinned long enough to trigger anti-wraparound autovacuum — DDL
+  *can* end up blocked, because that flavour of autovacuum holds `SHARE UPDATE EXCLUSIVE` and
+  is not cancelled when a conflicting lock request arrives.
+
+- **`max_standby_streaming_delay` is the complementary lever.** It protects long-running queries
+  on the replica by pausing WAL replay instead of touching the primary's horizon, trading
+  replication lag for query survival. It does **not** replace `hot_standby_feedback` for a
+  long-lived slot: delaying the conflicting WAL only defers the invalidation.
+
 - **Failover.** The slot is local to the replica, so promoting *that* node keeps it. Failing
   over to a different node, or rebuilding the replica, loses the slot and requires a new
   snapshot.

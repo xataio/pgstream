@@ -184,21 +184,41 @@ func TestWithSlotOnly(t *testing.T) {
 	require.True(t, cfg.SlotOnly)
 }
 
-// TestInit_MigrationsOnlyAndSlotOnly checks the two restrictions are rejected
-// together rather than one silently winning: they select disjoint halves of the
-// work, so asking for both is always a configuration mistake.
-func TestInit_MigrationsOnlyAndSlotOnly(t *testing.T) {
+// TestInit_ConflictingRestrictions checks conflicting flags are rejected rather
+// than one silently winning. Each pair selects disjoint halves of the work, so
+// asking for both is always a configuration mistake: --migrations-only is the
+// complement of --slot-only, and --upgrade only cleans up schema state that
+// --slot-only skips entirely.
+func TestInit_ConflictingRestrictions(t *testing.T) {
 	t.Parallel()
 
-	cfg := &InitConfig{
-		PostgresURL:    "postgres://user:pass@localhost:5432/db",
-		MigrationsOnly: true,
-		SlotOnly:       true,
+	const url = "postgres://user:pass@localhost:5432/db"
+
+	tests := []struct {
+		name    string
+		cfg     *InitConfig
+		wantErr error
+	}{
+		{
+			name:    "migrations-only with slot-only",
+			cfg:     &InitConfig{PostgresURL: url, MigrationsOnly: true, SlotOnly: true},
+			wantErr: errMigrationsAndSlotOnly,
+		},
+		{
+			name:    "upgrade with slot-only",
+			cfg:     &InitConfig{PostgresURL: url, Upgrade: true, SlotOnly: true},
+			wantErr: errUpgradeAndSlotOnly,
+		},
 	}
 
-	// no connection is attempted: the conflict is caught before any I/O
-	require.ErrorIs(t, Init(context.Background(), cfg), errMigrationsAndSlotOnly)
-	require.ErrorIs(t, Destroy(context.Background(), cfg), errMigrationsAndSlotOnly)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// no connection is attempted: the conflict is caught before any I/O
+			require.ErrorIs(t, Init(context.Background(), tc.cfg), tc.wantErr)
+			require.ErrorIs(t, Destroy(context.Background(), tc.cfg), tc.wantErr)
+		})
+	}
 }
 
 // setupV09xState creates the database objects that v0.9.x would have created.

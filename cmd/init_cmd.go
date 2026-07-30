@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/xataio/pgstream/cmd/config"
+	"github.com/xataio/pgstream/internal/log/zerolog"
 	"github.com/xataio/pgstream/pkg/stream"
 
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -127,7 +128,11 @@ func initDestroyFlagBinding(cmd *cobra.Command, _ []string) {
 }
 
 func getInitOptions() []stream.InitOption {
-	initOpts := []stream.InitOption{}
+	initOpts := []stream.InitOption{
+		// so a replication slot creation that is blocked rather than slow
+		// reports why, instead of sitting on a silent spinner
+		stream.WithInitLogger(zerolog.NewStdLogger(zerolog.NewLogger(loggerConfigFromViper()))),
+	}
 	if viper.GetBool("migrations-only") {
 		initOpts = append(initOpts, stream.WithMigrationsOnly())
 	}

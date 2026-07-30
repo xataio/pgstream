@@ -70,6 +70,12 @@ func Prepare() *cobra.Command {
 	initCmd.Flags().Bool("migrations-only", false, "Whether to only run the initialization database migrations")
 	initCmd.Flags().Bool("slot-only", false, "Whether to only create the replication slot, without running the database migrations. Useful when creating the slot on a read replica, where the migrations cannot be applied")
 	initCmd.Flags().Bool("upgrade", false, "Clean up v0.9.x state before initializing (idempotent, safe for repeated use)")
+	// slot-only selects the half of the work the other two flags act on, so
+	// combining them is always a mistake: --migrations-only asks for the
+	// complementary half, and --upgrade only cleans up schema state that
+	// slot-only never touches, which would otherwise be silently ignored
+	initCmd.MarkFlagsMutuallyExclusive("migrations-only", "slot-only")
+	initCmd.MarkFlagsMutuallyExclusive("upgrade", "slot-only")
 
 	// destroy cmd
 	destroyCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream destroy will be run")
@@ -77,6 +83,7 @@ func Prepare() *cobra.Command {
 	destroyCmd.Flags().Bool("with-injector", false, "Whether to also destroy the injector related database objects")
 	destroyCmd.Flags().Bool("migrations-only", false, "Whether to only revert the database migrations")
 	destroyCmd.Flags().Bool("slot-only", false, "Whether to only drop the replication slot, leaving the pgstream schema and migrations in place")
+	destroyCmd.MarkFlagsMutuallyExclusive("migrations-only", "slot-only")
 
 	// tear down cmd
 	tearDownCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream tear down will be run")

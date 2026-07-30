@@ -78,13 +78,14 @@ func Test_ReplicaSourceSnapshotAndReplication(t *testing.T) {
 	// the snapshot reads from the standby, including the parallel path that
 	// exports a transaction snapshot and imports it on sibling connections
 	require.Eventually(t, func() bool {
-		rows := fetchReplicaTestRows(t, ctx, targetConn, testTable, false)
-		return len(rows) == 2
+		rows, err := fetchReplicaTestRows(ctx, targetConn, testTable, false)
+		return err == nil && len(rows) == 2
 	}, 60*time.Second, time.Second, "timeout waiting for snapshot from standby")
 
+	snapshotRows, err := fetchReplicaTestRows(ctx, targetConn, testTable, false)
+	require.NoError(t, err)
 	require.ElementsMatch(t,
-		[]replicaTestRow{{id: 1, name: "a"}, {id: 2, name: "b"}},
-		fetchReplicaTestRows(t, ctx, targetConn, testTable, false))
+		[]replicaTestRow{{id: 1, name: "a"}, {id: 2, name: "b"}}, snapshotRows)
 
 	// DDL runs on the primary, so the event trigger fires there. If the emitted
 	// logical message survives the trip through physical replication and out of
@@ -95,17 +96,21 @@ func Test_ReplicaSourceSnapshotAndReplication(t *testing.T) {
 		`INSERT INTO %s(name, email) VALUES('c','c@test.com')`, testTable))
 
 	require.Eventually(t, func() bool {
-		if !targetHasColumn(t, ctx, targetConn, testTable, "email") {
+		hasColumn, err := targetHasColumn(ctx, targetConn, testTable, "email")
+		if err != nil || !hasColumn {
 			return false
 		}
-		return len(fetchReplicaTestRows(t, ctx, targetConn, testTable, true)) == 3
+		rows, err := fetchReplicaTestRows(ctx, targetConn, testTable, true)
+		return err == nil && len(rows) == 3
 	}, 60*time.Second, time.Second, "timeout waiting for DDL and DML replicated from standby")
 
+	replicatedRows, err := fetchReplicaTestRows(ctx, targetConn, testTable, true)
+	require.NoError(t, err)
 	require.ElementsMatch(t, []replicaTestRow{
 		{id: 1, name: "a"},
 		{id: 2, name: "b"},
 		{id: 3, name: "c", email: "c@test.com"},
-	}, fetchReplicaTestRows(t, ctx, targetConn, testTable, true))
+	}, replicatedRows)
 
 	// A logical slot on a standby is invalidated by recovery conflicts unless
 	// hot_standby_feedback keeps the primary from vacuuming rows the decoder
@@ -249,9 +254,13 @@ type replicaTestRow struct {
 	email string
 }
 
-func fetchReplicaTestRows(t *testing.T, ctx context.Context, conn pglib.Querier, table string, withEmail bool) []replicaTestRow {
-	t.Helper()
-
+// fetchReplicaTestRows returns an error rather than asserting, because it is
+// called from inside require.Eventually closures. Those run on their own
+// goroutine, where a require failure calls runtime.Goexit and the result is
+// never sent back to Eventually: the test would stall for the whole timeout and
+// then report the generic "condition never satisfied" message, hiding the error
+// that actually caused it.
+func fetchReplicaTestRows(ctx context.Context, conn pglib.Querier, table string, withEmail bool) ([]replicaTestRow, error) {
 	query := fmt.Sprintf("SELECT id, name FROM %s ORDER BY id", table)
 	if withEmail {
 		query = fmt.Sprintf("SELECT id, name, COALESCE(email,'') FROM %s ORDER BY id", table)
@@ -260,7 +269,7 @@ func fetchReplicaTestRows(t *testing.T, ctx context.Context, conn pglib.Querier,
 	rows, err := conn.Query(ctx, query)
 	if err != nil {
 		// the table may not exist yet while the snapshot is still running
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -268,23 +277,24 @@ func fetchReplicaTestRows(t *testing.T, ctx context.Context, conn pglib.Querier,
 	for rows.Next() {
 		row := replicaTestRow{}
 		if withEmail {
-			require.NoError(t, rows.Scan(&row.id, &row.name, &row.email))
+			err = rows.Scan(&row.id, &row.name, &row.email)
 		} else {
-			require.NoError(t, rows.Scan(&row.id, &row.name))
+			err = rows.Scan(&row.id, &row.name)
+		}
+		if err != nil {
+			return nil, err
 		}
 		result = append(result, row)
 	}
-	require.NoError(t, rows.Err())
-	return result
+	return result, rows.Err()
 }
 
-func targetHasColumn(t *testing.T, ctx context.Context, conn pglib.Querier, table, column string) bool {
-	t.Helper()
-
+// targetHasColumn also returns its error, for the same reason as
+// fetchReplicaTestRows.
+func targetHasColumn(ctx context.Context, conn pglib.Querier, table, column string) (bool, error) {
 	var found bool
 	err := conn.QueryRow(ctx, []any{&found}, `SELECT EXISTS(
 		SELECT 1 FROM information_schema.columns
 		WHERE table_name = $1 AND column_name = $2)`, table, column)
-	require.NoError(t, err)
-	return found
+	return found, err
 }
