@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -19,6 +20,11 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor"
 	"golang.org/x/sync/errgroup"
 )
+
+const allColumns = "*"
+
+// ErrSchemaChangedDuringSnapshot: re-snapshot needed.
+var ErrSchemaChangedDuringSnapshot = errors.New("source schema changed during the snapshot")
 
 type SnapshotGenerator struct {
 	logger  loglib.Logger
@@ -51,6 +57,7 @@ type tableInfo struct {
 	avgPageBytes  int64
 	avgRowBytes   int64
 	batchPageSize uint
+	columns       []string
 }
 
 type pageRange struct {
@@ -61,12 +68,16 @@ type pageRange struct {
 type schemaTables struct {
 	schema string
 	tables []string
+	// nil without a schema snapshot
+	columns pglib.SchemaTableColumns
 }
 
 type table struct {
 	schema  string
 	name    string
 	rowSize int64
+	// one list per page range
+	columns []string
 }
 
 type snapshotTableFn func(ctx context.Context, snapshotID string, table *table) error
@@ -169,8 +180,9 @@ func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sn
 			continue
 		}
 		schemaTablesChan <- &schemaTables{
-			schema: schema,
-			tables: tables,
+			schema:  schema,
+			tables:  tables,
+			columns: ss.TableColumns,
 		}
 	}
 	close(schemaTablesChan)
@@ -222,8 +234,9 @@ func (sg *SnapshotGenerator) createSchemaSnapshot(ctx context.Context, schemaTab
 
 		for _, tableName := range schemaTables.tables {
 			tableChan <- &table{
-				schema: schemaTables.schema,
-				name:   tableName,
+				schema:  schemaTables.schema,
+				name:    tableName,
+				columns: sg.pinnedColumns(schemaTables, tableName),
 			}
 		}
 
@@ -232,6 +245,41 @@ func (sg *SnapshotGenerator) createSchemaSnapshot(ctx context.Context, schemaTab
 
 		return sg.collectTableErrors(schemaTables.schema, workerTableErrs)
 	}, snapshotTxOptions())
+}
+
+// pinnedColumns warns on uncaptured tables.
+func (sg *SnapshotGenerator) pinnedColumns(schemaTables *schemaTables, tableName string) []string {
+	if schemaTables.columns == nil {
+		return nil
+	}
+
+	columns := schemaTables.columns.ColumnsFor(schemaTables.schema, tableName)
+	if len(columns) == 0 {
+		sg.logger.Warn(nil, "no columns captured by the schema snapshot for this table, falling back to the columns it has now: it was created after the capture, or its name did not resolve to a catalog entry",
+			loglib.Fields{"schema": schemaTables.schema, "table": tableName})
+	}
+	return columns
+}
+
+// readableColumns intersects; drops don't abort.
+// The flag reports a pin with nothing left.
+func readableColumns(pinned, live []string) ([]string, bool) {
+	if len(pinned) == 0 {
+		return live, false
+	}
+
+	liveSet := make(map[string]struct{}, len(live))
+	for _, column := range live {
+		liveSet[column] = struct{}{}
+	}
+
+	readable := make([]string, 0, len(pinned))
+	for _, column := range pinned {
+		if _, found := liveSet[column]; found {
+			readable = append(readable, column)
+		}
+	}
+	return readable, len(readable) == 0
 }
 
 func (sg *SnapshotGenerator) createSnapshotWorker(ctx context.Context, wg *sync.WaitGroup, snapshotID string, tableChan <-chan *table, tableErrMap map[string]error) {
@@ -298,6 +346,15 @@ func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID strin
 	}
 	table.rowSize = tableInfo.avgRowBytes
 
+	// an empty intersection must not fall back to SELECT *
+	columns, pinLost := readableColumns(table.columns, tableInfo.columns)
+	if pinLost {
+		return fmt.Errorf("%w: no captured column of %s.%s exists on the source",
+			ErrSchemaChangedDuringSnapshot,
+			pglib.UnquoteIdentifier(table.schema), pglib.UnquoteIdentifier(table.name))
+	}
+	table.columns = columns
+
 	// If one page range fails, we abort the entire table snapshot. The
 	// snapshot relies on the transaction snapshot id to ensure all workers
 	// have the same table view, which allows us to use the ctid to
@@ -333,7 +390,21 @@ func (sg *SnapshotGenerator) snapshotTableRangeWorker(ctx context.Context, snaps
 	return nil
 }
 
-var pageRangeQuery = "SELECT * FROM ONLY %s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'"
+const pageRangeQuery = "SELECT %s FROM ONLY %s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'"
+
+// buildPageRangeQuery spells columns out.
+func buildPageRangeQuery(t *table, r pageRange) string {
+	quotedTable := pglib.QuoteQualifiedIdentifier(t.schema, t.name)
+	if len(t.columns) == 0 {
+		return fmt.Sprintf(pageRangeQuery, allColumns, quotedTable, r.start, r.end)
+	}
+
+	quotedColumns := make([]string, len(t.columns))
+	for i, column := range t.columns {
+		quotedColumns[i] = pglib.QuoteRawIdentifier(column)
+	}
+	return fmt.Sprintf(pageRangeQuery, strings.Join(quotedColumns, ", "), quotedTable, r.start, r.end)
+}
 
 func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID string, table *table, pageRange pageRange) error {
 	return sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
@@ -341,9 +412,14 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID 
 			"schema": table.schema, "table": table.name, "snapshotID": snapshotID,
 		})
 
-		query := fmt.Sprintf(pageRangeQuery, pglib.QuoteQualifiedIdentifier(table.schema, table.name), pageRange.start, pageRange.end)
+		query := buildPageRangeQuery(table, pageRange)
 		rows, err := tx.Query(ctx, query)
 		if err != nil {
+			// something this query names vanished
+			var relationErr *pglib.ErrRelationDoesNotExist
+			if errors.As(err, &relationErr) {
+				return fmt.Errorf("%w: querying table rows: %w", ErrSchemaChangedDuringSnapshot, err)
+			}
 			return fmt.Errorf("querying table rows: %w", err)
 		}
 		defer rows.Close()
@@ -409,20 +485,28 @@ func (sg *SnapshotGenerator) markProgressBarCompleted(schema string) {
 	sg.progressBars.Delete(schema)
 }
 
+// tableInfoQuery shares the capture rule.
+var tableInfoQuery = fmt.Sprintf(tableInfoQueryFmt, pglib.SelectStarColumnPredicate)
+
 const (
 	// use pg_table_size instead of pg_total_relation_size since we only care about the size of the table itself and toast tables, not indices.
 	// pg_relation_size will return only the size of the table itself, without toast tables.
-	tableInfoQuery = `SELECT
+	tableInfoQueryFmt = `SELECT
   (pg_table_size(c.oid) / COALESCE(NULLIF(c.relpages, 0),1)) AS avg_page_size_bytes,
   CASE
 	WHEN c.reltuples > 0 THEN
 		ROUND(pg_table_size(c.oid) / c.reltuples)
 	ELSE
 		0
-  END AS avg_row_size
+  END AS avg_row_size,
+  ARRAY(
+    SELECT a.attname::text FROM pg_catalog.pg_attribute a
+    WHERE a.attrelid = c.oid AND %s
+    ORDER BY a.attnum
+  ) AS columns
 FROM
-  pg_class c
-  JOIN pg_namespace n ON n.oid = c.relnamespace
+  pg_catalog.pg_class c
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE
   c.relname = $1
   AND n.nspname = $2
@@ -439,7 +523,7 @@ func (sg *SnapshotGenerator) getTableInfo(ctx context.Context, schemaName, table
 		// make sure the schema and table names are unquoted since the system
 		// catalogs store unquoted names
 		err := tx.QueryRow(ctx,
-			[]any{&tableInfo.avgPageBytes, &tableInfo.avgRowBytes},
+			[]any{&tableInfo.avgPageBytes, &tableInfo.avgRowBytes, &tableInfo.columns},
 			tableInfoQuery,
 			pglib.UnquoteIdentifier(tableName),
 			pglib.UnquoteIdentifier(schemaName))
