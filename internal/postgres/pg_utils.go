@@ -75,6 +75,11 @@ func QuoteIdentifier(s string) string {
 	return pq.QuoteIdentifier(s)
 }
 
+// QuoteRawIdentifier always quotes.
+func QuoteRawIdentifier(s string) string {
+	return pq.QuoteIdentifier(s)
+}
+
 // UnquoteIdentifier reverses the quoting applied by QuoteIdentifier. If the
 // string is not a quoted identifier, it is returned as-is. If it is a quoted
 // identifier, the leading and trailing quotes are removed, and any embedded
@@ -343,6 +348,73 @@ func DiscoverAllSchemaTables(ctx context.Context, conn Querier, schema string) (
 	}
 
 	return tableNames, nil
+}
+
+// SelectStarColumnPredicate matches SELECT *.
+const SelectStarColumnPredicate = `a.attnum > 0 AND NOT a.attisdropped`
+
+// DiscoverTableColumnsQuery lists table columns.
+var DiscoverTableColumnsQuery = fmt.Sprintf(`SELECT n.nspname, c.relname, a.attname
+	FROM pg_catalog.pg_attribute a
+	JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+	JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+	WHERE c.relkind IN ('r', 'p')
+	AND %s
+	AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'pgstream')
+	AND n.nspname NOT LIKE 'pg\_temp\_%%' AND n.nspname NOT LIKE 'pg\_toast\_temp\_%%'
+	AND ($1::text[] IS NULL OR n.nspname = ANY($1))
+	AND ($2::text[] IS NULL OR c.relname = ANY($2))
+	ORDER BY n.nspname, c.relname, a.attnum`, SelectStarColumnPredicate)
+
+// SchemaTableColumns: unquoted schema, table.
+type SchemaTableColumns map[string]map[string][]string
+
+// ColumnsFor returns recorded columns.
+func (c SchemaTableColumns) ColumnsFor(schema, table string) []string {
+	if c == nil {
+		return nil
+	}
+	return c[UnquoteIdentifier(schema)][UnquoteIdentifier(table)]
+}
+
+// DiscoverTableColumns reads the catalog once.
+// Empty arguments mean no filter.
+func DiscoverTableColumns(ctx context.Context, conn Querier, schemas, tables []string) (SchemaTableColumns, error) {
+	unquote := func(names []string) []string {
+		if len(names) == 0 {
+			// nil filters nothing, empty nothing
+			return nil
+		}
+		unquoted := make([]string, len(names))
+		for i, name := range names {
+			unquoted[i] = UnquoteIdentifier(name)
+		}
+		return unquoted
+	}
+
+	rows, err := conn.Query(ctx, DiscoverTableColumnsQuery, unquote(schemas), unquote(tables))
+	if err != nil {
+		return nil, fmt.Errorf("discovering table columns: %w", err)
+	}
+	defer rows.Close()
+
+	tableColumns := SchemaTableColumns{}
+	for rows.Next() {
+		var schemaName, tableName, columnName string
+		if err := rows.Scan(&schemaName, &tableName, &columnName); err != nil {
+			return nil, fmt.Errorf("scanning table column: %w", err)
+		}
+		if _, found := tableColumns[schemaName]; !found {
+			tableColumns[schemaName] = map[string][]string{}
+		}
+		tableColumns[schemaName][tableName] = append(tableColumns[schemaName][tableName], columnName)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return tableColumns, nil
 }
 
 func ParseConfig(pgurl string) (*pgx.ConnConfig, error) {
