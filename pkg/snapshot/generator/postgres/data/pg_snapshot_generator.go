@@ -255,7 +255,7 @@ func (sg *SnapshotGenerator) pinnedColumns(schemaTables *schemaTables, tableName
 
 	columns := schemaTables.columns.ColumnsFor(schemaTables.schema, tableName)
 	if len(columns) == 0 {
-		sg.logger.Warn(nil, "no columns captured by the schema snapshot for table, reading the columns it has now instead",
+		sg.logger.Warn(nil, "no columns captured by the schema snapshot for this table, falling back to the columns it has now: it was created after the capture, or its name did not resolve to a catalog entry",
 			loglib.Fields{"schema": schemaTables.schema, "table": tableName})
 	}
 	return columns

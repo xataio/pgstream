@@ -2283,3 +2283,161 @@ func TestSnapshotGenerator_filterTriggers(t *testing.T) {
 		})
 	}
 }
+
+func TestCaptureScope(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		dumpSchemas map[string][]string
+
+		wantSchemas []string
+		wantTables  []string
+	}{
+		{
+			name:        "explicit schemas and tables",
+			dumpSchemas: map[string][]string{"a": {"t1", "t2"}, "b": {"t3"}},
+			wantSchemas: []string{"a", "b"},
+			wantTables:  []string{"t1", "t2", "t3"},
+		},
+		{
+			// a wildcard on one schema drops the table filter for all of them:
+			// the names behind it are only resolved later, by the table finder
+			wantSchemas: []string{"a", "b"},
+			name:        "one schema has a wildcard table",
+			dumpSchemas: map[string][]string{"a": {"t1"}, "b": {wildcard}},
+			wantTables:  nil,
+		},
+		{
+			name:        "wildcard schema keeps the table filter",
+			dumpSchemas: map[string][]string{wildcard: {"t1"}},
+			wantSchemas: nil,
+			wantTables:  []string{"t1"},
+		},
+		{
+			name:        "wildcard on both sides filters nothing",
+			dumpSchemas: map[string][]string{wildcard: {wildcard}},
+			wantSchemas: nil,
+			wantTables:  nil,
+		},
+		{
+			name:        "empty scope",
+			dumpSchemas: map[string][]string{},
+			wantSchemas: []string{},
+			wantTables:  nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// map iteration order is random, so compare as sets
+			schemas, tables := captureScope(tc.dumpSchemas)
+			require.ElementsMatch(t, tc.wantSchemas, schemas)
+			require.ElementsMatch(t, tc.wantTables, tables)
+			if tc.wantTables == nil {
+				require.Nil(t, tables, "a nil table filter means no filter; empty would match nothing")
+			}
+			if tc.wantSchemas == nil {
+				require.Nil(t, schemas, "a nil schema filter means no filter; empty would match nothing")
+			}
+		})
+	}
+}
+
+// captureLogger records Warn calls so a test can assert on advisory output.
+type captureLogger struct {
+	log.Logger
+	warnings []string
+}
+
+func (l *captureLogger) Warn(err error, msg string, fields ...log.Fields) {
+	l.warnings = append(l.warnings, msg)
+}
+
+func TestWarnOnCaptureDrift(t *testing.T) {
+	t.Parallel()
+
+	testSchema, testTable := "test_schema", "test_table"
+	dumpSchemas := map[string][]string{testSchema: {testTable}}
+	captured := pglib.SchemaTableColumns{testSchema: {testTable: {"id"}}}
+
+	// what the source reports after the dump, i.e. the second read
+	newQuerier := func(afterDump pglib.SchemaTableColumns) *mocks.Querier {
+		return &mocks.Querier{
+			QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+				require.Equal(t, pglib.DiscoverTableColumnsQuery, query)
+				rows := []struct{ schema, table, column string }{}
+				for schema, tables := range afterDump {
+					for table, columns := range tables {
+						for _, column := range columns {
+							rows = append(rows, struct{ schema, table, column string }{schema, table, column})
+						}
+					}
+				}
+				return &mocks.Rows{
+					CloseFn: func() {},
+					NextFn:  func(i uint) bool { return int(i) <= len(rows) },
+					ScanFn: func(i uint, dest ...any) error {
+						require.Len(t, dest, 3)
+						r := rows[i-1]
+						schema, ok := dest[0].(*string)
+						require.True(t, ok)
+						table, ok := dest[1].(*string)
+						require.True(t, ok)
+						column, ok := dest[2].(*string)
+						require.True(t, ok)
+						*schema, *table, *column = r.schema, r.table, r.column
+						return nil
+					},
+					ErrFn: func() error { return nil },
+				}, nil
+			},
+		}
+	}
+
+	tests := []struct {
+		name      string
+		afterDump pglib.SchemaTableColumns
+		wantWarn  bool
+	}{
+		{
+			name:      "no drift is silent",
+			afterDump: pglib.SchemaTableColumns{testSchema: {testTable: {"id"}}},
+			wantWarn:  false,
+		},
+		{
+			name:      "a column added during the dump warns",
+			afterDump: pglib.SchemaTableColumns{testSchema: {testTable: {"id", "added"}}},
+			wantWarn:  true,
+		},
+		{
+			name:      "a column dropped during the dump warns",
+			afterDump: pglib.SchemaTableColumns{testSchema: {testTable: {}}},
+			wantWarn:  true,
+		},
+		{
+			name:      "a table created during the dump warns",
+			afterDump: pglib.SchemaTableColumns{testSchema: {testTable: {"id"}, "new_table": {"id"}}},
+			wantWarn:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			logger := &captureLogger{Logger: log.NewNoopLogger()}
+			sg := SnapshotGenerator{sourceQuerier: newQuerier(tc.afterDump), logger: logger}
+
+			ss := &snapshot.Snapshot{TableColumns: pglib.SchemaTableColumns{testSchema: {testTable: {"id"}}}}
+			sg.warnOnCaptureDrift(context.Background(), ss, dumpSchemas)
+
+			// advisory only: the pinned columns are never rewritten by drift,
+			// and nothing here can fail the snapshot
+			require.Equal(t, captured, ss.TableColumns)
+			require.Equal(t, tc.wantWarn, len(logger.warnings) > 0, "warnings: %v", logger.warnings)
+		})
+	}
+}

@@ -646,3 +646,55 @@ func Test_UnquoteIdentifier(t *testing.T) {
 		})
 	}
 }
+
+func Test_SchemaTableColumns_ColumnsFor(t *testing.T) {
+	t.Parallel()
+
+	// keys are raw catalog names, lookups may come from configuration
+	columns := SchemaTableColumns{
+		"public":     {"users": {"id", "name"}, "MixedCase": {"id"}},
+		"OtherShema": {"t": {"id"}},
+	}
+
+	tests := []struct {
+		name   string
+		schema string
+		table  string
+		want   []string
+	}{
+		{name: "bare names", schema: "public", table: "users", want: []string{"id", "name"}},
+		{name: "quoted schema", schema: `"public"`, table: "users", want: []string{"id", "name"}},
+		{name: "quoted table", schema: "public", table: `"users"`, want: []string{"id", "name"}},
+		{name: "both quoted", schema: `"public"`, table: `"users"`, want: []string{"id", "name"}},
+		{name: "mixed case preserved", schema: "public", table: "MixedCase", want: []string{"id"}},
+		{name: "mixed case quoted", schema: `"public"`, table: `"MixedCase"`, want: []string{"id"}},
+		{name: "mixed case schema", schema: `"OtherShema"`, table: "t", want: []string{"id"}},
+		{name: "unknown table", schema: "public", table: "nope", want: nil},
+		{name: "unknown schema", schema: "nope", table: "users", want: nil},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, columns.ColumnsFor(tc.schema, tc.table))
+		})
+	}
+
+	t.Run("nil receiver", func(t *testing.T) {
+		t.Parallel()
+
+		require.Nil(t, SchemaTableColumns(nil).ColumnsFor("public", "users"))
+	})
+
+	t.Run("a catalog name shaped like a quoted identifier does not round-trip", func(t *testing.T) {
+		t.Parallel()
+
+		// a table whose name literally contains the quotes. UnquoteIdentifier
+		// strips them, so the lookup misses and the caller falls back to
+		// reading the columns the table has now. Documented, not fixed: the
+		// two conventions are indistinguishable from a single string.
+		quoted := SchemaTableColumns{"public": {`"users"`: {"id"}}}
+		require.Nil(t, quoted.ColumnsFor("public", `"users"`))
+	})
+}
