@@ -137,3 +137,66 @@ func Test_WithRawJSONDecoding(t *testing.T) {
 		require.IsType(t, map[string]any{}, values[1])
 	})
 }
+
+func Test_DiscoverTableColumns(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	ctx := context.Background()
+
+	var pgURL string
+	cleanup, err := testcontainers.SetupPostgresContainer(ctx, &pgURL, testcontainers.Postgres17)
+	require.NoError(t, err)
+	defer cleanup()
+
+	conn, err := NewConnPool(ctx, pgURL)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	for _, ddl := range []string{
+		`CREATE SCHEMA other_schema`,
+		`CREATE TABLE public.discover_columns(zeta text, alpha int, to_drop text)`,
+		`ALTER TABLE public.discover_columns DROP COLUMN to_drop`,
+		`CREATE TABLE public."MixedCase"(id int)`,
+		`CREATE TABLE other_schema.elsewhere(id int)`,
+		`CREATE VIEW public.discover_view AS SELECT 1 AS x`,
+	} {
+		_, err = conn.Exec(ctx, ddl)
+		require.NoError(t, err, ddl)
+	}
+
+	t.Run("all schemas", func(t *testing.T) {
+		columns, err := DiscoverTableColumns(ctx, conn, nil, nil)
+		require.NoError(t, err)
+
+		require.Equal(t, []string{"zeta", "alpha"}, columns["public"]["discover_columns"])
+		require.Equal(t, []string{"id"}, columns["public"]["MixedCase"])
+		require.Equal(t, []string{"id"}, columns["other_schema"]["elsewhere"])
+		require.NotContains(t, columns["public"], "discover_view")
+		require.NotContains(t, columns, "pg_catalog")
+	})
+
+	t.Run("scoped to a schema", func(t *testing.T) {
+		columns, err := DiscoverTableColumns(ctx, conn, []string{"other_schema"}, nil)
+		require.NoError(t, err)
+
+		require.Equal(t, SchemaTableColumns{"other_schema": {"elsewhere": {"id"}}}, columns)
+	})
+
+	t.Run("scoped to a schema and table", func(t *testing.T) {
+		columns, err := DiscoverTableColumns(ctx, conn, []string{"public"}, []string{"discover_columns"})
+		require.NoError(t, err)
+
+		require.Equal(t, SchemaTableColumns{"public": {"discover_columns": {"zeta", "alpha"}}}, columns)
+	})
+
+	t.Run("quoted names in the scope resolve to the catalog entry", func(t *testing.T) {
+		columns, err := DiscoverTableColumns(ctx, conn, []string{`"public"`}, []string{`"MixedCase"`})
+		require.NoError(t, err)
+
+		require.Equal(t, SchemaTableColumns{"public": {"MixedCase": {"id"}}}, columns)
+		require.Equal(t, []string{"id"}, columns.ColumnsFor(`"public"`, `"MixedCase"`))
+		require.Equal(t, []string{"id"}, columns.ColumnsFor("public", "MixedCase"))
+	})
+}
