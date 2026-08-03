@@ -262,9 +262,10 @@ func (sg *SnapshotGenerator) pinnedColumns(schemaTables *schemaTables, tableName
 }
 
 // readableColumns intersects; drops don't abort.
-func readableColumns(pinned, live []string) []string {
+// The flag reports a pin with nothing left.
+func readableColumns(pinned, live []string) ([]string, bool) {
 	if len(pinned) == 0 {
-		return live
+		return live, false
 	}
 
 	liveSet := make(map[string]struct{}, len(live))
@@ -278,7 +279,7 @@ func readableColumns(pinned, live []string) []string {
 			readable = append(readable, column)
 		}
 	}
-	return readable
+	return readable, len(readable) == 0
 }
 
 func (sg *SnapshotGenerator) createSnapshotWorker(ctx context.Context, wg *sync.WaitGroup, snapshotID string, tableChan <-chan *table, tableErrMap map[string]error) {
@@ -344,7 +345,15 @@ func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID strin
 		return nil
 	}
 	table.rowSize = tableInfo.avgRowBytes
-	table.columns = readableColumns(table.columns, tableInfo.columns)
+
+	// an empty intersection must not fall back to SELECT *
+	columns, pinLost := readableColumns(table.columns, tableInfo.columns)
+	if pinLost {
+		return fmt.Errorf("%w: no captured column of %s.%s exists on the source",
+			ErrSchemaChangedDuringSnapshot,
+			pglib.UnquoteIdentifier(table.schema), pglib.UnquoteIdentifier(table.name))
+	}
+	table.columns = columns
 
 	// If one page range fails, we abort the entire table snapshot. The
 	// snapshot relies on the transaction snapshot id to ensure all workers

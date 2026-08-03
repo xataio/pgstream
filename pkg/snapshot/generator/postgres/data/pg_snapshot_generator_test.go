@@ -327,6 +327,56 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			})},
 		},
 		{
+			name: "error - every pinned column is gone",
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {testTable1},
+				},
+				// none of these survive; the table must fail rather than
+				// fall back to reading whatever it has now
+				TableColumns: pglib.SchemaTableColumns{
+					testSchema: {testTable1: {"old_a", "old_b"}},
+				},
+			},
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					switch i {
+					case 1:
+						mockTx := pgmocks.Tx{
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok)
+								*snapshotID = testSnapshotID
+								return nil
+							},
+						}
+						return f(&mockTx)
+					case 2:
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+								return pglib.CommandTag{}, nil
+							},
+							QueryRowFn: validTableInfoQueryRowFn,
+						}
+						return f(&mockTx)
+					default:
+						return fmt.Errorf("no page range should be queried: %d", i)
+					}
+				},
+			},
+
+			wantErr: snapshot.Errors{
+				testSchema: &snapshot.SchemaErrors{
+					Schema: testSchema,
+					TableErrors: map[string]string{
+						testTable1: fmt.Sprintf("%s: no captured column of %s.%s exists on the source",
+							ErrSchemaChangedDuringSnapshot, testSchema, testTable1),
+					},
+				},
+			},
+			wantEvents: []*wal.Event{},
+		},
+		{
 			name: "error - column dropped after the column list was resolved",
 			snapshot: &snapshot.Snapshot{
 				SchemaTables: map[string][]string{
@@ -1470,10 +1520,11 @@ func TestReadableColumns(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		pinned []string
-		live   []string
-		want   []string
+		name        string
+		pinned      []string
+		live        []string
+		want        []string
+		wantPinLost bool
 	}{
 		{
 			name:   "nothing pinned falls back to the live columns",
@@ -1500,10 +1551,19 @@ func TestReadableColumns(t *testing.T) {
 			want:   []string{"name", "id"},
 		},
 		{
-			name:   "a table replaced wholesale reads nothing pinned",
-			pinned: []string{"id"},
-			live:   []string{"other"},
-			want:   []string{},
+			// must not silently become SELECT *
+			name:        "a table replaced wholesale loses the pin",
+			pinned:      []string{"id"},
+			live:        []string{"other"},
+			want:        []string{},
+			wantPinLost: true,
+		},
+		{
+			name:        "a zero column table is not a lost pin",
+			pinned:      nil,
+			live:        []string{},
+			want:        []string{},
+			wantPinLost: false,
 		},
 	}
 
@@ -1511,7 +1571,9 @@ func TestReadableColumns(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			require.Equal(t, tc.want, readableColumns(tc.pinned, tc.live))
+			readable, pinLost := readableColumns(tc.pinned, tc.live)
+			require.Equal(t, tc.want, readable)
+			require.Equal(t, tc.wantPinLost, pinLost)
 		})
 	}
 }
