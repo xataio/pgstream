@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/xataio/pgstream/cmd/config"
+	"github.com/xataio/pgstream/internal/log/zerolog"
 	"github.com/xataio/pgstream/pkg/stream"
 
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -103,6 +104,9 @@ func initDestroyFlagBinding(cmd *cobra.Command, _ []string) {
 	if f := cmd.Flags().Lookup("migrations-only"); f != nil {
 		viper.BindPFlag("migrations-only", f)
 	}
+	if f := cmd.Flags().Lookup("slot-only"); f != nil {
+		viper.BindPFlag("slot-only", f)
+	}
 	if f := cmd.Flags().Lookup("upgrade"); f != nil {
 		viper.BindPFlag("upgrade", f)
 	}
@@ -124,9 +128,16 @@ func initDestroyFlagBinding(cmd *cobra.Command, _ []string) {
 }
 
 func getInitOptions() []stream.InitOption {
-	initOpts := []stream.InitOption{}
+	initOpts := []stream.InitOption{
+		// so a replication slot creation that is blocked rather than slow
+		// reports why, instead of sitting on a silent spinner
+		stream.WithInitLogger(zerolog.NewStdLogger(zerolog.NewLogger(loggerConfigFromViper()))),
+	}
 	if viper.GetBool("migrations-only") {
 		initOpts = append(initOpts, stream.WithMigrationsOnly())
+	}
+	if viper.GetBool("slot-only") {
+		initOpts = append(initOpts, stream.WithSlotOnly())
 	}
 	if viper.GetBool("upgrade") {
 		initOpts = append(initOpts, stream.WithUpgrade())

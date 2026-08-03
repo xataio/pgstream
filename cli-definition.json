@@ -81,6 +81,11 @@
           "default": ""
         },
         {
+          "name": "slot-only",
+          "description": "Whether to only drop the replication slot, leaving the pgstream schema and migrations in place",
+          "default": "false"
+        },
+        {
           "name": "with-injector",
           "description": "Whether to also destroy the injector related database objects",
           "default": "false"
@@ -109,6 +114,11 @@
           "name": "replication-slot",
           "description": "Name of the postgres replication slot to be created by pgstream on the source url",
           "default": ""
+        },
+        {
+          "name": "slot-only",
+          "description": "Whether to only create the replication slot, without running the database migrations. Useful when creating the slot on a read replica, where the migrations cannot be applied",
+          "default": "false"
         },
         {
           "name": "upgrade",

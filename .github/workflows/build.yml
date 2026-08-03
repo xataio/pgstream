@@ -49,6 +49,25 @@ jobs:
         with:
           go-version-file: "go.mod"
 
+      # The snapshot shells out to pg_dump, which refuses to dump from a server
+      # newer than itself. Runner images ship a 16 client, so tests using a
+      # newer source server (the read replica tests use 17) fail without this.
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          # take precedence over the preinstalled client
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+
+      - name: Verify pg_dump version
+        run: pg_dump --version
+
       - name: Run integration tests
         run: make integration-test
 
@@ -132,7 +151,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.5.2
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
@@ -211,7 +230,7 @@ jobs:
           output-file: pgstream.image.sbom.spdx.json
 
       - name: Attest container image SBOM
-        uses: actions/attest@v4
+        uses: actions/attest@v4.2.0
         with:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.image.outputs.digest }}
