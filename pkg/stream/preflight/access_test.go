@@ -11,6 +11,7 @@ import (
 
 	"github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/internal/postgres/mocks"
+	pgdumprestore "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/stream"
 	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/adapter"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
@@ -402,6 +403,106 @@ func TestSourceSequenceSelectPrivilegesCheck_Name(t *testing.T) {
 	require.Equal(t, "source_sequence_select_privileges", (&SourceSequenceSelectPrivilegesCheck{}).Name())
 }
 
+func TestTargetCreateDBPrivilegeCheck_Run_HasCreateDB(t *testing.T) {
+	t.Parallel()
+
+	check := &TargetCreateDBPrivilegeCheck{
+		Target: targetWithCreateDBPrivilege(t, "pgstreamtarget", true),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Empty(t, findings)
+}
+
+func TestTargetCreateDBPrivilegeCheck_Run_SuperuserHasCreateDB(t *testing.T) {
+	t.Parallel()
+
+	check := &TargetCreateDBPrivilegeCheck{
+		Target: func(context.Context) (postgres.Querier, error) {
+			return &mocks.Querier{
+				QueryRowFn: func(_ context.Context, dest []any, query string, _ ...any) error {
+					require.Contains(t, query, "rolcreatedb OR rolsuper")
+					require.Len(t, dest, 2)
+					role, ok := dest[0].(*string)
+					require.True(t, ok)
+					hasCreateDB, ok := dest[1].(*bool)
+					require.True(t, ok)
+					*role = "postgres"
+					*hasCreateDB = true
+					return nil
+				},
+			}, nil
+		},
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Empty(t, findings)
+}
+
+func TestTargetCreateDBPrivilegeCheck_Run_MissingCreateDBReturnsFinding(t *testing.T) {
+	t.Parallel()
+
+	check := &TargetCreateDBPrivilegeCheck{
+		Target: targetWithCreateDBPrivilege(t, "pgstreamtarget", false),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	require.Contains(t, findings[0].Message, `target role "pgstreamtarget"`)
+	require.Contains(t, findings[0].Message, "lacks CREATEDB")
+	require.Contains(t, findings[0].Message, `ALTER ROLE "pgstreamtarget" CREATEDB`)
+}
+
+func TestTargetCreateDBPrivilegeCheck_Run_TargetAcquireFails(t *testing.T) {
+	t.Parallel()
+
+	checkErr := errors.New("boom")
+	check := &TargetCreateDBPrivilegeCheck{
+		Target: func(context.Context) (postgres.Querier, error) {
+			return nil, checkErr
+		},
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.Nil(t, findings)
+	require.ErrorIs(t, err, checkErr)
+	require.ErrorContains(t, err, "connecting to target")
+}
+
+func TestTargetCreateDBPrivilegeCheck_Run_QueryFails(t *testing.T) {
+	t.Parallel()
+
+	queryErr := errors.New("query failed")
+	check := &TargetCreateDBPrivilegeCheck{
+		Target: func(context.Context) (postgres.Querier, error) {
+			return &mocks.Querier{
+				QueryRowFn: func(context.Context, []any, string, ...any) error {
+					return queryErr
+				},
+			}, nil
+		},
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.Nil(t, findings)
+	require.ErrorIs(t, err, queryErr)
+	require.ErrorContains(t, err, "querying target CREATEDB privilege")
+}
+
+func TestTargetCreateDBPrivilegeCheck_Name(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "target_createdb_privilege", (&TargetCreateDBPrivilegeCheck{}).Name())
+}
+
 func TestSourceTableSelectPrivilegeMessage(t *testing.T) {
 	t.Parallel()
 
@@ -446,6 +547,16 @@ func TestSourceSequenceSelectPrivilegeMessage(t *testing.T) {
 	require.Contains(t, msg, `GRANT SELECT ON SEQUENCE "public"."orders_id_seq" TO "pgstream_user"`)
 }
 
+func TestTargetCreateDBPrivilegeMessage(t *testing.T) {
+	t.Parallel()
+
+	msg := targetCreateDBPrivilegeMessage("pgstreamtarget")
+
+	require.Contains(t, msg, `target role "pgstreamtarget"`)
+	require.Contains(t, msg, "lacks CREATEDB")
+	require.Contains(t, msg, `ALTER ROLE "pgstreamtarget" CREATEDB`)
+}
+
 func TestBuildAccessChecks(t *testing.T) {
 	t.Parallel()
 
@@ -468,6 +579,25 @@ func TestBuildAccessChecks(t *testing.T) {
 				},
 			},
 			wantChecks: 2,
+		},
+		{
+			name: "create_target_db adds target createdb check",
+			cfg: &stream.Config{
+				Listener: stream.ListenerConfig{
+					Postgres: &stream.PostgresListenerConfig{
+						URL: "postgres://source",
+						Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+							Schema: &snapshotbuilder.SchemaSnapshotConfig{
+								DumpRestore: &pgdumprestore.Config{
+									TargetPGURL:    "postgres://target",
+									CreateTargetDB: true,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantChecks: 3,
 		},
 		{
 			name: "snapshot+filter Include unions through AccessTableSelection",
@@ -513,6 +643,10 @@ func TestBuildAccessChecks(t *testing.T) {
 			require.True(t, ok)
 			require.ElementsMatch(t, tc.wantInclude, sequenceCheck.Selection.Include(), "Include lists differ")
 			require.ElementsMatch(t, tc.wantExclude, sequenceCheck.Selection.Exclude(), "Exclude lists differ")
+			if tc.wantChecks > 2 {
+				_, ok = checks[2].(*TargetCreateDBPrivilegeCheck)
+				require.True(t, ok)
+			}
 		})
 	}
 }
@@ -581,6 +715,24 @@ func privilegeRows(t *testing.T, rows []sourceTableSelectPrivilegeRow) postgres.
 func sourceWithSequenceRows(t *testing.T, rows []sourceSequenceSelectPrivilegeRow) postgres.AcquireFunc {
 	t.Helper()
 	return sourceWithMockRows(sequencePrivilegeRows(t, rows))
+}
+
+func targetWithCreateDBPrivilege(t *testing.T, role string, hasCreateDB bool) postgres.AcquireFunc {
+	t.Helper()
+	return func(context.Context) (postgres.Querier, error) {
+		return &mocks.Querier{
+			QueryRowFn: func(_ context.Context, dest []any, _ string, _ ...any) error {
+				require.Len(t, dest, 2)
+				roleDest, ok := dest[0].(*string)
+				require.True(t, ok)
+				createDBDest, ok := dest[1].(*bool)
+				require.True(t, ok)
+				*roleDest = role
+				*createDBDest = hasCreateDB
+				return nil
+			},
+		}, nil
+	}
 }
 
 func sequencePrivilegeRows(t *testing.T, rows []sourceSequenceSelectPrivilegeRow) postgres.Rows {
