@@ -94,7 +94,7 @@ func RunPGRestore(ctx context.Context, opts PGRestoreOptions, dump []byte) (stri
 	// does not include it so that pg_restore can create it.
 	if opts.Create {
 		var err error
-		opts.ConnectionString, err = removeDatabaseFromConnectionString(opts.ConnectionString)
+		opts.ConnectionString, err = RemoveDatabaseFromConnectionString(opts.ConnectionString)
 		if err != nil {
 			return "", err
 		}
@@ -165,7 +165,7 @@ func tailOutput(out []byte, maxBytes int) string {
 	return "..." + redacted[len(redacted)-maxBytes:]
 }
 
-func removeDatabaseFromConnectionString(url string) (string, error) {
+func RemoveDatabaseFromConnectionString(url string) (string, error) {
 	dbName, err := extractDatabase(url)
 	if err != nil {
 		return "", err

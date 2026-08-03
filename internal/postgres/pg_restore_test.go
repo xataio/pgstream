@@ -13,6 +13,38 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRemoveDatabaseFromConnectionString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		connection string
+		want       string
+	}{
+		{
+			name:       "database is removed",
+			connection: "postgres://pgstream:secret@localhost:5432/target_db?sslmode=disable",
+			want:       "postgres://pgstream:secret@localhost:5432/?sslmode=disable",
+		},
+		{
+			name:       "postgres database is preserved",
+			connection: "postgres://pgstream:secret@localhost:5432/postgres?sslmode=disable",
+			want:       "postgres://pgstream:secret@localhost:5432/postgres?sslmode=disable",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := RemoveDatabaseFromConnectionString(tc.connection)
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestPGRestoreOptionsToPGOptions(t *testing.T) {
 	t.Parallel()
 

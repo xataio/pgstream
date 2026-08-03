@@ -83,6 +83,7 @@ The `init` command prepares your PostgreSQL database for streaming by:
 - `--replication-slot` - Name of the postgres replication slot to be created by pgstream on the source url
 - `--with-injector` - Whether to initialize pgstream with the injector database migrations. Required for search targets (OpenSearch/Elasticsearch)
 - `--migrations-only` - Whether to only run the database migrations without creating the replication slot
+- `--slot-only` - Whether to only create the replication slot, without running the database migrations
 
 **Examples:**
 
@@ -91,9 +92,12 @@ pgstream init --postgres-url <source-postgres-url> --replication-slot <replicati
 pgstream init -c config.yaml
 pgstream init -c config.env
 pgstream init -c config.yaml --migrations-only
+pgstream init --postgres-url <replica-postgres-url> --slot-only
 ```
 
 **Note:** The `--migrations-only` flag runs only the database migrations (creating the pgstream schema, tables, functions, and triggers) without creating the replication slot. This is useful when you want to set up the schema separately or when using different database credentials for migrations versus replication.
+
+**Note:** The `--slot-only` flag is the complement: it creates only the replication slot, skipping the schema and migrations entirely. This is what a **read replica** source needs, since a standby is read only and cannot take the migrations, while the schema and event trigger reach it through physical replication from the primary. See [Running pgstream from a read replica](replicas.md). The two flags are mutually exclusive.
 
 ### run
 
@@ -354,6 +358,7 @@ The `destroy` command cleans up all resources created by `pgstream init`:
 - `--replication-slot` - Name of the postgres replication slot to be deleted by pgstream from the source url
 - `--with-injector` - Whether to also destroy the injector related database objects
 - `--migrations-only` - Whether to only revert the database migrations without dropping the replication slot
+- `--slot-only` - Whether to only drop the replication slot, leaving the pgstream schema and migrations in place
 
 **Examples:**
 
@@ -362,9 +367,12 @@ pgstream destroy --postgres-url <source-postgres-url> --replication-slot <replic
 pgstream destroy -c config.yaml
 pgstream destroy -c config.env
 pgstream destroy -c config.yaml --migrations-only
+pgstream destroy --postgres-url <postgres-url> --slot-only
 ```
 
 **Note:** The `--migrations-only` flag reverts only the database migrations (removing the pgstream schema, tables, functions, and triggers) without dropping the pgstream schema (with any tables that it might contain, such as the snapshot recorder), or dropping the replication slot. This is useful for minimal downtime migrations where you want to preserve the replication slot position.
+
+**Note:** The `--slot-only` flag is the complement: it drops only the replication slot and leaves the pgstream schema and the `emit_ddl` event trigger in place. Use it to remove a slot that is no longer consumed — an unused logical slot pins WAL indefinitely — without disturbing DDL replication for anything still streaming. The two flags are mutually exclusive.
 
 **⚠️ Important Notes:**
 
