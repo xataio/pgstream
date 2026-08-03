@@ -40,6 +40,13 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		},
 	}
 	quotedSchemaTable1 := pglib.QuoteQualifiedIdentifier(testSchema, testTable1)
+	testTableColumnNames := []string{"id", "name"}
+
+	// independent of buildPageRangeQuery
+	wantPageRangeQuery := func(start, end uint) string {
+		return fmt.Sprintf(`SELECT "id", "name" FROM ONLY %s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'`,
+			quotedSchemaTable1, start, end)
+	}
 
 	txOptions := pglib.TxOptions{
 		IsolationLevel: pglib.RepeatableRead,
@@ -72,13 +79,16 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 	}
 
 	validTableInfoScanFn := func(args ...any) error {
-		require.Len(t, args, 2)
+		require.Len(t, args, 3)
 		pageAvgBytes, ok := args[0].(*int64)
 		require.True(t, ok, fmt.Sprintf("pageAvgBytes, expected *int64, got %T", args[0]))
 		*pageAvgBytes = testPageAvgBytes
 		rowAvgBytes, ok := args[1].(*int64)
 		require.True(t, ok, fmt.Sprintf("rowAvgBytes, expected *int64, got %T", args[1]))
 		*rowAvgBytes = testRowBytes
+		columns, ok := args[2].(*[]string)
+		require.True(t, ok, fmt.Sprintf("columns, expected *[]string, got %T", args[2]))
+		*columns = testTableColumnNames
 		return nil
 	}
 
@@ -154,7 +164,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf(pageRangeQuery, quotedSchemaTable1, 0, 1), query)
+								require.Equal(t, wantPageRangeQuery(0, 1), query)
 								require.Len(t, args, 0)
 								return &pgmocks.Rows{
 									CloseFn: func() {},
@@ -181,6 +191,196 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 
 			wantErr:    nil,
 			wantEvents: []*wal.Event{testEvent(testTable1, testColumns)},
+		},
+		{
+			name: "ok - columns pinned by the schema snapshot",
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {testTable1},
+				},
+				TableColumns: pglib.SchemaTableColumns{
+					testSchema: {testTable1: {"id"}},
+				},
+			},
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					require.Equal(t, txOptions, to)
+					switch i {
+					case 1:
+						mockTx := pgmocks.Tx{
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
+								require.Equal(t, exportSnapshotQuery, query)
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok)
+								*snapshotID = testSnapshotID
+								return nil
+							},
+						}
+						return f(&mockTx)
+					case 2:
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+								return pglib.CommandTag{}, nil
+							},
+							QueryRowFn: validTableInfoQueryRowFn,
+						}
+						return f(&mockTx)
+					case 3:
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+								return pglib.CommandTag{}, nil
+							},
+							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+								require.Equal(t, buildPageRangeQuery(&table{
+									schema:  testSchema,
+									name:    testTable1,
+									columns: []string{"id"},
+								}, pageRange{start: 0, end: 1}), query)
+								return &pgmocks.Rows{
+									CloseFn: func() {},
+									NextFn:  func(i uint) bool { return i == 1 },
+									FieldDescriptionsFn: func() []pgconn.FieldDescription {
+										return []pgconn.FieldDescription{
+											{Name: "id", DataTypeOID: pgtype.UUIDOID},
+										}
+									},
+									ValuesFn: func() ([]any, error) {
+										return []any{testUUID}, nil
+									},
+									ErrFn: func() error { return nil },
+								}, nil
+							},
+						}
+						return f(&mockTx)
+					default:
+						return fmt.Errorf("unexpected call to ExecInTxWithOptions: %d", i)
+					}
+				},
+			},
+
+			wantErr: nil,
+			wantEvents: []*wal.Event{testEvent(testTable1, []wal.Column{
+				{Name: "id", Type: "uuid", Value: testUUID},
+			})},
+		},
+		{
+			name: "ok - pinned column dropped from the source is not read",
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {testTable1},
+				},
+				TableColumns: pglib.SchemaTableColumns{
+					testSchema: {testTable1: {"id", "dropped"}},
+				},
+			},
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					switch i {
+					case 1:
+						mockTx := pgmocks.Tx{
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok)
+								*snapshotID = testSnapshotID
+								return nil
+							},
+						}
+						return f(&mockTx)
+					case 2:
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+								return pglib.CommandTag{}, nil
+							},
+							QueryRowFn: validTableInfoQueryRowFn,
+						}
+						return f(&mockTx)
+					case 3:
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+								return pglib.CommandTag{}, nil
+							},
+							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+								require.Equal(t, fmt.Sprintf(
+									`SELECT "id" FROM ONLY %s WHERE ctid BETWEEN '(0,0)' AND '(1,0)'`,
+									quotedSchemaTable1), query)
+								return &pgmocks.Rows{
+									CloseFn: func() {},
+									NextFn:  func(i uint) bool { return i == 1 },
+									FieldDescriptionsFn: func() []pgconn.FieldDescription {
+										return []pgconn.FieldDescription{{Name: "id", DataTypeOID: pgtype.UUIDOID}}
+									},
+									ValuesFn: func() ([]any, error) { return []any{testUUID}, nil },
+									ErrFn:    func() error { return nil },
+								}, nil
+							},
+						}
+						return f(&mockTx)
+					default:
+						return fmt.Errorf("unexpected call to ExecInTxWithOptions: %d", i)
+					}
+				},
+			},
+
+			wantErr: nil,
+			wantEvents: []*wal.Event{testEvent(testTable1, []wal.Column{
+				{Name: "id", Type: "uuid", Value: testUUID},
+			})},
+		},
+		{
+			name: "error - column dropped after the column list was resolved",
+			snapshot: &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					testSchema: {testTable1},
+				},
+			},
+			querier: &pgmocks.Querier{
+				ExecInTxWithOptionsFn: func(_ context.Context, i uint, f func(tx pglib.Tx) error, to pglib.TxOptions) error {
+					switch i {
+					case 1:
+						mockTx := pgmocks.Tx{
+							QueryRowFn: func(_ context.Context, dest []any, query string, args ...any) error {
+								snapshotID, ok := dest[0].(*string)
+								require.True(t, ok)
+								*snapshotID = testSnapshotID
+								return nil
+							},
+						}
+						return f(&mockTx)
+					case 2:
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+								return pglib.CommandTag{}, nil
+							},
+							QueryRowFn: validTableInfoQueryRowFn,
+						}
+						return f(&mockTx)
+					case 3:
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+								return pglib.CommandTag{}, nil
+							},
+							// race the intersection cannot close
+							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
+								return nil, &pglib.ErrRelationDoesNotExist{Details: `column "name" does not exist`}
+							},
+						}
+						return f(&mockTx)
+					default:
+						return fmt.Errorf("unexpected call to ExecInTxWithOptions: %d", i)
+					}
+				},
+			},
+
+			wantErr: snapshot.Errors{
+				testSchema: &snapshot.SchemaErrors{
+					Schema: testSchema,
+					TableErrors: map[string]string{
+						testTable1: fmt.Sprintf("%s: querying table rows: relation does not exist: %s",
+							ErrSchemaChangedDuringSnapshot, `column "name" does not exist`),
+					},
+				},
+			},
+			wantEvents: []*wal.Event{},
 		},
 		{
 			name: "error - closing processor",
@@ -215,7 +415,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf(pageRangeQuery, quotedSchemaTable1, 0, 1), query)
+								require.Equal(t, wantPageRangeQuery(0, 1), query)
 								return &pgmocks.Rows{
 									CloseFn: func() {},
 									NextFn:  func(i uint) bool { return i == 1 },
@@ -278,7 +478,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf(pageRangeQuery, quotedSchemaTable1, 0, 1), query)
+								require.Equal(t, wantPageRangeQuery(0, 1), query)
 								require.Len(t, args, 0)
 								return &pgmocks.Rows{
 									CloseFn: func() {},
@@ -374,7 +574,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf(pageRangeQuery, quotedSchemaTable1, 0, 1), query)
+								require.Equal(t, wantPageRangeQuery(0, 1), query)
 								require.Len(t, args, 0)
 								return &pgmocks.Rows{
 									CloseFn: func() {},
@@ -504,7 +704,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf(pageRangeQuery, quotedSchemaTable1, 0, 1), query)
+								require.Equal(t, wantPageRangeQuery(0, 1), query)
 								require.Len(t, args, 0)
 								return &pgmocks.Rows{
 									CloseFn: func() {},
@@ -581,7 +781,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf(pageRangeQuery, quotedSchemaTable1, 0, 1), query)
+								require.Equal(t, wantPageRangeQuery(0, 1), query)
 								require.Len(t, args, 0)
 								return &pgmocks.Rows{
 									CloseFn:             func() {},
@@ -601,7 +801,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf(pageRangeQuery, quotedSchemaTable1, 1, 2), query)
+								require.Equal(t, wantPageRangeQuery(1, 2), query)
 								require.Len(t, args, 0)
 								return &pgmocks.Rows{
 									CloseFn:             func() {},
@@ -658,7 +858,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf(pageRangeQuery, quotedSchemaTable1, 0, 1), query)
+								require.Equal(t, wantPageRangeQuery(0, 1), query)
 								require.Len(t, args, 0)
 								return &pgmocks.Rows{
 									CloseFn:             func() {},
@@ -882,7 +1082,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 								return pglib.CommandTag{}, nil
 							},
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-								require.Equal(t, fmt.Sprintf(pageRangeQuery, quotedSchemaTable1, 0, 1), query)
+								require.Equal(t, wantPageRangeQuery(0, 1), query)
 								require.Len(t, args, 0)
 								return nil, errTest
 							},
@@ -1266,6 +1466,95 @@ func TestSnapshotQueriesDoNotIncludeInheritedRows(t *testing.T) {
 	require.Contains(t, maxPageQuery, " FROM ONLY %s")
 }
 
+func TestReadableColumns(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		pinned []string
+		live   []string
+		want   []string
+	}{
+		{
+			name:   "nothing pinned falls back to the live columns",
+			pinned: nil,
+			live:   []string{"id", "name"},
+			want:   []string{"id", "name"},
+		},
+		{
+			name:   "a column added after the capture is not read",
+			pinned: []string{"id", "name"},
+			live:   []string{"id", "name", "added_later"},
+			want:   []string{"id", "name"},
+		},
+		{
+			name:   "a column dropped after the capture is not read",
+			pinned: []string{"id", "dropped", "name"},
+			live:   []string{"id", "name"},
+			want:   []string{"id", "name"},
+		},
+		{
+			name:   "the pinned order wins over the live order",
+			pinned: []string{"name", "id"},
+			live:   []string{"id", "name"},
+			want:   []string{"name", "id"},
+		},
+		{
+			name:   "a table replaced wholesale reads nothing pinned",
+			pinned: []string{"id"},
+			live:   []string{"other"},
+			want:   []string{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, readableColumns(tc.pinned, tc.live))
+		})
+	}
+}
+
+func TestBuildPageRangeQuery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		table *table
+		want  string
+	}{
+		{
+			name:  "explicit columns are quoted and kept in order",
+			table: &table{schema: "test_schema", name: "test_table", columns: []string{"id", "name"}},
+			want:  `SELECT "id", "name" FROM ONLY "test_schema"."test_table" WHERE ctid BETWEEN '(0,0)' AND '(5,0)'`,
+		},
+		{
+			name:  "column names needing quoting are escaped",
+			table: &table{schema: "test_schema", name: "test_table", columns: []string{`we"ird`, "Mixed Case"}},
+			want:  `SELECT "we""ird", "Mixed Case" FROM ONLY "test_schema"."test_table" WHERE ctid BETWEEN '(0,0)' AND '(5,0)'`,
+		},
+		{
+			name:  "column name that looks pre-quoted is quoted again",
+			table: &table{schema: "test_schema", name: "test_table", columns: []string{`"id"`}},
+			want:  `SELECT """id""" FROM ONLY "test_schema"."test_table" WHERE ctid BETWEEN '(0,0)' AND '(5,0)'`,
+		},
+		{
+			name:  "no columns falls back to the wildcard",
+			table: &table{schema: "test_schema", name: "test_table"},
+			want:  `SELECT * FROM ONLY "test_schema"."test_table" WHERE ctid BETWEEN '(0,0)' AND '(5,0)'`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, buildPageRangeQuery(tc.table, pageRange{start: 0, end: 5}))
+		})
+	}
+}
+
 func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 	t.Parallel()
 
@@ -1314,7 +1603,7 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 							return pglib.CommandTag{}, nil
 						},
 						QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
-							require.Equal(t, fmt.Sprintf(pageRangeQuery, quotedSchemaTable, 0, 5), query)
+							require.Equal(t, fmt.Sprintf(pageRangeQuery, allColumns, quotedSchemaTable, 0, 5), query)
 							return &pgmocks.Rows{
 								CloseFn: func() {},
 								NextFn:  func(i uint) bool { return i == 1 },

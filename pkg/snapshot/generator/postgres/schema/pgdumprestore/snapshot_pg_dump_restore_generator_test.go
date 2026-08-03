@@ -88,6 +88,31 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 		return "", nil
 	}
 
+	testCapturedColumns := map[string]map[string][]string{
+		testSchema: {testTable: {"id"}},
+	}
+
+	tableColumnsRows := func() *mocks.Rows {
+		return &mocks.Rows{
+			CloseFn: func() {},
+			NextFn:  func(i uint) bool { return i == 1 },
+			ScanFn: func(i uint, dest ...any) error {
+				require.Len(t, dest, 3)
+				schemaName, ok := dest[0].(*string)
+				require.True(t, ok)
+				*schemaName = testSchema
+				tableName, ok := dest[1].(*string)
+				require.True(t, ok)
+				*tableName = testTable
+				columnName, ok := dest[2].(*string)
+				require.True(t, ok)
+				*columnName = "id"
+				return nil
+			},
+			ErrFn: func() error { return nil },
+		}
+	}
+
 	validQuerier := func() *mocks.Querier {
 		return &mocks.Querier{
 			ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
@@ -96,6 +121,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			},
 			QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 				switch query {
+				case pglib.DiscoverTableColumnsQuery:
+					require.Equal(t, []any{[]string{testSchema}, []string{testTable}}, args)
+					return tableColumnsRows(), nil
 				case selectSchemasQuery:
 					require.Equal(t, []any{[]string{testSchema}}, args)
 					return &mocks.Rows{
@@ -441,6 +469,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						SchemaTables: map[string][]string{
 							testSchema: {testTable},
 						},
+						TableColumns: testCapturedColumns,
 					}, ss)
 					return nil
 				},
@@ -461,6 +490,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			conn: &mocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 					switch query {
+					case pglib.DiscoverTableColumnsQuery:
+						return tableColumnsRows(), nil
 					case selectSchemasQuery:
 						require.Equal(t, []any{[]string{testSchema}}, args)
 						return &mocks.Rows{
@@ -537,9 +568,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 
 			generator: &generatormocks.Generator{
 				CreateSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
-					// the wrapped generator receives the original snapshot
-					// request untouched
+					// wrapped generator gets captured columns
 					require.Equal(t, &snapshot.Snapshot{
+						TableColumns: testCapturedColumns,
 						SchemaTables: map[string][]string{
 							testSchema: {testTable},
 						},
@@ -604,6 +635,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 						SchemaOnlyTables: map[string][]string{
 							testSchema: {testTable},
 						},
+						TableColumns: testCapturedColumns,
 					}, ss)
 					return nil
 				},

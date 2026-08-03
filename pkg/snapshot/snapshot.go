@@ -2,6 +2,8 @@
 
 package snapshot
 
+import pglib "github.com/xataio/pgstream/internal/postgres"
+
 type Snapshot struct {
 	SchemaTables         map[string][]string
 	SchemaExcludedTables map[string][]string
@@ -10,6 +12,9 @@ type Snapshot struct {
 	// take precedence over a schema-only wildcard match, and
 	// SchemaExcludedTables take precedence over the schema-only list.
 	SchemaOnlyTables map[string][]string
+	// TableColumns pins the dumped columns.
+	// Nil resolves at read time.
+	TableColumns pglib.SchemaTableColumns
 }
 
 type Request struct {
