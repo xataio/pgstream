@@ -263,10 +263,17 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 
 	// DUMP
 
+	// pin before the dump
+	if err := s.captureTableColumns(ctx, ss, dumpSchemas); err != nil {
+		return err
+	}
+
 	dump, err := s.dumpSchema(ctx, dataSchemas, schemaOnly, ss.SchemaExcludedTables)
 	if err != nil {
 		return err
 	}
+
+	s.warnOnCaptureDrift(ctx, ss, dumpSchemas)
 
 	// the schema will include the sequences but will not produce the `SETVAL`
 	// queries since that's considered data and it's a schema only dump. Produce
@@ -430,6 +437,78 @@ func (s *SnapshotGenerator) Close() error {
 	}
 
 	return nil
+}
+
+// captureTableColumns precedes the dump.
+func (s *SnapshotGenerator) captureTableColumns(ctx context.Context, ss *snapshot.Snapshot, dumpSchemas map[string][]string) error {
+	if s.generator == nil {
+		// schema-only snapshot, nothing to pin
+		return nil
+	}
+
+	captureSchemas, captureTables := captureScope(dumpSchemas)
+	tableColumns, err := pglib.DiscoverTableColumns(ctx, s.sourceQuerier, captureSchemas, captureTables)
+	if err != nil {
+		return fmt.Errorf("capturing source table columns: %w", err)
+	}
+
+	ss.TableColumns = tableColumns
+	return nil
+}
+
+// captureScope narrows to dump scope.
+func captureScope(dumpSchemas map[string][]string) (schemas, tables []string) {
+	if !hasWildcardSchema(dumpSchemas) {
+		schemas = make([]string, 0, len(dumpSchemas))
+		for schema := range dumpSchemas {
+			schemas = append(schemas, schema)
+		}
+	}
+
+	for _, schemaTables := range dumpSchemas {
+		if hasWildcardTable(schemaTables) {
+			return schemas, nil
+		}
+		tables = append(tables, schemaTables...)
+	}
+	return schemas, tables
+}
+
+// warnOnCaptureDrift exposes the window.
+func (s *SnapshotGenerator) warnOnCaptureDrift(ctx context.Context, ss *snapshot.Snapshot, dumpSchemas map[string][]string) {
+	if ss.TableColumns == nil {
+		return
+	}
+
+	captureSchemas, captureTables := captureScope(dumpSchemas)
+	current, err := pglib.DiscoverTableColumns(ctx, s.sourceQuerier, captureSchemas, captureTables)
+	if err != nil {
+		s.logger.Warn(err, "checking for source schema drift during the schema dump")
+		return
+	}
+
+	drifted := []string{}
+	for schema, tables := range ss.TableColumns {
+		for table, columns := range tables {
+			if !slices.Equal(columns, current[schema][table]) {
+				drifted = append(drifted, schema+"."+table)
+			}
+		}
+	}
+	for schema, tables := range current {
+		for table := range tables {
+			if _, found := ss.TableColumns[schema][table]; !found {
+				drifted = append(drifted, schema+"."+table)
+			}
+		}
+	}
+	if len(drifted) == 0 {
+		return
+	}
+
+	slices.Sort(drifted)
+	s.logger.Warn(nil, "source schema changed while the schema was being dumped; these tables may be snapshotted with stale columns and need replication to converge, or a re-snapshot if none follows",
+		loglib.Fields{"tables": drifted})
 }
 
 func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables, schemaOnlyTables, excludedTables map[string][]string) (*dump, error) {
