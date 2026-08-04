@@ -34,7 +34,7 @@ source:
       schema: # when mode is full or schema
         mode: pgdump_pgrestore # options are pgdump_pgrestore or schemalog
         pgdump_pgrestore:
-          clean_target_db: true # whether to clean the target database before restoring. Defaults to false
+          clean_target_db: true # whether to clean the target database before restoring. Defaults to false. Destructive: the target objects are dropped before the data is copied, so a snapshot that fails afterwards leaves the target partially rebuilt with the previous contents gone. See docs/snapshots.md for how to keep a good copy
           create_target_db: true # whether to create the database on the target postgres. Defaults to false
           include_global_db_objects: true # whether to include database global objects, such as extensions or triggers, on the schema snapshot. Defaults to false
           no_owner: false # whether to remove ownership commands from the dump. Defaults to false
