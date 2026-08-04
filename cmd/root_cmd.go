@@ -96,7 +96,7 @@ func Prepare() *cobra.Command {
 	snapshotCmd.Flags().String("target", "", "Target type. One of postgres, opensearch, elasticsearch, kafka")
 	snapshotCmd.Flags().String("target-url", "", "Target URL")
 	snapshotCmd.Flags().StringSlice("tables", nil, "List of tables to snapshot, in the format <schema>.<table>. If not specified, the schema `public` will be assumed. Wildcards are supported")
-	snapshotCmd.Flags().Bool("reset", false, "Whether to reset the target before snapshotting (only for postgres target)")
+	snapshotCmd.Flags().Bool("reset", false, "Whether to reset the target before snapshotting (only for postgres target). Destructive: drops the target objects before the data is copied, so a failed snapshot leaves the target without its previous contents")
 	snapshotCmd.Flags().Bool("profile", false, "Whether to produce CPU and memory profile files, as well as exposing a /debug/pprof endpoint on localhost:6060")
 	snapshotCmd.Flags().String("dump-file", "", "File where the pg_dump output will be written")
 
@@ -107,7 +107,7 @@ func Prepare() *cobra.Command {
 	runCmd.Flags().String("target-url", "", "Target URL")
 	runCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot for pgstream to connect to")
 	runCmd.Flags().StringSlice("snapshot-tables", nil, "List of tables to snapshot if initial snapshot is required, in the format <schema>.<table>. If not specified, the schema `public` will be assumed. Wildcards are supported")
-	runCmd.Flags().Bool("reset", false, "Whether to reset the target before snapshotting (only for postgres target)")
+	runCmd.Flags().Bool("reset", false, "Whether to reset the target before snapshotting (only for postgres target). Destructive: drops the target objects before the data is copied, so a failed snapshot leaves the target without its previous contents")
 	runCmd.Flags().Bool("profile", false, "Whether to expose a /debug/pprof endpoint on localhost:6060")
 	runCmd.Flags().BoolVar(&initFlag, "init", false, "Whether to initialize pgstream before starting replication")
 	runCmd.Flags().BoolVar(&upgradeFlag, "upgrade", false, "Clean up v0.9.x state before initializing (idempotent, safe for repeated use; implies --init)")

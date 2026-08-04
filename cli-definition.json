@@ -167,7 +167,7 @@
         },
         {
           "name": "reset",
-          "description": "Whether to reset the target before snapshotting (only for postgres target)",
+          "description": "Whether to reset the target before snapshotting (only for postgres target). Destructive: drops the target objects before the data is copied, so a failed snapshot leaves the target without its previous contents",
           "default": "false"
         },
         {
@@ -232,7 +232,7 @@
         },
         {
           "name": "reset",
-          "description": "Whether to reset the target before snapshotting (only for postgres target)",
+          "description": "Whether to reset the target before snapshotting (only for postgres target). Destructive: drops the target objects before the data is copied, so a failed snapshot leaves the target without its previous contents",
           "default": "false"
         },
         {
