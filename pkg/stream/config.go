@@ -224,6 +224,17 @@ func (c *Config) SnapshotCreateTargetDB() bool {
 	return c.Listener.Postgres.Snapshot.Schema.DumpRestore.CreateTargetDB
 }
 
+func (c *Config) SnapshotRestoresRoles() bool {
+	if c.Listener.Postgres == nil ||
+		c.Listener.Postgres.Snapshot == nil ||
+		c.Listener.Postgres.Snapshot.Schema == nil ||
+		c.Listener.Postgres.Snapshot.Schema.DumpRestore == nil {
+		return false
+	}
+	mode := c.Listener.Postgres.Snapshot.Schema.DumpRestore.RolesSnapshotMode
+	return mode == "enabled" || mode == "no_passwords"
+}
+
 // restoreConflictTargetsBeforeData reports whether the schema snapshot must
 // restore primary keys, unique constraints and unique indexes before the data
 // snapshot runs. This is required when the postgres batch writer emits
