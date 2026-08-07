@@ -68,6 +68,7 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE", "/path/to/client.key")
 
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_TARGET_URL", "postgresql://user:password@localhost:5432/mytargetdatabase")
+	os.Setenv("PGSTREAM_POSTGRES_WRITER_MAX_CONNECTIONS", "60")
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_BATCH_SIZE", "100")
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT", "1s")
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES", "204800")

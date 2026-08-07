@@ -17,26 +17,13 @@ type Pool struct {
 type PoolOption func(*pgxpool.Config)
 
 // MaxConns is the default maximum number of connections in a Postgres
-// connection pool. It also bounds the global concurrent-COPY budget in the
-// bulk-ingest writer, so the two never drift.
+// connection pool.
 const MaxConns = 50
 
 func NewConnPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error) {
-	escapedURL, err := escapeConnectionURL(url)
+	pgCfg, err := newConnPoolConfig(url, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to escape connection URL: %w", err)
-	}
-	pgCfg, err := pgxpool.ParseConfig(escapedURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed parsing postgres connection string: %w", MapError(err))
-	}
-	pgCfg.MaxConns = MaxConns
-	pgCfg.AfterConnect = registerTypesToConnMap
-
-	configureTCPKeepalive(pgCfg.ConnConfig)
-
-	for _, opt := range opts {
-		opt(pgCfg)
+		return nil, err
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, pgCfg)
@@ -45,6 +32,45 @@ func NewConnPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, er
 	}
 
 	return &Pool{Pool: pool}, nil
+}
+
+func newConnPoolConfig(url string, opts ...PoolOption) (*pgxpool.Config, error) {
+	escapedURL, err := escapeConnectionURL(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to escape connection URL: %w", err)
+	}
+	connCfg, err := pgx.ParseConfig(escapedURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed parsing postgres connection string: %w", MapError(err))
+	}
+	_, maxConnsConfigured := connCfg.RuntimeParams["pool_max_conns"]
+
+	pgCfg, err := pgxpool.ParseConfig(escapedURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed parsing postgres connection string: %w", MapError(err))
+	}
+	if !maxConnsConfigured {
+		pgCfg.MaxConns = MaxConns
+	}
+	pgCfg.AfterConnect = registerTypesToConnMap
+
+	configureTCPKeepalive(pgCfg.ConnConfig)
+
+	for _, opt := range opts {
+		opt(pgCfg)
+	}
+
+	return pgCfg, nil
+}
+
+// ConnPoolMaxConnections returns the resolved maximum number of connections
+// after applying the connection string, the pgstream default, and pool options.
+func ConnPoolMaxConnections(url string, opts ...PoolOption) (int32, error) {
+	pgCfg, err := newConnPoolConfig(url, opts...)
+	if err != nil {
+		return 0, err
+	}
+	return pgCfg.MaxConns, nil
 }
 
 func WithMaxConnections(maxConns int32) PoolOption {
