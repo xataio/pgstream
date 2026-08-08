@@ -40,6 +40,14 @@ func (c *TargetCreateDBPrivilegeCheck) Name() string {
 	return "target_createdb_privilege"
 }
 
+type TargetCreateRolePrivilegeCheck struct {
+	Target postgres.AcquireFunc
+}
+
+func (c *TargetCreateRolePrivilegeCheck) Name() string {
+	return "target_createrole_privilege"
+}
+
 const sourceTableSelectPrivilegesQuery = `
 SELECT
   current_user,
@@ -106,6 +114,14 @@ const targetCreateDBPrivilegeQuery = `
 SELECT 
 	current_user,
 	rolcreatedb OR rolsuper
+FROM pg_roles
+WHERE rolname = current_user
+`
+
+const targetCreateRolePrivilegeQuery = `
+SELECT
+	current_user,
+	rolcreaterole OR rolsuper
 FROM pg_roles
 WHERE rolname = current_user
 `
@@ -197,6 +213,29 @@ func (c *TargetCreateDBPrivilegeCheck) Run(ctx context.Context) ([]Finding, erro
 	}, nil
 }
 
+func (c *TargetCreateRolePrivilegeCheck) Run(ctx context.Context) ([]Finding, error) {
+	conn, err := c.Target(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to target: %w", err)
+	}
+	var role string
+	var hasCreateRole bool
+
+	if err := conn.QueryRow(
+		ctx,
+		[]any{&role, &hasCreateRole},
+		targetCreateRolePrivilegeQuery,
+	); err != nil {
+		return nil, fmt.Errorf("querying target CREATEROLE privilege: %w", err)
+	}
+	if hasCreateRole {
+		return nil, nil
+	}
+	return []Finding{{
+		Message: targetCreateRolePrivilegeMessage(role),
+	}}, nil
+}
+
 type sourceTableSelectPrivilegeRow struct {
 	Role      string
 	Schema    string
@@ -282,5 +321,12 @@ func targetCreateDBPrivilegeMessage(role string) string {
 	return fmt.Sprintf(
 		"target role %q lacks CREATEDB; run ALTER ROLE %s CREATEDB",
 		role, quotedRole,
+	)
+}
+
+func targetCreateRolePrivilegeMessage(role string) string {
+	quotedRole := postgres.QuoteIdentifier(role)
+	return fmt.Sprintf(
+		"target role %q lacks CREATEROLE; run ALTER ROLE %s CREATEROLE", role, quotedRole,
 	)
 }
