@@ -12,12 +12,15 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/xataio/pgstream/internal/json"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/otel"
 )
 
 const (
-	DefaultAddress = "localhost:9910"
+	DefaultAddress            = "localhost:9910"
+	DefaultPrometheusEndpoint = "/metrics"
 
 	readinessCheckTimeout = 2 * time.Second
 	readHeaderTimeout     = 5 * time.Second
@@ -38,6 +41,7 @@ type Server struct {
 	phaseProvider  func() string
 	listener       net.Listener
 	httpServer     *http.Server
+	metricsConfig  *otel.MetricsConfig
 }
 
 var errNotListening = errors.New("health server not initialised: call Listen first")
@@ -46,14 +50,15 @@ type Option func(*Server)
 
 // NewServer builds a health server from the given config. The server is not
 // started until Start() is called.
-func NewServer(cfg Config, opts ...Option) *Server {
+func NewServer(cfg Config, metricsCfg *otel.MetricsConfig, opts ...Option) *Server {
 	address := cfg.Address
 	if address == "" {
 		address = DefaultAddress
 	}
 	s := &Server{
-		logger:  loglib.NewNoopLogger(),
-		address: address,
+		logger:        loglib.NewNoopLogger(),
+		address:       address,
+		metricsConfig: metricsCfg,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -113,6 +118,14 @@ func (s *Server) Listen() error {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/ready", s.handleReady)
 	mux.HandleFunc("/status", s.handleStatus)
+
+	if s.isPrometheusEnabled() {
+		endpoint := DefaultPrometheusEndpoint
+		if promEndpoint := s.metricsConfig.Prometheus.Endpoint; promEndpoint != "" {
+			endpoint = promEndpoint
+		}
+		mux.HandleFunc(endpoint, s.handlePrometheus)
+	}
 
 	s.listener = ln
 	s.httpServer = &http.Server{
@@ -198,5 +211,18 @@ func (s *Server) writeJSON(w http.ResponseWriter, code int, body any) {
 	}
 	if _, err := w.Write(payload); err != nil {
 		s.logger.Warn(err, "health server: writing response")
+	}
+}
+
+func (s *Server) isPrometheusEnabled() bool {
+	return s.metricsConfig != nil && s.metricsConfig.Prometheus != nil && s.metricsConfig.Prometheus.Enabled
+
+}
+
+func (s *Server) handlePrometheus(w http.ResponseWriter, req *http.Request) {
+	if s.isPrometheusEnabled() {
+		promhttp.Handler().ServeHTTP(w, req)
+	} else {
+		s.writeJSON(w, http.StatusNotFound, map[string]any{})
 	}
 }
