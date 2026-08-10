@@ -21,6 +21,19 @@ import (
 	replicationpg "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
+type mockRuleValidator struct {
+	parseAndValidateFn func(ctx context.Context, rules transformer.Rules) (*transformer.TransformerMap, error)
+	warnings           []string
+}
+
+func (m *mockRuleValidator) ParseAndValidate(ctx context.Context, rules transformer.Rules) (*transformer.TransformerMap, error) {
+	return m.parseAndValidateFn(ctx, rules)
+}
+
+func (m *mockRuleValidator) Warnings() []string {
+	return m.warnings
+}
+
 func TestStatusChecker_Status(t *testing.T) {
 	t.Parallel()
 
@@ -111,9 +124,11 @@ func TestStatusChecker_Status(t *testing.T) {
 		}, nil
 	}
 
-	validRuleValidatorBuilder := func(context.Context, string, []string) (ruleValidator, error) {
-		return func(ctx context.Context, rules transformer.Rules) (*transformer.TransformerMap, error) {
-			return nil, nil
+	validRuleValidatorBuilder := func(context.Context, string, []string, ...transformer.ParserOption) (ruleValidator, error) {
+		return &mockRuleValidator{
+			parseAndValidateFn: func(ctx context.Context, rules transformer.Rules) (*transformer.TransformerMap, error) {
+				return nil, nil
+			},
 		}, nil
 	}
 
@@ -122,7 +137,7 @@ func TestStatusChecker_Status(t *testing.T) {
 		connBuilder          pglib.QuerierBuilder
 		migratorBuilder      func(*InitConfig) (migrator, error)
 		config               *Config
-		ruleValidatorBuilder func(context.Context, string, []string) (ruleValidator, error)
+		ruleValidatorBuilder func(context.Context, string, []string, ...transformer.ParserOption) (ruleValidator, error)
 
 		wantStatus *Status
 		wantErr    error
@@ -193,7 +208,7 @@ func TestStatusChecker_Status(t *testing.T) {
 			connBuilder:     validConnBuilder,
 			migratorBuilder: validMigratorBuilder,
 			config:          validConfig,
-			ruleValidatorBuilder: func(ctx context.Context, s string, r []string) (ruleValidator, error) {
+			ruleValidatorBuilder: func(ctx context.Context, s string, r []string, _ ...transformer.ParserOption) (ruleValidator, error) {
 				return nil, errTest
 			},
 
@@ -636,16 +651,18 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 
 	tests := []struct {
 		name                 string
-		ruleValidatorBuilder func(context.Context, string, []string) (ruleValidator, error)
+		ruleValidatorBuilder func(context.Context, string, []string, ...transformer.ParserOption) (ruleValidator, error)
 		config               *Config
 		wantStatus           *TransformationRulesStatus
 		wantErr              error
 	}{
 		{
 			name: "ok - valid transformation rules",
-			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string) (ruleValidator, error) {
-				return func(ctx context.Context, rules transformer.Rules) (*transformer.TransformerMap, error) {
-					return nil, nil
+			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string, _ ...transformer.ParserOption) (ruleValidator, error) {
+				return &mockRuleValidator{
+					parseAndValidateFn: func(ctx context.Context, rules transformer.Rules) (*transformer.TransformerMap, error) {
+						return nil, nil
+					},
 				}, nil
 			},
 			config: &Config{
@@ -666,8 +683,36 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - valid transformation rules with warnings",
+			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string, _ ...transformer.ParserOption) (ruleValidator, error) {
+				return &mockRuleValidator{
+					parseAndValidateFn: func(ctx context.Context, rules transformer.Rules) (*transformer.TransformerMap, error) {
+						return nil, nil
+					},
+					warnings: []string{"a transformer might break a unique index"},
+				}, nil
+			},
+			config: &Config{
+				Processor: ProcessorConfig{
+					Transformer: &transformer.Config{
+						TransformerRules: []transformer.TableRules{},
+					},
+				},
+				Listener: ListenerConfig{
+					Postgres: &PostgresListenerConfig{
+						URL: "postgres://user:password@localhost:5432/db",
+					},
+				},
+			},
+			wantStatus: &TransformationRulesStatus{
+				Valid:    true,
+				Warnings: []string{"a transformer might break a unique index"},
+			},
+			wantErr: nil,
+		},
+		{
 			name: "ok - no transformer configured",
-			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string) (ruleValidator, error) {
+			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string, _ ...transformer.ParserOption) (ruleValidator, error) {
 				return nil, errors.New("unexpected call to ruleValidatorBuilder")
 			},
 			config: &Config{
@@ -685,7 +730,7 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 		},
 		{
 			name: "error - source postgres URL not provided",
-			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string) (ruleValidator, error) {
+			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string, _ ...transformer.ParserOption) (ruleValidator, error) {
 				return nil, errors.New("unexpected call to ruleValidatorBuilder")
 			},
 			config: &Config{
@@ -708,9 +753,11 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 		},
 		{
 			name: "error - rule validation failure",
-			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string) (ruleValidator, error) {
-				return func(ctx context.Context, rules transformer.Rules) (*transformer.TransformerMap, error) {
-					return nil, errTest
+			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string, _ ...transformer.ParserOption) (ruleValidator, error) {
+				return &mockRuleValidator{
+					parseAndValidateFn: func(ctx context.Context, rules transformer.Rules) (*transformer.TransformerMap, error) {
+						return nil, errTest
+					},
 				}, nil
 			},
 			config: &Config{
@@ -733,7 +780,7 @@ func TestStatusChecker_transformationRulesStatus(t *testing.T) {
 		},
 		{
 			name: "error - ruleValidatorBuilder failure",
-			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string) (ruleValidator, error) {
+			ruleValidatorBuilder: func(ctx context.Context, pgURL string, r []string, _ ...transformer.ParserOption) (ruleValidator, error) {
 				return nil, errTest
 			},
 			config: &Config{
