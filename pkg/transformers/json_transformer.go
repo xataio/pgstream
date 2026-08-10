@@ -123,6 +123,10 @@ func (jt *JSONTransformer) IsDynamic() bool {
 	return true
 }
 
+func (jt *JSONTransformer) Uniqueness() Uniqueness {
+	return UniquenessNotGuaranteed
+}
+
 func (jt *JSONTransformer) Close() error {
 	return nil
 }
@@ -131,6 +135,7 @@ func JSONTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: jsonCompatibleTypes,
 		Parameters:     jsonParams,
+		Uniqueness:     UniquenessNotGuaranteed,
 	}
 }
 

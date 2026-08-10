@@ -7,6 +7,7 @@
         "string",
         "citext"
       ],
+      "uniqueness": "not_guaranteed",
       "parameters": [
         {
           "name": "replacement_domain",
@@ -37,6 +38,7 @@
         "string",
         "byte_array"
       ],
+      "uniqueness": "preserved",
       "parameters": [
         {
           "name": "key_hex",
@@ -60,6 +62,7 @@
         "boolean",
         "byte_array"
       ],
+      "uniqueness": "unspecified",
       "parameters": [
         {
           "name": "generator",
@@ -80,6 +83,7 @@
         "string",
         "byte_array"
       ],
+      "uniqueness": "unspecified",
       "parameters": [
         {
           "name": "choices",
@@ -108,6 +112,7 @@
         "byte_array",
         "date"
       ],
+      "uniqueness": "unspecified",
       "parameters": [
         {
           "name": "generator",
@@ -142,6 +147,7 @@
         "string",
         "byte_array"
       ],
+      "uniqueness": "unspecified",
       "parameters": [
         {
           "name": "generator",
@@ -175,6 +181,7 @@
         "float64",
         "byte_array"
       ],
+      "uniqueness": "unspecified",
       "parameters": [
         {
           "name": "generator",
@@ -225,6 +232,7 @@
         "float32",
         "float64"
       ],
+      "uniqueness": "unspecified",
       "parameters": [
         {
           "name": "generator",
@@ -270,6 +278,7 @@
         "string",
         "byte_array"
       ],
+      "uniqueness": "unspecified",
       "parameters": [
         {
           "name": "symbols",
@@ -320,6 +329,7 @@
         "float32",
         "float64"
       ],
+      "uniqueness": "unspecified",
       "parameters": [
         {
           "name": "generator",
@@ -355,6 +365,7 @@
         "byte_array",
         "string"
       ],
+      "uniqueness": "unspecified",
       "parameters": [
         {
           "name": "generator",
@@ -409,6 +420,7 @@
         "uuid",
         "uint8_array_of_16"
       ],
+      "uniqueness": "unspecified",
       "parameters": [
         {
           "name": "generator",
@@ -430,6 +442,7 @@
         "byte_array",
         "hstore"
       ],
+      "uniqueness": "not_guaranteed",
       "parameters": [
         {
           "name": "operations",
@@ -445,6 +458,7 @@
       "supported_types": [
         "json"
       ],
+      "uniqueness": "not_guaranteed",
       "parameters": [
         {
           "name": "operations",
@@ -460,6 +474,7 @@
       "supported_types": [
         "all"
       ],
+      "uniqueness": "lossy",
       "parameters": [
         {
           "name": "literal",
@@ -476,6 +491,7 @@
         "string",
         "byte_array"
       ],
+      "uniqueness": "unspecified",
       "parameters": [
         {
           "name": "type",
@@ -533,6 +549,7 @@
         "string",
         "citext"
       ],
+      "uniqueness": "unspecified",
       "parameters": [
         {
           "name": "seed",
@@ -601,6 +618,7 @@
       "supported_types": [
         "string"
       ],
+      "uniqueness": "unspecified",
       "parameters": [
         {
           "name": "seed",
@@ -630,6 +648,7 @@
       "supported_types": [
         "string"
       ],
+      "uniqueness": "unspecified",
       "parameters": [
         {
           "name": "seed",
@@ -659,6 +678,7 @@
       "supported_types": [
         "string"
       ],
+      "uniqueness": "unspecified",
       "parameters": [
         {
           "name": "seed",
@@ -688,6 +708,7 @@
       "supported_types": [
         "string"
       ],
+      "uniqueness": "unspecified",
       "parameters": [
         {
           "name": "seed",
@@ -724,6 +745,7 @@
       "supported_types": [
         "all"
       ],
+      "uniqueness": "not_guaranteed",
       "parameters": [
         {
           "name": "anon_function",
@@ -873,6 +895,7 @@
         "string",
         "byte_array"
       ],
+      "uniqueness": "not_guaranteed",
       "parameters": [
         {
           "name": "prefix",
@@ -914,6 +937,7 @@
         "string",
         "byte_array"
       ],
+      "uniqueness": "not_guaranteed",
       "parameters": []
     },
     {
@@ -922,6 +946,7 @@
         "string",
         "byte_array"
       ],
+      "uniqueness": "not_guaranteed",
       "parameters": [
         {
           "name": "template",
