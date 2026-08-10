@@ -62,7 +62,7 @@
         "boolean",
         "byte_array"
       ],
-      "uniqueness": "unspecified",
+      "uniqueness": "lossy",
       "parameters": [
         {
           "name": "generator",
@@ -83,7 +83,7 @@
         "string",
         "byte_array"
       ],
-      "uniqueness": "unspecified",
+      "uniqueness": "lossy",
       "parameters": [
         {
           "name": "choices",
@@ -112,7 +112,7 @@
         "byte_array",
         "date"
       ],
-      "uniqueness": "unspecified",
+      "uniqueness": "not_guaranteed",
       "parameters": [
         {
           "name": "generator",
@@ -147,7 +147,7 @@
         "string",
         "byte_array"
       ],
-      "uniqueness": "unspecified",
+      "uniqueness": "lossy",
       "parameters": [
         {
           "name": "generator",
@@ -181,7 +181,7 @@
         "float64",
         "byte_array"
       ],
-      "uniqueness": "unspecified",
+      "uniqueness": "not_guaranteed",
       "parameters": [
         {
           "name": "generator",
@@ -232,7 +232,7 @@
         "float32",
         "float64"
       ],
-      "uniqueness": "unspecified",
+      "uniqueness": "not_guaranteed",
       "parameters": [
         {
           "name": "generator",
@@ -278,7 +278,7 @@
         "string",
         "byte_array"
       ],
-      "uniqueness": "unspecified",
+      "uniqueness": "not_guaranteed",
       "parameters": [
         {
           "name": "symbols",
@@ -329,7 +329,7 @@
         "float32",
         "float64"
       ],
-      "uniqueness": "unspecified",
+      "uniqueness": "not_guaranteed",
       "parameters": [
         {
           "name": "generator",
@@ -365,7 +365,7 @@
         "byte_array",
         "string"
       ],
-      "uniqueness": "unspecified",
+      "uniqueness": "not_guaranteed",
       "parameters": [
         {
           "name": "generator",
@@ -420,7 +420,7 @@
         "uuid",
         "uint8_array_of_16"
       ],
-      "uniqueness": "unspecified",
+      "uniqueness": "not_guaranteed",
       "parameters": [
         {
           "name": "generator",

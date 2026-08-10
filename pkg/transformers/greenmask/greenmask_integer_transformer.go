@@ -170,6 +170,10 @@ func (t *IntegerTransformer) IsDynamic() bool {
 	return false
 }
 
+func (t *IntegerTransformer) Uniqueness() transformers.Uniqueness {
+	return transformers.UniquenessNotGuaranteed
+}
+
 func (t *IntegerTransformer) Close() error {
 	return nil
 }
@@ -178,6 +182,7 @@ func IntegerTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: integerCompatibleTypes,
 		Parameters:     integerParams,
+		Uniqueness:     transformers.UniquenessNotGuaranteed,
 	}
 }
 
