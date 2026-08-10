@@ -68,10 +68,13 @@ var validateRulesCmd = &cobra.Command{
 				return err
 			}
 
-			if len(rulesStatus.Errors) == 0 {
-				sp.Success("transformation rules are valid")
-			} else {
+			switch {
+			case len(rulesStatus.Errors) > 0:
 				sp.Warning("pgstream validation check identified issues: ", strings.Join(rulesStatus.Errors, ", "))
+			case len(rulesStatus.Warnings) > 0:
+				sp.Warning("transformation rules are valid, with warnings: ", strings.Join(rulesStatus.Warnings, ", "))
+			default:
+				sp.Success("transformation rules are valid")
 			}
 
 			err = print(cmd, rulesStatus)
