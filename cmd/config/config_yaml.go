@@ -288,6 +288,7 @@ type WebhookNotifierConfig struct {
 	WorkerCount   int            `mapstructure:"worker_count" yaml:"worker_count"`
 	ClientTimeout int            `mapstructure:"client_timeout" yaml:"client_timeout"`
 	Backoff       *BackoffConfig `mapstructure:"backoff" yaml:"backoff"`
+	StrictMode    bool           `mapstructure:"strict_mode" yaml:"strict_mode"`
 }
 
 type SanitizeConfig struct {
@@ -772,6 +773,7 @@ func (c *YAMLConfig) parseWebhookProcessorConfig() *stream.WebhookProcessorConfi
 		Notifier: notifier.Config{
 			URLWorkerCount: uint(c.Target.Webhooks.Notifier.WorkerCount),
 			ClientTimeout:  time.Duration(c.Target.Webhooks.Notifier.ClientTimeout) * time.Millisecond,
+			StrictMode:     c.Target.Webhooks.Notifier.StrictMode,
 		},
 		SubscriptionServer: server.Config{
 			Address:      c.Target.Webhooks.Subscriptions.Server.Address,

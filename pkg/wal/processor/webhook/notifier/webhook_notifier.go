@@ -39,6 +39,7 @@ type Notifier struct {
 	notifyChan      chan *notifyMsg
 	workerCount     uint
 	backoffProvider backoff.Provider
+	strictMode      bool
 	// notifyChan never closes, avoids send panic
 	shutdownCh chan struct{}
 	notifyDone chan struct{}
@@ -62,6 +63,7 @@ func New(cfg *Config, store subscriptionRetriever, opts ...Option) *Notifier {
 		notifyChan:        make(chan *notifyMsg),
 		workerCount:       cfg.workerCount(),
 		backoffProvider:   backoff.NewProvider(cfg.backoffConfig()),
+		strictMode:        cfg.StrictMode,
 		serialiser:        json.Marshal,
 		shutdownCh:        make(chan struct{}),
 		notifyDone:        make(chan struct{}),
@@ -72,6 +74,10 @@ func New(cfg *Config, store subscriptionRetriever, opts ...Option) *Notifier {
 
 	for _, opt := range opts {
 		opt(n)
+	}
+
+	if !cfg.StrictMode {
+		n.logger.Info("strict_mode is disabled: permanently failing webhook deliveries will be dropped and logged rather than stopping the pipeline")
 	}
 
 	return n
@@ -208,10 +214,10 @@ func (n *Notifier) notify(ctx context.Context, msg *notifyMsg) error {
 		wg.Wait()
 		close(errChan)
 
-		// permanent errors are dropped, not blocking
+		// in strict mode, permanent errors block like any other
 		var blockingErrs []error
 		for err := range errChan {
-			if errors.Is(err, backoff.ErrPermanent) {
+			if !n.strictMode && errors.Is(err, backoff.ErrPermanent) {
 				n.logger.Error(err, "webhook delivery permanently failed, dropping")
 				continue
 			}

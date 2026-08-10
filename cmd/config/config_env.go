@@ -149,6 +149,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_WEBHOOK_NOTIFIER_BACKOFF_INTERVAL")
 	viper.BindEnv("PGSTREAM_WEBHOOK_NOTIFIER_BACKOFF_MAX_RETRIES")
 	viper.BindEnv("PGSTREAM_WEBHOOK_NOTIFIER_DISABLE_RETRIES")
+	viper.BindEnv("PGSTREAM_WEBHOOK_NOTIFIER_STRICT_MODE")
 	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_ADDRESS")
 	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_READ_TIMEOUT")
 	viper.BindEnv("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_WRITE_TIMEOUT")
@@ -554,6 +555,7 @@ func parseWebhookProcessorConfig() (*stream.WebhookProcessorConfig, error) {
 			URLWorkerCount: viper.GetUint("PGSTREAM_WEBHOOK_NOTIFIER_WORKER_COUNT"),
 			ClientTimeout:  viper.GetDuration("PGSTREAM_WEBHOOK_NOTIFIER_CLIENT_TIMEOUT"),
 			Backoff:        parseBackoffConfig("PGSTREAM_WEBHOOK_NOTIFIER"),
+			StrictMode:     viper.GetBool("PGSTREAM_WEBHOOK_NOTIFIER_STRICT_MODE"),
 		},
 		SubscriptionServer: server.Config{
 			Address:      viper.GetString("PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_ADDRESS"),

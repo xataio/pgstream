@@ -23,6 +23,7 @@ type Config struct {
 	URLWorkerCount uint
 	ClientTimeout  time.Duration
 	Backoff        backoff.Config
+	StrictMode     bool
 }
 
 func (c *Config) maxQueueBytes() int64 {

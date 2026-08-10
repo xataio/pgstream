@@ -208,6 +208,7 @@ func TestNotifier_Notify(t *testing.T) {
 
 	tests := []struct {
 		name         string
+		strictMode   bool
 		semaphore    *syncmocks.WeightedSemaphore
 		client       httplib.Client
 		msgs         []*notifyMsg
@@ -334,6 +335,34 @@ func TestNotifier_Notify(t *testing.T) {
 			wantErr: context.Canceled,
 		},
 		{
+			// strict_mode: permanent failures block too
+			name:       "error - strict mode blocks checkpoint on permanent failure",
+			strictMode: true,
+			client: &httpmocks.Client{
+				DoFn: func(r *http.Request) (*http.Response, error) {
+					if r.URL.Path == url1 {
+						return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+					}
+					return &http.Response{StatusCode: http.StatusBadRequest, Body: http.NoBody}, nil
+				},
+			},
+			semaphore: &syncmocks.WeightedSemaphore{
+				ReleaseFn: func(i uint64, bytes int64) {},
+			},
+			msgs: []*notifyMsg{
+				testNotifyMsg([]string{url1, url2}, testPayload),
+			},
+			checkpointer: func(doneChan chan struct{}) checkpointer.Checkpoint {
+				return func(ctx context.Context, positions []wal.CommitPosition) error {
+					doneChan <- struct{}{}
+					t.Error("checkpointer should not be called in strict mode on permanent failure")
+					return nil
+				}
+			},
+
+			wantErr: backoff.ErrPermanent,
+		},
+		{
 			name: "error - checkpointing",
 			client: &httpmocks.Client{
 				DoFn: func(r *http.Request) (*http.Response, error) {
@@ -371,6 +400,7 @@ func TestNotifier_Notify(t *testing.T) {
 			n.client = tc.client
 			n.queueBytesSema = tc.semaphore
 			n.checkpointer = tc.checkpointer(doneChan)
+			n.strictMode = tc.strictMode
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()

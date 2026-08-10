@@ -161,6 +161,7 @@ target:
         constant:
           max_retries: 5 # maximum number of retries
           interval: 1000 # interval in milliseconds
+      strict_mode: false # whether to stop the pipeline on a permanently failing webhook delivery instead of dropping it. Defaults to false
   stdout: {} # write WAL events as NDJSON to stdout. Useful for debugging and validating the pipeline without a real target.
 
 modifiers:
