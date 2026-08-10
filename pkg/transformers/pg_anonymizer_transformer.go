@@ -392,6 +392,10 @@ func (t *PGAnonymizerTransformer) IsDynamic() bool {
 	return false
 }
 
+func (t *PGAnonymizerTransformer) Uniqueness() Uniqueness {
+	return UniquenessNotGuaranteed
+}
+
 func (t *PGAnonymizerTransformer) Close() error {
 	return t.conn.Close(context.Background())
 }
@@ -576,6 +580,7 @@ func PGAnonymizerTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: pgAnonymizerCompatibleTypes,
 		Parameters:     pgAnonymizerParams,
+		Uniqueness:     UniquenessNotGuaranteed,
 	}
 }
 

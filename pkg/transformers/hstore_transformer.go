@@ -139,6 +139,10 @@ func (t *HstoreTransformer) IsDynamic() bool {
 	return true
 }
 
+func (t *HstoreTransformer) Uniqueness() Uniqueness {
+	return UniquenessNotGuaranteed
+}
+
 func (t *HstoreTransformer) Close() error {
 	return nil
 }
@@ -147,6 +151,7 @@ func HstoreTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: hstoreCompatibleTypes,
 		Parameters:     hstoreParams,
+		Uniqueness:     UniquenessNotGuaranteed,
 	}
 }
 

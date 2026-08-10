@@ -21,6 +21,7 @@ type Result struct {
 type Transformer struct {
 	Name           string      `json:"name"`
 	SupportedTypes []string    `json:"supported_types"`
+	Uniqueness     string      `json:"uniqueness"`
 	Parameters     []Parameter `json:"parameters"`
 }
 
@@ -66,6 +67,7 @@ func extractTransformers(transformersMap map[transformers.TransformerType]struct
 		transformersList = append(transformersList, Transformer{
 			Name:           trName,
 			SupportedTypes: extractSupportedTypes(transformer.Definition.SupportedTypes),
+			Uniqueness:     transformer.Definition.Uniqueness.String(),
 			Parameters:     extractParameters(transformer.Definition.Parameters),
 		})
 	}
