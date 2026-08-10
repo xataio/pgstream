@@ -228,3 +228,87 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 		})
 	}
 }
+
+func TestMaskingTransformer_Uniqueness(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		params ParameterValues
+	}{
+		{
+			name:   "default masks the whole value",
+			params: ParameterValues{},
+		},
+		{
+			name:   "id keeps a 6 character prefix",
+			params: ParameterValues{"type": "id"},
+		},
+		{
+			name:   "credit_card keeps a 6 character prefix",
+			params: ParameterValues{"type": "credit_card"},
+		},
+		{
+			name:   "custom mask range",
+			params: ParameterValues{"type": "custom", "mask_begin": "2", "mask_end": "6"},
+		},
+		{
+			name:   "custom mask range mixing an absolute and a percentage bound",
+			params: ParameterValues{"type": "custom", "mask_begin": "50", "mask_end": "50%"},
+		},
+		{
+			name:   "custom unmask range leaving a masked prefix",
+			params: ParameterValues{"type": "custom", "unmask_begin": "4"},
+		},
+		{
+			name:   "custom unmask range leaving a masked suffix",
+			params: ParameterValues{"type": "custom", "unmask_end": "4"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			transformer, err := NewMaskingTransformer(tt.params)
+			require.NoError(t, err)
+			require.Equal(t, UniquenessLossy, transformer.Uniqueness())
+		})
+	}
+}
+
+func TestMaskingTransformer_rejectsMaskCoveringNoCharacters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		params ParameterValues
+	}{
+		{
+			name:   "mask range of zero characters",
+			params: ParameterValues{"type": "custom", "mask_begin": "3", "mask_end": "3"},
+		},
+		{
+			name:   "mask range of zero characters, percentages",
+			params: ParameterValues{"type": "custom", "mask_begin": "50%", "mask_end": "50%"},
+		},
+		{
+			name:   "unmask range covering the whole value",
+			params: ParameterValues{"type": "custom", "unmask_begin": "0", "unmask_end": "100%"},
+		},
+		{
+			name:   "unmask range covering the whole value by default",
+			params: ParameterValues{"type": "custom", "unmask_begin": "0"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			transformer, err := NewMaskingTransformer(tt.params)
+			require.ErrorIs(t, err, errMaskCoversNoCharacters)
+			require.Nil(t, transformer)
+		})
+	}
+}

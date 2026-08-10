@@ -491,7 +491,7 @@
         "string",
         "byte_array"
       ],
-      "uniqueness": "unspecified",
+      "uniqueness": "lossy",
       "parameters": [
         {
           "name": "type",
