@@ -353,9 +353,18 @@ One of exponential/constant/disable retries backoff policies can be provided for
 | PGSTREAM_WEBHOOK_NOTIFIER_MAX_QUEUE_BYTES                  | 104857600 (100MiB) | No                 | Max memory used by the webhook notifier for inflight notifications.                                         |
 | PGSTREAM_WEBHOOK_NOTIFIER_WORKER_COUNT                     | 10      | No                 | Max number of concurrent workers that will send webhook notifications for a given WAL event.                |
 | PGSTREAM_WEBHOOK_NOTIFIER_CLIENT_TIMEOUT                   | 10s     | No                 | Max time the notifier will wait for a response from a webhook URL before timing out.                        |
+| PGSTREAM_WEBHOOK_NOTIFIER_EXP_BACKOFF_INITIAL_INTERVAL     | 1s      | No                 | Initial interval for the exponential backoff policy to be applied to failed webhook deliveries.             |
+| PGSTREAM_WEBHOOK_NOTIFIER_EXP_BACKOFF_MAX_INTERVAL         | 30s     | No                 | Max interval for the exponential backoff policy to be applied to failed webhook deliveries.                 |
+| PGSTREAM_WEBHOOK_NOTIFIER_EXP_BACKOFF_MAX_RETRIES          | 3       | No                 | Max retries for the exponential backoff policy to be applied to failed webhook deliveries.                  |
+| PGSTREAM_WEBHOOK_NOTIFIER_BACKOFF_INTERVAL                 | 0       | No                 | Constant interval for the backoff policy to be applied to failed webhook deliveries.                        |
+| PGSTREAM_WEBHOOK_NOTIFIER_BACKOFF_MAX_RETRIES              | 0       | No                 | Max retries for the backoff policy to be applied to failed webhook deliveries.                              |
+| PGSTREAM_WEBHOOK_NOTIFIER_DISABLE_RETRIES                  | False   | No                 | Disable any retry policy for failed webhook deliveries.                                                     |
+| PGSTREAM_WEBHOOK_NOTIFIER_STRICT_MODE                      | False   | No                 | Whether to stop the pipeline on a permanently failing webhook delivery instead of dropping it and continuing. It defaults to false. |
 | PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_ADDRESS               | ":9900" | No                 | Address for the subscription server to listen on.                                                           |
 | PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_READ_TIMEOUT          | 5s      | No                 | Max duration for reading an entire server request, including the body before timing out.                    |
 | PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_WRITE_TIMEOUT         | 10s     | No                 | Max duration before timing out writes of the response. It is reset whenever a new request's header is read. |
+
+One of exponential/constant/disable retries backoff policies can be provided for the webhook notifier retry strategy. If none is provided, a default exponential backoff policy applies (1s initial interval, 30s max interval, 3 max retries). A 2xx response is treated as success; a 429 or 5xx response is retried; any other response (e.g. 4xx) is treated as a permanent failure and is not retried. A delivery that keeps failing with a retryable error after exhausting retries is not checkpointed, so it will be retried again after a restart. A delivery that permanently fails is logged and dropped instead by default, so a single misconfigured subscriber does not block delivery to other subscribers; set `strict_mode` to stop the pipeline on permanent failures instead, matching the at-least-once guarantee at the cost of availability.
 
 </details>
 
