@@ -52,6 +52,8 @@ const (
 var (
 	errValidatorRequiredForStrictMode = errors.New("strict validation mode requires a validator function")
 	errDDLNotSupportedInStrictMode    = errors.New("DDL events are not supported in strict validation mode, update the transformation rules to include the new table/column before applying DDL changes")
+
+	ErrUniquenessNotPreserved = errors.New("transformation rules break a unique index")
 )
 
 // New will return a transformer processor wrapper that will transform incoming

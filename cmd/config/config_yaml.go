@@ -328,9 +328,10 @@ type TableTransformersConfig struct {
 }
 
 type ColumnTransformersConfig struct {
-	Name              string         `mapstructure:"name" yaml:"name"`
-	Parameters        map[string]any `mapstructure:"parameters" yaml:"parameters"`
-	DynamicParameters map[string]any `mapstructure:"dynamic_parameters" yaml:"dynamic_parameters"`
+	Name                string         `mapstructure:"name" yaml:"name"`
+	Parameters          map[string]any `mapstructure:"parameters" yaml:"parameters"`
+	DynamicParameters   map[string]any `mapstructure:"dynamic_parameters" yaml:"dynamic_parameters"`
+	AllowUniquenessLoss bool           `mapstructure:"allow_uniqueness_loss" yaml:"allow_uniqueness_loss"`
 }
 
 // postgres source modes
@@ -885,9 +886,10 @@ func (c TransformationsConfig) parseTransformationConfig() (*transformer.Config,
 		columnRules := make(map[string]transformer.TransformerRules, len(t.ColumnRules))
 		for column, cr := range t.ColumnRules {
 			columnRules[column] = transformer.TransformerRules{
-				Name:              cr.Name,
-				Parameters:        cr.Parameters,
-				DynamicParameters: cr.DynamicParameters,
+				Name:                cr.Name,
+				Parameters:          cr.Parameters,
+				DynamicParameters:   cr.DynamicParameters,
+				AllowUniquenessLoss: cr.AllowUniquenessLoss,
 			}
 		}
 		rules = append(rules, transformer.TableRules{
