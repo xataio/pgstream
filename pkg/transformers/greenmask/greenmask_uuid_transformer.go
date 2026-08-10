@@ -76,6 +76,10 @@ func (ut *UUIDTransformer) IsDynamic() bool {
 	return false
 }
 
+func (ut *UUIDTransformer) Uniqueness() transformers.Uniqueness {
+	return transformers.UniquenessNotGuaranteed
+}
+
 func (ut *UUIDTransformer) Close() error {
 	return nil
 }
@@ -84,5 +88,6 @@ func UUIDTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: uuidCompatibleTypes,
 		Parameters:     uuidParams,
+		Uniqueness:     transformers.UniquenessNotGuaranteed,
 	}
 }

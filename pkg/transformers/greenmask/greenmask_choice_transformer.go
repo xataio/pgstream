@@ -100,6 +100,10 @@ func (t *ChoiceTransformer) IsDynamic() bool {
 	return false
 }
 
+func (t *ChoiceTransformer) Uniqueness() transformers.Uniqueness {
+	return transformers.UniquenessLossy
+}
+
 func (t *ChoiceTransformer) Close() error {
 	return nil
 }
@@ -108,5 +112,6 @@ func ChoiceTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: choiceCompatibleTypes,
 		Parameters:     choiceParams,
+		Uniqueness:     transformers.UniquenessLossy,
 	}
 }
