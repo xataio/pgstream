@@ -211,6 +211,40 @@ func Test_DDLEventToSchemaDiff(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ALTER TABLE DROP COLUMN with trailing semicolon",
+			ddlEvent: &DDLEvent{
+				DDL:        "ALTER TABLE public.users DROP COLUMN age;",
+				SchemaName: "public",
+				CommandTag: "ALTER TABLE",
+				Objects: []DDLObject{
+					{
+						Type:       "table",
+						Identity:   "public.users",
+						Schema:     "public",
+						OID:        "12345",
+						PgstreamID: "pgstream-id-1",
+						Columns: []DDLColumn{
+							{Attnum: 1, Name: "id", Type: "integer", Nullable: false},
+							{Attnum: 2, Name: "name", Type: "text", Nullable: true},
+						},
+					},
+				},
+			},
+			wantDiff: &SchemaDiff{
+				SchemaName: "public",
+				TablesChanged: []TableDiff{
+					{
+						TableName:       "users",
+						TablePgstreamID: "pgstream-id-1",
+						ColumnsRemoved: []DDLColumn{
+							{Name: "age"},
+						},
+					},
+				},
+			},
+			wantErr: nil,
+		},
+		{
 			name: "ALTER TABLE ALTER COLUMN TYPE",
 			ddlEvent: &DDLEvent{
 				DDL:        "ALTER TABLE public.users ALTER COLUMN age TYPE BIGINT",
@@ -276,6 +310,117 @@ func Test_DDLEventToSchemaDiff(t *testing.T) {
 								ColumnName:       "user_age",
 								ColumnPgstreamID: "pgstream-id-1-3",
 								NameChange:       &ValueChange[string]{Old: "age", New: "user_age"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ALTER TABLE RENAME COLUMN with trailing semicolon",
+			ddlEvent: &DDLEvent{
+				DDL:        "ALTER TABLE public.users RENAME COLUMN age TO user_age;",
+				SchemaName: "public",
+				CommandTag: "ALTER TABLE",
+				Objects: []DDLObject{
+					{
+						Type:       "table column",
+						Identity:   "public.users.user_age",
+						Schema:     "public",
+						OID:        "12345",
+						PgstreamID: "pgstream-id-1",
+						Columns: []DDLColumn{
+							{Attnum: 3, Name: "user_age", Type: "integer", Nullable: true},
+						},
+					},
+				},
+			},
+			wantDiff: &SchemaDiff{
+				SchemaName: "public",
+				TablesChanged: []TableDiff{
+					{
+						TableName:       "users",
+						TablePgstreamID: "pgstream-id-1",
+						ColumnsChanged: []ColumnDiff{
+							{
+								ColumnName:       "user_age",
+								ColumnPgstreamID: "pgstream-id-1-3",
+								NameChange:       &ValueChange[string]{Old: "age", New: "user_age"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ALTER TABLE RENAME COLUMN with space before semicolon",
+			ddlEvent: &DDLEvent{
+				DDL:        "ALTER TABLE public.users RENAME COLUMN age TO user_age ;",
+				SchemaName: "public",
+				CommandTag: "ALTER TABLE",
+				Objects: []DDLObject{
+					{
+						Type:       "table",
+						Identity:   "public.users",
+						Schema:     "public",
+						OID:        "12345",
+						PgstreamID: "pgstream-id-1",
+						Columns: []DDLColumn{
+							{Attnum: 3, Name: "user_age", Type: "integer", Nullable: true},
+						},
+					},
+				},
+			},
+			wantDiff: &SchemaDiff{
+				SchemaName: "public",
+				TablesChanged: []TableDiff{
+					{
+						TableName:       "users",
+						TablePgstreamID: "pgstream-id-1",
+						ColumnsChanged: []ColumnDiff{
+							{
+								ColumnName:       "user_age",
+								ColumnPgstreamID: "pgstream-id-1-3",
+								NameChange:       &ValueChange[string]{Old: "age", New: "user_age"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ALTER TABLE RENAME COLUMN with quoted names and trailing semicolon",
+			ddlEvent: &DDLEvent{
+				DDL:        `ALTER TABLE public.users RENAME COLUMN "user age" TO "user age in years";`,
+				SchemaName: "public",
+				CommandTag: "ALTER TABLE",
+				Objects: []DDLObject{
+					{
+						Type:       "table",
+						Identity:   "public.users",
+						Schema:     "public",
+						OID:        "12345",
+						PgstreamID: "pgstream-id-1",
+						Columns: []DDLColumn{
+							{Attnum: 3, Name: "user age in years", Type: "integer", Nullable: true},
+						},
+					},
+				},
+			},
+			wantDiff: &SchemaDiff{
+				SchemaName: "public",
+				TablesChanged: []TableDiff{
+					{
+						TableName:       "users",
+						TablePgstreamID: "pgstream-id-1",
+						ColumnsChanged: []ColumnDiff{
+							{
+								ColumnName:       "user age in years",
+								ColumnPgstreamID: "pgstream-id-1-3",
+								NameChange:       &ValueChange[string]{Old: "user age", New: "user age in years"},
 							},
 						},
 					},
