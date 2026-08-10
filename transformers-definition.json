@@ -549,7 +549,7 @@
         "string",
         "citext"
       ],
-      "uniqueness": "unspecified",
+      "uniqueness": "not_guaranteed",
       "parameters": [
         {
           "name": "seed",
@@ -618,7 +618,7 @@
       "supported_types": [
         "string"
       ],
-      "uniqueness": "unspecified",
+      "uniqueness": "lossy",
       "parameters": [
         {
           "name": "seed",
@@ -648,7 +648,7 @@
       "supported_types": [
         "string"
       ],
-      "uniqueness": "unspecified",
+      "uniqueness": "lossy",
       "parameters": [
         {
           "name": "seed",
@@ -678,7 +678,7 @@
       "supported_types": [
         "string"
       ],
-      "uniqueness": "unspecified",
+      "uniqueness": "lossy",
       "parameters": [
         {
           "name": "seed",
@@ -708,7 +708,7 @@
       "supported_types": [
         "string"
       ],
-      "uniqueness": "unspecified",
+      "uniqueness": "not_guaranteed",
       "parameters": [
         {
           "name": "seed",
