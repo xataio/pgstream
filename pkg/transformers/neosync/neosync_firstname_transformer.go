@@ -105,6 +105,10 @@ func (t *FirstNameTransformer) Type() transformers.TransformerType {
 	return transformers.NeosyncFirstName
 }
 
+func (t *FirstNameTransformer) Uniqueness() transformers.Uniqueness {
+	return transformers.UniquenessLossy
+}
+
 func (t *FirstNameTransformer) Close() error {
 	return nil
 }
@@ -113,5 +117,6 @@ func FirstNameTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: firstNameCompatibleTypes,
 		Parameters:     firstNameParams,
+		Uniqueness:     transformers.UniquenessLossy,
 	}
 }
