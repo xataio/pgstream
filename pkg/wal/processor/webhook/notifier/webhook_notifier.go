@@ -24,24 +24,22 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription"
 )
 
-// Notifier represents the process that notifies any subscribed webhooks when
-// the relevant events are triggered.
+const maxResponseBodyBytes = 4 * 1024
+
+var errNotifyStopped = errors.New("stop processing, notify has stopped")
+
 type Notifier struct {
 	client            httplib.Client
 	logger            loglib.Logger
 	checkpointer      checkpointer.Checkpoint
 	subscriptionStore subscriptionRetriever
 	serialiser        serialiser
-	// queueBytesSema is used to limit the amount of memory used by the
-	// unbuffered msg channel, optimising the channel performance for variable
-	// size messages, while preventing the process from running oom
+	// bounds memory used by inflight msgs
 	queueBytesSema  synclib.WeightedSemaphore
 	notifyChan      chan *notifyMsg
 	workerCount     uint
 	backoffProvider backoff.Provider
-	// shutdownCh is closed by Close() to signal Notify and any in-flight
-	// ProcessWALEvent calls to stop. notifyChan is never closed, so concurrent
-	// senders cannot panic on "send on closed channel".
+	// notifyChan never closes, avoids send panic
 	shutdownCh chan struct{}
 	notifyDone chan struct{}
 	notifyErr  error
@@ -53,8 +51,6 @@ type subscriptionRetriever interface {
 }
 
 type Option func(*Notifier)
-
-var errNotifyStopped = errors.New("stop processing, notify has stopped")
 
 func New(cfg *Config, store subscriptionRetriever, opts ...Option) *Notifier {
 	n := &Notifier{
@@ -72,8 +68,6 @@ func New(cfg *Config, store subscriptionRetriever, opts ...Option) *Notifier {
 		once:              &sync.Once{},
 	}
 
-	// this allows us to bound and configure the memory used by the internal msg
-	// queue
 	n.queueBytesSema = synclib.NewWeightedSemaphore(cfg.maxQueueBytes())
 
 	for _, opt := range opts {
@@ -97,8 +91,7 @@ func WithCheckpoint(c checkpointer.Checkpoint) Option {
 	}
 }
 
-// ProcessWALEvent will process the wal event on input and notify all configured
-// webhooks. It can be called concurrently.
+// safe for concurrent calls
 func (n *Notifier) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -126,9 +119,7 @@ func (n *Notifier) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (er
 		return err
 	}
 
-	// make sure we don't reach the queue memory limit before adding the new
-	// message to the channel. This will block until messages have been read
-	// from the channel and their size is released
+	// blocks until queue has room
 	msgSize := int64(msg.size())
 	if !n.queueBytesSema.TryAcquire(msgSize) {
 		n.logger.Warn(nil, "webhook notifier: max queue bytes reached, processing blocked")
@@ -140,14 +131,11 @@ func (n *Notifier) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (er
 	select {
 	case n.notifyChan <- msg:
 	case <-n.shutdownCh:
-		// Close() was called before Notify processed this event. notifyChan is
-		// never closed, so we cannot send into it — bail out cleanly.
+		// notifyChan never closed, bail cleanly
 		n.logger.Error(nil, "stop processing, notify is shutting down")
 		return errNotifyStopped
 	case <-n.notifyDone:
-		// Notify has exited on its own (external ctx cancel or notify error).
-		// n.notifyErr is set by Notify before closing n.notifyDone, so it is
-		// safe to read here from any number of concurrent callers.
+		// notifyErr set before channel closes
 		n.logger.Error(n.notifyErr, "stop processing, notify has stopped")
 		if n.notifyErr == nil {
 			return errNotifyStopped
@@ -165,7 +153,7 @@ func (n *Notifier) Notify(ctx context.Context) error {
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-n.shutdownCh:
-				// graceful shutdown via Close(); not an error
+				// graceful shutdown, not an error
 				return nil
 			case msg := <-n.notifyChan:
 				err := n.notify(ctx, msg)
@@ -183,8 +171,7 @@ func (n *Notifier) Notify(ctx context.Context) error {
 	}
 
 	err := notifyLoop()
-	// publish the notify error before signalling shutdown so any goroutines
-	// waiting in ProcessWALEvent can observe it after the channel is closed.
+	// set error before closing channel
 	n.notifyErr = err
 	close(n.notifyDone)
 	return err
@@ -194,9 +181,7 @@ func (n *Notifier) Name() string {
 	return "webhooks-notifier"
 }
 
-// Close signals Notify and any in-flight ProcessWALEvent callers to stop. It
-// is safe to call multiple times. notifyChan itself is not closed: that would
-// race with a concurrent ProcessWALEvent's send and panic.
+// idempotent; notifyChan stays open
 func (n *Notifier) Close() error {
 	n.once.Do(func() {
 		close(n.shutdownCh)
@@ -223,17 +208,17 @@ func (n *Notifier) notify(ctx context.Context, msg *notifyMsg) error {
 		wg.Wait()
 		close(errChan)
 
-		errs := make([]error, 0, len(errChan))
+		// permanent errors are dropped, not blocking
+		var blockingErrs []error
 		for err := range errChan {
-			errs = append(errs, err)
+			if errors.Is(err, backoff.ErrPermanent) {
+				n.logger.Error(err, "webhook delivery permanently failed, dropping")
+				continue
+			}
+			blockingErrs = append(blockingErrs, err)
 		}
-		// A delivery that is still failing after exhausting retries must not
-		// be checkpointed, otherwise the event is lost for good. Returning
-		// the error here stops the notify loop, so the commit position is
-		// only checkpointed once every webhook has been (eventually)
-		// delivered, giving at-least-once delivery semantics on restart.
-		if len(errs) > 0 {
-			return fmt.Errorf("sending webhook notifications: %w", errors.Join(errs...))
+		if len(blockingErrs) > 0 {
+			return fmt.Errorf("sending webhook notifications: %w", errors.Join(blockingErrs...))
 		}
 	}
 
@@ -250,24 +235,17 @@ func (n *Notifier) webhookWorker(ctx context.Context, wg *sync.WaitGroup, payloa
 	defer wg.Done()
 	for url := range urls {
 		if err := n.sendWebhook(ctx, payload, lsn, url); err != nil {
-			n.logger.Error(err, "sending webhook payload", loglib.Fields{
-				"payload": payload,
-				"url":     url,
-			})
-			errChan <- err
+			errChan <- fmt.Errorf("webhook url %s: %w", url, err)
 		}
 	}
 }
 
-// sendWebhook posts the payload to url, retrying transient failures
-// (network errors, 429s, 5xx) with the configured backoff. 4xx responses are
-// treated as permanent failures and are not retried.
 func (n *Notifier) sendWebhook(ctx context.Context, payload []byte, lsn, url string) error {
 	n.logger.Trace("sending webhook", loglib.Fields{"url": url})
 
 	retries := 0
 	bo := n.backoffProvider(ctx)
-	err := bo.RetryNotify(
+	return bo.RetryNotify(
 		func() error {
 			return n.doSendWebhook(ctx, payload, lsn, url)
 		},
@@ -279,46 +257,41 @@ func (n *Notifier) sendWebhook(ctx context.Context, payload []byte, lsn, url str
 				"retries": retries,
 			})
 		})
-	if err != nil {
-		return fmt.Errorf("sending webhook payload request: %w", err)
-	}
-
-	return nil
 }
 
 func (n *Notifier) doSendWebhook(ctx context.Context, payload []byte, lsn, url string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(payload))
 	if err != nil {
-		return fmt.Errorf("%w: %w", fmt.Errorf("building webhook payload request: %w", err), backoff.ErrPermanent)
+		return fmt.Errorf("%w: building webhook payload request: %w", backoff.ErrPermanent, err)
 	}
-	// LSN is globally monotonic and unique per change, so it doubles as an
-	// idempotency key, letting receivers dedupe retried/redelivered events
-	// without parsing the body.
-	req.Header.Set("X-Pgstream-LSN", lsn)
-	req.Header.Set("Idempotency-Key", lsn)
+	// snapshot rows share the zero LSN
+	if lsn != "" && lsn != wal.ZeroLSN {
+		req.Header.Set("X-Pgstream-LSN", lsn)
+		req.Header.Set("Idempotency-Key", lsn)
+	}
 
 	resp, err := n.client.Do(req)
 	if err != nil {
-		// network errors are transient, retry them
+		// network errors are retryable
 		return fmt.Errorf("sending webhook payload request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusOK {
+	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
 		return nil
 	}
 
 	respErr := fmt.Errorf("error response from payload request, status code: %s, body: %v", resp.Status, getResponseBody(resp.Body))
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError {
-		// throttling and server errors are transient, retry them
+		// 429/5xx are retryable
 		return respErr
 	}
-	// any other 4xx is a permanent failure, do not retry
-	return fmt.Errorf("%w: %w", respErr, backoff.ErrPermanent)
+	// other non-2xx: permanent, no retry
+	return fmt.Errorf("%w: %w", backoff.ErrPermanent, respErr)
 }
 
 func getResponseBody(respBody io.ReadCloser) string {
-	bodyBytes, err := io.ReadAll(respBody)
+	bodyBytes, err := io.ReadAll(io.LimitReader(respBody, maxResponseBodyBytes))
 	if err != nil {
 		return ""
 	}

@@ -151,7 +151,8 @@ target:
     notifier:
       worker_count: 4 # number of notifications to be processed in parallel. Defaults to 10
       client_timeout: 1000 # timeout for the webhook client in milliseconds. Defaults to 10s
-      backoff: # retry policy applied to failed webhook deliveries. Defaults to exponential (1s initial interval, 30s max interval, 3 max retries)
+      backoff: # one of exponential or constant. Retry policy applied to failed webhook deliveries. Defaults to exponential (1s initial interval, 30s max interval, 3 max retries)
+        disable_retries: false # disables all retries when true, regardless of the policy below
         exponential:
           max_retries: 5 # maximum number of retries
           initial_interval: 1000 # initial interval in milliseconds
