@@ -149,6 +149,10 @@ func (est *EncryptedAESSIVTransformer) IsDynamic() bool {
 	return false
 }
 
+func (est *EncryptedAESSIVTransformer) Uniqueness() Uniqueness {
+	return UniquenessPreserved
+}
+
 func (est *EncryptedAESSIVTransformer) Close() error {
 	return nil
 }
@@ -157,5 +161,6 @@ func EncryptedAESSIVTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: encryptedAESSIVCompatibleTypes,
 		Parameters:     encryptedAESSIVParams,
+		Uniqueness:     UniquenessPreserved,
 	}
 }

@@ -132,6 +132,10 @@ func (t *UTCTimestampTransformer) IsDynamic() bool {
 	return false
 }
 
+func (t *UTCTimestampTransformer) Uniqueness() transformers.Uniqueness {
+	return transformers.UniquenessNotGuaranteed
+}
+
 func (t *UTCTimestampTransformer) Close() error {
 	return nil
 }
@@ -140,5 +144,6 @@ func UTCTimestampTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: utcTimestampCompatibleTypes,
 		Parameters:     utcTimestampParams,
+		Uniqueness:     transformers.UniquenessNotGuaranteed,
 	}
 }

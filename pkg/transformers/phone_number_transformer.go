@@ -175,6 +175,10 @@ func (t *PhoneNumberTransformer) Type() TransformerType {
 	return PhoneNumber
 }
 
+func (t *PhoneNumberTransformer) Uniqueness() Uniqueness {
+	return UniquenessNotGuaranteed
+}
+
 func (t *PhoneNumberTransformer) IsDynamic() bool {
 	return len(t.dynamicParams) > 0
 }
@@ -187,5 +191,6 @@ func PhoneNumberTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: phoneNumberCompatibleTypes,
 		Parameters:     phoneNumberParams,
+		Uniqueness:     UniquenessNotGuaranteed,
 	}
 }

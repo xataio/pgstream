@@ -74,6 +74,10 @@ func (bt *BooleanTransformer) IsDynamic() bool {
 	return false
 }
 
+func (bt *BooleanTransformer) Uniqueness() transformers.Uniqueness {
+	return transformers.UniquenessLossy
+}
+
 func (bt *BooleanTransformer) Close() error {
 	return nil
 }
@@ -82,5 +86,6 @@ func BooleanTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: booleanCompatibleTypes,
 		Parameters:     booleanParams,
+		Uniqueness:     transformers.UniquenessLossy,
 	}
 }
