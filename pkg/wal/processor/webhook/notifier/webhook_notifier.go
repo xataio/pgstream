@@ -11,10 +11,12 @@ import (
 	"net/http"
 	"runtime/debug"
 	"sync"
+	"time"
 
 	httplib "github.com/xataio/pgstream/internal/http"
 	"github.com/xataio/pgstream/internal/json"
 	synclib "github.com/xataio/pgstream/internal/sync"
+	"github.com/xataio/pgstream/pkg/backoff"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
@@ -33,9 +35,10 @@ type Notifier struct {
 	// queueBytesSema is used to limit the amount of memory used by the
 	// unbuffered msg channel, optimising the channel performance for variable
 	// size messages, while preventing the process from running oom
-	queueBytesSema synclib.WeightedSemaphore
-	notifyChan     chan *notifyMsg
-	workerCount    uint
+	queueBytesSema  synclib.WeightedSemaphore
+	notifyChan      chan *notifyMsg
+	workerCount     uint
+	backoffProvider backoff.Provider
 	// shutdownCh is closed by Close() to signal Notify and any in-flight
 	// ProcessWALEvent calls to stop. notifyChan is never closed, so concurrent
 	// senders cannot panic on "send on closed channel".
@@ -62,6 +65,7 @@ func New(cfg *Config, store subscriptionRetriever, opts ...Option) *Notifier {
 		subscriptionStore: store,
 		notifyChan:        make(chan *notifyMsg),
 		workerCount:       cfg.workerCount(),
+		backoffProvider:   backoff.NewProvider(cfg.backoffConfig()),
 		serialiser:        json.Marshal,
 		shutdownCh:        make(chan struct{}),
 		notifyDone:        make(chan struct{}),
@@ -204,10 +208,11 @@ func (n *Notifier) notify(ctx context.Context, msg *notifyMsg) error {
 	n.logger.Trace("notifying", loglib.Fields{"urls": msg.urls})
 	if len(msg.urls) > 0 {
 		urlChan := make(chan string, n.workerCount)
+		errChan := make(chan error, len(msg.urls))
 		wg := &sync.WaitGroup{}
 		for i := 0; i < int(n.workerCount); i++ {
 			wg.Add(1)
-			go n.webhookWorker(ctx, wg, msg.payload, urlChan)
+			go n.webhookWorker(ctx, wg, msg.payload, msg.lsn, urlChan, errChan)
 		}
 
 		for _, url := range msg.urls {
@@ -216,6 +221,20 @@ func (n *Notifier) notify(ctx context.Context, msg *notifyMsg) error {
 
 		close(urlChan)
 		wg.Wait()
+		close(errChan)
+
+		errs := make([]error, 0, len(errChan))
+		for err := range errChan {
+			errs = append(errs, err)
+		}
+		// A delivery that is still failing after exhausting retries must not
+		// be checkpointed, otherwise the event is lost for good. Returning
+		// the error here stops the notify loop, so the commit position is
+		// only checkpointed once every webhook has been (eventually)
+		// delivered, giving at-least-once delivery semantics on restart.
+		if len(errs) > 0 {
+			return fmt.Errorf("sending webhook notifications: %w", errors.Join(errs...))
+		}
 	}
 
 	if n.checkpointer != nil {
@@ -227,37 +246,75 @@ func (n *Notifier) notify(ctx context.Context, msg *notifyMsg) error {
 	return nil
 }
 
-func (n *Notifier) webhookWorker(ctx context.Context, wg *sync.WaitGroup, payload []byte, urls <-chan string) {
+func (n *Notifier) webhookWorker(ctx context.Context, wg *sync.WaitGroup, payload []byte, lsn string, urls <-chan string, errChan chan<- error) {
 	defer wg.Done()
 	for url := range urls {
-		if err := n.sendWebhook(ctx, payload, url); err != nil {
+		if err := n.sendWebhook(ctx, payload, lsn, url); err != nil {
 			n.logger.Error(err, "sending webhook payload", loglib.Fields{
 				"payload": payload,
 				"url":     url,
 			})
-			continue
+			errChan <- err
 		}
 	}
 }
 
-func (n *Notifier) sendWebhook(ctx context.Context, payload []byte, url string) error {
+// sendWebhook posts the payload to url, retrying transient failures
+// (network errors, 429s, 5xx) with the configured backoff. 4xx responses are
+// treated as permanent failures and are not retried.
+func (n *Notifier) sendWebhook(ctx context.Context, payload []byte, lsn, url string) error {
 	n.logger.Trace("sending webhook", loglib.Fields{"url": url})
+
+	retries := 0
+	bo := n.backoffProvider(ctx)
+	err := bo.RetryNotify(
+		func() error {
+			return n.doSendWebhook(ctx, payload, lsn, url)
+		},
+		func(err error, d time.Duration) {
+			retries++
+			n.logger.Warn(err, "retrying webhook delivery", loglib.Fields{
+				"url":     url,
+				"backoff": d,
+				"retries": retries,
+			})
+		})
+	if err != nil {
+		return fmt.Errorf("sending webhook payload request: %w", err)
+	}
+
+	return nil
+}
+
+func (n *Notifier) doSendWebhook(ctx context.Context, payload []byte, lsn, url string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(payload))
 	if err != nil {
-		return fmt.Errorf("building webhook payload request: %w", err)
+		return fmt.Errorf("%w: %w", fmt.Errorf("building webhook payload request: %w", err), backoff.ErrPermanent)
 	}
+	// LSN is globally monotonic and unique per change, so it doubles as an
+	// idempotency key, letting receivers dedupe retried/redelivered events
+	// without parsing the body.
+	req.Header.Set("X-Pgstream-LSN", lsn)
+	req.Header.Set("Idempotency-Key", lsn)
 
 	resp, err := n.client.Do(req)
 	if err != nil {
+		// network errors are transient, retry them
 		return fmt.Errorf("sending webhook payload request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("error response from payload request, status code: %s, body: %v", resp.Status, getResponseBody(resp.Body))
+	if resp.StatusCode == http.StatusOK {
+		return nil
 	}
 
-	return nil
+	respErr := fmt.Errorf("error response from payload request, status code: %s, body: %v", resp.Status, getResponseBody(resp.Body))
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError {
+		// throttling and server errors are transient, retry them
+		return respErr
+	}
+	// any other 4xx is a permanent failure, do not retry
+	return fmt.Errorf("%w: %w", respErr, backoff.ErrPermanent)
 }
 
 func getResponseBody(respBody io.ReadCloser) string {

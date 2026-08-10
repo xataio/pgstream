@@ -13,6 +13,7 @@ import (
 type notifyMsg struct {
 	urls           []string
 	payload        []byte
+	lsn            string
 	commitPosition wal.CommitPosition
 }
 
@@ -20,6 +21,7 @@ type serialiser func(any) ([]byte, error)
 
 func newNotifyMsg(event *wal.Event, subscriptions []*subscription.Subscription, serialiser serialiser) (*notifyMsg, error) {
 	var payload []byte
+	var lsn string
 	urls := make([]string, 0, len(subscriptions))
 	if len(subscriptions) > 0 {
 		var err error
@@ -27,6 +29,7 @@ func newNotifyMsg(event *wal.Event, subscriptions []*subscription.Subscription, 
 		if err != nil {
 			return nil, fmt.Errorf("serialising webhook payload: %w", err)
 		}
+		lsn = event.Data.LSN
 
 		for _, s := range subscriptions {
 			urls = append(urls, s.URL)
@@ -36,6 +39,7 @@ func newNotifyMsg(event *wal.Event, subscriptions []*subscription.Subscription, 
 	return &notifyMsg{
 		urls:           urls,
 		payload:        payload,
+		lsn:            lsn,
 		commitPosition: event.CommitPosition,
 	}, nil
 }

@@ -285,8 +285,9 @@ type WebhookServerConfig struct {
 }
 
 type WebhookNotifierConfig struct {
-	WorkerCount   int `mapstructure:"worker_count" yaml:"worker_count"`
-	ClientTimeout int `mapstructure:"client_timeout" yaml:"client_timeout"`
+	WorkerCount   int            `mapstructure:"worker_count" yaml:"worker_count"`
+	ClientTimeout int            `mapstructure:"client_timeout" yaml:"client_timeout"`
+	Backoff       *BackoffConfig `mapstructure:"backoff" yaml:"backoff"`
 }
 
 type SanitizeConfig struct {
@@ -782,6 +783,10 @@ func (c *YAMLConfig) parseWebhookProcessorConfig() *stream.WebhookProcessorConfi
 	if c.Target.Webhooks.Subscriptions.Store.Cache != nil {
 		streamCfg.SubscriptionStore.CacheEnabled = c.Target.Webhooks.Subscriptions.Store.Cache.Enabled
 		streamCfg.SubscriptionStore.CacheRefreshInterval = time.Duration(c.Target.Webhooks.Subscriptions.Store.Cache.RefreshInterval) * time.Second
+	}
+
+	if c.Target.Webhooks.Notifier.Backoff != nil {
+		streamCfg.Notifier.Backoff = c.Target.Webhooks.Notifier.Backoff.parseBackoffConfig()
 	}
 
 	return streamCfg

@@ -16,6 +16,7 @@ import (
 	httplib "github.com/xataio/pgstream/internal/http"
 	httpmocks "github.com/xataio/pgstream/internal/http/mocks"
 	syncmocks "github.com/xataio/pgstream/internal/sync/mocks"
+	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -197,6 +198,14 @@ func TestNotifier_Notify(t *testing.T) {
 
 	testCfg := &Config{
 		URLWorkerCount: 2,
+		// keep retries fast in tests
+		Backoff: backoff.Config{
+			Exponential: &backoff.ExponentialConfig{
+				InitialInterval: time.Millisecond,
+				MaxInterval:     2 * time.Millisecond,
+				MaxRetries:      2,
+			},
+		},
 	}
 
 	tests := []struct {
@@ -244,7 +253,9 @@ func TestNotifier_Notify(t *testing.T) {
 			wantErr: context.Canceled,
 		},
 		{
-			name: "ok - error sending webhook",
+			// a webhook delivery that keeps failing after exhausting retries
+			// must not be checkpointed, otherwise the event would be lost.
+			name: "error - sending webhook, checkpoint not called",
 			client: &httpmocks.Client{
 				DoFn: func(r *http.Request) (*http.Response, error) {
 					return nil, errTest
@@ -262,15 +273,13 @@ func TestNotifier_Notify(t *testing.T) {
 			},
 			checkpointer: func(doneChan chan struct{}) checkpointer.Checkpoint {
 				return func(ctx context.Context, positions []wal.CommitPosition) error {
-					defer func() {
-						doneChan <- struct{}{}
-					}()
-					require.Equal(t, []wal.CommitPosition{testCommitPos}, positions)
+					doneChan <- struct{}{}
+					t.Error("checkpointer should not be called when webhook delivery fails")
 					return nil
 				}
 			},
 
-			wantErr: context.Canceled,
+			wantErr: errTest,
 		},
 		{
 			name: "error - checkpointing",
@@ -314,32 +323,153 @@ func TestNotifier_Notify(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			wg := sync.WaitGroup{}
-			wg.Add(1)
+			notifyErrCh := make(chan error, 1)
 			go func() {
-				defer wg.Done()
-				err := n.Notify(ctx)
-				require.ErrorIs(t, err, tc.wantErr)
+				notifyErrCh <- n.Notify(ctx)
 			}()
 
 			for _, msg := range tc.msgs {
 				n.notifyChan <- msg
 			}
 
+		loop:
 			for {
 				select {
 				case <-ctx.Done():
 					t.Log("test timeout reached")
-					wg.Wait()
-					return
+					break loop
 				case <-doneChan:
 					if errors.Is(tc.wantErr, context.Canceled) {
 						cancel()
 					}
-					wg.Wait()
+				case err := <-notifyErrCh:
+					require.ErrorIs(t, err, tc.wantErr)
 					return
 				}
 			}
+
+			err := <-notifyErrCh
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestNotifier_sendWebhook(t *testing.T) {
+	t.Parallel()
+
+	testCfg := &Config{
+		Backoff: backoff.Config{
+			Exponential: &backoff.ExponentialConfig{
+				InitialInterval: time.Millisecond,
+				MaxInterval:     2 * time.Millisecond,
+				MaxRetries:      2,
+			},
+		},
+	}
+
+	tests := []struct {
+		name    string
+		doFn    func(callCount *int) func(*http.Request) (*http.Response, error)
+		wantErr error
+		// wantCalls is the exact number of requests expected. 0 means "at
+		// least 1, but no more than MaxRetries+1".
+		wantCalls int
+	}{
+		{
+			name: "ok - success on first try, headers set",
+			doFn: func(callCount *int) func(*http.Request) (*http.Response, error) {
+				return func(r *http.Request) (*http.Response, error) {
+					*callCount++
+					require.Equal(t, "test-lsn", r.Header.Get("X-Pgstream-LSN"))
+					require.Equal(t, "test-lsn", r.Header.Get("Idempotency-Key"))
+					return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+				}
+			},
+			wantErr:   nil,
+			wantCalls: 1,
+		},
+		{
+			name: "ok - network error retried until success",
+			doFn: func(callCount *int) func(*http.Request) (*http.Response, error) {
+				return func(r *http.Request) (*http.Response, error) {
+					*callCount++
+					if *callCount < 2 {
+						return nil, errTest
+					}
+					return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+				}
+			},
+			wantErr:   nil,
+			wantCalls: 2,
+		},
+		{
+			name: "ok - 5xx retried until success",
+			doFn: func(callCount *int) func(*http.Request) (*http.Response, error) {
+				return func(r *http.Request) (*http.Response, error) {
+					*callCount++
+					if *callCount < 2 {
+						return &http.Response{StatusCode: http.StatusInternalServerError, Body: http.NoBody}, nil
+					}
+					return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+				}
+			},
+			wantErr:   nil,
+			wantCalls: 2,
+		},
+		{
+			name: "ok - 429 retried until success",
+			doFn: func(callCount *int) func(*http.Request) (*http.Response, error) {
+				return func(r *http.Request) (*http.Response, error) {
+					*callCount++
+					if *callCount < 2 {
+						return &http.Response{StatusCode: http.StatusTooManyRequests, Body: http.NoBody}, nil
+					}
+					return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+				}
+			},
+			wantErr:   nil,
+			wantCalls: 2,
+		},
+		{
+			name: "error - 4xx is not retried",
+			doFn: func(callCount *int) func(*http.Request) (*http.Response, error) {
+				return func(r *http.Request) (*http.Response, error) {
+					*callCount++
+					return &http.Response{StatusCode: http.StatusBadRequest, Body: http.NoBody}, nil
+				}
+			},
+			wantErr:   nil, // checked separately below (not errTest)
+			wantCalls: 1,
+		},
+		{
+			name: "error - persistent network error exhausts retries",
+			doFn: func(callCount *int) func(*http.Request) (*http.Response, error) {
+				return func(r *http.Request) (*http.Response, error) {
+					*callCount++
+					return nil, errTest
+				}
+			},
+			wantErr:   errTest,
+			wantCalls: 3, // 1 attempt + 2 retries
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			callCount := 0
+			n := New(testCfg, &mocks.Store{})
+			n.client = &httpmocks.Client{DoFn: tc.doFn(&callCount)}
+
+			err := n.sendWebhook(context.Background(), []byte("payload"), "test-lsn", "url-1")
+			if tc.name == "error - 4xx is not retried" {
+				require.Error(t, err)
+				require.NotErrorIs(t, err, errTest)
+			} else {
+				require.ErrorIs(t, err, tc.wantErr)
+			}
+			require.Equal(t, tc.wantCalls, callCount)
 		})
 	}
 }
@@ -351,6 +481,11 @@ func TestNotifier(t *testing.T) {
 			return []*subscription.Subscription{newTestSubscription("url-1", "", "", nil)}, nil
 		},
 	})
+	n.client = &httpmocks.Client{
+		DoFn: func(r *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+		},
+	}
 	n.checkpointer = func(ctx context.Context, positions []wal.CommitPosition) error {
 		return errTest
 	}
@@ -467,6 +602,11 @@ func TestNotifier_ConcurrentProcessWALEventErrorPropagation(t *testing.T) {
 			return []*subscription.Subscription{newTestSubscription("url-1", "", "", nil)}, nil
 		},
 	})
+	n.client = &httpmocks.Client{
+		DoFn: func(r *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+		},
+	}
 	n.checkpointer = func(ctx context.Context, positions []wal.CommitPosition) error {
 		return errTest
 	}
