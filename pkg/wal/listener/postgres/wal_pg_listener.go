@@ -178,6 +178,11 @@ func (l *Listener) processWALEvent(ctx context.Context, msg *replication.Message
 		if err := l.walDataDeserialiser(msg.Data, event.Data); err != nil {
 			return fmt.Errorf("error unmarshaling wal data: %w", err)
 		}
+		// Here rather than in the writer: this is the only place that knows the
+		// value came from wal2json, so one pass covers every downstream call
+		// site, and transformers then see the same []byte the snapshot path
+		// gives them instead of hex text.
+		decodeByteaColumns(event.Data)
 	}
 	event.CommitPosition = wal.CommitPosition(l.lsnParser.ToString(msg.LSN))
 	if isInternalPgstreamDML(event.Data) {
