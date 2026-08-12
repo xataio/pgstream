@@ -460,6 +460,18 @@ DROP SCHEMA IF EXISTS app;
 	}
 }
 
+func TestObjectTypeFilter_ShouldSkipCleanupLine_TablespaceIsNotATable(t *testing.T) {
+	t.Parallel()
+
+	f, err := newObjectTypeFilter(nil, []string{"tables"})
+	require.NoError(t, err)
+
+	require.True(t, f.shouldSkipCleanupLine("DROP TABLE IF EXISTS app.users;"))
+	// DROP TABLESPACE shares a prefix with DROP TABLE but belongs to no
+	// category, so it must not be filtered out along with the tables.
+	require.False(t, f.shouldSkipCleanupLine("DROP TABLESPACE IF EXISTS fastspace;"))
+}
+
 func TestObjectTypeFilter_FilterCleanupDump_NilFilter(t *testing.T) {
 	t.Parallel()
 

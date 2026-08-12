@@ -3,9 +3,9 @@
 package postgres
 
 import (
-	"fmt"
 	"strings"
 
+	"github.com/xataio/pgstream/internal/objecttype"
 	"github.com/xataio/pgstream/pkg/wal"
 )
 
@@ -30,10 +30,14 @@ var ddlObjectTypeCategories = map[string][]string{
 	"text_search":        {"text search configuration", "text search dictionary", "text search parser", "text search template"},
 }
 
-// commandTagCategories maps command tag prefixes to categories for fallback
-// when DDL events have no objects.
+// commandTagCategories maps command tags to categories for fallback when DDL
+// events have no objects. Lookups are exact: the command tag reported by the
+// event trigger (tg_tag) is the bare tag, so prefix matching would let
+// unrelated tags such as CREATE TABLESPACE be treated as CREATE TABLE.
 var commandTagCategories = map[string]string{
 	"CREATE TABLE":                     "tables",
+	"CREATE TABLE AS":                  "tables",
+	"SELECT INTO":                      "tables",
 	"ALTER TABLE":                      "tables",
 	"DROP TABLE":                       "tables",
 	"CREATE SEQUENCE":                  "sequences",
@@ -62,6 +66,7 @@ var commandTagCategories = map[string]string{
 	"CREATE MATERIALIZED VIEW":         "materialized_views",
 	"ALTER MATERIALIZED VIEW":          "materialized_views",
 	"DROP MATERIALIZED VIEW":           "materialized_views",
+	"REFRESH MATERIALIZED VIEW":        "materialized_views",
 	"CREATE TRIGGER":                   "triggers",
 	"ALTER TRIGGER":                    "triggers",
 	"DROP TRIGGER":                     "triggers",
@@ -83,62 +88,32 @@ var commandTagCategories = map[string]string{
 	"CREATE TEXT SEARCH CONFIGURATION": "text_search",
 	"ALTER TEXT SEARCH CONFIGURATION":  "text_search",
 	"DROP TEXT SEARCH CONFIGURATION":   "text_search",
+	"CREATE TEXT SEARCH DICTIONARY":    "text_search",
+	"ALTER TEXT SEARCH DICTIONARY":     "text_search",
+	"DROP TEXT SEARCH DICTIONARY":      "text_search",
+	"CREATE TEXT SEARCH PARSER":        "text_search",
+	"ALTER TEXT SEARCH PARSER":         "text_search",
+	"DROP TEXT SEARCH PARSER":          "text_search",
+	"CREATE TEXT SEARCH TEMPLATE":      "text_search",
+	"ALTER TEXT SEARCH TEMPLATE":       "text_search",
+	"DROP TEXT SEARCH TEMPLATE":        "text_search",
 }
 
 // ddlObjectTypeFilter determines which DDL events should be skipped based on
 // user-specified include or exclude category lists.
 type ddlObjectTypeFilter struct {
-	excludedDDLTypes   map[string]struct{}
-	excludedCategories map[string]struct{}
+	*objecttype.Filter
 }
 
 // newDDLObjectTypeFilter creates a ddlObjectTypeFilter from include/exclude
 // category lists. Only one of include or exclude can be set (not both).
 // Returns nil if neither is set (no filtering).
 func newDDLObjectTypeFilter(include, exclude []string) (*ddlObjectTypeFilter, error) {
-	if len(include) > 0 && len(exclude) > 0 {
-		return nil, fmt.Errorf("include_ddl_object_types and exclude_ddl_object_types cannot both be set")
+	f, err := objecttype.NewFilter(ddlObjectTypeCategories, include, exclude)
+	if err != nil || f == nil {
+		return nil, err
 	}
-
-	if len(include) == 0 && len(exclude) == 0 {
-		return nil, nil
-	}
-
-	f := &ddlObjectTypeFilter{
-		excludedDDLTypes:   make(map[string]struct{}),
-		excludedCategories: make(map[string]struct{}),
-	}
-
-	if len(include) > 0 {
-		includedSet := make(map[string]struct{}, len(include))
-		for _, cat := range include {
-			if _, ok := ddlObjectTypeCategories[cat]; !ok {
-				return nil, fmt.Errorf("unknown DDL object type category: %q", cat)
-			}
-			includedSet[cat] = struct{}{}
-		}
-		for cat, types := range ddlObjectTypeCategories {
-			if _, included := includedSet[cat]; !included {
-				f.excludedCategories[cat] = struct{}{}
-				for _, t := range types {
-					f.excludedDDLTypes[t] = struct{}{}
-				}
-			}
-		}
-	} else {
-		for _, cat := range exclude {
-			types, ok := ddlObjectTypeCategories[cat]
-			if !ok {
-				return nil, fmt.Errorf("unknown DDL object type category: %q", cat)
-			}
-			f.excludedCategories[cat] = struct{}{}
-			for _, t := range types {
-				f.excludedDDLTypes[t] = struct{}{}
-			}
-		}
-	}
-
-	return f, nil
+	return &ddlObjectTypeFilter{Filter: f}, nil
 }
 
 // shouldSkipDDL returns true if the DDL event should be skipped based on the
@@ -154,22 +129,17 @@ func (f *ddlObjectTypeFilter) shouldSkipDDL(ddlEvent *wal.DDLEvent) bool {
 	// if any object is of an included type, the event should be executed.
 	if len(ddlEvent.Objects) > 0 {
 		for _, obj := range ddlEvent.Objects {
-			objType := strings.ToLower(obj.Type)
-			if _, excluded := f.excludedDDLTypes[objType]; !excluded {
+			if !f.IsTypeExcluded(strings.ToLower(obj.Type)) {
 				return false
 			}
 		}
 		return true
 	}
 
-	// Fallback: parse the command tag
-	tag := ddlEvent.CommandTag
-	for prefix, cat := range commandTagCategories {
-		if strings.HasPrefix(tag, prefix) {
-			_, excluded := f.excludedCategories[cat]
-			return excluded
-		}
+	// Fallback: map the command tag to a category.
+	cat, ok := commandTagCategories[ddlEvent.CommandTag]
+	if !ok {
+		return false
 	}
-
-	return false
+	return f.IsCategoryExcluded(cat)
 }

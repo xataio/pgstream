@@ -5,9 +5,10 @@ package pgdumprestore
 import (
 	"bufio"
 	"bytes"
-	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/xataio/pgstream/internal/objecttype"
 )
 
 // objectTypeCategory maps user-facing category names to pg_dump TOC Type values.
@@ -47,76 +48,27 @@ func parseTOCHeader(line string) (string, bool) {
 // objectTypeFilter determines which pg_dump object types should be excluded
 // based on user-specified include or exclude category lists.
 type objectTypeFilter struct {
-	excludedTypes map[string]struct{}
-	// categories tracks which user-facing categories are excluded for
-	// higher-level checks (e.g., skipping sequence dump step).
-	excludedCategories map[string]struct{}
+	*objecttype.Filter
 }
 
 // newObjectTypeFilter creates an objectTypeFilter from include/exclude category lists.
 // Only one of include or exclude can be set (not both).
 // Returns nil if neither is set (no filtering).
 func newObjectTypeFilter(include, exclude []string) (*objectTypeFilter, error) {
-	if len(include) > 0 && len(exclude) > 0 {
-		return nil, fmt.Errorf("include_object_types and exclude_object_types cannot both be set")
+	f, err := objecttype.NewFilter(objectTypeCategories, include, exclude)
+	if err != nil || f == nil {
+		return nil, err
 	}
-
-	if len(include) == 0 && len(exclude) == 0 {
-		return nil, nil
-	}
-
-	f := &objectTypeFilter{
-		excludedTypes:      make(map[string]struct{}),
-		excludedCategories: make(map[string]struct{}),
-	}
-
-	if len(include) > 0 {
-		// Validate all included categories
-		includedSet := make(map[string]struct{}, len(include))
-		for _, cat := range include {
-			if _, ok := objectTypeCategories[cat]; !ok {
-				return nil, fmt.Errorf("unknown object type category: %q", cat)
-			}
-			includedSet[cat] = struct{}{}
-		}
-		// Exclude everything NOT in the include list
-		for cat, types := range objectTypeCategories {
-			if _, included := includedSet[cat]; !included {
-				f.excludedCategories[cat] = struct{}{}
-				for _, t := range types {
-					f.excludedTypes[t] = struct{}{}
-				}
-			}
-		}
-	} else {
-		// Validate and exclude the specified categories
-		for _, cat := range exclude {
-			types, ok := objectTypeCategories[cat]
-			if !ok {
-				return nil, fmt.Errorf("unknown object type category: %q", cat)
-			}
-			f.excludedCategories[cat] = struct{}{}
-			for _, t := range types {
-				f.excludedTypes[t] = struct{}{}
-			}
-		}
-	}
-
-	return f, nil
+	return &objectTypeFilter{Filter: f}, nil
 }
 
 // isExcluded returns true if the given pg_dump Type value should be excluded.
 // SCHEMA type is never excluded (required for namespace resolution).
 func (f *objectTypeFilter) isExcluded(pgdumpType string) bool {
-	if f == nil {
+	if f == nil || pgdumpType == "SCHEMA" {
 		return false
 	}
-	// SCHEMA is always included
-	if pgdumpType == "SCHEMA" {
-		return false
-	}
-	_, excluded := f.excludedTypes[pgdumpType]
-	return excluded
+	return f.IsTypeExcluded(pgdumpType)
 }
 
 // isCategoryExcluded returns true if the given user-facing category is excluded.
@@ -124,12 +76,14 @@ func (f *objectTypeFilter) isCategoryExcluded(category string) bool {
 	if f == nil {
 		return false
 	}
-	_, excluded := f.excludedCategories[category]
-	return excluded
+	return f.IsCategoryExcluded(category)
 }
 
 // cleanupStatementPrefixes maps SQL cleanup statement prefixes (from pg_dump
-// --clean --if-exists output) to the object type category they belong to.
+// --clean --if-exists output) to the object type category they belong to. The
+// prefixes are matched with a trailing space, so that DROP TABLE does not also
+// match DROP TABLESPACE. No prefix is a prefix of another, so the map iteration
+// order does not affect the result.
 var cleanupStatementPrefixes = map[string]string{
 	"DROP POLICY":            "policies",
 	"DROP TRIGGER":           "triggers",
@@ -181,7 +135,7 @@ func (f *objectTypeFilter) shouldSkipCleanupLine(line string) bool {
 		return false
 	}
 	for prefix, cat := range cleanupStatementPrefixes {
-		if strings.HasPrefix(line, prefix) {
+		if strings.HasPrefix(line, prefix+" ") {
 			// SCHEMA is never excluded
 			if cat == "schemas" {
 				return false

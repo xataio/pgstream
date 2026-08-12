@@ -189,6 +189,42 @@ func TestDDLObjectTypeFilter_ShouldSkipDDL(t *testing.T) {
 			},
 			wantSkip: false,
 		},
+		{
+			name:    "fallback to command tag - tablespace is not a table - not skipped",
+			exclude: []string{"tables"},
+			ddlEvent: &wal.DDLEvent{
+				CommandTag: "CREATE TABLESPACE",
+				Objects:    nil,
+			},
+			wantSkip: false,
+		},
+		{
+			name:    "fallback to command tag - drop tablespace is not a table - not skipped",
+			exclude: []string{"tables"},
+			ddlEvent: &wal.DDLEvent{
+				CommandTag: "DROP TABLESPACE",
+				Objects:    nil,
+			},
+			wantSkip: false,
+		},
+		{
+			name:    "fallback to command tag - create table as - skipped",
+			exclude: []string{"tables"},
+			ddlEvent: &wal.DDLEvent{
+				CommandTag: "CREATE TABLE AS",
+				Objects:    nil,
+			},
+			wantSkip: true,
+		},
+		{
+			name:    "fallback to command tag - refresh materialized view - skipped",
+			exclude: []string{"materialized_views"},
+			ddlEvent: &wal.DDLEvent{
+				CommandTag: "REFRESH MATERIALIZED VIEW",
+				Objects:    nil,
+			},
+			wantSkip: true,
+		},
 	}
 
 	for _, tc := range tests {
