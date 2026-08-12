@@ -54,9 +54,16 @@ type pgSchemaObserver struct {
 // including generated table columns and materialized views. It keeps a cache to
 // reduce the number of calls to postgres, and it updates the state whenever a
 // DDL event is received through the WAL.
-func newPGSchemaObserver(ctx context.Context, cfg *Config, logger loglib.Logger) (*pgSchemaObserver, error) {
+func newPGSchemaObserver(ctx context.Context, cfg *Config, logger loglib.Logger, maxConnections int32) (*pgSchemaObserver, error) {
+	observerMaxConnections := observerConnections(maxConnections)
+	// derived, not configured: nothing else reports it
+	logger.Info("postgres schema observer connection pool sized", loglib.Fields{
+		"observer_max_connections": observerMaxConnections,
+		"writer_max_connections":   maxConnections,
+	})
+
 	newConnPool := func(ctx context.Context) (pglib.Querier, error) {
-		return pglib.NewConnPool(ctx, cfg.URL, cfg.poolOptions()...)
+		return pglib.NewConnPool(ctx, cfg.URL, pglib.WithMaxConnections(observerMaxConnections))
 	}
 
 	// the observer sits on the hot path: an unretried transient failure here

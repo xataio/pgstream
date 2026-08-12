@@ -33,6 +33,9 @@ type Config struct {
 const (
 	defaultInitialInterval = 500 * time.Millisecond
 	defaultMaxInterval     = 30 * time.Second
+
+	// otherwise the observer doubles max_connections
+	maxObserverConnections = 16
 )
 
 func (c *Config) retryPolicy() backoff.Config {
@@ -52,4 +55,8 @@ func (c *Config) poolOptions() []pglib.PoolOption {
 		return nil
 	}
 	return []pglib.PoolOption{pglib.WithMaxConnections(int32(c.MaxConnections))}
+}
+
+func observerConnections(maxConnections int32) int32 {
+	return max(1, min(maxConnections, maxObserverConnections))
 }

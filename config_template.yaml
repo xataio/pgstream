@@ -83,7 +83,7 @@ source:
 target:
   postgres:
     url: "postgresql://user:password@localhost:5432/mytargetdatabase"
-    max_connections: 50 # maximum number of connections per pool to the target database. Defaults to 50; overrides pool_max_conns in the URL when set.
+    max_connections: 50 # maximum number of connections in the writer pool to the target database. Defaults to 50; overrides pool_max_conns in the URL when set. The schema observer keeps its own pool, capped at 16 and never larger than this value, so the process opens at most this many plus 16.
     batch:
       timeout: 1000 # batch timeout in milliseconds. Defaults to 30s
       size: 100 # number of messages in a batch. Defaults to 20000

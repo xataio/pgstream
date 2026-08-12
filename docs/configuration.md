@@ -95,7 +95,7 @@ source:
 target:
   postgres:
     url: "postgresql://user:password@localhost:5432/mytargetdatabase"
-    max_connections: 50 # maximum number of connections per pool to the target database. Defaults to 50; overrides pool_max_conns in the URL when set.
+    max_connections: 50 # maximum number of connections in the writer pool to the target database. Defaults to 50; overrides pool_max_conns in the URL when set. The schema observer keeps its own pool, capped at 16 and never larger than this value, so the process opens at most this many plus 16.
     batch:
       timeout: 1000 # batch timeout in milliseconds. Defaults to 30s
       size: 100 # number of messages in a batch. Defaults to 20000
@@ -385,7 +385,7 @@ One of exponential/constant/disable retries backoff policies can be provided for
 | Environment Variable                                           | Default                         | Required | Description                                                                                                                                                                                                    |
 | -------------------------------------------------------------- | ------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PGSTREAM_POSTGRES_WRITER_TARGET_URL                            | N/A                             | Yes      | URL for the PostgreSQL store to connect to                                                                                                                                                                     |
-| PGSTREAM_POSTGRES_WRITER_MAX_CONNECTIONS                       | 50                              | No       | Maximum number of connections per pool to the target PostgreSQL database. Overrides `pool_max_conns` in the target URL when set.                                                                               |
+| PGSTREAM_POSTGRES_WRITER_MAX_CONNECTIONS                       | 50                              | No       | Maximum number of connections in the writer pool to the target PostgreSQL database. Overrides `pool_max_conns` in the target URL when set. The schema observer keeps its own pool, capped at 16 and never larger than this value, so the process opens at most this many plus 16.                                                                               |
 | PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT                         | 30s                             | No       | Max time interval at which the batch sending to PostgreSQL is triggered.                                                                                                                                       |
 | PGSTREAM_POSTGRES_WRITER_BATCH_SIZE                            | 20000                           | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                       |
 | PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES                       | 104857600 (100MiB)              | No       | Max memory used by the postgres batch writer for inflight batches.                                                                                                                                             |
