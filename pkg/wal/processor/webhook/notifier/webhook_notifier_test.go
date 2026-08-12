@@ -16,6 +16,7 @@ import (
 	httplib "github.com/xataio/pgstream/internal/http"
 	httpmocks "github.com/xataio/pgstream/internal/http/mocks"
 	syncmocks "github.com/xataio/pgstream/internal/sync/mocks"
+	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -170,9 +171,7 @@ func TestNotifier_ProcessWALEvent(t *testing.T) {
 				errCh <- n.ProcessWALEvent(context.Background(), tc.event)
 			}()
 
-			// ProcessWALEvent sends 0 or 1 messages on notifyChan before
-			// returning. Receive exactly len(wantMsgs) entries (driving the
-			// unbuffered send), then wait for the call to return.
+			// unbuffered send needs a receiver
 			msgs := []*notifyMsg{}
 			for i := 0; i < len(tc.wantMsgs); i++ {
 				select {
@@ -197,10 +196,19 @@ func TestNotifier_Notify(t *testing.T) {
 
 	testCfg := &Config{
 		URLWorkerCount: 2,
+		// keep retries fast in tests
+		Backoff: backoff.Config{
+			Exponential: &backoff.ExponentialConfig{
+				InitialInterval: time.Millisecond,
+				MaxInterval:     2 * time.Millisecond,
+				MaxRetries:      2,
+			},
+		},
 	}
 
 	tests := []struct {
 		name         string
+		strictMode   bool
 		semaphore    *syncmocks.WeightedSemaphore
 		client       httplib.Client
 		msgs         []*notifyMsg
@@ -244,7 +252,8 @@ func TestNotifier_Notify(t *testing.T) {
 			wantErr: context.Canceled,
 		},
 		{
-			name: "ok - error sending webhook",
+			// failed delivery must skip checkpoint
+			name: "error - sending webhook, checkpoint not called",
 			client: &httpmocks.Client{
 				DoFn: func(r *http.Request) (*http.Response, error) {
 					return nil, errTest
@@ -262,6 +271,59 @@ func TestNotifier_Notify(t *testing.T) {
 			},
 			checkpointer: func(doneChan chan struct{}) checkpointer.Checkpoint {
 				return func(ctx context.Context, positions []wal.CommitPosition) error {
+					doneChan <- struct{}{}
+					t.Error("checkpointer should not be called when webhook delivery fails")
+					return nil
+				}
+			},
+
+			wantErr: errTest,
+		},
+		{
+			name: "error - partial failure, one url transient-fails, checkpoint not called",
+			client: &httpmocks.Client{
+				DoFn: func(r *http.Request) (*http.Response, error) {
+					if r.URL.Path == url1 {
+						return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+					}
+					return nil, errTest
+				},
+			},
+			semaphore: &syncmocks.WeightedSemaphore{
+				ReleaseFn: func(i uint64, bytes int64) {},
+			},
+			msgs: []*notifyMsg{
+				testNotifyMsg([]string{url1, url2}, testPayload),
+			},
+			checkpointer: func(doneChan chan struct{}) checkpointer.Checkpoint {
+				return func(ctx context.Context, positions []wal.CommitPosition) error {
+					doneChan <- struct{}{}
+					t.Error("checkpointer should not be called when any webhook delivery still fails after retries")
+					return nil
+				}
+			},
+
+			wantErr: errTest,
+		},
+		{
+			// 4xx must not block others
+			name: "ok - permanent failure on one url does not block checkpoint",
+			client: &httpmocks.Client{
+				DoFn: func(r *http.Request) (*http.Response, error) {
+					if r.URL.Path == url1 {
+						return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+					}
+					return &http.Response{StatusCode: http.StatusBadRequest, Body: http.NoBody}, nil
+				},
+			},
+			semaphore: &syncmocks.WeightedSemaphore{
+				ReleaseFn: func(i uint64, bytes int64) {},
+			},
+			msgs: []*notifyMsg{
+				testNotifyMsg([]string{url1, url2}, testPayload),
+			},
+			checkpointer: func(doneChan chan struct{}) checkpointer.Checkpoint {
+				return func(ctx context.Context, positions []wal.CommitPosition) error {
 					defer func() {
 						doneChan <- struct{}{}
 					}()
@@ -271,6 +333,34 @@ func TestNotifier_Notify(t *testing.T) {
 			},
 
 			wantErr: context.Canceled,
+		},
+		{
+			// strict_mode: permanent failures block too
+			name:       "error - strict mode blocks checkpoint on permanent failure",
+			strictMode: true,
+			client: &httpmocks.Client{
+				DoFn: func(r *http.Request) (*http.Response, error) {
+					if r.URL.Path == url1 {
+						return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+					}
+					return &http.Response{StatusCode: http.StatusBadRequest, Body: http.NoBody}, nil
+				},
+			},
+			semaphore: &syncmocks.WeightedSemaphore{
+				ReleaseFn: func(i uint64, bytes int64) {},
+			},
+			msgs: []*notifyMsg{
+				testNotifyMsg([]string{url1, url2}, testPayload),
+			},
+			checkpointer: func(doneChan chan struct{}) checkpointer.Checkpoint {
+				return func(ctx context.Context, positions []wal.CommitPosition) error {
+					doneChan <- struct{}{}
+					t.Error("checkpointer should not be called in strict mode on permanent failure")
+					return nil
+				}
+			},
+
+			wantErr: backoff.ErrPermanent,
 		},
 		{
 			name: "error - checkpointing",
@@ -310,36 +400,189 @@ func TestNotifier_Notify(t *testing.T) {
 			n.client = tc.client
 			n.queueBytesSema = tc.semaphore
 			n.checkpointer = tc.checkpointer(doneChan)
+			n.strictMode = tc.strictMode
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			wg := sync.WaitGroup{}
-			wg.Add(1)
+			notifyErrCh := make(chan error, 1)
 			go func() {
-				defer wg.Done()
-				err := n.Notify(ctx)
-				require.ErrorIs(t, err, tc.wantErr)
+				notifyErrCh <- n.Notify(ctx)
 			}()
 
 			for _, msg := range tc.msgs {
 				n.notifyChan <- msg
 			}
 
+		loop:
 			for {
 				select {
 				case <-ctx.Done():
 					t.Log("test timeout reached")
-					wg.Wait()
-					return
+					break loop
 				case <-doneChan:
 					if errors.Is(tc.wantErr, context.Canceled) {
 						cancel()
 					}
-					wg.Wait()
+				case err := <-notifyErrCh:
+					require.ErrorIs(t, err, tc.wantErr)
 					return
 				}
 			}
+
+			err := <-notifyErrCh
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestNotifier_sendWebhook(t *testing.T) {
+	t.Parallel()
+
+	testCfg := &Config{
+		Backoff: backoff.Config{
+			Exponential: &backoff.ExponentialConfig{
+				InitialInterval: time.Millisecond,
+				MaxInterval:     2 * time.Millisecond,
+				MaxRetries:      2,
+			},
+		},
+	}
+
+	tests := []struct {
+		name          string
+		lsn           string
+		doFn          func(callCount *int) func(*http.Request) (*http.Response, error)
+		wantErr       error
+		wantPermanent bool
+		wantCalls     int
+	}{
+		{
+			name: "ok - success on first try, headers set",
+			lsn:  "test-lsn",
+			doFn: func(callCount *int) func(*http.Request) (*http.Response, error) {
+				return func(r *http.Request) (*http.Response, error) {
+					*callCount++
+					require.Equal(t, "test-lsn", r.Header.Get("X-Pgstream-LSN"))
+					require.Equal(t, "test-lsn", r.Header.Get("Idempotency-Key"))
+					return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+				}
+			},
+			wantErr:   nil,
+			wantCalls: 1,
+		},
+		{
+			name: "ok - 202 accepted is success, not permanent failure",
+			lsn:  "test-lsn",
+			doFn: func(callCount *int) func(*http.Request) (*http.Response, error) {
+				return func(r *http.Request) (*http.Response, error) {
+					*callCount++
+					return &http.Response{StatusCode: http.StatusAccepted, Body: http.NoBody}, nil
+				}
+			},
+			wantErr:   nil,
+			wantCalls: 1,
+		},
+		{
+			name: "ok - 204 no content is success, headers omitted for zero lsn",
+			lsn:  wal.ZeroLSN,
+			doFn: func(callCount *int) func(*http.Request) (*http.Response, error) {
+				return func(r *http.Request) (*http.Response, error) {
+					*callCount++
+					require.Empty(t, r.Header.Get("X-Pgstream-LSN"))
+					require.Empty(t, r.Header.Get("Idempotency-Key"))
+					return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody}, nil
+				}
+			},
+			wantErr:   nil,
+			wantCalls: 1,
+		},
+		{
+			name: "ok - network error retried until success",
+			lsn:  "test-lsn",
+			doFn: func(callCount *int) func(*http.Request) (*http.Response, error) {
+				return func(r *http.Request) (*http.Response, error) {
+					*callCount++
+					if *callCount < 2 {
+						return nil, errTest
+					}
+					return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+				}
+			},
+			wantErr:   nil,
+			wantCalls: 2,
+		},
+		{
+			name: "ok - 5xx retried until success",
+			lsn:  "test-lsn",
+			doFn: func(callCount *int) func(*http.Request) (*http.Response, error) {
+				return func(r *http.Request) (*http.Response, error) {
+					*callCount++
+					if *callCount < 2 {
+						return &http.Response{StatusCode: http.StatusInternalServerError, Body: http.NoBody}, nil
+					}
+					return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+				}
+			},
+			wantErr:   nil,
+			wantCalls: 2,
+		},
+		{
+			name: "ok - 429 retried until success",
+			lsn:  "test-lsn",
+			doFn: func(callCount *int) func(*http.Request) (*http.Response, error) {
+				return func(r *http.Request) (*http.Response, error) {
+					*callCount++
+					if *callCount < 2 {
+						return &http.Response{StatusCode: http.StatusTooManyRequests, Body: http.NoBody}, nil
+					}
+					return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+				}
+			},
+			wantErr:   nil,
+			wantCalls: 2,
+		},
+		{
+			name: "error - 4xx is not retried",
+			lsn:  "test-lsn",
+			doFn: func(callCount *int) func(*http.Request) (*http.Response, error) {
+				return func(r *http.Request) (*http.Response, error) {
+					*callCount++
+					return &http.Response{StatusCode: http.StatusBadRequest, Body: http.NoBody}, nil
+				}
+			},
+			wantPermanent: true,
+			wantCalls:     1,
+		},
+		{
+			name: "error - persistent network error exhausts retries",
+			lsn:  "test-lsn",
+			doFn: func(callCount *int) func(*http.Request) (*http.Response, error) {
+				return func(r *http.Request) (*http.Response, error) {
+					*callCount++
+					return nil, errTest
+				}
+			},
+			wantErr:   errTest,
+			wantCalls: 3, // 1 attempt + 2 retries
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			callCount := 0
+			n := New(testCfg, &mocks.Store{})
+			n.client = &httpmocks.Client{DoFn: tc.doFn(&callCount)}
+
+			err := n.sendWebhook(context.Background(), []byte("payload"), tc.lsn, "url-1")
+			if tc.wantPermanent {
+				require.ErrorIs(t, err, backoff.ErrPermanent)
+			} else {
+				require.ErrorIs(t, err, tc.wantErr)
+			}
+			require.Equal(t, tc.wantCalls, callCount)
 		})
 	}
 }
@@ -351,6 +594,11 @@ func TestNotifier(t *testing.T) {
 			return []*subscription.Subscription{newTestSubscription("url-1", "", "", nil)}, nil
 		},
 	})
+	n.client = &httpmocks.Client{
+		DoFn: func(r *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+		},
+	}
 	n.checkpointer = func(ctx context.Context, positions []wal.CommitPosition) error {
 		return errTest
 	}
@@ -375,10 +623,7 @@ func TestNotifier(t *testing.T) {
 	for {
 		select {
 		case <-doneChan:
-			// Notify has exited. The next ProcessWALEvent must observe the
-			// closed notifyDone and return the propagated error — assert on a
-			// fresh call rather than the previous loop iteration's result,
-			// which can be nil if Notify exited between PWE calls.
+			// assert fresh call, not stale
 			require.ErrorIs(t, n.ProcessWALEvent(context.Background(), walEvent), errTest)
 			return
 		case <-timer.C:
@@ -390,12 +635,7 @@ func TestNotifier(t *testing.T) {
 	}
 }
 
-// Regression test: Close() must signal Notify to exit cleanly without panic,
-// regardless of whether Notify has reached its select yet. Earlier, Close()
-// closed notifyChan directly, which raced with both Notify reading a nil msg
-// (panic on msg.urls deref) and any concurrent ProcessWALEvent sender (panic
-// on send to closed channel). Close() now closes a separate shutdownCh and
-// leaves notifyChan untouched.
+// regression: closing notifyChan caused panics
 func TestNotifier_NotifyAfterClose(t *testing.T) {
 	t.Parallel()
 
@@ -406,8 +646,7 @@ func TestNotifier_NotifyAfterClose(t *testing.T) {
 		errChan <- n.Notify(context.Background())
 	}()
 
-	// No sleep needed: Notify exits via shutdownCh whether it was already in
-	// its select or hadn't started yet.
+	// works whether Notify started yet
 	require.NoError(t, n.Close())
 
 	select {
@@ -418,10 +657,7 @@ func TestNotifier_NotifyAfterClose(t *testing.T) {
 	}
 }
 
-// Regression test: ProcessWALEvent must not panic on "send on closed channel"
-// when Close() races with an in-flight call. With shutdownCh-based shutdown
-// (notifyChan is never closed), the in-flight call observes shutdownCh and
-// returns errNotifyStopped instead.
+// regression: no closed-channel send panic
 func TestNotifier_ProcessWALEventDuringClose(t *testing.T) {
 	t.Parallel()
 
@@ -431,8 +667,7 @@ func TestNotifier_ProcessWALEventDuringClose(t *testing.T) {
 		},
 	})
 
-	// Close before Notify ever runs: any ProcessWALEvent call must observe
-	// shutdownCh and return cleanly, never panic.
+	// must not panic before Notify runs
 	require.NoError(t, n.Close())
 
 	const workers = 8
@@ -455,10 +690,7 @@ func TestNotifier_ProcessWALEventDuringClose(t *testing.T) {
 	}
 }
 
-// Regression test: concurrent ProcessWALEvent callers must all observe the
-// underlying Notify error rather than wrapping a nil notifyErr (which would
-// produce "%!w(<nil>)" messages, the same pattern fixed for the batch sender
-// in issue #372).
+// regression: avoid nil error wrapping
 func TestNotifier_ConcurrentProcessWALEventErrorPropagation(t *testing.T) {
 	t.Parallel()
 
@@ -467,6 +699,11 @@ func TestNotifier_ConcurrentProcessWALEventErrorPropagation(t *testing.T) {
 			return []*subscription.Subscription{newTestSubscription("url-1", "", "", nil)}, nil
 		},
 	})
+	n.client = &httpmocks.Client{
+		DoFn: func(r *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+		},
+	}
 	n.checkpointer = func(ctx context.Context, positions []wal.CommitPosition) error {
 		return errTest
 	}
@@ -478,16 +715,13 @@ func TestNotifier_ConcurrentProcessWALEventErrorPropagation(t *testing.T) {
 		require.ErrorIs(t, err, errTest)
 	}()
 
-	// seed a message that will make Notify exit with errTest
+	// seed message, make Notify exit
 	require.NoError(t, n.ProcessWALEvent(context.Background(), &wal.Event{
 		CommitPosition: wal.CommitPosition("seed"),
 		Data:           &wal.Data{Action: "I"},
 	}))
 
-	// The test-local notifyDone is closed via `defer` AFTER n.Notify returns,
-	// which itself closes n.notifyDone before returning. So once we observe
-	// the test-local channel close, n.notifyDone is guaranteed visible too —
-	// no further sleep needed.
+	// no sleep: ordering guarantees visibility
 	select {
 	case <-notifyDone:
 	case <-time.After(5 * time.Second):

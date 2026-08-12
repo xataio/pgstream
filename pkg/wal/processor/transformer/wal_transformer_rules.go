@@ -15,7 +15,8 @@ type TableRules struct {
 }
 
 type TransformerRules struct {
-	Name              string         `yaml:"name"`
-	Parameters        map[string]any `yaml:"parameters"`
-	DynamicParameters map[string]any `yaml:"dynamic_parameters"`
+	Name                string         `yaml:"name"`
+	Parameters          map[string]any `yaml:"parameters"`
+	DynamicParameters   map[string]any `yaml:"dynamic_parameters"`
+	AllowUniquenessLoss bool           `yaml:"allow_uniqueness_loss"`
 }

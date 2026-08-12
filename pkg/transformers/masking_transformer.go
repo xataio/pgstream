@@ -31,6 +31,7 @@ var (
 		"type must be one of 'custom', 'password', 'name', 'address', 'email', 'mobile', 'tel', 'id', 'credit_card', 'url' or 'default'",
 	)
 	errMaskUnmaskCannotBeUsedTogether = errors.New("masking: mask and unmask parameters cannot be used together")
+	errMaskCoversNoCharacters         = errors.New("masking: the configured mask covers no characters and would leave values unmasked; use the noop transformer if passthrough is intended")
 	maskingCompatibleTypes            = []SupportedDataType{
 		StringDataType,
 		ByteArrayDataType,
@@ -159,10 +160,15 @@ func (t *MaskingTransformer) IsDynamic() bool {
 	return false
 }
 
+func (t *MaskingTransformer) Uniqueness() Uniqueness {
+	return UniquenessLossy
+}
+
 func MaskingTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: maskingCompatibleTypes,
 		Parameters:     maskingParams,
+		Uniqueness:     UniquenessLossy,
 	}
 }
 
@@ -218,6 +224,12 @@ func getCustomMaskingFn(params ParameterValues) (maskingFunction, error) {
 			return nil, fmt.Errorf("masking: unable to read mask_end: %w", err)
 		}
 	}
+	// a mask covering no characters leaves values unmasked, which silently
+	// defeats anonymization; noop is the way to pass a column through
+	if masksNothing(mask, begin, beginAbs, end, endAbs) {
+		return nil, errMaskCoversNoCharacters
+	}
+
 	return func(v string) string {
 		var beginIndex, endIndex int
 		length := len(v)
@@ -242,6 +254,13 @@ func getCustomMaskingFn(params ParameterValues) (maskingFunction, error) {
 		}
 		return strings.Repeat("*", beginIndex) + v[beginIndex:endIndex] + strings.Repeat("*", length-endIndex)
 	}, nil
+}
+
+func masksNothing(mask bool, begin int, beginAbs bool, end int, endAbs bool) bool {
+	if mask {
+		return beginAbs == endAbs && begin == end
+	}
+	return begin <= 0 && !endAbs && end >= 100
 }
 
 func getIntegerInRange(v, min, max int) int {

@@ -26,10 +26,13 @@ type StatusChecker struct {
 	connBuilder          pglib.QuerierBuilder
 	configParser         func(pgURL string) (*pgx.ConnConfig, error)
 	migratorBuilder      func(*InitConfig) (migrator, error)
-	ruleValidatorBuilder func(context.Context, string, []string) (ruleValidator, error)
+	ruleValidatorBuilder func(context.Context, string, []string, ...transformer.ParserOption) (ruleValidator, error)
 }
 
-type ruleValidator func(ctx context.Context, rules transformer.Rules) (*transformer.TransformerMap, error)
+type ruleValidator interface {
+	ParseAndValidate(ctx context.Context, rules transformer.Rules) (*transformer.TransformerMap, error)
+	Warnings() []string
+}
 
 type migrator interface {
 	Status() ([]migratorlib.MigrationStatus, error)
@@ -58,12 +61,8 @@ func NewStatusChecker() *StatusChecker {
 			}
 			return migratorlib.NewPGMigrator(cfg.PostgresURL, migrationAssets)
 		},
-		ruleValidatorBuilder: func(ctx context.Context, pgURL string, requiredTables []string) (ruleValidator, error) {
-			validator, err := transformer.NewPostgresTransformerParser(ctx, pgURL, builder.NewTransformerBuilder(), requiredTables)
-			if err != nil {
-				return nil, err
-			}
-			return validator.ParseAndValidate, nil
+		ruleValidatorBuilder: func(ctx context.Context, pgURL string, requiredTables []string, opts ...transformer.ParserOption) (ruleValidator, error) {
+			return transformer.NewPostgresTransformerParser(ctx, pgURL, builder.NewTransformerBuilder(), requiredTables, opts...)
 		},
 	}
 }
@@ -203,7 +202,12 @@ func (s *StatusChecker) TransformationRulesStatus(ctx context.Context, config *C
 	status := &TransformationRulesStatus{
 		Valid: true,
 	}
-	validator, err := s.ruleValidatorBuilder(ctx, pgURL, config.RequiredTables())
+	parserOpts := []transformer.ParserOption{}
+	// mirror the run path: only a postgres target enforces unique indexes
+	if config.Processor.Postgres != nil {
+		parserOpts = append(parserOpts, transformer.WithUniquenessEnforcement())
+	}
+	validator, err := s.ruleValidatorBuilder(ctx, pgURL, config.RequiredTables(), parserOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +215,7 @@ func (s *StatusChecker) TransformationRulesStatus(ctx context.Context, config *C
 		Transformers:   config.Processor.Transformer.TransformerRules,
 		ValidationMode: config.Processor.Transformer.ValidationMode,
 	}
-	if _, err := validator(ctx, rules); err != nil {
+	if _, err := validator.ParseAndValidate(ctx, rules); err != nil {
 		status.Valid = false
 		switch {
 		case errors.Is(err, syscall.ECONNREFUSED):
@@ -220,6 +224,7 @@ func (s *StatusChecker) TransformationRulesStatus(ctx context.Context, config *C
 			status.Errors = append(status.Errors, err.Error())
 		}
 	}
+	status.Warnings = validator.Warnings()
 
 	return status, nil
 }

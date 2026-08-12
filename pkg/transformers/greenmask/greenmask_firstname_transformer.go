@@ -117,6 +117,10 @@ func (fnt *FirstNameTransformer) IsDynamic() bool {
 	return len(fnt.dynamicParams) > 0
 }
 
+func (fnt *FirstNameTransformer) Uniqueness() transformers.Uniqueness {
+	return transformers.UniquenessLossy
+}
+
 func (fnt *FirstNameTransformer) Close() error {
 	return nil
 }
@@ -125,5 +129,6 @@ func FirstNameTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: firstNameCompatibleTypes,
 		Parameters:     firstNameParams,
+		Uniqueness:     transformers.UniquenessLossy,
 	}
 }

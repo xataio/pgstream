@@ -127,6 +127,10 @@ func (t *DateTransformer) IsDynamic() bool {
 	return false
 }
 
+func (t *DateTransformer) Uniqueness() transformers.Uniqueness {
+	return transformers.UniquenessNotGuaranteed
+}
+
 func (t *DateTransformer) Close() error {
 	return nil
 }
@@ -135,5 +139,6 @@ func DateTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: dateCompatibleTypes,
 		Parameters:     dateParams,
+		Uniqueness:     transformers.UniquenessNotGuaranteed,
 	}
 }

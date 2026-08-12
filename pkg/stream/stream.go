@@ -208,12 +208,24 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 		pgURL := config.SourcePostgresURL()
 		if pgURL != "" {
 			var parser transformer.ParseFn
-			pgParser, err := transformer.NewPostgresTransformerParser(ctx, pgURL, transformerBuilder, config.RequiredTables())
+			parserOpts := []transformer.ParserOption{}
+			// only a postgres target enforces the source's unique indexes
+			if config.Processor.Postgres != nil {
+				parserOpts = append(parserOpts, transformer.WithUniquenessEnforcement())
+			}
+			pgParser, err := transformer.NewPostgresTransformerParser(ctx, pgURL, transformerBuilder, config.RequiredTables(), parserOpts...)
 			if err != nil {
 				return nil, nil, fmt.Errorf("creating transformer validator: %w", err)
 			}
 			closerAgg.addCloserFn(pgParser.Close)
-			parser = pgParser.ParseAndValidate
+			// warnings only reach the caller here
+			parser = func(ctx context.Context, rules transformer.Rules) (*transformer.TransformerMap, error) {
+				transformerMap, err := pgParser.ParseAndValidate(ctx, rules)
+				for _, warning := range pgParser.Warnings() {
+					logger.Warn(nil, warning)
+				}
+				return transformerMap, err
+			}
 
 			// wrap the parser to add inferred rules if enabled. This requires a
 			// live connection to the source db and will query the security

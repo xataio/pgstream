@@ -62,6 +62,10 @@ func (st *StringTransformer) IsDynamic() bool {
 	return false
 }
 
+func (st *StringTransformer) Uniqueness() Uniqueness {
+	return UniquenessNotGuaranteed
+}
+
 func (st *StringTransformer) Close() error {
 	return nil
 }
@@ -70,5 +74,6 @@ func StringTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: stringCompatibleTypes,
 		Parameters:     stringParams,
+		Uniqueness:     UniquenessNotGuaranteed,
 	}
 }
