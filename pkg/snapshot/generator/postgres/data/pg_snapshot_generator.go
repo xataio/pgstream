@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
@@ -30,8 +31,8 @@ type SnapshotGenerator struct {
 	// reader encapsulates the strategy used to read a schema's tables (ctid
 	// range scan by default).
 	reader tableReader
-	// instrumentation is captured while applying options and used to wrap the
-	// reader once it has been built.
+	// instrumentation is captured while applying options and used to decorate
+	// the reader once it has been built.
 	instrumentation *otel.Instrumentation
 
 	// workers per snapshot, parallelise the snapshot creation for each schema
@@ -99,19 +100,8 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, processor processor.
 		opt(sg)
 	}
 
-	sg.reader = &ctidReader{
-		conn:         sg.conn,
-		logger:       sg.logger,
-		adapter:      newAdapter(pglib.NewMapper(conn), sg.logger),
-		processor:    sg.processor,
-		tableWorkers: cfg.tableWorkers(),
-		batchBytes:   cfg.batchBytes(),
-		progress:     sg.progress,
-	}
-
-	if sg.instrumentation != nil {
-		sg.reader = newInstrumentedTableReader(sg.reader, sg.instrumentation)
-	}
+	sink := newRowSink(pglib.NewMapper(conn), sg.processor, sg.logger, sg.progress)
+	sg.reader = newTableReader(sg.conn, sg.logger, sink, cfg, sg.instrumentation)
 
 	return sg, nil
 }
@@ -199,9 +189,9 @@ func (sg *SnapshotGenerator) Close() error {
 }
 
 func (sg *SnapshotGenerator) createSchemaSnapshot(ctx context.Context, schemaTables *schemaTables) error {
-	return sg.reader.beginSchema(ctx, schemaTables, func(ctx context.Context, session *readSession) (err error) {
+	return sg.reader.beginSchema(ctx, schemaTables, func(ctx context.Context, session readSession) (err error) {
 		if sg.progress.enabled {
-			if err := sg.addProgressBar(ctx, session.snapshotID, schemaTables); err != nil {
+			if err := sg.addProgressBar(ctx, session, schemaTables); err != nil {
 				return err
 			}
 			defer func() {
@@ -272,13 +262,15 @@ func readableColumns(pinned, live []string) ([]string, bool) {
 	return readable, len(readable) == 0
 }
 
-func (sg *SnapshotGenerator) createSnapshotWorker(ctx context.Context, wg *sync.WaitGroup, session *readSession, tableChan <-chan *table, tableErrMap map[string]error) {
+func (sg *SnapshotGenerator) createSnapshotWorker(ctx context.Context, wg *sync.WaitGroup, session readSession, tableChan <-chan *table, tableErrMap map[string]error) {
 	defer wg.Done()
+	sessionFields := session.logFields()
 	for t := range tableChan {
-		logFields := loglib.Fields{"schema": t.schema, "table": t.name, "snapshotID": session.snapshotID}
+		logFields := loglib.Fields{"schema": t.schema, "table": t.name}
+		maps.Copy(logFields, sessionFields)
 		sg.logger.Debug("snapshotting table", logFields)
 
-		if err := sg.reader.readTable(ctx, session, t); err != nil {
+		if err := session.readTable(ctx, t); err != nil {
 			sg.logger.Error(err, "snapshotting table", logFields)
 			// errors will get notified unless the table doesn't exist
 			if !errors.Is(err, pglib.ErrNoRows) {
@@ -326,8 +318,11 @@ func (sg *SnapshotGenerator) collectSchemaErrors(workerSchemaErrs map[string]err
 	return nil
 }
 
-func (sg *SnapshotGenerator) addProgressBar(ctx context.Context, snapshotID string, schemaTables *schemaTables) error {
-	totalBytes, err := sg.getSnapshotSchemaTotalBytes(ctx, snapshotID, schemaTables.schema, schemaTables.tables)
+// addProgressBar sizes the schema's progress bar with the total bytes the read
+// session reports for it. How those bytes are measured is the reading
+// strategy's business; the generator only owns the bar.
+func (sg *SnapshotGenerator) addProgressBar(ctx context.Context, session readSession, schemaTables *schemaTables) error {
+	totalBytes, err := session.totalBytes(ctx)
 	if err != nil {
 		return err
 	}
@@ -335,32 +330,6 @@ func (sg *SnapshotGenerator) addProgressBar(ctx context.Context, snapshotID stri
 	bar := sg.progressBarBuilder(totalBytes, fmt.Sprintf("[cyan][%s][reset] Snapshotting data...", schemaTables.schema))
 	sg.progress.set(schemaTables.schema, bar)
 	return nil
-}
-
-const tablesBytesQuery = `SELECT SUM(pg_table_size(c.oid)) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = ANY($2) AND c.relkind = 'r';`
-
-func (sg *SnapshotGenerator) getSnapshotSchemaTotalBytes(ctx context.Context, snapshotID, schema string, tables []string) (int64, error) {
-	totalBytes := int64(0)
-	sg.logger.Debug("querying total bytes for schema", loglib.Fields{
-		"schema": schema, "tables": tables, "snapshotID": snapshotID,
-	})
-
-	// make sure the schema and table names are unquoted since the system
-	// catalogs store unquoted names
-	unquotedTables := make([]string, len(tables))
-	for i, table := range tables {
-		unquotedTables[i] = pglib.UnquoteIdentifier(table)
-	}
-
-	err := execInSnapshotTx(ctx, sg.conn, snapshotID, func(tx pglib.Tx) error {
-		err := tx.QueryRow(ctx, []any{&totalBytes}, tablesBytesQuery, pglib.UnquoteIdentifier(schema), unquotedTables)
-		if err != nil {
-			return fmt.Errorf("retrieving total bytes for schema: %w", err)
-		}
-		return nil
-	})
-
-	return totalBytes, err
 }
 
 // calculateBatchPageSize will automatically determine the batch page size based

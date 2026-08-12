@@ -302,7 +302,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
 								require.Equal(t, fmt.Sprintf(
 									`SELECT "id" FROM ONLY %s WHERE ctid BETWEEN '(0,0)' AND '(1,0)'`,
-									quotedSchemaTable1), query)
+									quotedSchemaTable1,
+								), query)
 								return &pgmocks.Rows{
 									CloseFn: func() {},
 									NextFn:  func(i uint) bool { return i == 1 },
@@ -1411,11 +1412,9 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				reader: &ctidReader{
 					conn:         tc.querier,
 					logger:       logger,
-					adapter:      newAdapter(pglib.NewMapper(tc.querier), loglib.NewNoopLogger()),
-					processor:    processor,
+					sink:         newRowSink(pglib.NewMapper(tc.querier), processor, loglib.NewNoopLogger(), pt),
 					tableWorkers: 1,
 					batchBytes:   1024 * 1024, // 1MB
-					progress:     pt,
 				},
 			}
 
@@ -2028,13 +2027,20 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 				},
 			}
 
+			pt := progressTracker{
+				enabled: tc.name == "ok - with progress tracking",
+				bars:    synclib.NewMap[string, progress.Bar](),
+			}
+			if pt.enabled {
+				pt.set(tc.table.schema, progressBar)
+			}
+
 			reader := &ctidReader{
 				logger: zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
 					LogLevel: "debug",
 				})),
-				conn:    tc.querier,
-				adapter: newAdapter(pglib.NewMapper(tc.querier), loglib.NewNoopLogger()),
-				processor: &processormocks.Processor{
+				conn: tc.querier,
+				sink: newRowSink(pglib.NewMapper(tc.querier), &processormocks.Processor{
 					ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
 						if tc.processor != nil {
 							if err := tc.processor.ProcessWALEvent(ctx, walEvent); err != nil {
@@ -2044,18 +2050,15 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 						eventChan <- walEvent
 						return nil
 					},
-				},
-				progress: progressTracker{
-					enabled: tc.name == "ok - with progress tracking",
-					bars:    synclib.NewMap[string, progress.Bar](),
-				},
+				}, loglib.NewNoopLogger(), pt),
+			}
+			session := &ctidSession{
+				reader:       reader,
+				schemaTables: &schemaTables{schema: tc.table.schema, tables: []string{tc.table.name}},
+				snapshotID:   testSnapshotID,
 			}
 
-			if reader.progress.enabled {
-				reader.progress.set(tc.table.schema, progressBar)
-			}
-
-			err := reader.snapshotTableRange(context.Background(), testSnapshotID, tc.table, tc.pageRange)
+			err := session.snapshotTableRange(context.Background(), tc.table, tc.pageRange)
 			require.Equal(t, tc.wantErr, err)
 			close(eventChan)
 
