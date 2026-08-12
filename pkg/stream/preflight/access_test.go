@@ -503,6 +503,106 @@ func TestTargetCreateDBPrivilegeCheck_Name(t *testing.T) {
 	require.Equal(t, "target_createdb_privilege", (&TargetCreateDBPrivilegeCheck{}).Name())
 }
 
+func TestTargetCreateRolePrivilegeCheck_Run_HasCreateRole(t *testing.T) {
+	t.Parallel()
+
+	check := &TargetCreateRolePrivilegeCheck{
+		Target: targetWithCreateRolePrivilege(t, "pgstreamtarget", true),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Empty(t, findings)
+}
+
+func TestTargetCreateRolePrivilegeCheck_Run_ChecksSuperuserCapability(t *testing.T) {
+	t.Parallel()
+
+	check := &TargetCreateRolePrivilegeCheck{
+		Target: func(context.Context) (postgres.Querier, error) {
+			return &mocks.Querier{
+				QueryRowFn: func(_ context.Context, dest []any, query string, _ ...any) error {
+					require.Contains(t, query, "rolcreaterole OR rolsuper")
+					require.Len(t, dest, 2)
+					role, ok := dest[0].(*string)
+					require.True(t, ok)
+					hasCreateRole, ok := dest[1].(*bool)
+					require.True(t, ok)
+					*role = "postgres"
+					*hasCreateRole = true
+					return nil
+				},
+			}, nil
+		},
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Empty(t, findings)
+}
+
+func TestTargetCreateRolePrivilegeCheck_Run_MissingCreateRoleReturnsFinding(t *testing.T) {
+	t.Parallel()
+
+	check := &TargetCreateRolePrivilegeCheck{
+		Target: targetWithCreateRolePrivilege(t, "pgstreamtarget", false),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	require.Contains(t, findings[0].Message, `target role "pgstreamtarget"`)
+	require.Contains(t, findings[0].Message, "lacks CREATEROLE")
+	require.Contains(t, findings[0].Message, `ALTER ROLE "pgstreamtarget" CREATEROLE`)
+}
+
+func TestTargetCreateRolePrivilegeCheck_Run_TargetAcquireFails(t *testing.T) {
+	t.Parallel()
+
+	checkErr := errors.New("boom")
+	check := &TargetCreateRolePrivilegeCheck{
+		Target: func(context.Context) (postgres.Querier, error) {
+			return nil, checkErr
+		},
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.Nil(t, findings)
+	require.ErrorIs(t, err, checkErr)
+	require.ErrorContains(t, err, "connecting to target")
+}
+
+func TestTargetCreateRolePrivilegeCheck_Run_QueryFails(t *testing.T) {
+	t.Parallel()
+
+	queryErr := errors.New("query failed")
+	check := &TargetCreateRolePrivilegeCheck{
+		Target: func(context.Context) (postgres.Querier, error) {
+			return &mocks.Querier{
+				QueryRowFn: func(context.Context, []any, string, ...any) error {
+					return queryErr
+				},
+			}, nil
+		},
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.Nil(t, findings)
+	require.ErrorIs(t, err, queryErr)
+	require.ErrorContains(t, err, "querying target CREATEROLE privilege")
+}
+
+func TestTargetCreateRolePrivilegeCheck_Name(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "target_createrole_privilege", (&TargetCreateRolePrivilegeCheck{}).Name())
+}
+
 func TestSourceTableSelectPrivilegeMessage(t *testing.T) {
 	t.Parallel()
 
@@ -555,6 +655,16 @@ func TestTargetCreateDBPrivilegeMessage(t *testing.T) {
 	require.Contains(t, msg, `target role "pgstreamtarget"`)
 	require.Contains(t, msg, "lacks CREATEDB")
 	require.Contains(t, msg, `ALTER ROLE "pgstreamtarget" CREATEDB`)
+}
+
+func TestTargetCreateRolePrivilegeMessage(t *testing.T) {
+	t.Parallel()
+
+	msg := targetCreateRolePrivilegeMessage("pgstreamtarget")
+
+	require.Contains(t, msg, `target role "pgstreamtarget"`)
+	require.Contains(t, msg, "lacks CREATEROLE")
+	require.Contains(t, msg, `ALTER ROLE "pgstreamtarget" CREATEROLE`)
 }
 
 func TestBuildAccessChecks(t *testing.T) {
@@ -670,6 +780,55 @@ func TestBuildChecks_SelectedAccessOnly(t *testing.T) {
 	require.Equal(t, "source_sequence_select_privileges", checks[1].Name())
 }
 
+func TestBuildAccessChecks_RolesSnapshotMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		mode      string
+		wantCheck bool
+	}{
+		{name: "enabled adds target createrole check", mode: "enabled", wantCheck: true},
+		{name: "no passwords adds target createrole check", mode: "no_passwords", wantCheck: true},
+		{name: "disabled omits target createrole check", mode: "disabled"},
+		{name: "empty mode omits target createrole check"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &stream.Config{
+				Listener: stream.ListenerConfig{
+					Postgres: &stream.PostgresListenerConfig{
+						URL: "postgres://source",
+						Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+							Schema: &snapshotbuilder.SchemaSnapshotConfig{
+								DumpRestore: &pgdumprestore.Config{
+									TargetPGURL:       "postgres://target",
+									RolesSnapshotMode: tc.mode,
+								},
+							},
+						},
+					},
+				},
+			}
+
+			checks, cleanup := BuildAccessChecks(cfg)
+			require.NotNil(t, cleanup)
+			defer func() { require.NoError(t, cleanup(context.Background())) }()
+
+			var found bool
+			for _, check := range checks {
+				if _, ok := check.(*TargetCreateRolePrivilegeCheck); ok {
+					found = true
+				}
+			}
+			require.Equal(t, tc.wantCheck, found)
+		})
+	}
+}
+
 func sourceWithRows(t *testing.T, rows []sourceTableSelectPrivilegeRow) postgres.AcquireFunc {
 	t.Helper()
 	return sourceWithMockRows(privilegeRows(t, rows))
@@ -729,6 +888,25 @@ func targetWithCreateDBPrivilege(t *testing.T, role string, hasCreateDB bool) po
 				require.True(t, ok)
 				*roleDest = role
 				*createDBDest = hasCreateDB
+				return nil
+			},
+		}, nil
+	}
+}
+
+func targetWithCreateRolePrivilege(t *testing.T, role string, hasCreateRole bool) postgres.AcquireFunc {
+	t.Helper()
+	return func(context.Context) (postgres.Querier, error) {
+		return &mocks.Querier{
+			QueryRowFn: func(_ context.Context, dest []any, query string, _ ...any) error {
+				require.Contains(t, query, "rolcreaterole OR rolsuper")
+				require.Len(t, dest, 2)
+				roleDest, ok := dest[0].(*string)
+				require.True(t, ok)
+				createRoleDest, ok := dest[1].(*bool)
+				require.True(t, ok)
+				*roleDest = role
+				*createRoleDest = hasCreateRole
 				return nil
 			},
 		}, nil

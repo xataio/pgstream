@@ -154,6 +154,24 @@ func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 		}
 	}
 
+	if cfg.SnapshotRestoresRoles() {
+		if targetURL := cfg.SnapshotTargetPostgresURL(); targetURL != "" {
+			var err error
+			targetURL, err = postgres.RemoveDatabaseFromConnectionString(targetURL)
+			if err != nil {
+				checks = append(checks, &TargetCreateRolePrivilegeCheck{
+					Target: func(context.Context) (postgres.Querier, error) {
+						return nil, err
+					},
+				})
+				return checks, joinCleanups(cleanups)
+			}
+			target := postgres.NewLazyConn(targetURL)
+			checks = append(checks, &TargetCreateRolePrivilegeCheck{Target: target.Acquire})
+			cleanups = append(cleanups, target.Close)
+		}
+	}
+
 	return checks, joinCleanups(cleanups)
 }
 
