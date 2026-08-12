@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
@@ -63,11 +64,11 @@ type enumColumn struct {
 }
 
 type adapter struct {
-	dmlAdapter      dmlQueryAdapter
-	ddlAdapter      ddlQueryAdapter
-	ddlEventAdapter ddlEventAdapter
-
-	schemaObserver schemaObserver
+	dmlAdapter          dmlQueryAdapter
+	ddlAdapter          ddlQueryAdapter
+	ddlEventAdapter     ddlEventAdapter
+	ddlObjectTypeFilter *ddlObjectTypeFilter
+	schemaObserver      schemaObserver
 }
 
 type (
@@ -86,15 +87,21 @@ func newAdapter(ctx context.Context, logger loglib.Logger, cfg *Config, forCopy 
 	}
 
 	var ddl ddlQueryAdapter
+	var ddlFilter *ddlObjectTypeFilter
 	if !cfg.IgnoreDDL {
 		ddl = newDDLAdapter()
+		ddlFilter, err = newDDLObjectTypeFilter(cfg.IncludeDDLObjectTypes, cfg.ExcludeDDLObjectTypes)
+		if err != nil {
+			return nil, fmt.Errorf("invalid DDL object type filter config: %w", err)
+		}
 	}
 
 	return &adapter{
-		dmlAdapter:      dmlAdapter,
-		ddlAdapter:      ddl,
-		schemaObserver:  schemaObserver,
-		ddlEventAdapter: wal.WalDataToDDLEvent,
+		dmlAdapter:          dmlAdapter,
+		ddlAdapter:          ddl,
+		ddlObjectTypeFilter: ddlFilter,
+		schemaObserver:      schemaObserver,
+		ddlEventAdapter:     wal.WalDataToDDLEvent,
 	}, nil
 }
 
@@ -110,10 +117,11 @@ func (a *adapter) walEventToQueries(ctx context.Context, e *wal.Event) ([]*query
 		if err != nil {
 			return nil, err
 		}
+		// always update the schema observer to keep internal cache correct
 		a.schemaObserver.update(ddlEvent)
 
-		// there's no ddl adapter, the ddl query will not be processed
-		if a.ddlAdapter == nil {
+		// skip DDL execution if no adapter or if the DDL object type is filtered out
+		if a.ddlAdapter == nil || a.ddlObjectTypeFilter.shouldSkipDDL(ddlEvent) {
 			return []*query{{}}, nil
 		}
 

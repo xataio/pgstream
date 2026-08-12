@@ -55,6 +55,7 @@ type SnapshotGenerator struct {
 	// WAL (see WithRestoreToWAL), since that path converts the dump into WAL
 	// events instead of running a psql/pg_restore session.
 	indexConstraintSessionSettings []string
+	objectTypeFilter               *objectTypeFilter
 }
 
 type snapshotProgressTracker interface {
@@ -90,6 +91,14 @@ type Config struct {
 	// Session settings in name=value format applied only while restoring indexes
 	// and constraints. An empty list preserves the existing behavior.
 	IndexConstraintSessionSettings []string
+	// IncludeObjectTypes is a list of object type categories to include in the
+	// schema snapshot. Only one of IncludeObjectTypes or ExcludeObjectTypes
+	// can be set.
+	IncludeObjectTypes []string
+	// ExcludeObjectTypes is a list of object type categories to exclude from
+	// the schema snapshot. Only one of IncludeObjectTypes or
+	// ExcludeObjectTypes can be set.
+	ExcludeObjectTypes []string
 }
 
 // sessionSettingRegex validates a single index/constraint session setting of
@@ -146,6 +155,11 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		return nil, err
 	}
 
+	objTypeFilter, err := newObjectTypeFilter(c.IncludeObjectTypes, c.ExcludeObjectTypes)
+	if err != nil {
+		return nil, fmt.Errorf("invalid object type filter config: %w", err)
+	}
+
 	sg := &SnapshotGenerator{
 		sourceURL:                      c.SourcePGURL,
 		targetURL:                      c.TargetPGURL,
@@ -160,6 +174,7 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		optionGenerator:                newOptionGenerator(sourceConnPool, c),
 		refreshMaterializedViews:       c.RefreshMaterializedViews,
 		indexConstraintSessionSettings: c.IndexConstraintSessionSettings,
+		objectTypeFilter:               objTypeFilter,
 	}
 
 	for _, opt := range opts {
@@ -279,9 +294,12 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	// queries since that's considered data and it's a schema only dump. Produce
 	// the data only dump for the sequences only and restore it along with the
 	// schema.
-	sequenceDump, err := s.dumpSequenceValues(ctx, dump.sequences)
-	if err != nil {
-		return err
+	var sequenceDump []byte
+	if !s.objectTypeFilter.isCategoryExcluded("sequences") {
+		sequenceDump, err = s.dumpSequenceValues(ctx, dump.sequences)
+		if err != nil {
+			return err
+		}
 	}
 
 	// the schema dump will not include the roles, so we need to dump them
@@ -336,13 +354,17 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	}
 
 	// apply the sequences, indices and constraints when the wrapped generator has finished
-	s.logger.Info("restoring sequence data", loglib.Fields{"schemaTables": ss.SchemaTables})
-	if err := s.restoreDump(ctx, sequenceDump); err != nil {
-		return err
+	if !s.objectTypeFilter.isCategoryExcluded("sequences") {
+		s.logger.Info("restoring sequence data", loglib.Fields{"schemaTables": ss.SchemaTables})
+		if err := s.restoreDump(ctx, sequenceDump); err != nil {
+			return err
+		}
 	}
 
-	if err := s.restoreIndicesAndConstraints(ctx, indicesAndConstraintsDump, ss); err != nil {
-		return err
+	if len(indicesAndConstraintsDump) > 0 {
+		if err := s.restoreIndicesAndConstraints(ctx, indicesAndConstraintsDump, ss); err != nil {
+			return err
+		}
 	}
 
 	s.logger.Info("restoring views")
@@ -547,7 +569,7 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables, schema
 			s.logger.Error(err, "pg_dump for schema failed", loglib.Fields{"pgdumpOptions": pgdumpOpts.ToArgs()})
 			return nil, fmt.Errorf("dumping schema: %w", err)
 		}
-		parsedDump.cleanupPart = getDumpsDiff(dumpWithCleanUp, d)
+		parsedDump.cleanupPart = s.objectTypeFilter.filterCleanupDump(getDumpsDiff(dumpWithCleanUp, d))
 		s.dumpToFile(s.getDumpFileName("-cleanup"), pgdumpOpts, parsedDump.cleanupPart)
 	}
 
@@ -668,8 +690,29 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	functionParser := &sqlFunctionParser{}
 	materializedViewNames := map[string]struct{}{}
 	skipLegacyPLPGSQLHandlerFunction := false
+
+	// Object type filtering state: lines before the first TOC header (the
+	// preamble) are always included. Once a TOC header is encountered, the
+	// section is included/excluded based on the filter.
+	inPreamble := true
+	skipCurrentSection := false
+
 	for scanner.Scan() {
 		line := scanner.Text()
+
+		// Check for TOC header to track object type sections
+		if tocType, ok := parseTOCHeader(line); ok {
+			inPreamble = false
+			skipCurrentSection = s.objectTypeFilter.isExcluded(tocType)
+		}
+
+		// If the current section is excluded, skip the line. We still
+		// need to extract role information from non-excluded sections
+		// for role dependency tracking.
+		if !inPreamble && skipCurrentSection {
+			continue
+		}
+
 		switch {
 		case skipLegacyPLPGSQLHandlerFunction:
 			if strings.HasSuffix(line, ";") {
