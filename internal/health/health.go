@@ -216,7 +216,6 @@ func (s *Server) writeJSON(w http.ResponseWriter, code int, body any) {
 
 func (s *Server) isPrometheusEnabled() bool {
 	return s.metricsConfig != nil && s.metricsConfig.Prometheus != nil && s.metricsConfig.Prometheus.Enabled
-
 }
 
 func (s *Server) handlePrometheus(w http.ResponseWriter, req *http.Request) {
