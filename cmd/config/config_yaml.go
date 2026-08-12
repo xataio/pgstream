@@ -191,6 +191,7 @@ type ConstantBackoffConfig struct {
 
 type PostgresTargetConfig struct {
 	URL              string            `mapstructure:"url" yaml:"url"`
+	MaxConnections   uint              `mapstructure:"max_connections" yaml:"max_connections"`
 	Batch            *BatchConfig      `mapstructure:"batch" yaml:"batch"`
 	BulkIngest       *BulkIngestConfig `mapstructure:"bulk_ingest" yaml:"bulk_ingest"`
 	DisableTriggers  bool              `mapstructure:"disable_triggers" yaml:"disable_triggers"`
@@ -705,6 +706,7 @@ func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorCon
 	cfg := &stream.PostgresProcessorConfig{
 		BatchWriter: postgres.Config{
 			URL:              c.Target.Postgres.URL,
+			MaxConnections:   c.Target.Postgres.MaxConnections,
 			BatchConfig:      c.Target.Postgres.Batch.parseBatchConfig(),
 			DisableTriggers:  c.Target.Postgres.DisableTriggers,
 			OnConflictAction: c.Target.Postgres.OnConflictAction,

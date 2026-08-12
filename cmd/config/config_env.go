@@ -74,6 +74,7 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_DISABLE_PROGRESS_TRACKING")
 
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_TARGET_URL")
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_MAX_CONNECTIONS")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_BYTES")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_SIZE")
@@ -591,7 +592,8 @@ func parsePostgresProcessorConfig() (*stream.PostgresProcessorConfig, error) {
 	bulkIngestEnabled := viper.GetBool("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED")
 	cfg := &stream.PostgresProcessorConfig{
 		BatchWriter: postgres.Config{
-			URL: targetPostgresURL,
+			URL:            targetPostgresURL,
+			MaxConnections: viper.GetUint("PGSTREAM_POSTGRES_WRITER_MAX_CONNECTIONS"),
 			BatchConfig: batch.Config{
 				BatchTimeout:     viper.GetDuration("PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT"),
 				MaxBatchBytes:    maxBatchBytes,

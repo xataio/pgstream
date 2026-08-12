@@ -56,7 +56,7 @@ type pgSchemaObserver struct {
 // DDL event is received through the WAL.
 func newPGSchemaObserver(ctx context.Context, cfg *Config, logger loglib.Logger) (*pgSchemaObserver, error) {
 	newConnPool := func(ctx context.Context) (pglib.Querier, error) {
-		return pglib.NewConnPool(ctx, cfg.URL)
+		return pglib.NewConnPool(ctx, cfg.URL, cfg.poolOptions()...)
 	}
 
 	// the observer sits on the hot path: an unretried transient failure here
