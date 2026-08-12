@@ -72,6 +72,12 @@ func (i *Transformer) IsDynamic() bool {
 	return i.inner.IsDynamic()
 }
 
+// forwarded so wrapping a transformer for instrumentation does not downgrade
+// its uniqueness classification to unknown
+func (i *Transformer) Uniqueness() transformers.Uniqueness {
+	return transformers.UniquenessOf(i.inner)
+}
+
 func (i *Transformer) Close() error {
 	return i.inner.Close()
 }

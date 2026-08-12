@@ -68,6 +68,10 @@ func (t *TemplateTransformer) IsDynamic() bool {
 	return true
 }
 
+func (t *TemplateTransformer) Uniqueness() Uniqueness {
+	return UniquenessNotGuaranteed
+}
+
 func (t *TemplateTransformer) Close() error {
 	return nil
 }
@@ -76,5 +80,6 @@ func TemplateTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: templateCompatibleTypes,
 		Parameters:     templateParams,
+		Uniqueness:     UniquenessNotGuaranteed,
 	}
 }

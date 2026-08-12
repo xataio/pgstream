@@ -127,6 +127,10 @@ func (st *StringTransformer) IsDynamic() bool {
 	return false
 }
 
+func (st *StringTransformer) Uniqueness() transformers.Uniqueness {
+	return transformers.UniquenessNotGuaranteed
+}
+
 func (st *StringTransformer) Close() error {
 	return nil
 }
@@ -135,5 +139,6 @@ func StringTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: stringCompatibleTypes,
 		Parameters:     stringParams,
+		Uniqueness:     transformers.UniquenessNotGuaranteed,
 	}
 }

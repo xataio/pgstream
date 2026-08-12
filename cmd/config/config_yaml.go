@@ -191,6 +191,7 @@ type ConstantBackoffConfig struct {
 
 type PostgresTargetConfig struct {
 	URL              string            `mapstructure:"url" yaml:"url"`
+	MaxConnections   uint              `mapstructure:"max_connections" yaml:"max_connections"`
 	Batch            *BatchConfig      `mapstructure:"batch" yaml:"batch"`
 	BulkIngest       *BulkIngestConfig `mapstructure:"bulk_ingest" yaml:"bulk_ingest"`
 	DisableTriggers  bool              `mapstructure:"disable_triggers" yaml:"disable_triggers"`
@@ -285,8 +286,10 @@ type WebhookServerConfig struct {
 }
 
 type WebhookNotifierConfig struct {
-	WorkerCount   int `mapstructure:"worker_count" yaml:"worker_count"`
-	ClientTimeout int `mapstructure:"client_timeout" yaml:"client_timeout"`
+	WorkerCount   int            `mapstructure:"worker_count" yaml:"worker_count"`
+	ClientTimeout int            `mapstructure:"client_timeout" yaml:"client_timeout"`
+	Backoff       *BackoffConfig `mapstructure:"backoff" yaml:"backoff"`
+	StrictMode    bool           `mapstructure:"strict_mode" yaml:"strict_mode"`
 }
 
 type SanitizeConfig struct {
@@ -326,9 +329,10 @@ type TableTransformersConfig struct {
 }
 
 type ColumnTransformersConfig struct {
-	Name              string         `mapstructure:"name" yaml:"name"`
-	Parameters        map[string]any `mapstructure:"parameters" yaml:"parameters"`
-	DynamicParameters map[string]any `mapstructure:"dynamic_parameters" yaml:"dynamic_parameters"`
+	Name                string         `mapstructure:"name" yaml:"name"`
+	Parameters          map[string]any `mapstructure:"parameters" yaml:"parameters"`
+	DynamicParameters   map[string]any `mapstructure:"dynamic_parameters" yaml:"dynamic_parameters"`
+	AllowUniquenessLoss bool           `mapstructure:"allow_uniqueness_loss" yaml:"allow_uniqueness_loss"`
 }
 
 // postgres source modes
@@ -702,6 +706,7 @@ func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorCon
 	cfg := &stream.PostgresProcessorConfig{
 		BatchWriter: postgres.Config{
 			URL:              c.Target.Postgres.URL,
+			MaxConnections:   c.Target.Postgres.MaxConnections,
 			BatchConfig:      c.Target.Postgres.Batch.parseBatchConfig(),
 			DisableTriggers:  c.Target.Postgres.DisableTriggers,
 			OnConflictAction: c.Target.Postgres.OnConflictAction,
@@ -771,6 +776,7 @@ func (c *YAMLConfig) parseWebhookProcessorConfig() *stream.WebhookProcessorConfi
 		Notifier: notifier.Config{
 			URLWorkerCount: uint(c.Target.Webhooks.Notifier.WorkerCount),
 			ClientTimeout:  time.Duration(c.Target.Webhooks.Notifier.ClientTimeout) * time.Millisecond,
+			StrictMode:     c.Target.Webhooks.Notifier.StrictMode,
 		},
 		SubscriptionServer: server.Config{
 			Address:      c.Target.Webhooks.Subscriptions.Server.Address,
@@ -782,6 +788,10 @@ func (c *YAMLConfig) parseWebhookProcessorConfig() *stream.WebhookProcessorConfi
 	if c.Target.Webhooks.Subscriptions.Store.Cache != nil {
 		streamCfg.SubscriptionStore.CacheEnabled = c.Target.Webhooks.Subscriptions.Store.Cache.Enabled
 		streamCfg.SubscriptionStore.CacheRefreshInterval = time.Duration(c.Target.Webhooks.Subscriptions.Store.Cache.RefreshInterval) * time.Second
+	}
+
+	if c.Target.Webhooks.Notifier.Backoff != nil {
+		streamCfg.Notifier.Backoff = c.Target.Webhooks.Notifier.Backoff.parseBackoffConfig()
 	}
 
 	return streamCfg
@@ -878,9 +888,10 @@ func (c TransformationsConfig) parseTransformationConfig() (*transformer.Config,
 		columnRules := make(map[string]transformer.TransformerRules, len(t.ColumnRules))
 		for column, cr := range t.ColumnRules {
 			columnRules[column] = transformer.TransformerRules{
-				Name:              cr.Name,
-				Parameters:        cr.Parameters,
-				DynamicParameters: cr.DynamicParameters,
+				Name:                cr.Name,
+				Parameters:          cr.Parameters,
+				DynamicParameters:   cr.DynamicParameters,
+				AllowUniquenessLoss: cr.AllowUniquenessLoss,
 			}
 		}
 		rules = append(rules, transformer.TableRules{

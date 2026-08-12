@@ -21,36 +21,80 @@ type PostgresTransformerParser struct {
 	builder        transformerBuilder
 	pgtypeMap      *pglib.Mapper
 	requiredTables []string
+
+	warnings []string
+	// only a postgres target actually enforces a unique index; elsewhere the
+	// same findings are reported but must not block the pipeline
+	enforceUniqueness bool
+}
+
+type ParserOption func(*PostgresTransformerParser)
+
+// WithUniquenessEnforcement makes transformation rules that break a unique
+// index a hard error instead of a warning. Enable it when the target enforces
+// unique indexes, which today means a postgres target.
+func WithUniquenessEnforcement() ParserOption {
+	return func(v *PostgresTransformerParser) {
+		v.enforceUniqueness = true
+	}
 }
 
 const (
 	fieldDescriptionsQuery = "SELECT * FROM %s LIMIT 0"
 	schemaTablesQuery      = "SELECT tablename FROM pg_tables WHERE schemaname=$1"
-	publicSchema           = "public"
-	wildcard               = "*"
+	// expression columns have attnum 0 and no pg_attribute row, so the LEFT
+	// JOIN yields a NULL attname rather than dropping the index entirely.
+	// indkey also carries INCLUDE columns, which do not enforce uniqueness;
+	// only the first indnkeyatts entries do
+	uniqueIndexQuery = `SELECT idx.relname, i.indisprimary, a.attname
+	FROM pg_index i
+	JOIN pg_class c ON c.oid = i.indrelid
+	JOIN pg_class idx ON idx.oid = i.indexrelid
+	JOIN pg_namespace n ON n.oid = c.relnamespace
+	JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
+	LEFT JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum
+	WHERE i.indisunique AND i.indisvalid AND i.indislive
+	AND k.ord <= i.indnkeyatts
+	AND n.nspname = $1 AND c.relname = $2
+	ORDER BY idx.relname, k.ord`
+	publicSchema = "public"
+	wildcard     = "*"
 )
 
 var errInvalidTableName = errors.New("invalid table name, expected format: schema.table or table")
 
-func NewPostgresTransformerParser(ctx context.Context, pgURL string, builder transformerBuilder, requiredTables []string) (*PostgresTransformerParser, error) {
+func NewPostgresTransformerParser(ctx context.Context, pgURL string, builder transformerBuilder, requiredTables []string, opts ...ParserOption) (*PostgresTransformerParser, error) {
 	pool, err := pglib.NewConnPool(ctx, pgURL)
 	if err != nil {
 		return nil, err
 	}
-	return &PostgresTransformerParser{
+	parser := &PostgresTransformerParser{
 		conn:           pool,
 		connURL:        pgURL,
 		builder:        builder,
 		pgtypeMap:      pglib.NewMapper(pool),
 		requiredTables: requiredTables,
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(parser)
+	}
+	return parser, nil
+}
+
+func (v *PostgresTransformerParser) Warnings() []string {
+	return v.warnings
 }
 
 func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules Rules) (*TransformerMap, error) {
+	// reset before any early return, so a failed call cannot leave the
+	// previous call's warnings visible through Warnings
+	v.warnings = nil
+
 	// validate that all required tables are present in the rules
 	if err := v.validateAllRequiredTables(ctx, rules); err != nil {
 		return nil, err
 	}
+	var uniquenessErrs []string
 	transformerMap := NewTransformerMap()
 	for _, table := range rules.Transformers {
 		fieldDescriptions, err := v.getFieldDescriptions(context.Background(), table.Schema, table.Table)
@@ -109,8 +153,71 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 			// add the transformer to the map
 			transformerMap.AddActiveTransformer(table.Schema, table.Table, colName, transformer)
 		}
+
+		// catch collisions before the load
+		uniqueIndexes, err := v.getUniqueIndexes(ctx, table.Schema, table.Table)
+		if err != nil {
+			return nil, err
+		}
+		columnTransformers, _ := transformerMap.GetActiveColumnTransformers(table.Schema, table.Table)
+		findings := validateUniqueness(table.Schema, table.Table, uniqueIndexes, columnTransformers, allowUniquenessLossColumns(table))
+		if v.enforceUniqueness {
+			uniquenessErrs = append(uniquenessErrs, findings.errors...)
+		} else {
+			v.warnings = append(v.warnings, findings.errors...)
+		}
+		v.warnings = append(v.warnings, findings.warnings...)
 	}
+
+	if len(uniquenessErrs) > 0 {
+		return nil, fmt.Errorf("%w: %s", ErrUniquenessNotPreserved, strings.Join(uniquenessErrs, "; "))
+	}
+
 	return transformerMap, nil
+}
+
+func allowUniquenessLossColumns(table TableRules) map[string]bool {
+	allowed := make(map[string]bool, len(table.ColumnRules))
+	for colName, colRules := range table.ColumnRules {
+		if colRules.AllowUniquenessLoss {
+			allowed[colName] = true
+		}
+	}
+	return allowed
+}
+
+func (v *PostgresTransformerParser) getUniqueIndexes(ctx context.Context, schema, table string) ([]uniqueIndex, error) {
+	rows, err := v.conn.Query(ctx, uniqueIndexQuery, schema, table)
+	if err != nil {
+		return nil, fmt.Errorf("querying unique indexes for table %q.%q: %w", schema, table, err)
+	}
+	defer rows.Close()
+
+	// rows arrive grouped by index
+	var indexes []uniqueIndex
+	for rows.Next() {
+		var indexName string
+		var columnName *string
+		var primary bool
+		if err := rows.Scan(&indexName, &primary, &columnName); err != nil {
+			return nil, fmt.Errorf("scanning unique index for table %q.%q: %w", schema, table, err)
+		}
+		if len(indexes) == 0 || indexes[len(indexes)-1].name != indexName {
+			indexes = append(indexes, uniqueIndex{name: indexName, primary: primary})
+		}
+		current := &indexes[len(indexes)-1]
+		if columnName == nil {
+			current.hasExpressions = true
+			continue
+		}
+		current.columns = append(current.columns, *columnName)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading unique indexes for table %q.%q: %w", schema, table, err)
+	}
+
+	return indexes, nil
 }
 
 func (v *PostgresTransformerParser) validateAllRequiredTables(ctx context.Context, rules Rules) error {

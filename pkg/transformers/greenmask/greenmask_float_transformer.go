@@ -120,6 +120,10 @@ func (ft *FloatTransformer) IsDynamic() bool {
 	return false
 }
 
+func (ft *FloatTransformer) Uniqueness() transformers.Uniqueness {
+	return transformers.UniquenessNotGuaranteed
+}
+
 func (ft *FloatTransformer) Close() error {
 	return nil
 }
@@ -128,6 +132,7 @@ func FloatTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: floatCompatibleTypes,
 		Parameters:     floatParams,
+		Uniqueness:     transformers.UniquenessNotGuaranteed,
 	}
 }
 

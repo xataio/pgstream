@@ -194,7 +194,9 @@ func extractAlteredColumnName(ddl string) string {
 	return ""
 }
 
-var dropColumnRegex = regexp.MustCompile(`(?i)DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?(?:"([^"]+)"|(\S+))`)
+// the bare identifier class excludes the statement terminator, so that
+// "DROP COLUMN age;" yields "age" rather than "age;"
+var dropColumnRegex = regexp.MustCompile(`(?i)DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?(?:"([^"]+)"|([^\s;]+))`)
 
 // extractDroppedColumnName extracts the column name from a "DROP COLUMN" DDL statement
 func extractDroppedColumnName(ddl string) string {
@@ -209,7 +211,9 @@ func extractDroppedColumnName(ddl string) string {
 	return ""
 }
 
-var renameColumnRegex = regexp.MustCompile(`(?i)RENAME\s+COLUMN\s+(?:"([^"]+)"|(\S+))\s+TO\s+(?:"([^"]+)"|(\S+))`)
+// the bare identifier class excludes the statement terminator, so that
+// "RENAME COLUMN age TO user_age;" yields "user_age" rather than "user_age;"
+var renameColumnRegex = regexp.MustCompile(`(?i)RENAME\s+COLUMN\s+(?:"([^"]+)"|([^\s;]+))\s+TO\s+(?:"([^"]+)"|([^\s;]+))`)
 
 // extractRenamedColumnNames extracts old and new column names from a "RENAME COLUMN" DDL statement
 func extractRenamedColumnNames(ddl string) (oldName, newName string) {

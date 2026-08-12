@@ -176,6 +176,10 @@ func (et *EmailTransformer) IsDynamic() bool {
 	return false
 }
 
+func (et *EmailTransformer) Uniqueness() Uniqueness {
+	return UniquenessNotGuaranteed
+}
+
 func (et *EmailTransformer) Close() error {
 	return nil
 }
@@ -184,5 +188,6 @@ func EmailTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: emailCompatibleTypes,
 		Parameters:     emailParams,
+		Uniqueness:     UniquenessNotGuaranteed,
 	}
 }

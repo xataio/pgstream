@@ -12,6 +12,7 @@ type Transformer struct {
 	TransformFn       func(transformers.Value) (any, error)
 	IsDynamicFn       func() bool
 	CompatibleTypesFn func() []transformers.SupportedDataType
+	UniquenessFn      func() transformers.Uniqueness
 }
 
 func (m *Transformer) Transform(_ context.Context, val transformers.Value) (any, error) {
@@ -31,6 +32,13 @@ func (m *Transformer) IsDynamic() bool {
 		return m.IsDynamicFn()
 	}
 	return false
+}
+
+func (m *Transformer) Uniqueness() transformers.Uniqueness {
+	if m.UniquenessFn != nil {
+		return m.UniquenessFn()
+	}
+	return transformers.UniquenessPreserved
 }
 
 func (m *Transformer) Close() error {

@@ -98,5 +98,6 @@ func UnixTimestampTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: unixTimestampCompatibleTypes,
 		Parameters:     unixTimestampParams,
+		Uniqueness:     transformers.UniquenessNotGuaranteed,
 	}
 }
