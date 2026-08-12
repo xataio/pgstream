@@ -514,21 +514,38 @@ func TestCopyBudgetSize(t *testing.T) {
 
 func TestNewBulkIngestWriter_maxConnections(t *testing.T) {
 	tests := []struct {
-		name           string
-		url            string
-		maxConnections uint
-		expected       int32
+		name             string
+		url              string
+		maxConnections   uint
+		expected         int32
+		expectedObserver int32
 	}{
 		{
-			name:     "connection URL",
-			url:      "postgresql://user:password@localhost:5432/database?pool_max_conns=12",
-			expected: 12,
+			name:             "connection URL",
+			url:              "postgresql://user:password@localhost:5432/database?pool_max_conns=12",
+			expected:         12,
+			expectedObserver: 12,
 		},
 		{
-			name:           "writer config overrides connection URL",
-			url:            "postgresql://user:password@localhost:5432/database?pool_max_conns=12",
-			maxConnections: 20,
-			expected:       20,
+			name:             "writer config overrides connection URL",
+			url:              "postgresql://user:password@localhost:5432/database?pool_max_conns=12",
+			maxConnections:   20,
+			expected:         20,
+			expectedObserver: maxObserverConnections,
+		},
+		{
+			name:             "observer capped below the writer pool",
+			url:              "postgresql://user:password@localhost:5432/database",
+			maxConnections:   200,
+			expected:         200,
+			expectedObserver: maxObserverConnections,
+		},
+		{
+			name:             "observer never exceeds the writer pool",
+			url:              "postgresql://user:password@localhost:5432/database",
+			maxConnections:   2,
+			expected:         2,
+			expectedObserver: 2,
 		},
 	}
 
@@ -552,7 +569,7 @@ func TestNewBulkIngestWriter_maxConnections(t *testing.T) {
 			require.True(t, ok)
 			observerPool, ok := observer.pgConn.(*pglib.Pool)
 			require.True(t, ok)
-			require.Equal(t, tt.expected, observerPool.Config().MaxConns)
+			require.Equal(t, tt.expectedObserver, observerPool.Config().MaxConns)
 
 			budget := copyBudgetSize(tt.expected)
 			for range budget {

@@ -101,7 +101,7 @@ func newWriter(ctx context.Context, config *Config, writerType string, opts ...W
 
 	forCopy := writerType == bulkIngestWriter
 
-	w.adapter, err = newAdapter(ctx, w.logger, config, forCopy)
+	w.adapter, err = newAdapter(ctx, w.logger, config, forCopy, w.maxConnections)
 	if err != nil {
 		return nil, err
 	}

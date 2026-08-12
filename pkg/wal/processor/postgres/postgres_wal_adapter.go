@@ -74,8 +74,8 @@ type (
 	ddlEventAdapter func(*wal.Data) (*wal.DDLEvent, error)
 )
 
-func newAdapter(ctx context.Context, logger loglib.Logger, cfg *Config, forCopy bool) (*adapter, error) {
-	schemaObserver, err := newPGSchemaObserver(ctx, cfg, logger)
+func newAdapter(ctx context.Context, logger loglib.Logger, cfg *Config, forCopy bool, maxConnections int32) (*adapter, error) {
+	schemaObserver, err := newPGSchemaObserver(ctx, cfg, logger, maxConnections)
 	if err != nil {
 		return nil, err
 	}
