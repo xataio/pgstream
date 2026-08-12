@@ -449,6 +449,78 @@ func TestBatchWriter_flushQueries(t *testing.T) {
 			wantErr:       nil,
 		},
 		{
+			// #1037: a client-side encoding failure is deterministic and
+			// attributable to one query, so it must drop that query and retry
+			// the rest rather than failing the whole send — which, with
+			// ignore_send_errors, dropped co-batched writes to other tables.
+			name: "ok - value encoding error drops only the failing query",
+			pgconn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
+							execCalls++
+							switch i {
+							case 1:
+								require.Equal(t, testQuerySQL, query)
+								require.Equal(t, args1, args)
+								return pglib.CommandTag{}, nil
+							case 2:
+								require.Equal(t, testQuerySQL, query)
+								require.Equal(t, args2, args)
+								return pglib.CommandTag{}, fmt.Errorf("executing query: %w",
+									&pglib.ErrValueEncoding{Details: `failed to encode args[1]: unable to encode []interface {}{"BiteScan"}`})
+							default:
+								return pglib.CommandTag{}, fmt.Errorf("unexpected call to tx ExecFn: %v", args[1])
+							}
+						},
+					}
+					return f(&mockTx)
+				},
+			},
+			queries: []*query{testQuery(args1), testQuery(args2)},
+
+			// query1, failing query2, then query1 again on the retry
+			wantExecCalls: 3,
+			wantErr:       nil,
+		},
+		{
+			// the retrier re-invokes the tx closure, so state recorded by a
+			// failed attempt must not leak into a later successful one:
+			// attempt 1 fails on query 2, attempt 2 commits both, and nothing
+			// may be reported as needing a retry or as dropped.
+			name: "ok - retried tx that succeeds reports nothing to retry",
+			pgconn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					attempt := 0
+					var runAttempt func() error
+					runAttempt = func() error {
+						attempt++
+						failing := attempt == 1
+						mockTx := pgmocks.Tx{
+							ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
+								execCalls++
+								if failing && i == 2 {
+									// transient failure, not attributable to the query
+									return pglib.CommandTag{}, errTest
+								}
+								return pglib.CommandTag{}, nil
+							},
+						}
+						if err := f(&mockTx); err != nil && attempt == 1 {
+							return runAttempt()
+						}
+						return nil
+					}
+					return runAttempt()
+				},
+			},
+			queries: []*query{testQuery(args1), testQuery(args2)},
+
+			// attempt 1: query1, query2 (fails); attempt 2: query1, query2
+			wantExecCalls: 4,
+			wantErr:       nil,
+		},
+		{
 			name: "error - internal error in tx exec",
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {

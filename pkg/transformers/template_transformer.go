@@ -7,10 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"text/template"
 
-	"github.com/Masterminds/sprig/v3"
-	greenmasktoolkit "github.com/eminano/greenmask/pkg/toolkit"
+	"github.com/xataio/pgstream/pkg/transformers/internal/template"
 )
 
 type TemplateTransformer struct {
@@ -43,7 +41,7 @@ func NewTemplateTransformer(params ParameterValues) (*TemplateTransformer, error
 		return nil, errTemplateMustBeProvided
 	}
 
-	tmpl, err := template.New("").Funcs(greenmasktoolkit.FuncMap()).Funcs(sprig.FuncMap()).Parse(templateStr)
+	tmpl, err := template.New("", templateStr)
 	if err != nil {
 		return nil, fmt.Errorf("template_transformer: error parsing template: %w", err)
 	}
@@ -70,6 +68,10 @@ func (t *TemplateTransformer) IsDynamic() bool {
 	return true
 }
 
+func (t *TemplateTransformer) Uniqueness() Uniqueness {
+	return UniquenessNotGuaranteed
+}
+
 func (t *TemplateTransformer) Close() error {
 	return nil
 }
@@ -78,5 +80,6 @@ func TemplateTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: templateCompatibleTypes,
 		Parameters:     templateParams,
+		Uniqueness:     UniquenessNotGuaranteed,
 	}
 }

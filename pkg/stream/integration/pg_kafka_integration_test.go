@@ -7,17 +7,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	kafkago "github.com/segmentio/kafka-go"
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/pkg/kafka"
 	"github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/stream"
 	"github.com/xataio/pgstream/pkg/wal"
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
+	kafkaprocessor "github.com/xataio/pgstream/pkg/wal/processor/kafka"
 )
 
 func Test_PostgresToKafka(t *testing.T) {
@@ -158,6 +161,101 @@ func Test_PostgresToKafka(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_PostgresToKafka_PartitionKeyPrimaryKey(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	// use a dedicated topic to prevent cross talk with other tests sharing the
+	// kafka container
+	const topic = "integration-tests-partition-key"
+	processorCfg := testKafkaProcessorCfg()
+	processorCfg.Kafka.Writer.Kafka.Topic.Name = topic
+	processorCfg.Kafka.Writer.PartitionKey = kafkaprocessor.PartitionKeyPrimaryKey
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfg(t),
+		Processor: processorCfg,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runStream(t, ctx, cfg)
+
+	// the batch writer creates the topic on startup, but its metadata can take
+	// a while to propagate on a busy broker, causing the first write to fail
+	// with an unknown topic error. Wait for the topic to be visible before
+	// generating any wal events.
+	waitForKafkaTopic(t, topic)
+
+	testTable := "pg2kafka_partition_key_test"
+	execQuery(t, ctx, fmt.Sprintf("create table %s(id serial primary key, name text)", testTable))
+	execQuery(t, ctx, fmt.Sprintf("insert into %s(name) values('a')", testTable))
+	execQuery(t, ctx, fmt.Sprintf("update %s set name = 'b' where id = 1", testTable))
+	execQuery(t, ctx, fmt.Sprintf("delete from %s where id = 1", testTable))
+
+	// use a raw kafka reader to validate the message keys on the wire
+	kafkaReader, err := kafka.NewReader(kafka.ReaderConfig{
+		Conn: kafka.ConnConfig{
+			Servers: kafkaBrokers,
+			Topic: kafka.TopicConfig{
+				Name:       topic,
+				AutoCreate: true,
+			},
+		},
+		ConsumerGroupID: "partition-key-test-group",
+	}, log.NewNoopLogger())
+	require.NoError(t, err)
+	defer kafkaReader.Close()
+
+	rowKey := fmt.Sprintf("public.%s:1", testTable)
+	wantKeys := map[string]string{
+		"ddl": "public",
+		"I":   rowKey,
+		"U":   rowKey,
+		"D":   rowKey,
+	}
+
+	gotKeys := map[string]string{}
+	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, time.Minute)
+	defer timeoutCancel()
+	for len(gotKeys) < len(wantKeys) {
+		msg, err := kafkaReader.FetchMessage(timeoutCtx)
+		require.NoError(t, err, "waiting for kafka messages, got keys: %v", gotKeys)
+		if len(msg.Value) == 0 {
+			continue
+		}
+		data := &wal.Data{}
+		require.NoError(t, json.Unmarshal(msg.Value, data))
+		switch {
+		case data.IsDDLEvent():
+			// DDL events must keep the schema key regardless of the configured
+			// partition key strategy
+			if strings.Contains(data.Content, testTable) {
+				gotKeys["ddl"] = string(msg.Key)
+			}
+		case data.Schema == "public" && data.Table == testTable:
+			gotKeys[data.Action] = string(msg.Key)
+		}
+	}
+
+	require.Equal(t, wantKeys, gotKeys)
+}
+
+func waitForKafkaTopic(t *testing.T, topic string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		conn, err := kafkago.Dial("tcp", kafkaBrokers[0])
+		if err != nil {
+			return false
+		}
+		defer conn.Close()
+		partitions, err := conn.ReadPartitions(topic)
+		return err == nil && len(partitions) > 0
+	}, 30*time.Second, 500*time.Millisecond, "timeout waiting for kafka topic %s to be created", topic)
 }
 
 func startKafkaReader(t *testing.T, ctx context.Context, processor func(context.Context, *wal.Event) error) {

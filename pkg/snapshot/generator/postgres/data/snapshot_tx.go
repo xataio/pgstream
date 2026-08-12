@@ -29,6 +29,11 @@ func exportSnapshot(ctx context.Context, tx pglib.Tx) (string, error) {
 func setTransactionSnapshot(ctx context.Context, tx pglib.Tx, snapshotID string) error {
 	_, err := tx.Exec(ctx, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", snapshotID))
 	if err != nil {
+		// An instance-local exported snapshot that a worker connection can't see
+		// means the source spans multiple instances; join the actionable cause.
+		if pglib.IsExportedSnapshotMissing(err) {
+			return fmt.Errorf("setting transaction snapshot: %w: %w", err, pglib.ErrLoadBalancedSource)
+		}
 		return fmt.Errorf("setting transaction snapshot: %w", err)
 	}
 	return nil

@@ -9,6 +9,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/xataio/pgstream/pkg/backoff"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	snapshotstore "github.com/xataio/pgstream/pkg/snapshot/store"
 	"golang.org/x/sync/errgroup"
@@ -17,10 +19,21 @@ import (
 // SnapshotRecorder is a decorator around a snapshot generator that will record
 // the snapshot request status.
 type SnapshotRecorder struct {
+	logger              loglib.Logger
 	wrapped             SnapshotGenerator
 	store               snapshotstore.Store
 	repeatableSnapshots bool
 	schemaWorkers       uint
+}
+
+type Option func(*SnapshotRecorder)
+
+func WithLogger(logger loglib.Logger) Option {
+	return func(s *SnapshotRecorder) {
+		s.logger = loglib.NewLogger(logger).WithFields(loglib.Fields{
+			loglib.ModuleField: "snapshot_generator_recorder",
+		})
+	}
 }
 
 type Config struct {
@@ -33,18 +46,28 @@ const (
 	updateTimeout          = time.Minute
 
 	wildcard = "*"
+
+	updateRetries  = 3
+	updateInterval = 500 * time.Millisecond
 )
 
 // NewSnapshotRecorder will return the generator on input wrapped with an
 // activity recorder that will keep track of the status of the snapshot
 // requests.
-func NewSnapshotRecorder(cfg *Config, store snapshotstore.Store, generator SnapshotGenerator) *SnapshotRecorder {
-	return &SnapshotRecorder{
+func NewSnapshotRecorder(cfg *Config, store snapshotstore.Store, generator SnapshotGenerator, opts ...Option) *SnapshotRecorder {
+	sr := &SnapshotRecorder{
+		logger:              loglib.NewNoopLogger(),
 		wrapped:             generator,
 		store:               store,
 		repeatableSnapshots: cfg.RepeatableSnapshots,
 		schemaWorkers:       cfg.snapshotWorkers(),
 	}
+
+	for _, opt := range opts {
+		opt(sr)
+	}
+
+	return sr
 }
 
 func (s *SnapshotRecorder) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) error {
@@ -174,8 +197,15 @@ func (s *SnapshotRecorder) markSnapshotCompleted(ctx context.Context, requests [
 	for _, req := range requests {
 		eg.Go(func() error {
 			schemaErrs := getSchemaErrors(req.Schema, err)
+			persistedStatus := req.Status
 			req.MarkCompleted(req.Schema, schemaErrs)
-			if updateErr := s.store.UpdateSnapshotRequest(ctx, req); updateErr != nil {
+			if updateErr := s.updateWithRetry(ctx, req); updateErr != nil {
+				s.logger.Error(updateErr, "recording snapshot request completion, request stuck in non-terminal state and will never be retried", loglib.Fields{
+					"severity":         "DATALOSS",
+					"schema":           req.Schema,
+					"mode":             req.GetMode(),
+					"persisted_status": persistedStatus,
+				})
 				if err == nil {
 					return updateErr
 				}
@@ -189,6 +219,23 @@ func (s *SnapshotRecorder) markSnapshotCompleted(ctx context.Context, requests [
 		return err
 	}
 	return err
+}
+
+func (s *SnapshotRecorder) updateWithRetry(ctx context.Context, req *snapshot.Request) error {
+	bo := backoff.NewConstantBackoff(ctx, &backoff.ConstantConfig{
+		MaxRetries: updateRetries,
+		Interval:   updateInterval,
+	})
+
+	return bo.RetryNotify(
+		func() error { return s.store.UpdateSnapshotRequest(ctx, req) },
+		func(err error, _ time.Duration) {
+			s.logger.Warn(err, "retrying snapshot request update", loglib.Fields{
+				"schema": req.Schema,
+				"mode":   req.GetMode(),
+			})
+		},
+	)
 }
 
 func (s *SnapshotRecorder) filterOutExistingSnapshots(ctx context.Context, ss *snapshot.Snapshot) error {

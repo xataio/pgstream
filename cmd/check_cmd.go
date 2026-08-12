@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/xataio/pgstream/cmd/config"
+	"github.com/xataio/pgstream/pkg/stream"
 	"github.com/xataio/pgstream/pkg/stream/preflight"
 )
 
@@ -29,6 +30,14 @@ func selectedCategories(cmd *cobra.Command) []preflight.Category {
 	return selected
 }
 
+// applySourceScope restricts the run to checks that only query the source when
+// srcOnly is set.
+func applySourceScope(cfg *stream.Config, srcOnly bool) {
+	if srcOnly && cfg.Processor.Postgres != nil {
+		cfg.Processor.Postgres.BatchWriter.URL = ""
+	}
+}
+
 var checkCmd = &cobra.Command{
 	Use:     "check",
 	Short:   "Runs pre-migration checks to catch blocking issues before snapshot/run",
@@ -44,6 +53,9 @@ var checkCmd = &cobra.Command{
 			if err := streamConfig.IsValid(); err != nil {
 				return fmt.Errorf("validating stream config: %w", err)
 			}
+
+			srcOnly, _ := cmd.Flags().GetBool("source")
+			applySourceScope(streamConfig, srcOnly)
 
 			checks, cleanup := preflight.BuildChecks(streamConfig, selectedCategories(cmd))
 			defer func() {

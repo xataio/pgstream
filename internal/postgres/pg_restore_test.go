@@ -13,6 +13,73 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRemoveDatabaseFromConnectionString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		connection string
+		want       string
+	}{
+		{
+			name:       "database is removed",
+			connection: "postgres://pgstream:secret@localhost:5432/target_db?sslmode=disable",
+			want:       "postgres://pgstream:secret@localhost:5432/?sslmode=disable",
+		},
+		{
+			name:       "postgres database is preserved",
+			connection: "postgres://pgstream:secret@localhost:5432/postgres?sslmode=disable",
+			want:       "postgres://pgstream:secret@localhost:5432/postgres?sslmode=disable",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := RemoveDatabaseFromConnectionString(tc.connection)
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestPGRestoreOptionsToPGOptions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		existing string
+		settings []string
+		want     string
+	}{
+		{
+			name: "session settings",
+			settings: []string{
+				"maintenance_work_mem=4GB",
+				"max_parallel_maintenance_workers=4",
+			},
+			want: "-c maintenance_work_mem=4GB -c max_parallel_maintenance_workers=4",
+		},
+		{
+			name:     "preserves existing options",
+			existing: "-c search_path=public",
+			settings: []string{"statement_timeout=0"},
+			want:     "-c search_path=public -c statement_timeout=0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			opts := PGRestoreOptions{SessionSettings: tt.settings}
+			require.Equal(t, tt.want, opts.toPGOptions(tt.existing))
+		})
+	}
+}
+
 func TestParsePgRestoreOutputErrs(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -276,8 +343,9 @@ func TestBuildRestoreError(t *testing.T) {
 		output  []byte
 		execErr error
 
-		wantNil     bool
-		wantContain string
+		wantNil         bool
+		wantContain     string
+		wantAlsoContain string
 	}{
 		{
 			name:    "no error - success",
@@ -286,16 +354,27 @@ func TestBuildRestoreError(t *testing.T) {
 			wantNil: true,
 		},
 		{
-			name:        "exec error with no parseable output",
-			output:      []byte("some unexpected output\n"),
-			execErr:     execErr,
-			wantContain: "exit status 1",
+			// the output is the only record of the cause when nothing in it
+			// parses as a recognised error, so it must survive into the error
+			name:            "exec error with no parseable output preserves the output",
+			output:          []byte("some unexpected output\n"),
+			execErr:         execErr,
+			wantContain:     "exit status 1",
+			wantAlsoContain: "some unexpected output",
 		},
 		{
-			name:        "exec error with empty output",
-			output:      []byte{},
-			execErr:     execErr,
-			wantContain: "exit status 1",
+			name:            "exec error with a lost connection preserves the cause",
+			output:          []byte("server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally\n"),
+			execErr:         errors.New("exit status 2"),
+			wantContain:     "exit status 2",
+			wantAlsoContain: "server closed the connection unexpectedly",
+		},
+		{
+			name:            "exec error with empty output says so",
+			output:          []byte{},
+			execErr:         execErr,
+			wantContain:     "exit status 1",
+			wantAlsoContain: "no output captured",
 		},
 		{
 			name:        "exec error with parseable ERROR lines",
@@ -322,7 +401,55 @@ func TestBuildRestoreError(t *testing.T) {
 			}
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantContain)
+			if tc.wantAlsoContain != "" {
+				assert.Contains(t, err.Error(), tc.wantAlsoContain)
+			}
 			assert.NotContains(t, err.Error(), "%!w(<nil>)")
+		})
+	}
+}
+
+func TestTailOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		output   []byte
+		maxBytes int
+
+		want string
+	}{
+		{
+			name:     "empty",
+			output:   []byte{},
+			maxBytes: 16,
+			want:     "",
+		},
+		{
+			name:     "whitespace only",
+			output:   []byte("  \n\t "),
+			maxBytes: 16,
+			want:     "",
+		},
+		{
+			name:     "shorter than the limit is returned trimmed",
+			output:   []byte("  connection lost\n"),
+			maxBytes: 16,
+			want:     "connection lost",
+		},
+		{
+			name:     "longer than the limit keeps the tail",
+			output:   []byte("aaaaaaaaaabbbb"),
+			maxBytes: 4,
+			want:     "...bbbb",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, tailOutput(tc.output, tc.maxBytes))
 		})
 	}
 }
@@ -477,6 +604,157 @@ func TestParseErrorLine(t *testing.T) {
 			err := parseErrorLine(tt.line)
 			require.NotNil(t, err)
 			require.ErrorAs(t, err, &tt.wantErr)
+		})
+	}
+}
+
+func TestRedactSecrets(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+
+		want string
+	}{
+		{
+			name: "no secret",
+			in:   `STATEMENT:  CREATE TABLE users (id int);`,
+			want: `STATEMENT:  CREATE TABLE users (id int);`,
+		},
+		{
+			name: "create role scram hash",
+			in:   `CREATE ROLE app WITH LOGIN PASSWORD 'SCRAM-SHA-256$4096:abc$def:ghi';`,
+			want: `CREATE ROLE app WITH LOGIN PASSWORD '[REDACTED]';`,
+		},
+		{
+			name: "alter role md5 hash",
+			in:   `ALTER ROLE app PASSWORD 'md5d41d8cd98f00b204e9800998ecf8427e';`,
+			want: `ALTER ROLE app PASSWORD '[REDACTED]';`,
+		},
+		{
+			name: "create user encrypted, lowercase keyword",
+			in:   `create user bob encrypted password 'hunter2';`,
+			want: `create user bob encrypted PASSWORD '[REDACTED]';`,
+		},
+		{
+			name: "doubled quote inside the secret does not end the match early",
+			in:   `CREATE ROLE app PASSWORD 'we''ird' SUPERUSER;`,
+			want: `CREATE ROLE app PASSWORD '[REDACTED]' SUPERUSER;`,
+		},
+		{
+			name: "multiple statements on separate lines",
+			in:   "CREATE ROLE a PASSWORD 'x';\nCREATE ROLE b PASSWORD 'y';",
+			want: "CREATE ROLE a PASSWORD '[REDACTED]';\nCREATE ROLE b PASSWORD '[REDACTED]';",
+		},
+		{
+			name: "password keyword without a literal is untouched",
+			in:   `ALTER ROLE app PASSWORD NULL;`,
+			want: `ALTER ROLE app PASSWORD NULL;`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, redactSecrets(tc.in))
+		})
+	}
+}
+
+func TestTailOutput_redactsSecrets(t *testing.T) {
+	t.Parallel()
+
+	// the path that matters: a roles restore that dies mid-way echoes the
+	// failing statement with no ERROR: prefix, so nothing parses and the raw
+	// tail is what reaches the error
+	out := []byte("server closed the connection unexpectedly\n" +
+		"CREATE ROLE app WITH LOGIN PASSWORD 'SCRAM-SHA-256$4096:secret';\n")
+
+	got := tailOutput(out, maxRestoreOutputBytes)
+
+	require.NotContains(t, got, "SCRAM-SHA-256")
+	require.NotContains(t, got, "secret")
+	require.Contains(t, got, "PASSWORD '[REDACTED]'")
+	// the diagnostic that made preserving the tail worthwhile survives
+	require.Contains(t, got, "server closed the connection unexpectedly")
+	require.Contains(t, got, "CREATE ROLE app")
+}
+
+func TestRedactSecrets_copyRowContext(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+
+		want string
+	}{
+		{
+			name: "copy row payload redacted, table and line kept",
+			in:   `CONTEXT:  COPY users, line 42: "1	alice@example.com	555-0100"`,
+			want: `CONTEXT:  COPY users, line 42: [REDACTED ROW]`,
+		},
+		{
+			name: "qualified table name",
+			in:   `CONTEXT:  COPY labs.patient_snapshot_us, line 9001: "secret"`,
+			want: `CONTEXT:  COPY labs.patient_snapshot_us, line 9001: [REDACTED ROW]`,
+		},
+		{
+			name: "copy context without a payload is untouched",
+			in:   `CONTEXT:  COPY users, line 42`,
+			want: `CONTEXT:  COPY users, line 42`,
+		},
+		{
+			name: "unrelated context line is untouched",
+			in:   `CONTEXT:  PL/pgSQL function f() line 3 at RAISE`,
+			want: `CONTEXT:  PL/pgSQL function f() line 3 at RAISE`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, redactSecrets(tc.in))
+		})
+	}
+}
+
+func TestTailOutput_redactsSecretsStraddlingTheCut(t *testing.T) {
+	t.Parallel()
+
+	// Redaction has to run before the output is cut down. When a secret
+	// straddles the cut, the prefix the pattern matches on sits in the
+	// discarded head, so redacting the tail alone would leave the trailing
+	// fragment of the hash in the error.
+	tests := []struct {
+		name       string
+		output     string
+		maxBytes   int
+		mustNotHit string
+	}{
+		{
+			name:       "password literal straddling the cut",
+			output:     strings.Repeat("x", 200) + `CREATE ROLE app PASSWORD 'SCRAM-SHA-256$4096:TOPSECRETHASH';`,
+			maxBytes:   24,
+			mustNotHit: "TOPSECRETHASH",
+		},
+		{
+			name:       "copy row payload straddling the cut",
+			output:     strings.Repeat("x", 200) + `CONTEXT:  COPY users, line 42: "1	alice@example.com	555-0100"`,
+			maxBytes:   24,
+			mustNotHit: "alice@example.com",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := tailOutput([]byte(tc.output), tc.maxBytes)
+			require.NotContains(t, got, tc.mustNotHit)
 		})
 	}
 }

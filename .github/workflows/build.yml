@@ -28,6 +28,10 @@ jobs:
       - name: Run tests
         run: make test
 
+      # The coverage comment is posted from a separate workflow_run-triggered
+      # workflow (coverage-report.yml) so that it works for pull requests from
+      # forks: fork PRs only get a read-only GITHUB_TOKEN here, which cannot
+      # comment on the PR. That workflow downloads this artifact.
       - name: Archive code coverage results
         uses: actions/upload-artifact@v7
         with:
@@ -44,6 +48,25 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version-file: "go.mod"
+
+      # The snapshot shells out to pg_dump, which refuses to dump from a server
+      # newer than itself. Runner images ship a 16 client, so tests using a
+      # newer source server (the read replica tests use 17) fail without this.
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          # take precedence over the preinstalled client
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+
+      - name: Verify pg_dump version
+        run: pg_dump --version
 
       - name: Run integration tests
         run: make integration-test
@@ -73,21 +96,6 @@ jobs:
           # Note: By default, the `.golangci.yml` file should be at the root of the repository.
           # The location of the configuration file can be changed by using `--config=`
           args: --timeout=30m --config=.golangci.yml
-
-  coverage:
-    if: github.event_name == 'pull_request' # Do not run when workflow is triggered by push to main branch
-    runs-on: ubuntu-latest
-    needs: test # Depends on the artifact uploaded by the "test" job
-    permissions:
-      contents: read
-      actions: read # to download code coverage results from "test" job
-      pull-requests: write # write permission needed to comment on PR
-    steps:
-      - uses: fgrosse/go-coverage-report@v1.3.0
-        with:
-          coverage-artifact-name: "code-coverage"
-          coverage-file-name: "coverage"
-          root-package: "github.com/xataio/pgstream"
 
   license-check:
     name: license check
@@ -143,7 +151,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
@@ -222,7 +230,7 @@ jobs:
           output-file: pgstream.image.sbom.spdx.json
 
       - name: Attest container image SBOM
-        uses: actions/attest@v4
+        uses: actions/attest@v4.2.2
         with:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.image.outputs.digest }}

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -49,6 +50,12 @@ type SnapshotGenerator struct {
 	// restored. Disabled by default since refreshing can be expensive on large
 	// views.
 	refreshMaterializedViews bool
+	// indexConstraintSessionSettings are applied through PGOPTIONS only to
+	// index and constraint restore sessions. They are cleared when restoring to
+	// WAL (see WithRestoreToWAL), since that path converts the dump into WAL
+	// events instead of running a psql/pg_restore session.
+	indexConstraintSessionSettings []string
+	objectTypeFilter               *objectTypeFilter
 }
 
 type snapshotProgressTracker interface {
@@ -81,6 +88,36 @@ type Config struct {
 	// VIEW ... WITH DATA) after the table data has been restored. Disabled by
 	// default since refreshing can be expensive on large views.
 	RefreshMaterializedViews bool
+	// Session settings in name=value format applied only while restoring indexes
+	// and constraints. An empty list preserves the existing behavior.
+	IndexConstraintSessionSettings []string
+	// IncludeObjectTypes is a list of object type categories to include in the
+	// schema snapshot. Only one of IncludeObjectTypes or ExcludeObjectTypes
+	// can be set.
+	IncludeObjectTypes []string
+	// ExcludeObjectTypes is a list of object type categories to exclude from
+	// the schema snapshot. Only one of IncludeObjectTypes or
+	// ExcludeObjectTypes can be set.
+	ExcludeObjectTypes []string
+}
+
+// sessionSettingRegex validates a single index/constraint session setting of
+// the form name=value. The name must be a valid PostgreSQL configuration
+// parameter identifier, and neither the name nor the value may contain
+// whitespace: the settings are passed to the restore subprocess through
+// PGOPTIONS, which libpq splits on whitespace, so allowing whitespace would let
+// a single setting inject additional backend command-line options.
+var sessionSettingRegex = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.]*=\S+$`)
+
+var errInvalidSessionSetting = errors.New("invalid index constraint session setting, must be a whitespace-free name=value pair")
+
+func validateSessionSettings(settings []string) error {
+	for _, setting := range settings {
+		if !sessionSettingRegex.MatchString(setting) {
+			return fmt.Errorf("%w: %q", errInvalidSessionSetting, setting)
+		}
+	}
+	return nil
 }
 
 type Option func(s *SnapshotGenerator)
@@ -109,24 +146,35 @@ const (
 // NewSnapshotGenerator will return a postgres schema snapshot generator that
 // uses pg_dump and pg_restore to sync the schema of two postgres databases
 func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*SnapshotGenerator, error) {
+	if err := validateSessionSettings(c.IndexConstraintSessionSettings); err != nil {
+		return nil, err
+	}
+
 	sourceConnPool, err := pglib.NewConnPool(ctx, c.SourcePGURL)
 	if err != nil {
 		return nil, err
 	}
 
+	objTypeFilter, err := newObjectTypeFilter(c.IncludeObjectTypes, c.ExcludeObjectTypes)
+	if err != nil {
+		return nil, fmt.Errorf("invalid object type filter config: %w", err)
+	}
+
 	sg := &SnapshotGenerator{
-		sourceURL:                c.SourcePGURL,
-		targetURL:                c.TargetPGURL,
-		pgDumpFn:                 pglib.RunPGDump,
-		pgDumpAllFn:              pglib.RunPGDumpAll,
-		pgRestoreFn:              pglib.RunPGRestore,
-		logger:                   loglib.NewNoopLogger(),
-		dumpDebugFile:            c.DumpDebugFile,
-		excludedSecurityLabels:   c.ExcludedSecurityLabels,
-		roleSQLParser:            &roleSQLParser{},
-		sourceQuerier:            sourceConnPool,
-		optionGenerator:          newOptionGenerator(sourceConnPool, c),
-		refreshMaterializedViews: c.RefreshMaterializedViews,
+		sourceURL:                      c.SourcePGURL,
+		targetURL:                      c.TargetPGURL,
+		pgDumpFn:                       pglib.RunPGDump,
+		pgDumpAllFn:                    pglib.RunPGDumpAll,
+		pgRestoreFn:                    pglib.RunPGRestore,
+		logger:                         loglib.NewNoopLogger(),
+		dumpDebugFile:                  c.DumpDebugFile,
+		excludedSecurityLabels:         c.ExcludedSecurityLabels,
+		roleSQLParser:                  &roleSQLParser{},
+		sourceQuerier:                  sourceConnPool,
+		optionGenerator:                newOptionGenerator(sourceConnPool, c),
+		refreshMaterializedViews:       c.RefreshMaterializedViews,
+		indexConstraintSessionSettings: c.IndexConstraintSessionSettings,
+		objectTypeFilter:               objTypeFilter,
 	}
 
 	for _, opt := range opts {
@@ -179,6 +227,7 @@ func WithProgressTracking(ctx context.Context) Option {
 func WithRestoreToWAL(processor processor.Processor) Option {
 	return func(sg *SnapshotGenerator) {
 		sg.pgRestoreFn = newPGSnapshotWALRestore(processor, sg.sourceQuerier).restoreToWAL
+		sg.indexConstraintSessionSettings = nil
 	}
 }
 
@@ -229,18 +278,28 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 
 	// DUMP
 
+	// pin before the dump
+	if err := s.captureTableColumns(ctx, ss, dumpSchemas); err != nil {
+		return err
+	}
+
 	dump, err := s.dumpSchema(ctx, dataSchemas, schemaOnly, ss.SchemaExcludedTables)
 	if err != nil {
 		return err
 	}
 
+	s.warnOnCaptureDrift(ctx, ss, dumpSchemas)
+
 	// the schema will include the sequences but will not produce the `SETVAL`
 	// queries since that's considered data and it's a schema only dump. Produce
 	// the data only dump for the sequences only and restore it along with the
 	// schema.
-	sequenceDump, err := s.dumpSequenceValues(ctx, dump.sequences)
-	if err != nil {
-		return err
+	var sequenceDump []byte
+	if !s.objectTypeFilter.isCategoryExcluded("sequences") {
+		sequenceDump, err = s.dumpSequenceValues(ctx, dump.sequences)
+		if err != nil {
+			return err
+		}
 	}
 
 	// the schema dump will not include the roles, so we need to dump them
@@ -295,13 +354,17 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	}
 
 	// apply the sequences, indices and constraints when the wrapped generator has finished
-	s.logger.Info("restoring sequence data", loglib.Fields{"schemaTables": ss.SchemaTables})
-	if err := s.restoreDump(ctx, sequenceDump); err != nil {
-		return err
+	if !s.objectTypeFilter.isCategoryExcluded("sequences") {
+		s.logger.Info("restoring sequence data", loglib.Fields{"schemaTables": ss.SchemaTables})
+		if err := s.restoreDump(ctx, sequenceDump); err != nil {
+			return err
+		}
 	}
 
-	if err := s.restoreIndicesAndConstraints(ctx, indicesAndConstraintsDump, ss); err != nil {
-		return err
+	if len(indicesAndConstraintsDump) > 0 {
+		if err := s.restoreIndicesAndConstraints(ctx, indicesAndConstraintsDump, ss); err != nil {
+			return err
+		}
 	}
 
 	s.logger.Info("restoring views")
@@ -368,10 +431,12 @@ func isConflictTargetConstraint(block string) bool {
 
 func (s *SnapshotGenerator) restoreIndicesAndConstraints(ctx context.Context, dump []byte, ss *snapshot.Snapshot) error {
 	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
+	opts := s.optionGenerator.pgrestoreOptions()
+	opts.SessionSettings = s.indexConstraintSessionSettings
 	if s.snapshotTracker != nil {
-		return s.restoreIndicesWithTracking(ctx, dump)
+		return s.restoreIndicesWithTracking(ctx, opts, dump)
 	}
-	return s.restoreDump(ctx, dump)
+	return s.restoreDumpWithOptions(ctx, opts, dump)
 }
 
 func (s *SnapshotGenerator) Close() error {
@@ -394,6 +459,78 @@ func (s *SnapshotGenerator) Close() error {
 	}
 
 	return nil
+}
+
+// captureTableColumns precedes the dump.
+func (s *SnapshotGenerator) captureTableColumns(ctx context.Context, ss *snapshot.Snapshot, dumpSchemas map[string][]string) error {
+	if s.generator == nil {
+		// schema-only snapshot, nothing to pin
+		return nil
+	}
+
+	captureSchemas, captureTables := captureScope(dumpSchemas)
+	tableColumns, err := pglib.DiscoverTableColumns(ctx, s.sourceQuerier, captureSchemas, captureTables)
+	if err != nil {
+		return fmt.Errorf("capturing source table columns: %w", err)
+	}
+
+	ss.TableColumns = tableColumns
+	return nil
+}
+
+// captureScope narrows to dump scope.
+func captureScope(dumpSchemas map[string][]string) (schemas, tables []string) {
+	if !hasWildcardSchema(dumpSchemas) {
+		schemas = make([]string, 0, len(dumpSchemas))
+		for schema := range dumpSchemas {
+			schemas = append(schemas, schema)
+		}
+	}
+
+	for _, schemaTables := range dumpSchemas {
+		if hasWildcardTable(schemaTables) {
+			return schemas, nil
+		}
+		tables = append(tables, schemaTables...)
+	}
+	return schemas, tables
+}
+
+// warnOnCaptureDrift exposes the window.
+func (s *SnapshotGenerator) warnOnCaptureDrift(ctx context.Context, ss *snapshot.Snapshot, dumpSchemas map[string][]string) {
+	if ss.TableColumns == nil {
+		return
+	}
+
+	captureSchemas, captureTables := captureScope(dumpSchemas)
+	current, err := pglib.DiscoverTableColumns(ctx, s.sourceQuerier, captureSchemas, captureTables)
+	if err != nil {
+		s.logger.Warn(err, "checking for source schema drift during the schema dump")
+		return
+	}
+
+	drifted := []string{}
+	for schema, tables := range ss.TableColumns {
+		for table, columns := range tables {
+			if !slices.Equal(columns, current[schema][table]) {
+				drifted = append(drifted, schema+"."+table)
+			}
+		}
+	}
+	for schema, tables := range current {
+		for table := range tables {
+			if _, found := ss.TableColumns[schema][table]; !found {
+				drifted = append(drifted, schema+"."+table)
+			}
+		}
+	}
+	if len(drifted) == 0 {
+		return
+	}
+
+	slices.Sort(drifted)
+	s.logger.Warn(nil, "source schema changed while the schema was being dumped; these tables may be snapshotted with stale columns and need replication to converge, or a re-snapshot if none follows",
+		loglib.Fields{"tables": drifted})
 }
 
 func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables, schemaOnlyTables, excludedTables map[string][]string) (*dump, error) {
@@ -432,7 +569,7 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables, schema
 			s.logger.Error(err, "pg_dump for schema failed", loglib.Fields{"pgdumpOptions": pgdumpOpts.ToArgs()})
 			return nil, fmt.Errorf("dumping schema: %w", err)
 		}
-		parsedDump.cleanupPart = getDumpsDiff(dumpWithCleanUp, d)
+		parsedDump.cleanupPart = s.objectTypeFilter.filterCleanupDump(getDumpsDiff(dumpWithCleanUp, d))
 		s.dumpToFile(s.getDumpFileName("-cleanup"), pgdumpOpts, parsedDump.cleanupPart)
 	}
 
@@ -508,11 +645,15 @@ func (s *SnapshotGenerator) restoreSchemas(ctx context.Context, schemaTables map
 }
 
 func (s *SnapshotGenerator) restoreDump(ctx context.Context, dump []byte) error {
+	return s.restoreDumpWithOptions(ctx, s.optionGenerator.pgrestoreOptions(), dump)
+}
+
+func (s *SnapshotGenerator) restoreDumpWithOptions(ctx context.Context, opts pglib.PGRestoreOptions, dump []byte) error {
 	if len(dump) == 0 {
 		return nil
 	}
 
-	_, err := s.pgRestoreFn(ctx, s.optionGenerator.pgrestoreOptions(), dump)
+	_, err := s.pgRestoreFn(ctx, opts, dump)
 	pgrestoreErr := &pglib.PGRestoreErrors{}
 	if err != nil {
 		switch {
@@ -549,8 +690,29 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	functionParser := &sqlFunctionParser{}
 	materializedViewNames := map[string]struct{}{}
 	skipLegacyPLPGSQLHandlerFunction := false
+
+	// Object type filtering state: lines before the first TOC header (the
+	// preamble) are always included. Once a TOC header is encountered, the
+	// section is included/excluded based on the filter.
+	inPreamble := true
+	skipCurrentSection := false
+
 	for scanner.Scan() {
 		line := scanner.Text()
+
+		// Check for TOC header to track object type sections
+		if tocType, ok := parseTOCHeader(line); ok {
+			inPreamble = false
+			skipCurrentSection = s.objectTypeFilter.isExcluded(tocType)
+		}
+
+		// If the current section is excluded, skip the line. We still
+		// need to extract role information from non-excluded sections
+		// for role dependency tracking.
+		if !inPreamble && skipCurrentSection {
+			continue
+		}
+
 		switch {
 		case skipLegacyPLPGSQLHandlerFunction:
 			if strings.HasSuffix(line, ";") {
@@ -1018,7 +1180,7 @@ func (s *SnapshotGenerator) getDumpFileName(suffix string) string {
 	return baseName + suffix + fileExtension
 }
 
-func (s *SnapshotGenerator) restoreIndicesWithTracking(ctx context.Context, dump []byte) error {
+func (s *SnapshotGenerator) restoreIndicesWithTracking(ctx context.Context, opts pglib.PGRestoreOptions, dump []byte) error {
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	trackingCtx, cancel := context.WithCancel(ctx)
@@ -1027,7 +1189,7 @@ func (s *SnapshotGenerator) restoreIndicesWithTracking(ctx context.Context, dump
 		defer wg.Done()
 		s.snapshotTracker.trackIndexesCreation(trackingCtx)
 	}()
-	err := s.restoreDump(ctx, dump)
+	err := s.restoreDumpWithOptions(ctx, opts, dump)
 	// wait for the tracking to finish once the restore is done
 	cancel()
 	wg.Wait()

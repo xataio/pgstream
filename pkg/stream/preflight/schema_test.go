@@ -509,7 +509,7 @@ func TestBuildSchemaChecks(t *testing.T) {
 					Postgres: &stream.PostgresListenerConfig{URL: "postgres://source"},
 				},
 			},
-			wantNames: []string{"schema_type_compatibility"},
+			wantNames: []string{"postgres_version", "schema_type_compatibility"},
 		},
 		{
 			name: "postgres target also returns the range type check",
@@ -521,7 +521,7 @@ func TestBuildSchemaChecks(t *testing.T) {
 					Postgres: &stream.PostgresProcessorConfig{},
 				},
 			},
-			wantNames: []string{"schema_type_compatibility", "postgres_range_type_support"},
+			wantNames: []string{"postgres_version", "schema_type_compatibility", "postgres_range_type_support"},
 		},
 		{
 			name: "postgres target with url also returns the extension check",
@@ -535,7 +535,7 @@ func TestBuildSchemaChecks(t *testing.T) {
 					},
 				},
 			},
-			wantNames: []string{"schema_type_compatibility", "postgres_range_type_support", "schema_extension_compatibility"},
+			wantNames: []string{"postgres_version", "schema_type_compatibility", "postgres_range_type_support", "schema_extension_compatibility"},
 		},
 	}
 
@@ -574,8 +574,9 @@ func TestBuildChecks_SelectedSchemaOnly(t *testing.T) {
 	checks, cleanup := BuildChecks(cfg, []Category{CategorySchema})
 
 	require.NotNil(t, cleanup)
-	require.Len(t, checks, 1)
-	require.Equal(t, "schema_type_compatibility", checks[0].Name())
+	require.Len(t, checks, 2)
+	require.Equal(t, "postgres_version", checks[0].Name())
+	require.Equal(t, "schema_type_compatibility", checks[1].Name())
 }
 
 type sourceExtensionRow struct {

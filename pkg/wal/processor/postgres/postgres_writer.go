@@ -26,10 +26,15 @@ type Writer struct {
 	writerType      string
 	disableTriggers bool
 	strictMode      bool
+	maxConnections  int32
 
 	droppedQueries       atomic.Uint64
 	instrumentation      *otel.Instrumentation
 	droppedQueriesMetric metric.Int64ObservableCounter
+
+	// dropped is shared with every batch sender this writer builds, so the
+	// totals and metrics span the writer rather than a single table.
+	dropped *batch.DroppedCounter
 }
 
 type queryBatchSender interface {
@@ -45,25 +50,49 @@ type walMessageBatchSender interface {
 type WriterOption func(*Writer)
 
 func newWriter(ctx context.Context, config *Config, writerType string, opts ...WriterOption) (*Writer, error) {
+	poolOpts := config.poolOptions()
+	maxConnections, err := pglib.ConnPoolMaxConnections(config.URL, poolOpts...)
+	if err != nil {
+		return nil, err
+	}
+
 	w := &Writer{
 		logger:          loglib.NewNoopLogger(),
 		writerType:      writerType,
 		disableTriggers: config.DisableTriggers,
 		strictMode:      config.StrictMode,
+		maxConnections:  maxConnections,
+		dropped:         batch.NewDroppedCounter(),
 	}
 
 	for _, opt := range opts {
 		opt(w)
 	}
 
-	var err error
+	// State the suppression posture where the flags live, rather than at stream
+	// assembly: both of these turn a write failure into silently missing rows,
+	// are easy to set once and forget, and are otherwise only visible by
+	// counting log lines after the fact.
+	if config.BatchConfig.IgnoreSendErrors {
+		w.logger.Warn(nil, "ignore_send_errors is enabled: batches that fail to send will be dropped and the run will continue", loglib.Fields{
+			"posture":     "at_risk",
+			"writer_type": writerType,
+		})
+	}
+	// strict mode only governs the per-query drop-and-continue path, which the
+	// bulk ingest writer never reaches, so saying so there would describe
+	// behaviour the running writer does not have.
+	if !config.StrictMode && writerType == batchWriter {
+		w.logger.Info("strict_mode is disabled: non-internal query failures will be dropped and counted rather than stopping the pipeline")
+	}
+
 	if config.RetryPolicy.DisableRetries {
-		w.pgConn, err = pglib.NewConnPool(ctx, config.URL)
+		w.pgConn, err = pglib.NewConnPool(ctx, config.URL, poolOpts...)
 	} else {
 		// unless retries are disabled, wrap the Postgres querier with a retrier
 		// and apply default retry policy if none is set
 		w.pgConn, err = pglibretrier.NewQuerier(ctx, config.retryPolicy(), func(ctx context.Context) (pglib.Querier, error) {
-			return pglib.NewConnPool(ctx, config.URL)
+			return pglib.NewConnPool(ctx, config.URL, poolOpts...)
 		}, w.logger)
 	}
 	if err != nil {
@@ -72,14 +101,14 @@ func newWriter(ctx context.Context, config *Config, writerType string, opts ...W
 
 	forCopy := writerType == bulkIngestWriter
 
-	w.adapter, err = newAdapter(ctx, w.logger, config.IgnoreDDL, config.URL, config.OnConflictAction, forCopy)
+	w.adapter, err = newAdapter(ctx, w.logger, config, forCopy, w.maxConnections)
 	if err != nil {
 		return nil, err
 	}
 
 	if w.instrumentation.IsEnabled() {
 		w.adapter = newInstrumentedWalAdapter(w.adapter, w.instrumentation)
-		if err := w.initMetrics(); err != nil {
+		if err := w.dropped.RegisterMetrics(w.instrumentation, writerType); err != nil {
 			return nil, fmt.Errorf("initialising postgres writer metrics: %w", err)
 		}
 	}
@@ -96,7 +125,13 @@ func (w *Writer) DroppedQueries() uint64 {
 
 const droppedQueriesMetricName = "pgstream.postgres.writer.dropped_queries"
 
-func (w *Writer) initMetrics() error {
+// initDroppedQueriesMetric registers the per-query drop counter. Only the batch
+// writer reaches recordDroppedQuery, so only the batch writer registers this:
+// exporting it for the bulk ingest writer too would publish a permanent zero
+// under a writer_type label naming a component that does silently drop data, by
+// whole batches. Called by NewBatchWriter rather than by the shared
+// constructor, so the restriction is structural rather than a type check.
+func (w *Writer) initDroppedQueriesMetric() error {
 	if w.instrumentation == nil || w.instrumentation.Meter == nil {
 		return nil
 	}
@@ -127,17 +162,25 @@ func (w *Writer) initMetrics() error {
 
 // recordDroppedQuery accounts for a single query dropped due to a non-internal
 // (DATALOSS) failure and logs the divergence prominently.
-func (w *Writer) recordDroppedQuery(q *query) {
+// recordDroppedQuery reports a query the writer gave up on. cause is what made
+// it undeliverable: without it the DATALOSS warning says what diverged but not
+// why, leaving an operator to correlate by timestamp against the error logged
+// where the query failed. schema and table are surfaced as their own fields so
+// the diverging table can be alerted on without parsing the SQL.
+func (w *Writer) recordDroppedQuery(q *query, cause error) {
 	dropped := w.droppedQueries.Add(1)
-	w.logger.Warn(nil, "dropping failed query and advancing checkpoint, replica may diverge", loglib.Fields{
+	w.logger.Warn(cause, "dropping failed query and advancing checkpoint, replica may diverge", loglib.Fields{
 		"sql":             q.sql,
 		"args":            q.args,
+		"schema":          q.schema,
+		"table":           q.table,
 		"severity":        "DATALOSS",
 		"dropped_queries": dropped,
 	})
 }
 
 func (w *Writer) close() error {
+	w.dropped.LogTotals(w.logger)
 	if err := w.adapter.close(); err != nil {
 		w.logger.Error(err, "closing adapter")
 	}

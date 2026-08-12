@@ -32,6 +32,22 @@ func (c *SourceSequenceSelectPrivilegesCheck) Name() string {
 	return "source_sequence_select_privileges"
 }
 
+type TargetCreateDBPrivilegeCheck struct {
+	Target postgres.AcquireFunc
+}
+
+func (c *TargetCreateDBPrivilegeCheck) Name() string {
+	return "target_createdb_privilege"
+}
+
+type TargetCreateRolePrivilegeCheck struct {
+	Target postgres.AcquireFunc
+}
+
+func (c *TargetCreateRolePrivilegeCheck) Name() string {
+	return "target_createrole_privilege"
+}
+
 const sourceTableSelectPrivilegesQuery = `
 SELECT
   current_user,
@@ -92,6 +108,22 @@ WHERE c.relkind = 'S'
       AND t.relkind IN ('r', 'p')
   )
 ORDER BY table_schema, table_name, sequence_schema, sequence_name
+`
+
+const targetCreateDBPrivilegeQuery = `
+SELECT 
+	current_user,
+	rolcreatedb OR rolsuper
+FROM pg_roles
+WHERE rolname = current_user
+`
+
+const targetCreateRolePrivilegeQuery = `
+SELECT
+	current_user,
+	rolcreaterole OR rolsuper
+FROM pg_roles
+WHERE rolname = current_user
 `
 
 func (c *SourceTableSelectPrivilegesCheck) Run(ctx context.Context) ([]Finding, error) {
@@ -159,6 +191,49 @@ func (c *SourceSequenceSelectPrivilegesCheck) Run(ctx context.Context) ([]Findin
 		return nil, fmt.Errorf("iterating rows: %w", err)
 	}
 	return findings, nil
+}
+
+func (c *TargetCreateDBPrivilegeCheck) Run(ctx context.Context) ([]Finding, error) {
+	conn, err := c.Target(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to target: %w", err)
+	}
+	var role string
+	var hasCreateDB bool
+
+	if err := conn.QueryRow(ctx, []any{&role, &hasCreateDB}, targetCreateDBPrivilegeQuery); err != nil {
+		return nil, fmt.Errorf("querying target CREATEDB privilege: %w", err)
+	}
+
+	if hasCreateDB {
+		return nil, nil
+	}
+	return []Finding{
+		{Message: targetCreateDBPrivilegeMessage(role)},
+	}, nil
+}
+
+func (c *TargetCreateRolePrivilegeCheck) Run(ctx context.Context) ([]Finding, error) {
+	conn, err := c.Target(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to target: %w", err)
+	}
+	var role string
+	var hasCreateRole bool
+
+	if err := conn.QueryRow(
+		ctx,
+		[]any{&role, &hasCreateRole},
+		targetCreateRolePrivilegeQuery,
+	); err != nil {
+		return nil, fmt.Errorf("querying target CREATEROLE privilege: %w", err)
+	}
+	if hasCreateRole {
+		return nil, nil
+	}
+	return []Finding{{
+		Message: targetCreateRolePrivilegeMessage(role),
+	}}, nil
 }
 
 type sourceTableSelectPrivilegeRow struct {
@@ -238,5 +313,20 @@ func sourceSequenceSelectPrivilegeMessage(row sourceSequenceSelectPrivilegeRow) 
 	return fmt.Sprintf(
 		"source role %q lacks SELECT on sequence %s.%s; run GRANT SELECT ON SEQUENCE %s TO %s",
 		row.Role, row.SequenceSchema, row.Sequence, quotedSequence, quotedRole,
+	)
+}
+
+func targetCreateDBPrivilegeMessage(role string) string {
+	quotedRole := postgres.QuoteIdentifier(role)
+	return fmt.Sprintf(
+		"target role %q lacks CREATEDB; run ALTER ROLE %s CREATEDB",
+		role, quotedRole,
+	)
+}
+
+func targetCreateRolePrivilegeMessage(role string) string {
+	quotedRole := postgres.QuoteIdentifier(role)
+	return fmt.Sprintf(
+		"target role %q lacks CREATEROLE; run ALTER ROLE %s CREATEROLE", role, quotedRole,
 	)
 }

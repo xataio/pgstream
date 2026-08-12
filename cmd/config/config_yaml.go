@@ -121,16 +121,19 @@ type SnapshotSchemaConfig struct {
 }
 
 type PgDumpPgRestoreConfig struct {
-	CleanTargetDB            bool     `mapstructure:"clean_target_db" yaml:"clean_target_db"`
-	CreateTargetDB           bool     `mapstructure:"create_target_db" yaml:"create_target_db"`
-	IncludeGlobalDBObjects   bool     `mapstructure:"include_global_db_objects" yaml:"include_global_db_objects"`
-	Role                     string   `mapstructure:"role" yaml:"role"`
-	RolesSnapshotMode        string   `mapstructure:"roles_snapshot_mode" yaml:"roles_snapshot_mode"`
-	NoOwner                  bool     `mapstructure:"no_owner" yaml:"no_owner"`
-	NoPrivileges             bool     `mapstructure:"no_privileges" yaml:"no_privileges"`
-	DumpFile                 string   `mapstructure:"dump_file" yaml:"dump_file"`
-	ExcludedSecurityLabels   []string `mapstructure:"excluded_security_labels" yaml:"excluded_security_labels"`
-	RefreshMaterializedViews bool     `mapstructure:"refresh_materialized_views" yaml:"refresh_materialized_views"`
+	CleanTargetDB                  bool     `mapstructure:"clean_target_db" yaml:"clean_target_db"`
+	CreateTargetDB                 bool     `mapstructure:"create_target_db" yaml:"create_target_db"`
+	IncludeGlobalDBObjects         bool     `mapstructure:"include_global_db_objects" yaml:"include_global_db_objects"`
+	Role                           string   `mapstructure:"role" yaml:"role"`
+	RolesSnapshotMode              string   `mapstructure:"roles_snapshot_mode" yaml:"roles_snapshot_mode"`
+	NoOwner                        bool     `mapstructure:"no_owner" yaml:"no_owner"`
+	NoPrivileges                   bool     `mapstructure:"no_privileges" yaml:"no_privileges"`
+	DumpFile                       string   `mapstructure:"dump_file" yaml:"dump_file"`
+	ExcludedSecurityLabels         []string `mapstructure:"excluded_security_labels" yaml:"excluded_security_labels"`
+	RefreshMaterializedViews       bool     `mapstructure:"refresh_materialized_views" yaml:"refresh_materialized_views"`
+	IndexConstraintSessionSettings []string `mapstructure:"index_constraint_session_settings" yaml:"index_constraint_session_settings"`
+	IncludeObjectTypes             []string `mapstructure:"include_object_types" yaml:"include_object_types"`
+	ExcludeObjectTypes             []string `mapstructure:"exclude_object_types" yaml:"exclude_object_types"`
 }
 
 type ReplicationConfig struct {
@@ -189,14 +192,17 @@ type ConstantBackoffConfig struct {
 }
 
 type PostgresTargetConfig struct {
-	URL              string            `mapstructure:"url" yaml:"url"`
-	Batch            *BatchConfig      `mapstructure:"batch" yaml:"batch"`
-	BulkIngest       *BulkIngestConfig `mapstructure:"bulk_ingest" yaml:"bulk_ingest"`
-	DisableTriggers  bool              `mapstructure:"disable_triggers" yaml:"disable_triggers"`
-	OnConflictAction string            `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
-	RetryPolicy      BackoffConfig     `mapstructure:"retry_policy" yaml:"retry_policy"`
-	IgnoreDDL        bool              `mapstructure:"ignore_ddl" yaml:"ignore_ddl"`
-	StrictMode       bool              `mapstructure:"strict_mode" yaml:"strict_mode"`
+	URL                   string            `mapstructure:"url" yaml:"url"`
+	MaxConnections        uint              `mapstructure:"max_connections" yaml:"max_connections"`
+	Batch                 *BatchConfig      `mapstructure:"batch" yaml:"batch"`
+	BulkIngest            *BulkIngestConfig `mapstructure:"bulk_ingest" yaml:"bulk_ingest"`
+	DisableTriggers       bool              `mapstructure:"disable_triggers" yaml:"disable_triggers"`
+	OnConflictAction      string            `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
+	RetryPolicy           BackoffConfig     `mapstructure:"retry_policy" yaml:"retry_policy"`
+	IgnoreDDL             bool              `mapstructure:"ignore_ddl" yaml:"ignore_ddl"`
+	StrictMode            bool              `mapstructure:"strict_mode" yaml:"strict_mode"`
+	IncludeDDLObjectTypes []string          `mapstructure:"include_ddl_object_types" yaml:"include_ddl_object_types"`
+	ExcludeDDLObjectTypes []string          `mapstructure:"exclude_ddl_object_types" yaml:"exclude_ddl_object_types"`
 }
 
 type KafkaTargetConfig struct {
@@ -211,6 +217,7 @@ type KafkaTopicConfig struct {
 	Partitions        int    `mapstructure:"partitions" yaml:"partitions"`
 	ReplicationFactor int    `mapstructure:"replication_factor" yaml:"replication_factor"`
 	AutoCreate        bool   `mapstructure:"auto_create" yaml:"auto_create"`
+	PartitionKey      string `mapstructure:"partition_key" yaml:"partition_key"`
 }
 
 type SearchConfig struct {
@@ -283,8 +290,10 @@ type WebhookServerConfig struct {
 }
 
 type WebhookNotifierConfig struct {
-	WorkerCount   int `mapstructure:"worker_count" yaml:"worker_count"`
-	ClientTimeout int `mapstructure:"client_timeout" yaml:"client_timeout"`
+	WorkerCount   int            `mapstructure:"worker_count" yaml:"worker_count"`
+	ClientTimeout int            `mapstructure:"client_timeout" yaml:"client_timeout"`
+	Backoff       *BackoffConfig `mapstructure:"backoff" yaml:"backoff"`
+	StrictMode    bool           `mapstructure:"strict_mode" yaml:"strict_mode"`
 }
 
 type SanitizeConfig struct {
@@ -324,9 +333,10 @@ type TableTransformersConfig struct {
 }
 
 type ColumnTransformersConfig struct {
-	Name              string         `mapstructure:"name" yaml:"name"`
-	Parameters        map[string]any `mapstructure:"parameters" yaml:"parameters"`
-	DynamicParameters map[string]any `mapstructure:"dynamic_parameters" yaml:"dynamic_parameters"`
+	Name                string         `mapstructure:"name" yaml:"name"`
+	Parameters          map[string]any `mapstructure:"parameters" yaml:"parameters"`
+	DynamicParameters   map[string]any `mapstructure:"dynamic_parameters" yaml:"dynamic_parameters"`
+	AllowUniquenessLoss bool           `mapstructure:"allow_uniqueness_loss" yaml:"allow_uniqueness_loss"`
 }
 
 // postgres source modes
@@ -632,6 +642,9 @@ func (c *YAMLConfig) parseSchemaSnapshotConfig() (*snapshotbuilder.SchemaSnapsho
 		streamSchemaCfg.DumpRestore.DumpDebugFile = schemaSnapshotCfg.PgDumpPgRestore.DumpFile
 		streamSchemaCfg.DumpRestore.ExcludedSecurityLabels = schemaSnapshotCfg.PgDumpPgRestore.ExcludedSecurityLabels
 		streamSchemaCfg.DumpRestore.RefreshMaterializedViews = schemaSnapshotCfg.PgDumpPgRestore.RefreshMaterializedViews
+		streamSchemaCfg.DumpRestore.IndexConstraintSessionSettings = schemaSnapshotCfg.PgDumpPgRestore.IndexConstraintSessionSettings
+		streamSchemaCfg.DumpRestore.IncludeObjectTypes = schemaSnapshotCfg.PgDumpPgRestore.IncludeObjectTypes
+		streamSchemaCfg.DumpRestore.ExcludeObjectTypes = schemaSnapshotCfg.PgDumpPgRestore.ExcludeObjectTypes
 
 		var err error
 		streamSchemaCfg.DumpRestore.RolesSnapshotMode, err = getRolesSnapshotMode(schemaSnapshotCfg.PgDumpPgRestore.RolesSnapshotMode)
@@ -678,7 +691,8 @@ func (c *YAMLConfig) parseKafkaProcessorConfig() *stream.KafkaProcessorConfig {
 				},
 				TLS: c.Target.Kafka.TLS.parseTLSConfig(),
 			},
-			Batch: c.Target.Kafka.Batch.parseBatchConfig(),
+			Batch:        c.Target.Kafka.Batch.parseBatchConfig(),
+			PartitionKey: kafkaprocessor.PartitionKey(c.Target.Kafka.Topic.PartitionKey),
 		},
 	}
 }
@@ -697,13 +711,16 @@ func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorCon
 
 	cfg := &stream.PostgresProcessorConfig{
 		BatchWriter: postgres.Config{
-			URL:              c.Target.Postgres.URL,
-			BatchConfig:      c.Target.Postgres.Batch.parseBatchConfig(),
-			DisableTriggers:  c.Target.Postgres.DisableTriggers,
-			OnConflictAction: c.Target.Postgres.OnConflictAction,
-			RetryPolicy:      c.Target.Postgres.RetryPolicy.parseBackoffConfig(),
-			IgnoreDDL:        c.Target.Postgres.IgnoreDDL,
-			StrictMode:       c.Target.Postgres.StrictMode,
+			URL:                   c.Target.Postgres.URL,
+			MaxConnections:        c.Target.Postgres.MaxConnections,
+			BatchConfig:           c.Target.Postgres.Batch.parseBatchConfig(),
+			DisableTriggers:       c.Target.Postgres.DisableTriggers,
+			OnConflictAction:      c.Target.Postgres.OnConflictAction,
+			RetryPolicy:           c.Target.Postgres.RetryPolicy.parseBackoffConfig(),
+			IgnoreDDL:             c.Target.Postgres.IgnoreDDL,
+			StrictMode:            c.Target.Postgres.StrictMode,
+			IncludeDDLObjectTypes: c.Target.Postgres.IncludeDDLObjectTypes,
+			ExcludeDDLObjectTypes: c.Target.Postgres.ExcludeDDLObjectTypes,
 		},
 	}
 
@@ -767,6 +784,7 @@ func (c *YAMLConfig) parseWebhookProcessorConfig() *stream.WebhookProcessorConfi
 		Notifier: notifier.Config{
 			URLWorkerCount: uint(c.Target.Webhooks.Notifier.WorkerCount),
 			ClientTimeout:  time.Duration(c.Target.Webhooks.Notifier.ClientTimeout) * time.Millisecond,
+			StrictMode:     c.Target.Webhooks.Notifier.StrictMode,
 		},
 		SubscriptionServer: server.Config{
 			Address:      c.Target.Webhooks.Subscriptions.Server.Address,
@@ -778,6 +796,10 @@ func (c *YAMLConfig) parseWebhookProcessorConfig() *stream.WebhookProcessorConfi
 	if c.Target.Webhooks.Subscriptions.Store.Cache != nil {
 		streamCfg.SubscriptionStore.CacheEnabled = c.Target.Webhooks.Subscriptions.Store.Cache.Enabled
 		streamCfg.SubscriptionStore.CacheRefreshInterval = time.Duration(c.Target.Webhooks.Subscriptions.Store.Cache.RefreshInterval) * time.Second
+	}
+
+	if c.Target.Webhooks.Notifier.Backoff != nil {
+		streamCfg.Notifier.Backoff = c.Target.Webhooks.Notifier.Backoff.parseBackoffConfig()
 	}
 
 	return streamCfg
@@ -874,9 +896,10 @@ func (c TransformationsConfig) parseTransformationConfig() (*transformer.Config,
 		columnRules := make(map[string]transformer.TransformerRules, len(t.ColumnRules))
 		for column, cr := range t.ColumnRules {
 			columnRules[column] = transformer.TransformerRules{
-				Name:              cr.Name,
-				Parameters:        cr.Parameters,
-				DynamicParameters: cr.DynamicParameters,
+				Name:                cr.Name,
+				Parameters:          cr.Parameters,
+				DynamicParameters:   cr.DynamicParameters,
+				AllowUniquenessLoss: cr.AllowUniquenessLoss,
 			}
 		}
 		rules = append(rules, transformer.TableRules{

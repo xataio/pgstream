@@ -18,6 +18,11 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const allColumns = "*"
+
+// ErrSchemaChangedDuringSnapshot: re-snapshot needed.
+var ErrSchemaChangedDuringSnapshot = errors.New("source schema changed during the snapshot")
+
 type SnapshotGenerator struct {
 	logger    loglib.Logger
 	conn      pglib.Querier
@@ -47,6 +52,7 @@ type tableInfo struct {
 	avgPageBytes  int64
 	avgRowBytes   int64
 	batchPageSize uint
+	columns       []string
 }
 
 type pageRange struct {
@@ -57,12 +63,16 @@ type pageRange struct {
 type schemaTables struct {
 	schema string
 	tables []string
+	// nil without a schema snapshot
+	columns pglib.SchemaTableColumns
 }
 
 type table struct {
 	schema  string
 	name    string
 	rowSize int64
+	// one list per page range
+	columns []string
 }
 
 type Option func(sg *SnapshotGenerator)
@@ -169,8 +179,9 @@ func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sn
 			continue
 		}
 		schemaTablesChan <- &schemaTables{
-			schema: schema,
-			tables: tables,
+			schema:  schema,
+			tables:  tables,
+			columns: ss.TableColumns,
 		}
 	}
 	close(schemaTablesChan)
@@ -213,8 +224,9 @@ func (sg *SnapshotGenerator) createSchemaSnapshot(ctx context.Context, schemaTab
 
 		for _, tableName := range schemaTables.tables {
 			tableChan <- &table{
-				schema: schemaTables.schema,
-				name:   tableName,
+				schema:  schemaTables.schema,
+				name:    tableName,
+				columns: sg.pinnedColumns(schemaTables, tableName),
 			}
 		}
 
@@ -223,6 +235,41 @@ func (sg *SnapshotGenerator) createSchemaSnapshot(ctx context.Context, schemaTab
 
 		return sg.collectTableErrors(schemaTables.schema, workerTableErrs)
 	})
+}
+
+// pinnedColumns warns on uncaptured tables.
+func (sg *SnapshotGenerator) pinnedColumns(schemaTables *schemaTables, tableName string) []string {
+	if schemaTables.columns == nil {
+		return nil
+	}
+
+	columns := schemaTables.columns.ColumnsFor(schemaTables.schema, tableName)
+	if len(columns) == 0 {
+		sg.logger.Warn(nil, "no columns captured by the schema snapshot for this table, falling back to the columns it has now: it was created after the capture, or its name did not resolve to a catalog entry",
+			loglib.Fields{"schema": schemaTables.schema, "table": tableName})
+	}
+	return columns
+}
+
+// readableColumns intersects; drops don't abort.
+// The flag reports a pin with nothing left.
+func readableColumns(pinned, live []string) ([]string, bool) {
+	if len(pinned) == 0 {
+		return live, false
+	}
+
+	liveSet := make(map[string]struct{}, len(live))
+	for _, column := range live {
+		liveSet[column] = struct{}{}
+	}
+
+	readable := make([]string, 0, len(pinned))
+	for _, column := range pinned {
+		if _, found := liveSet[column]; found {
+			readable = append(readable, column)
+		}
+	}
+	return readable, len(readable) == 0
 }
 
 func (sg *SnapshotGenerator) createSnapshotWorker(ctx context.Context, wg *sync.WaitGroup, session *readSession, tableChan <-chan *table, tableErrMap map[string]error) {

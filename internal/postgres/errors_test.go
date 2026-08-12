@@ -4,11 +4,30 @@ package postgres
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 )
+
+// TestMapError_realPgxEncodeError guards the message matching in MapError
+// against pgx changing its wrapper text: the error here is produced by pgx
+// itself, encoding the same Go value that #1037 reported (a []any bound against
+// a parameter whose OID pgx has no codec for). No server is needed — the
+// failure happens while building the query.
+func TestMapError_realPgxEncodeError(t *testing.T) {
+	t.Parallel()
+
+	err := (&pgx.ExtendedQueryBuilder{}).Build(pgtype.NewMap(), nil, []any{[]any{"BiteScan"}})
+	require.Error(t, err, "pgx no longer fails to encode []any; revisit the encoding error mapping")
+
+	var errValueEncoding *ErrValueEncoding
+	require.ErrorAs(t, MapError(err), &errValueEncoding,
+		"pgx encoding failures must map to ErrValueEncoding so the batch writer drops only the failing query")
+}
 
 func TestMapError(t *testing.T) {
 	tests := []struct {
@@ -145,6 +164,21 @@ func TestMapError(t *testing.T) {
 			wantErr: &ErrRelationAlreadyExists{},
 		},
 		{
+			// verbatim message produced by pgx v5 when binding a Go slice
+			// against a user-defined enum array parameter (#1037). The query
+			// never reaches the server, so there is no SQLSTATE to key off.
+			name: "client-side argument encoding failure",
+			err: errors.New(`failed to encode args[1]: unable to encode []interface {}{"BiteScan"} ` +
+				`into text format for unknown type (OID 16384): cannot find encode plan`),
+			wantErr: &ErrValueEncoding{},
+		},
+		{
+			name: "client-side argument encoding failure, wrapped",
+			err: fmt.Errorf("executing query: %w",
+				errors.New(`failed to encode args[0]: unable to encode []interface {}{"x"} into text format for unknown type (OID 16384)`)),
+			wantErr: &ErrValueEncoding{},
+		},
+		{
 			name: "42701 duplicate_column",
 			err: &pgconn.PgError{
 				Code:    "42701",
@@ -253,7 +287,7 @@ func TestMapError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mappedErr := MapError(tt.err)
-			require.ErrorAs(t, mappedErr, &tt.wantErr)
+			require.IsType(t, tt.wantErr, mappedErr)
 		})
 	}
 }

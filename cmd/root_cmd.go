@@ -68,13 +68,22 @@ func Prepare() *cobra.Command {
 	initCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be created by pgstream on the source url")
 	initCmd.Flags().Bool("with-injector", false, "Whether to initialise pgstream with the injector database migrations")
 	initCmd.Flags().Bool("migrations-only", false, "Whether to only run the initialization database migrations")
+	initCmd.Flags().Bool("slot-only", false, "Whether to only create the replication slot, without running the database migrations. Useful when creating the slot on a read replica, where the migrations cannot be applied")
 	initCmd.Flags().Bool("upgrade", false, "Clean up v0.9.x state before initializing (idempotent, safe for repeated use)")
+	// slot-only selects the half of the work the other two flags act on, so
+	// combining them is always a mistake: --migrations-only asks for the
+	// complementary half, and --upgrade only cleans up schema state that
+	// slot-only never touches, which would otherwise be silently ignored
+	initCmd.MarkFlagsMutuallyExclusive("migrations-only", "slot-only")
+	initCmd.MarkFlagsMutuallyExclusive("upgrade", "slot-only")
 
 	// destroy cmd
 	destroyCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream destroy will be run")
 	destroyCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot to be deleted by pgstream from the source url")
 	destroyCmd.Flags().Bool("with-injector", false, "Whether to also destroy the injector related database objects")
 	destroyCmd.Flags().Bool("migrations-only", false, "Whether to only revert the database migrations")
+	destroyCmd.Flags().Bool("slot-only", false, "Whether to only drop the replication slot, leaving the pgstream schema and migrations in place")
+	destroyCmd.MarkFlagsMutuallyExclusive("migrations-only", "slot-only")
 
 	// tear down cmd
 	tearDownCmd.Flags().String("postgres-url", "", "Source postgres URL where pgstream tear down will be run")
@@ -87,7 +96,7 @@ func Prepare() *cobra.Command {
 	snapshotCmd.Flags().String("target", "", "Target type. One of postgres, opensearch, elasticsearch, kafka")
 	snapshotCmd.Flags().String("target-url", "", "Target URL")
 	snapshotCmd.Flags().StringSlice("tables", nil, "List of tables to snapshot, in the format <schema>.<table>. If not specified, the schema `public` will be assumed. Wildcards are supported")
-	snapshotCmd.Flags().Bool("reset", false, "Whether to reset the target before snapshotting (only for postgres target)")
+	snapshotCmd.Flags().Bool("reset", false, "Whether to reset the target before snapshotting (only for postgres target). Destructive: drops the target objects before the data is copied, so a failed snapshot leaves the target without its previous contents")
 	snapshotCmd.Flags().Bool("profile", false, "Whether to produce CPU and memory profile files, as well as exposing a /debug/pprof endpoint on localhost:6060")
 	snapshotCmd.Flags().String("dump-file", "", "File where the pg_dump output will be written")
 
@@ -98,7 +107,7 @@ func Prepare() *cobra.Command {
 	runCmd.Flags().String("target-url", "", "Target URL")
 	runCmd.Flags().String("replication-slot", "", "Name of the postgres replication slot for pgstream to connect to")
 	runCmd.Flags().StringSlice("snapshot-tables", nil, "List of tables to snapshot if initial snapshot is required, in the format <schema>.<table>. If not specified, the schema `public` will be assumed. Wildcards are supported")
-	runCmd.Flags().Bool("reset", false, "Whether to reset the target before snapshotting (only for postgres target)")
+	runCmd.Flags().Bool("reset", false, "Whether to reset the target before snapshotting (only for postgres target). Destructive: drops the target objects before the data is copied, so a failed snapshot leaves the target without its previous contents")
 	runCmd.Flags().Bool("profile", false, "Whether to expose a /debug/pprof endpoint on localhost:6060")
 	runCmd.Flags().BoolVar(&initFlag, "init", false, "Whether to initialize pgstream before starting replication")
 	runCmd.Flags().BoolVar(&upgradeFlag, "upgrade", false, "Clean up v0.9.x state before initializing (idempotent, safe for repeated use; implies --init)")
@@ -122,6 +131,7 @@ func Prepare() *cobra.Command {
 	checkCmd.Flags().String("postgres-url", "", "Source postgres URL to run checks against")
 	checkCmd.Flags().String("target-url", "", "Target URL to run checks against")
 	checkCmd.Flags().Bool("json", false, "Output the check report in JSON format")
+	checkCmd.Flags().Bool("source", false, "Run only checks that query the source database (ignores the configured target)")
 	checkCmd.Flags().Bool("connectivity", false, "Run connectivity checks against the configured source and target")
 	checkCmd.Flags().Bool("replication", false, "Run replication checks against the source (requires replication slot configured)")
 	checkCmd.Flags().Bool("access", false, "Run access and privilege checks against the source")

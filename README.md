@@ -204,6 +204,7 @@ For more advanced usage, implementation details, and detailed configuration sett
    - [Environment Variables](docs/configuration.md#environment-variables)
    - [Examples](docs/examples/)
 3. [Snapshots](docs/snapshots.md)
+   - [Running from a read replica](docs/replicas.md)
 4. [Transformers](docs/transformers.md)
    - [Supported Transformers](docs/transformers.md#supported-transformers)
    - [Transformation Rules](docs/transformers.md#transformation-rules)

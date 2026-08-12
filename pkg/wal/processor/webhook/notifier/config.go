@@ -2,25 +2,29 @@
 
 package notifier
 
-import "time"
+import (
+	"time"
 
-type Config struct {
-	// MaxQueueBytes is the max memory used by the webhook notifier for inflight
-	// events. Defaults to 100MiB
-	MaxQueueBytes int64
-	// URLWorkerCount is the max number of concurrent workers that will send
-	// webhooks for a given event. Defaults to 10.
-	URLWorkerCount uint
-	// ClientTimeout is the max time the notifier will wait for a response from
-	// a webhook url before it times out. Defaults to 10s.
-	ClientTimeout time.Duration
-}
+	"github.com/xataio/pgstream/pkg/backoff"
+)
 
 const (
-	defaultMaxQueueBytes  = int64(100 * 1024 * 1024) // 100MiB
+	defaultMaxQueueBytes  = int64(100 * 1024 * 1024)
 	defaultURLWorkerCount = 10
 	defaultClientTimeout  = 10 * time.Second
+
+	defaultBackoffInitialInterval = time.Second
+	defaultBackoffMaxInterval     = 30 * time.Second
+	defaultBackoffMaxRetries      = 3
 )
+
+type Config struct {
+	MaxQueueBytes  int64
+	URLWorkerCount uint
+	ClientTimeout  time.Duration
+	Backoff        backoff.Config
+	StrictMode     bool
+}
 
 func (c *Config) maxQueueBytes() int64 {
 	if c.MaxQueueBytes > 0 {
@@ -44,4 +48,37 @@ func (c *Config) clientTimeout() time.Duration {
 	}
 
 	return defaultClientTimeout
+}
+
+func (c *Config) backoffConfig() *backoff.Config {
+	// IsSet() is false when only DisableRetries is set.
+	if c.Backoff.DisableRetries {
+		return &backoff.Config{DisableRetries: true}
+	}
+
+	if c.Backoff.Exponential != nil {
+		exp := *c.Backoff.Exponential
+		// avoids a zero-delay retry storm
+		if exp.InitialInterval == 0 && exp.MaxInterval == 0 {
+			exp.InitialInterval = defaultBackoffInitialInterval
+			exp.MaxInterval = defaultBackoffMaxInterval
+		}
+		return &backoff.Config{Exponential: &exp}
+	}
+
+	if c.Backoff.Constant != nil {
+		cst := *c.Backoff.Constant
+		if cst.Interval == 0 {
+			cst.Interval = defaultBackoffInitialInterval
+		}
+		return &backoff.Config{Constant: &cst}
+	}
+
+	return &backoff.Config{
+		Exponential: &backoff.ExponentialConfig{
+			InitialInterval: defaultBackoffInitialInterval,
+			MaxInterval:     defaultBackoffMaxInterval,
+			MaxRetries:      defaultBackoffMaxRetries,
+		},
+	}
 }

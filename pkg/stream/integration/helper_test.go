@@ -23,6 +23,7 @@ import (
 	"github.com/xataio/pgstream/pkg/backoff"
 	kafkalib "github.com/xataio/pgstream/pkg/kafka"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/otel"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/stream"
@@ -101,10 +102,17 @@ func (m *mockWebhookServer) close() {
 
 func runStream(t *testing.T, ctx context.Context, cfg *stream.Config) {
 	t.Helper()
+	runStreamWithInstrumentation(t, ctx, cfg, nil)
+}
+
+// runStreamWithInstrumentation runs the stream with metrics wired up, so that
+// tests can observe what the pipeline exports while it is running.
+func runStreamWithInstrumentation(t *testing.T, ctx context.Context, cfg *stream.Config, instrumentation *otel.Instrumentation) {
+	t.Helper()
 
 	done := make(chan error, 1)
 	go func() {
-		done <- stream.Run(ctx, testLogger(), cfg, false, nil)
+		done <- stream.Run(ctx, testLogger(), cfg, false, instrumentation)
 	}()
 
 	t.Cleanup(func() {
@@ -358,6 +366,14 @@ func withStrictMode() option {
 	}
 }
 
+func withIgnoreSendErrors() option {
+	return func(cfg *stream.ProcessorConfig) {
+		if cfg.Postgres != nil {
+			cfg.Postgres.BatchWriter.BatchConfig.IgnoreSendErrors = true
+		}
+	}
+}
+
 func withBatchSize(maxBatchSize int64) option {
 	return func(cfg *stream.ProcessorConfig) {
 		if cfg.Postgres != nil {
@@ -370,6 +386,20 @@ func withFilter(filterCfg *filter.Config) option {
 	return func(cfg *stream.ProcessorConfig) {
 		cfg.Filter = filterCfg
 	}
+}
+
+func withDDLObjectTypeFilter(include []string) option {
+	return func(cfg *stream.ProcessorConfig) {
+		if cfg.Postgres != nil {
+			cfg.Postgres.BatchWriter.IncludeDDLObjectTypes = include
+		}
+	}
+}
+
+func testPostgresListenerCfgWithSnapshotAndFilter(sourceURL, targetURL string, tables []string, includeObjectTypes []string) stream.ListenerConfig {
+	cfg := testPostgresListenerCfgWithSnapshot(sourceURL, targetURL, tables)
+	cfg.Postgres.Snapshot.Schema.DumpRestore.IncludeObjectTypes = includeObjectTypes
+	return cfg
 }
 
 func testPostgresProcessorCfg(opts ...option) stream.ProcessorConfig {

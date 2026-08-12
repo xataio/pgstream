@@ -52,9 +52,14 @@ func NewBatchWriter(ctx context.Context, config *Config, opts ...WriterOption) (
 	// postgres.Config, and bulk ingest defaults SendConcurrency to >1.
 	batchConfig := config.BatchConfig
 	batchConfig.SendConcurrency = 1
-	bw.batchSender, err = batch.NewSender(ctx, &batchConfig, bw.sendBatch, w.logger)
+	bw.batchSender, err = batch.NewSender(ctx, &batchConfig, bw.sendBatch, w.logger,
+		batch.WithDroppedCounter[*walMessage](w.dropped))
 	if err != nil {
 		return nil, err
+	}
+
+	if err := w.initDroppedQueriesMetric(); err != nil {
+		return nil, fmt.Errorf("initialising postgres batch writer metrics: %w", err)
 	}
 
 	return bw, nil
@@ -94,7 +99,8 @@ func (w *BatchWriter) Name() string {
 
 func (w *BatchWriter) Close() error {
 	w.logger.Debug("closing batch writer")
-	return errors.Join(w.batchSender.Close(), w.close())
+	senderErr := w.batchSender.Close()
+	return errors.Join(senderErr, w.close())
 }
 
 func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]) error {
@@ -152,7 +158,7 @@ func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]
 							if w.strictMode {
 								return fmt.Errorf("strict mode: stopping on non-internal DDL failure: %w", err)
 							}
-							w.recordDroppedQuery(q)
+							w.recordDroppedQuery(q, err)
 							continue
 						}
 						return err
@@ -201,7 +207,7 @@ func (w *BatchWriter) buildCoalescedQueries(run []*walMessage) ([]*query, error)
 		for i, m := range run {
 			events[i] = m.data
 		}
-		return w.dmlAdapter.buildBulkDeleteQuery(events)
+		return w.dmlAdapter.buildBulkDeleteQuery(events, run[0].schemaInfo)
 	case "I":
 		events := make([]*wal.Data, len(run))
 		for i, m := range run {
@@ -244,6 +250,9 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 	retryQueries := []*query{}
 	var droppedQuery *query
 	err := w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
+		retryQueries = []*query{}
+		droppedQuery = nil
+
 		if err := w.setReplicationRoleToReplica(ctx, tx); err != nil {
 			return err
 		}
@@ -274,7 +283,7 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 		if w.strictMode {
 			return nil, fmt.Errorf("strict mode: stopping on non-internal query failure: %w", err)
 		}
-		w.recordDroppedQuery(droppedQuery)
+		w.recordDroppedQuery(droppedQuery, err)
 	}
 
 	// if there were no errors or no internal errors in the tx, return the
@@ -290,6 +299,7 @@ func (w *BatchWriter) isInternalError(err error) bool {
 	var errRelationAlreadyExists *pglib.ErrRelationAlreadyExists
 	var errPreconditionFailed *pglib.ErrPreconditionFailed
 	var errFeatureNotSupported *pglib.ErrFeatureNotSupported
+	var errValueEncoding *pglib.ErrValueEncoding
 	switch {
 	case errors.As(err, &errRelationDoesNotExist),
 		errors.As(err, &errConstraintViolation),
@@ -297,7 +307,8 @@ func (w *BatchWriter) isInternalError(err error) bool {
 		errors.As(err, &errDataException),
 		errors.As(err, &errRelationAlreadyExists),
 		errors.As(err, &errPreconditionFailed),
-		errors.As(err, &errFeatureNotSupported):
+		errors.As(err, &errFeatureNotSupported),
+		errors.As(err, &errValueEncoding):
 		return false
 	default:
 		return true

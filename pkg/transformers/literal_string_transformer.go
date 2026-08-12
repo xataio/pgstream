@@ -58,6 +58,10 @@ func (lst *LiteralStringTransformer) IsDynamic() bool {
 	return false
 }
 
+func (lst *LiteralStringTransformer) Uniqueness() Uniqueness {
+	return UniquenessLossy
+}
+
 func (lst *LiteralStringTransformer) Close() error {
 	return nil
 }
@@ -66,5 +70,6 @@ func LiteralStringTransformerDefinition() *Definition {
 	return &Definition{
 		SupportedTypes: literalStringCompatibleTypes,
 		Parameters:     literalStringParams,
+		Uniqueness:     UniquenessLossy,
 	}
 }

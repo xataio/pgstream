@@ -20,8 +20,9 @@ type ConfigStatus struct {
 }
 
 type TransformationRulesStatus struct {
-	Valid  bool
-	Errors []string
+	Valid    bool
+	Errors   []string
+	Warnings []string
 }
 
 type SourceStatus struct {
@@ -212,6 +213,9 @@ func (trs *TransformationRulesStatus) PrettyPrint() string {
 	fmt.Fprintf(&prettyPrint, " - Valid: %t\n", trs.Valid)
 	if len(trs.Errors) > 0 {
 		fmt.Fprintf(&prettyPrint, " - Errors: %s\n", trs.Errors)
+	}
+	if len(trs.Warnings) > 0 {
+		fmt.Fprintf(&prettyPrint, " - Warnings: %s\n", trs.Warnings)
 	}
 
 	// trim the last newline character

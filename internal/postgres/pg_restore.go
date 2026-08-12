@@ -9,16 +9,27 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
 
 const (
-	pgRestoreCmd    = "pg_restore"
-	psqlCmd         = "psql"
-	postgres        = "postgres"
-	maxStatementLen = 500
+	pgRestoreCmd          = "pg_restore"
+	psqlCmd               = "psql"
+	postgres              = "postgres"
+	maxStatementLen       = 500
+	maxRestoreOutputBytes = 4096
+)
+
+var (
+	// passwordLiteral matches the quoted secret in a role statement that carries
+	// one: CREATE/ALTER ROLE and CREATE/ALTER USER all spell it `PASSWORD '...'`
+	passwordLiteral = regexp.MustCompile(`(?i)PASSWORD\s+'(?:[^']|'')*'`)
+	// copyRowContext matches the row payload psql appends when a COPY fails
+	copyRowContext = regexp.MustCompile(`(?i)(CONTEXT:\s+COPY\s+[^,]+,\s+line\s+\d+):\s+".*"`)
 )
 
 type PGRestoreOptions struct {
@@ -34,6 +45,8 @@ type PGRestoreOptions struct {
 	Format string
 	// Options to pass to pg_restore
 	Options []string
+	// SessionSettings are name=value settings passed to PostgreSQL through PGOPTIONS.
+	SessionSettings []string
 }
 
 func (opts PGRestoreOptions) toArgs() []string {
@@ -62,6 +75,17 @@ func (opts PGRestoreOptions) toPSQLArgs() []string {
 	return []string{"--echo-errors", opts.ConnectionString}
 }
 
+func (opts PGRestoreOptions) toPGOptions(existing string) string {
+	options := make([]string, 0, len(opts.SessionSettings)+1)
+	if existing != "" {
+		options = append(options, existing)
+	}
+	for _, setting := range opts.SessionSettings {
+		options = append(options, "-c "+setting)
+	}
+	return strings.Join(options, " ")
+}
+
 // Func RunPGRestore runs pg_restore command with the given options and returns
 // the result.
 func RunPGRestore(ctx context.Context, opts PGRestoreOptions, dump []byte) (string, error) {
@@ -70,16 +94,19 @@ func RunPGRestore(ctx context.Context, opts PGRestoreOptions, dump []byte) (stri
 	// does not include it so that pg_restore can create it.
 	if opts.Create {
 		var err error
-		opts.ConnectionString, err = removeDatabaseFromConnectionString(opts.ConnectionString)
+		opts.ConnectionString, err = RemoveDatabaseFromConnectionString(opts.ConnectionString)
 		if err != nil {
 			return "", err
 		}
 	}
 	switch opts.Format {
 	case "c":
-		cmd = exec.Command(pgRestoreCmd, opts.toArgs()...) //nolint:gosec
+		cmd = exec.CommandContext(ctx, pgRestoreCmd, opts.toArgs()...) //nolint:gosec
 	default:
-		cmd = exec.Command(psqlCmd, opts.toPSQLArgs()...) //nolint:gosec
+		cmd = exec.CommandContext(ctx, psqlCmd, opts.toPSQLArgs()...) //nolint:gosec
+	}
+	if len(opts.SessionSettings) > 0 {
+		cmd.Env = append(cmd.Environ(), "PGOPTIONS="+opts.toPGOptions(os.Getenv("PGOPTIONS")))
 	}
 
 	stdin, err := cmd.StdinPipe()
@@ -109,12 +136,36 @@ func buildRestoreError(out []byte, execErr error) error {
 		return fmt.Errorf("error restoring dump: %w", parseErr)
 	}
 	if execErr != nil {
-		return fmt.Errorf("error restoring dump: %w", execErr)
+		if tail := tailOutput(out, maxRestoreOutputBytes); tail != "" {
+			return fmt.Errorf("error restoring dump: %w: output: %s", execErr, tail)
+		}
+		return fmt.Errorf("error restoring dump: %w: no output captured", execErr)
 	}
 	return nil
 }
 
-func removeDatabaseFromConnectionString(url string) (string, error) {
+// redactSecrets removes credential material from restore output before it is
+// carried in an error.
+func redactSecrets(s string) string {
+	s = passwordLiteral.ReplaceAllString(s, "PASSWORD '[REDACTED]'")
+	return copyRowContext.ReplaceAllString(s, "$1: [REDACTED ROW]")
+}
+
+// tailOutput returns the last maxBytes of out, trimmed, prefixed with an
+// ellipsis when truncated, and with credential material redacted.
+func tailOutput(out []byte, maxBytes int) string {
+	trimmed := bytes.TrimSpace(out)
+	if len(trimmed) == 0 {
+		return ""
+	}
+	redacted := redactSecrets(string(trimmed))
+	if len(redacted) <= maxBytes {
+		return redacted
+	}
+	return "..." + redacted[len(redacted)-maxBytes:]
+}
+
+func RemoveDatabaseFromConnectionString(url string) (string, error) {
 	dbName, err := extractDatabase(url)
 	if err != nil {
 		return "", err
@@ -148,7 +199,7 @@ func parsePgRestoreOutputErrs(out []byte) error {
 				if isOwnershipError(currentErr) && isCommentStatement(line) {
 					currentErr = &ErrCommentOwnership{Details: currentErr.Error()}
 				}
-				currentErr = fmt.Errorf("%w: %s", currentErr, truncateStatement(line))
+				currentErr = fmt.Errorf("%w: %s", currentErr, truncateStatement(redactSecrets(line)))
 			}
 			inStatement = !endsStatement(line)
 		case isErrorLine(line):

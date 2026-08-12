@@ -35,7 +35,7 @@ source:
         max_connections: 50 # maximum number of connections that the data snapshot can open to Postgres. Should  be higher or equal than the number of schema/table workers.
       schema: # when mode is full or schema
         pgdump_pgrestore:
-          clean_target_db: true # whether to clean the target database before restoring. Defaults to false
+          clean_target_db: true # whether to clean the target database before restoring. Defaults to false. Destructive: the target objects are dropped before the data is copied, so a snapshot that fails afterwards leaves the target partially rebuilt with the previous contents gone. See docs/snapshots.md for how to keep a good copy
           create_target_db: true # whether to create the database on the target postgres. Defaults to false
           include_global_db_objects: true # whether to include database global objects, such as extensions or triggers, on the schema snapshot. Defaults to false
           no_owner: false # whether to remove ownership commands from the dump. Defaults to false
@@ -44,7 +44,18 @@ source:
           roles_snapshot_mode: # no_passwords by default. Can be set to disabled to disable roles snapshotting, or can be set to enabled to include role passwords
           exclude_security_labels: ["anon"] # list of providers whose security labels will be excluded from the snapshot. Wildcard supported.
           refresh_materialized_views: false # whether to refresh materialized views (REFRESH MATERIALIZED VIEW ... WITH DATA) after the table data has been restored. Defaults to false
+          index_constraint_session_settings: # optional PostgreSQL name=value session settings applied only while restoring indexes and constraints. Each entry must be a whitespace-free name=value pair. Unset or empty preserves existing behavior
+            - maintenance_work_mem=4GB
+            - max_parallel_maintenance_workers=4
+            # statement_timeout=0 and lock_timeout=0 disable the server-side limits that would otherwise bound a stuck restore; the restore then relies on client-side cancellation. Omit them to keep those safety limits.
+            # - statement_timeout=0
+            # - lock_timeout=0
+            # - synchronous_commit=off # faster restore, but a target crash right after the restore can lose the final index/constraint commits
           dump_file: pg_dump.sql # name of the file where the contents of the schema pg_dump command and output will be written for debugging purposes.
+          # Granular object type filtering for schema snapshots. Only one of include_object_types or exclude_object_types can be set.
+          # Available categories: tables, sequences, types, indexes, constraints, functions, views, materialized_views, triggers, event_triggers, policies, rules, comments, extensions, collations, text_search
+          # include_object_types: ["tables", "sequences", "types"] # only include these object types in the schema snapshot
+          # exclude_object_types: ["functions", "views", "triggers"] # exclude these object types from the schema snapshot
       disable_progress_tracking: false # whether to disable progress tracking for the snapshot. Defaults to false
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
@@ -84,6 +95,7 @@ source:
 target:
   postgres:
     url: "postgresql://user:password@localhost:5432/mytargetdatabase"
+    max_connections: 50 # maximum number of connections in the writer pool to the target database. Defaults to 50; overrides pool_max_conns in the URL when set. The schema observer keeps its own pool, capped at 16 and never larger than this value, so the process opens at most this many plus 16.
     batch:
       timeout: 1000 # batch timeout in milliseconds. Defaults to 30s
       size: 100 # number of messages in a batch. Defaults to 20000
@@ -109,12 +121,17 @@ target:
       constant:
         max_retries: 5 # maximum number of retries
         interval: 1000 # interval in milliseconds
-    ignore_ddl: false # whether to disable processing of DDL events on the target Postgres database. Defaults to false.
+    ignore_ddl: false # whether to disable processing of DDL events on the target Postgres database. Defaults to false. Consider enabling this if source and target roles have different trust levels (see docs/privileges.md).
+    # Selective DDL object type filtering for replication. Only one of include_ddl_object_types or exclude_ddl_object_types can be set. Ignored if ignore_ddl is true.
+    # Available categories: tables, sequences, types, indexes, constraints, functions, views, materialized_views, triggers, event_triggers, policies, rules, extensions, collations, text_search
+    # include_ddl_object_types: ["tables", "sequences", "types"] # only replicate DDL for these object types
+    # exclude_ddl_object_types: ["functions", "views", "triggers"] # skip DDL replication for these object types
   kafka:
     servers: ["localhost:9092"]
     topic:
       name: "mytopic" # name of the Kafka topic
       partitions: 1 # number of partitions for the topic. Defaults to 1
+      partition_key: "schema" # message key strategy for DML events, one of schema, table or primary_key. Defaults to schema
       replication_factor: 1 # replication factor for the topic. Defaults to 1
       auto_create: true # whether to automatically create the topic if it doesn't exist. Defaults to false
     tls:
@@ -220,13 +237,16 @@ Here's a list of all the environment variables that can be used to configure the
 | PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES                  | 83886080 (80MiB)             | No       | Max batch size in bytes to be read and processed by each table worker at a time. The number of pages in the select queries will be based on this value.                                                                                                                                                      |
 | PGSTREAM_POSTGRES_SNAPSHOT_WORKERS                      | 1                            | No       | Number of schemas that will be processed in parallel by the snapshotting process.                                                                                                                                                                                                                            |
 | PGSTREAM_POSTGRES_SNAPSHOT_MAX_CONNECTIONS              | 50                           | No       | Maximum number of Postgres connections that will be opened by the snapshotting process. This value shouldn't be lower than the number of schema/table workers selected.                                                                                                                                      |
-| PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB              | False                        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to issue commands to DROP all the objects that will be restored.                                                                                                                                                           |
+| PGSTREAM_POSTGRES_SNAPSHOT_CLEAN_TARGET_DB              | False                        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to issue commands to DROP all the objects that will be restored. Destructive: the DROPs are applied before the table data is copied, so a snapshot that fails afterwards leaves the target partially rebuilt with the previous contents already gone. See [resetting the target](snapshots.md#️-resetting-the-target-destroys-it-before-the-new-data-lands). |
 | PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_GLOBAL_DB_OBJECTS    | False                        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to snapshot all global database objects outside of the selected schema (such as extensions, triggers, etc).                                                                                                                |
 | PGSTREAM_POSTGRES_SNAPSHOT_CREATE_TARGET_DB             | False                        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, option to create the database being restored.                                                                                                                                                                                     |
 | PGSTREAM_POSTGRES_SNAPSHOT_NO_OWNER                     | False                        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, do not output commands to set ownership of objects to match the original database.                                                                                                                                                |
 | PGSTREAM_POSTGRES_SNAPSHOT_NO_PRIVILEGES                | False                        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, do not output privilege related commands (grant/revoke).                                                                                                                                                                          |
 | PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_SECURITY_LABELS     | []                           | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, list of providers whose security labels will be excluded.                                                                                                                                                                         |
 | PGSTREAM_POSTGRES_SNAPSHOT_REFRESH_MATERIALIZED_VIEWS   | False                        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, whether to refresh materialized views (REFRESH MATERIALIZED VIEW ... WITH DATA) after the table data has been restored.                                                                                                            |
+| PGSTREAM_POSTGRES_SNAPSHOT_INDEX_CONSTRAINT_SESSION_SETTINGS | []                       | No       | Space-separated PostgreSQL `name=value` session settings applied only while restoring indexes and constraints, for example `maintenance_work_mem=4GB max_parallel_maintenance_workers=4`. Each setting must be a whitespace-free `name=value` pair; invalid entries fail at startup. Unset or empty preserves existing behavior.                                           |
+| PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_OBJECT_TYPES         | []                           | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, list of object type categories to include in the schema snapshot. Everything else is excluded. Mutually exclusive with `PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDE_OBJECT_TYPES`. See [object type filtering](#object-type-filtering).      |
+| PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDE_OBJECT_TYPES         | []                           | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, list of object type categories to exclude from the schema snapshot. Mutually exclusive with `PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_OBJECT_TYPES`. See [object type filtering](#object-type-filtering).                                 |
 | PGSTREAM_POSTGRES_SNAPSHOT_ROLE                         | ""                           | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, role name to be used to create the dump.                                                                                                                                                                                          |
 | PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE          | "no_passwords"               | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, controls how roles are snapshotted. Possible values: "enabled" (snapshot all roles including passwords), "disabled" (do not snapshot roles), "no_passwords" (snapshot roles but exclude passwords).                               |
 | PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE             | ""                           | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, file where the contents of the schema pg_dump command and output will be written for debugging purposes.                                                                                                                          |
@@ -278,6 +298,7 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 | PGSTREAM_KAFKA_WRITER_SERVERS                  | N/A     | Yes              | URLs for the Kafka servers to connect to.                                                           |
 | PGSTREAM_KAFKA_TOPIC_NAME                      | N/A     | Yes              | Name of the Kafka topic to write to.                                                                |
 | PGSTREAM_KAFKA_TOPIC_PARTITIONS                | 1       | No               | Number of partitions created for the Kafka topic if auto create is enabled.                         |
+| PGSTREAM_KAFKA_TOPIC_PARTITION_KEY             | schema  | No               | Message key strategy for DML events, one of `schema`, `table` or `primary_key`. See the ordering trade-offs below. |
 | PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR        | 1       | No               | Replication factor used when creating the Kafka topic if auto create is enabled.                    |
 | PGSTREAM_KAFKA_TOPIC_AUTO_CREATE               | False   | No               | Auto creation of configured Kafka topic if it doesn't exist.                                        |
 | PGSTREAM_KAFKA_TLS_ENABLED                     | False   | No               | Enable TLS connection to the Kafka servers.                                                         |
@@ -289,6 +310,12 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 | PGSTREAM_KAFKA_WRITER_BATCH_SIZE               | 100     | No               | Max number of messages to be sent per batch. When this size is reached, the batch is sent to Kafka. |
 | PGSTREAM_KAFKA_WRITER_BATCH_IGNORE_SEND_ERRORS | False   | No               | Whether to ignore errors encountered while sending batches to the target.                           |
 | PGSTREAM_KAFKA_WRITER_MAX_QUEUE_BYTES          | 104857600 (100MiB) | No               | Max memory used by the Kafka batch writer for inflight batches.                                     |
+
+The partition key determines which partition an event is routed to, and therefore which events are consumed in order relative to each other:
+
+- `schema` (default): all events for a schema go to the same partition, guaranteeing ordering per schema, including between DDL and DML events. Parallelism is capped at the number of distinct schemas, so extra partitions don't help a single-schema database.
+- `table`: events are keyed by schema qualified table name, guaranteeing ordering per table. DDL events remain keyed by schema, so schema changes can be consumed out of order relative to the DML events of the tables they affect.
+- `primary_key`: events are keyed by schema qualified table name plus the row primary key values, guaranteeing ordering per row and allowing full use of the topic partitions. Requires the injector (`PGSTREAM_INJECTOR_STORE_POSTGRES_URL`) to identify primary key columns; events without an identifiable primary key fall back to `table` keying. As with `table`, DDL events remain keyed by schema and can be consumed out of order relative to DML.
 
 </details>
 
@@ -337,9 +364,18 @@ One of exponential/constant/disable retries backoff policies can be provided for
 | PGSTREAM_WEBHOOK_NOTIFIER_MAX_QUEUE_BYTES                  | 104857600 (100MiB) | No                 | Max memory used by the webhook notifier for inflight notifications.                                         |
 | PGSTREAM_WEBHOOK_NOTIFIER_WORKER_COUNT                     | 10      | No                 | Max number of concurrent workers that will send webhook notifications for a given WAL event.                |
 | PGSTREAM_WEBHOOK_NOTIFIER_CLIENT_TIMEOUT                   | 10s     | No                 | Max time the notifier will wait for a response from a webhook URL before timing out.                        |
+| PGSTREAM_WEBHOOK_NOTIFIER_EXP_BACKOFF_INITIAL_INTERVAL     | 1s      | No                 | Initial interval for the exponential backoff policy to be applied to failed webhook deliveries.             |
+| PGSTREAM_WEBHOOK_NOTIFIER_EXP_BACKOFF_MAX_INTERVAL         | 30s     | No                 | Max interval for the exponential backoff policy to be applied to failed webhook deliveries.                 |
+| PGSTREAM_WEBHOOK_NOTIFIER_EXP_BACKOFF_MAX_RETRIES          | 3       | No                 | Max retries for the exponential backoff policy to be applied to failed webhook deliveries.                  |
+| PGSTREAM_WEBHOOK_NOTIFIER_BACKOFF_INTERVAL                 | 0       | No                 | Constant interval for the backoff policy to be applied to failed webhook deliveries.                        |
+| PGSTREAM_WEBHOOK_NOTIFIER_BACKOFF_MAX_RETRIES              | 0       | No                 | Max retries for the backoff policy to be applied to failed webhook deliveries.                              |
+| PGSTREAM_WEBHOOK_NOTIFIER_DISABLE_RETRIES                  | False   | No                 | Disable any retry policy for failed webhook deliveries.                                                     |
+| PGSTREAM_WEBHOOK_NOTIFIER_STRICT_MODE                      | False   | No                 | Whether to stop the pipeline on a permanently failing webhook delivery instead of dropping it and continuing. It defaults to false. |
 | PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_ADDRESS               | ":9900" | No                 | Address for the subscription server to listen on.                                                           |
 | PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_READ_TIMEOUT          | 5s      | No                 | Max duration for reading an entire server request, including the body before timing out.                    |
 | PGSTREAM_WEBHOOK_SUBSCRIPTION_SERVER_WRITE_TIMEOUT         | 10s     | No                 | Max duration before timing out writes of the response. It is reset whenever a new request's header is read. |
+
+One of exponential/constant/disable retries backoff policies can be provided for the webhook notifier retry strategy. If none is provided, a default exponential backoff policy applies (1s initial interval, 30s max interval, 3 max retries). A 2xx response is treated as success; a 429 or 5xx response is retried; any other response (e.g. 4xx) is treated as a permanent failure and is not retried. A delivery that keeps failing with a retryable error after exhausting retries is not checkpointed, so it will be retried again after a restart. A delivery that permanently fails is logged and dropped instead by default, so a single misconfigured subscriber does not block delivery to other subscribers; set `strict_mode` to stop the pipeline on permanent failures instead, matching the at-least-once guarantee at the cost of availability.
 
 </details>
 
@@ -349,6 +385,7 @@ One of exponential/constant/disable retries backoff policies can be provided for
 | Environment Variable                                           | Default                         | Required | Description                                                                                                                                                                                                    |
 | -------------------------------------------------------------- | ------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PGSTREAM_POSTGRES_WRITER_TARGET_URL                            | N/A                             | Yes      | URL for the PostgreSQL store to connect to                                                                                                                                                                     |
+| PGSTREAM_POSTGRES_WRITER_MAX_CONNECTIONS                       | 50                              | No       | Maximum number of connections in the writer pool to the target PostgreSQL database. Overrides `pool_max_conns` in the target URL when set. The schema observer keeps its own pool, capped at 16 and never larger than this value, so the process opens at most this many plus 16.                                                                               |
 | PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT                         | 30s                             | No       | Max time interval at which the batch sending to PostgreSQL is triggered.                                                                                                                                       |
 | PGSTREAM_POSTGRES_WRITER_BATCH_SIZE                            | 20000                           | No       | Max number of messages to be sent per batch. When this size is reached, the batch is sent to PostgreSQL.                                                                                                       |
 | PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES                       | 104857600 (100MiB)              | No       | Max memory used by the postgres batch writer for inflight batches.                                                                                                                                             |
@@ -365,7 +402,9 @@ One of exponential/constant/disable retries backoff policies can be provided for
 | PGSTREAM_POSTGRES_WRITER_BACKOFF_INTERVAL                      | 0                               | No       | Constant interval for the backoff policy to be applied to the Postgres connection retries.                                                                                                                     |
 | PGSTREAM_POSTGRES_WRITER_BACKOFF_MAX_RETRIES                   | 0                               | No       | Max retries for the backoff policy to be applied to the Postgres connection retries.                                                                                                                           |
 | PGSTREAM_POSTGRES_WRITER_DISABLE_RETRIES                       | False                           | No       | Disable any retry policy.                                                                                                                                                                                      |
-| PGSTREAM_POSTGRES_WRITER_IGNORE_DDL                            | False                           | No       | Disable processing of DDL events on the target Postgres database.                                                                                                                                              |
+| PGSTREAM_POSTGRES_WRITER_IGNORE_DDL                            | False                           | No       | Disable processing of DDL events on the target Postgres database. Consider enabling if source and target roles have different trust levels (see [privileges](privileges.md)).                                    |
+| PGSTREAM_POSTGRES_WRITER_INCLUDE_DDL_OBJECT_TYPES              | []                              | No       | List of object type categories for which DDL is replicated. DDL for everything else is skipped. Mutually exclusive with `PGSTREAM_POSTGRES_WRITER_EXCLUDE_DDL_OBJECT_TYPES`, and ignored when `PGSTREAM_POSTGRES_WRITER_IGNORE_DDL` is true. See [object type filtering](#object-type-filtering). |
+| PGSTREAM_POSTGRES_WRITER_EXCLUDE_DDL_OBJECT_TYPES              | []                              | No       | List of object type categories for which DDL replication is skipped. Mutually exclusive with `PGSTREAM_POSTGRES_WRITER_INCLUDE_DDL_OBJECT_TYPES`, and ignored when `PGSTREAM_POSTGRES_WRITER_IGNORE_DDL` is true. See [object type filtering](#object-type-filtering).                            |
 | PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_ENABLE                | False                           | No       | Whether to enable auto tuning of batch bytes.                                                                                                                                                                  |
 | PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_MIN_BYTES             | 1048576 (1MB)                   | No       | Minimum batch size in bytes used by the auto tune process.                                                                                                                                                     |
 | PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_MAX_BYTES             | 52428800 (50MB)                 | No       | Maximum batch size in bytes used by the auto tune process.                                                                                                                                                     |
@@ -448,3 +487,34 @@ Exposes `/health` (liveness, always 200), `/ready` (readiness, pings the source 
 | PGSTREAM_HEALTH_CHECK_ADDRESS  | localhost:9910   | No       | Address the health server listens on. Use `:9910` or `0.0.0.0:9910` to expose externally (e.g. in k8s pods). |
 
 </details>
+
+## Object type filtering
+
+Both the schema snapshot and DDL replication can be restricted to a subset of database object types. Each side is configured independently, with an allowlist (`include_*`) or a denylist (`exclude_*`); setting both on the same side is rejected at startup, and so is an unknown category name.
+
+The available categories are:
+
+| Category             | Schema snapshot | DDL replication |
+| -------------------- | --------------- | --------------- |
+| `tables`             | ✅              | ✅              |
+| `sequences`          | ✅              | ✅              |
+| `types`              | ✅              | ✅              |
+| `indexes`            | ✅              | ✅              |
+| `constraints`        | ✅              | ✅              |
+| `functions`          | ✅              | ✅              |
+| `views`              | ✅              | ✅              |
+| `materialized_views` | ✅              | ✅              |
+| `triggers`           | ✅              | ✅              |
+| `event_triggers`     | ✅              | ✅              |
+| `policies`           | ✅              | ✅              |
+| `rules`              | ✅              | ✅              |
+| `extensions`         | ✅              | ✅              |
+| `collations`         | ✅              | ✅              |
+| `text_search`        | ✅              | ✅              |
+| `comments`           | ✅              | ❌              |
+
+Schemas themselves are never filtered out, since the remaining objects need their namespaces to exist.
+
+For DDL replication, a single statement can create objects of several types at once (`CREATE TABLE` with a primary key produces both a table and an index). Such an event is only skipped when *all* of its objects belong to excluded categories.
+
+> ⚠️ Filtering does not resolve dependencies between object types. Excluding a category that surviving objects depend on (for example excluding `types` while keeping tables with columns of those types) will make the snapshot or the DDL replay fail. Use this with a good understanding of your schema.

@@ -4,7 +4,9 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	pglib "github.com/xataio/pgstream/internal/postgres"
@@ -66,6 +68,15 @@ func (r *ctidReader) readTable(ctx context.Context, session *readSession, table 
 	}
 	table.rowSize = tableInfo.avgRowBytes
 
+	// an empty intersection must not fall back to SELECT *
+	columns, pinLost := readableColumns(table.columns, tableInfo.columns)
+	if pinLost {
+		return fmt.Errorf("%w: no captured column of %s.%s exists on the source",
+			ErrSchemaChangedDuringSnapshot,
+			pglib.UnquoteIdentifier(table.schema), pglib.UnquoteIdentifier(table.name))
+	}
+	table.columns = columns
+
 	// If one page range fails, we abort the entire table snapshot. The
 	// snapshot relies on the transaction snapshot id to ensure all workers
 	// have the same table view, which allows us to use the ctid to
@@ -101,7 +112,21 @@ func (r *ctidReader) snapshotTableRangeWorker(ctx context.Context, snapshotID st
 	return nil
 }
 
-var pageRangeQuery = "SELECT * FROM ONLY %s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'"
+const pageRangeQuery = "SELECT %s FROM ONLY %s WHERE ctid BETWEEN '(%d,0)' AND '(%d,0)'"
+
+// buildPageRangeQuery spells columns out.
+func buildPageRangeQuery(t *table, r pageRange) string {
+	quotedTable := pglib.QuoteQualifiedIdentifier(t.schema, t.name)
+	if len(t.columns) == 0 {
+		return fmt.Sprintf(pageRangeQuery, allColumns, quotedTable, r.start, r.end)
+	}
+
+	quotedColumns := make([]string, len(t.columns))
+	for i, column := range t.columns {
+		quotedColumns[i] = pglib.QuoteRawIdentifier(column)
+	}
+	return fmt.Sprintf(pageRangeQuery, strings.Join(quotedColumns, ", "), quotedTable, r.start, r.end)
+}
 
 func (r *ctidReader) snapshotTableRange(ctx context.Context, snapshotID string, table *table, pageRange pageRange) error {
 	return execInSnapshotTx(ctx, r.conn, snapshotID, func(tx pglib.Tx) error {
@@ -109,9 +134,14 @@ func (r *ctidReader) snapshotTableRange(ctx context.Context, snapshotID string, 
 			"schema": table.schema, "table": table.name, "snapshotID": snapshotID,
 		})
 
-		query := fmt.Sprintf(pageRangeQuery, pglib.QuoteQualifiedIdentifier(table.schema, table.name), pageRange.start, pageRange.end)
+		query := buildPageRangeQuery(table, pageRange)
 		rows, err := tx.Query(ctx, query)
 		if err != nil {
+			// something this query names vanished
+			var relationErr *pglib.ErrRelationDoesNotExist
+			if errors.As(err, &relationErr) {
+				return fmt.Errorf("%w: querying table rows: %w", ErrSchemaChangedDuringSnapshot, err)
+			}
 			return fmt.Errorf("querying table rows: %w", err)
 		}
 		defer rows.Close()
@@ -153,20 +183,28 @@ func (r *ctidReader) snapshotTableRange(ctx context.Context, snapshotID string, 
 	})
 }
 
+// tableInfoQuery shares the capture rule.
+var tableInfoQuery = fmt.Sprintf(tableInfoQueryFmt, pglib.SelectStarColumnPredicate)
+
 const (
 	// use pg_table_size instead of pg_total_relation_size since we only care about the size of the table itself and toast tables, not indices.
 	// pg_relation_size will return only the size of the table itself, without toast tables.
-	tableInfoQuery = `SELECT
+	tableInfoQueryFmt = `SELECT
   (pg_table_size(c.oid) / COALESCE(NULLIF(c.relpages, 0),1)) AS avg_page_size_bytes,
   CASE
 	WHEN c.reltuples > 0 THEN
 		ROUND(pg_table_size(c.oid) / c.reltuples)
 	ELSE
 		0
-  END AS avg_row_size
+  END AS avg_row_size,
+  ARRAY(
+    SELECT a.attname::text FROM pg_catalog.pg_attribute a
+    WHERE a.attrelid = c.oid AND %s
+    ORDER BY a.attnum
+  ) AS columns
 FROM
-  pg_class c
-  JOIN pg_namespace n ON n.oid = c.relnamespace
+  pg_catalog.pg_class c
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE
   c.relname = $1
   AND n.nspname = $2
@@ -183,7 +221,7 @@ func (r *ctidReader) getTableInfo(ctx context.Context, schemaName, tableName, sn
 		// make sure the schema and table names are unquoted since the system
 		// catalogs store unquoted names
 		err := tx.QueryRow(ctx,
-			[]any{&tableInfo.avgPageBytes, &tableInfo.avgRowBytes},
+			[]any{&tableInfo.avgPageBytes, &tableInfo.avgRowBytes, &tableInfo.columns},
 			tableInfoQuery,
 			pglib.UnquoteIdentifier(tableName),
 			pglib.UnquoteIdentifier(schemaName))

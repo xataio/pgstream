@@ -55,9 +55,12 @@ func (a *dmlAdapter) getIdentityColumns(d *wal.Data) ([]wal.Column, error) {
 // into as few queries as possible.
 //
 // Single PK: DELETE FROM t WHERE col = ANY($1::type[])
-// Composite PK: DELETE FROM t WHERE (a,b) IN (($1,$2),($3,$4),...) split at maxParamsPerQuery
+// Composite PK: DELETE FROM t WHERE (a,b) IN (SELECT * FROM unnest($1::a[], $2::b[]))
 // NULL identity values are handled as individual queries.
-func (a *dmlAdapter) buildBulkDeleteQuery(events []*wal.Data) ([]*query, error) {
+//
+// Identity columns whose type is a user-defined enum are bound as text[] and
+// cast back on the target instead, see bindAsText.
+func (a *dmlAdapter) buildBulkDeleteQuery(events []*wal.Data, si schemaInfo) ([]*query, error) {
 	if len(events) == 0 {
 		return nil, nil
 	}
@@ -111,24 +114,62 @@ func (a *dmlAdapter) buildBulkDeleteQuery(events []*wal.Data) ([]*query, error) 
 
 	if numPKCols == 1 {
 		// single PK: use ANY($1::type[])
-		q, err := a.buildBulkDeleteSinglePK(normalEvents, firstCols[0], tableName)
+		q, err := a.buildBulkDeleteSinglePK(normalEvents, firstCols[0], tableName, si)
 		if err != nil {
 			return nil, err
 		}
 		queries = append(queries, q)
 	} else {
-		// composite PK: use IN tuples, split at maxParamsPerQuery
-		qs, err := a.buildBulkDeleteCompositePK(normalEvents, numPKCols, tableName)
+		// composite PK: use unnest of one array per PK column
+		q, err := a.buildBulkDeleteCompositePK(normalEvents, numPKCols, tableName, si)
 		if err != nil {
 			return nil, err
 		}
-		queries = append(queries, qs...)
+		queries = append(queries, q)
 	}
 
 	return queries, nil
 }
 
-func (a *dmlAdapter) buildBulkDeleteSinglePK(events []*wal.Data, refCol wal.Column, tableName string) (*query, error) {
+// bindAsText reports whether the identity values for the given column must be
+// bound as a text[] parameter and cast back on the target, rather than bound
+// directly as an array of the column's own type. The returned enumColumn
+// carries the catalog-resolved cast information and is only meaningful when the
+// second return value is true.
+//
+// columnName must be quoted to match the enumColumns set.
+func bindAsText(columnName string, si schemaInfo) (enumColumn, bool) {
+	col, isEnum := si.enumColumns[columnName]
+	return col, isEnum
+}
+
+// enumComparison renders the comparison between an enum-resolving identity
+// column and a text[] parameter, casting whichever sides the column's shape
+// requires. Cast targets come from the target catalog (see enumColumn), never
+// from the replication stream, so they are safe to interpolate.
+func enumComparison(colName string, col enumColumn, param string) string {
+	switch {
+	case col.isArray:
+		// ANY unwraps one array level, which would compare the element type
+		// against an array-typed column ("operator does not exist:
+		// my_enum[] = my_enum"), so compare whole arrays with IN (SELECT ...).
+		return fmt.Sprintf("%s IN (SELECT unnest(%s::text[])::%s[])", colName, param, col.enumType)
+	case col.isDomain:
+		// the enum comparison operators are polymorphic over anyenum, which
+		// does not accept a domain, so the column side must be cast too. That
+		// forfeits a plain index on the column, but no index-friendly form
+		// exists: uncast, postgres reports "operator does not exist:
+		// my_domain = my_enum".
+		return fmt.Sprintf("%s::%s = ANY(%s::text[]::%s[])", colName, col.enumType, param, col.enumType)
+	default:
+		// the cast stays entirely on the parameter side, leaving the column
+		// side untouched so an index on it remains usable (verified: Index
+		// Cond: (col = ANY (('{...}'::text[])::my_enum[]))).
+		return fmt.Sprintf("%s = ANY(%s::text[]::%s[])", colName, param, col.enumType)
+	}
+}
+
+func (a *dmlAdapter) buildBulkDeleteSinglePK(events []*wal.Data, refCol wal.Column, tableName string, si schemaInfo) (*query, error) {
 	values := make([]any, 0, len(events))
 	for _, e := range events {
 		cols, err := a.getIdentityColumns(e)
@@ -139,8 +180,12 @@ func (a *dmlAdapter) buildBulkDeleteSinglePK(events []*wal.Data, refCol wal.Colu
 	}
 
 	colName := pglib.QuoteIdentifier(refCol.Name)
-	arrayType := pgArrayType(refCol.Type)
-	sql := fmt.Sprintf("DELETE FROM %s WHERE %s = ANY($1::%s)", tableName, colName, arrayType)
+	var sql string
+	if enumCol, isEnum := bindAsText(colName, si); isEnum {
+		sql = fmt.Sprintf("DELETE FROM %s WHERE %s", tableName, enumComparison(colName, enumCol, "$1"))
+	} else {
+		sql = fmt.Sprintf("DELETE FROM %s WHERE %s = ANY($1::%s)", tableName, colName, pgArrayType(refCol.Type))
+	}
 
 	return &query{
 		schema: events[0].Schema,
@@ -150,60 +195,94 @@ func (a *dmlAdapter) buildBulkDeleteSinglePK(events []*wal.Data, refCol wal.Colu
 	}, nil
 }
 
-func (a *dmlAdapter) buildBulkDeleteCompositePK(events []*wal.Data, numPKCols int, tableName string) ([]*query, error) {
-	var queries []*query
+// buildBulkDeleteCompositePK emits a single stack-safe DELETE for composite-PK
+// tables:
+//
+//	DELETE FROM t WHERE (a,b) IN (SELECT * FROM unnest($1::a[], $2::b[]))
+//
+// One array parameter is bound per PK column, so the parameter count is
+// constant (numPKCols) regardless of how many rows are deleted.
+//
+// Columns that must be bound as text[] (see bindAsText) are cast back inside
+// the unnest projection, which requires naming the unnest output columns:
+//
+//	DELETE FROM t WHERE (a,b) IN (SELECT c1,c2::my_enum FROM unnest($1::a[],$2::text[]) AS u(c1,c2))
+//
+// A domain over an enum additionally needs the column side cast, for the
+// anyenum reason described on enumComparison.
+func (a *dmlAdapter) buildBulkDeleteCompositePK(events []*wal.Data, numPKCols int, tableName string, si schemaInfo) (*query, error) {
+	// determine column names + types from the first event
+	firstCols, err := a.getIdentityColumns(events[0])
+	if err != nil {
+		return nil, err
+	}
 
-	// split events into chunks to stay under maxParamsPerQuery
-	eventsPerChunk := max(maxParamsPerQuery/numPKCols, 1)
+	colNames := make([]string, numPKCols)
+	unnestArgs := make([]string, numPKCols)
+	unnestAliases := make([]string, numPKCols)
+	selectItems := make([]string, numPKCols)
+	needsCast := false
+	// one array per PK column, gathered across all events
+	colValues := make([][]any, numPKCols)
+	for i, c := range firstCols {
+		colNames[i] = pglib.QuoteIdentifier(c.Name)
+		unnestAliases[i] = fmt.Sprintf("c%d", i+1)
+		enumCol, isEnum := bindAsText(colNames[i], si)
+		switch {
+		case !isEnum:
+			unnestArgs[i] = fmt.Sprintf("$%d::%s", i+1, pgArrayType(c.Type))
+			selectItems[i] = unnestAliases[i]
+		default:
+			needsCast = true
+			unnestArgs[i] = fmt.Sprintf("$%d::text[]", i+1)
+			castType := enumCol.enumType
+			if enumCol.isArray {
+				castType += "[]"
+			}
+			selectItems[i] = fmt.Sprintf("%s::%s", unnestAliases[i], castType)
+			if enumCol.isDomain && !enumCol.isArray {
+				colNames[i] = fmt.Sprintf("%s::%s", colNames[i], enumCol.enumType)
+			}
+		}
+		colValues[i] = make([]any, 0, len(events))
+	}
 
-	for start := 0; start < len(events); start += eventsPerChunk {
-		end := min(start+eventsPerChunk, len(events))
-		chunk := events[start:end]
-
-		// get column names from first event in chunk
-		firstCols, err := a.getIdentityColumns(chunk[0])
+	for _, e := range events {
+		cols, err := a.getIdentityColumns(e)
 		if err != nil {
 			return nil, err
 		}
-
-		colNames := make([]string, numPKCols)
-		for i, c := range firstCols {
-			colNames[i] = pglib.QuoteIdentifier(c.Name)
+		for i, c := range cols {
+			colValues[i] = append(colValues[i], serializeJSONBValue(c.Type, c.Value))
 		}
-
-		args := make([]any, 0, len(chunk)*numPKCols)
-		tuples := make([]string, 0, len(chunk))
-		paramIdx := 0
-
-		for _, e := range chunk {
-			cols, err := a.getIdentityColumns(e)
-			if err != nil {
-				return nil, err
-			}
-
-			placeholders := make([]string, numPKCols)
-			for i, c := range cols {
-				paramIdx++
-				placeholders[i] = fmt.Sprintf("$%d", paramIdx)
-				args = append(args, serializeJSONBValue(c.Type, c.Value))
-			}
-			tuples = append(tuples, fmt.Sprintf("(%s)", strings.Join(placeholders, ",")))
-		}
-
-		sql := fmt.Sprintf("DELETE FROM %s WHERE (%s) IN (%s)",
-			tableName,
-			strings.Join(colNames, ","),
-			strings.Join(tuples, ","))
-
-		queries = append(queries, &query{
-			schema: chunk[0].Schema,
-			table:  chunk[0].Table,
-			sql:    sql,
-			args:   args,
-		})
 	}
 
-	return queries, nil
+	args := make([]any, numPKCols)
+	for i := range colValues {
+		args[i] = colValues[i]
+	}
+
+	// only name the unnest output columns when a cast needs to reference them,
+	// so the emitted SQL is unchanged for tables without such columns.
+	unnestSelect := fmt.Sprintf("SELECT * FROM unnest(%s)", strings.Join(unnestArgs, ","))
+	if needsCast {
+		unnestSelect = fmt.Sprintf("SELECT %s FROM unnest(%s) AS u(%s)",
+			strings.Join(selectItems, ","),
+			strings.Join(unnestArgs, ","),
+			strings.Join(unnestAliases, ","))
+	}
+
+	sql := fmt.Sprintf("DELETE FROM %s WHERE (%s) IN (%s)",
+		tableName,
+		strings.Join(colNames, ","),
+		unnestSelect)
+
+	return &query{
+		schema: events[0].Schema,
+		table:  events[0].Table,
+		sql:    sql,
+		args:   args,
+	}, nil
 }
 
 // buildBulkInsertQueries coalesces multiple INSERT events for the same table
@@ -277,7 +356,7 @@ func (a *dmlAdapter) buildBulkInsertQueries(events []*wal.Data, si schemaInfo) [
 			schema:        events[0].Schema,
 			table:         events[0].Table,
 			columnNames:   names,
-			needsTextCopy: needsTextCopy(types),
+			needsTextCopy: needsTextCopyForColumns(names, types, si.enumColumns),
 			sql:           sql,
 			args:          args,
 		})

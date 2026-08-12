@@ -88,6 +88,10 @@ func (t *StringTransformer) Type() transformers.TransformerType {
 	return transformers.NeosyncString
 }
 
+func (t *StringTransformer) Uniqueness() transformers.Uniqueness {
+	return transformers.UniquenessNotGuaranteed
+}
+
 func (t *StringTransformer) Close() error {
 	return nil
 }
@@ -96,5 +100,6 @@ func StringTransformerDefinition() *transformers.Definition {
 	return &transformers.Definition{
 		SupportedTypes: stringCompatibleTypes,
 		Parameters:     stringParams,
+		Uniqueness:     transformers.UniquenessNotGuaranteed,
 	}
 }

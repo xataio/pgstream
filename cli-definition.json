@@ -43,6 +43,11 @@
           "default": "false"
         },
         {
+          "name": "source",
+          "description": "Run only checks that query the source database (ignores the configured target)",
+          "default": "false"
+        },
+        {
           "name": "target-url",
           "description": "Target URL to run checks against",
           "default": ""
@@ -76,6 +81,11 @@
           "default": ""
         },
         {
+          "name": "slot-only",
+          "description": "Whether to only drop the replication slot, leaving the pgstream schema and migrations in place",
+          "default": "false"
+        },
+        {
           "name": "with-injector",
           "description": "Whether to also destroy the injector related database objects",
           "default": "false"
@@ -104,6 +114,11 @@
           "name": "replication-slot",
           "description": "Name of the postgres replication slot to be created by pgstream on the source url",
           "default": ""
+        },
+        {
+          "name": "slot-only",
+          "description": "Whether to only create the replication slot, without running the database migrations. Useful when creating the slot on a read replica, where the migrations cannot be applied",
+          "default": "false"
         },
         {
           "name": "upgrade",
@@ -152,7 +167,7 @@
         },
         {
           "name": "reset",
-          "description": "Whether to reset the target before snapshotting (only for postgres target)",
+          "description": "Whether to reset the target before snapshotting (only for postgres target). Destructive: drops the target objects before the data is copied, so a failed snapshot leaves the target without its previous contents",
           "default": "false"
         },
         {
@@ -217,7 +232,7 @@
         },
         {
           "name": "reset",
-          "description": "Whether to reset the target before snapshotting (only for postgres target)",
+          "description": "Whether to reset the target before snapshotting (only for postgres target). Destructive: drops the target objects before the data is copied, so a failed snapshot leaves the target without its previous contents",
           "default": "false"
         },
         {

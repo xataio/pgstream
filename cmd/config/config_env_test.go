@@ -52,6 +52,7 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE", "pg_dump.sql")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_NO_OWNER", "true")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_MODE", "full")
+	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_INDEX_CONSTRAINT_SESSION_SETTINGS", "maintenance_work_mem=4GB max_parallel_maintenance_workers=4 synchronous_commit=off statement_timeout=0 lock_timeout=0")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_DISABLE_PROGRESS_TRACKING", "true")
 
 	os.Setenv("PGSTREAM_KAFKA_READER_SERVERS", "localhost:9092")
@@ -67,6 +68,7 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE", "/path/to/client.key")
 
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_TARGET_URL", "postgresql://user:password@localhost:5432/mytargetdatabase")
+	os.Setenv("PGSTREAM_POSTGRES_WRITER_MAX_CONNECTIONS", "60")
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_BATCH_SIZE", "100")
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT", "1s")
 	os.Setenv("PGSTREAM_POSTGRES_WRITER_MAX_QUEUE_BYTES", "204800")
