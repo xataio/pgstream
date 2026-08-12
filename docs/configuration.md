@@ -52,6 +52,10 @@ source:
             # - lock_timeout=0
             # - synchronous_commit=off # faster restore, but a target crash right after the restore can lose the final index/constraint commits
           dump_file: pg_dump.sql # name of the file where the contents of the schema pg_dump command and output will be written for debugging purposes.
+          # Granular object type filtering for schema snapshots. Only one of include_object_types or exclude_object_types can be set.
+          # Available categories: tables, sequences, types, indexes, constraints, functions, views, materialized_views, triggers, event_triggers, policies, rules, comments, extensions, collations, text_search
+          # include_object_types: ["tables", "sequences", "types"] # only include these object types in the schema snapshot
+          # exclude_object_types: ["functions", "views", "triggers"] # exclude these object types from the schema snapshot
       disable_progress_tracking: false # whether to disable progress tracking for the snapshot. Defaults to false
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
@@ -118,6 +122,10 @@ target:
         max_retries: 5 # maximum number of retries
         interval: 1000 # interval in milliseconds
     ignore_ddl: false # whether to disable processing of DDL events on the target Postgres database. Defaults to false. Consider enabling this if source and target roles have different trust levels (see docs/privileges.md).
+    # Selective DDL object type filtering for replication. Only one of include_ddl_object_types or exclude_ddl_object_types can be set. Ignored if ignore_ddl is true.
+    # Available categories: tables, sequences, types, indexes, constraints, functions, views, materialized_views, triggers, event_triggers, policies, rules, extensions, collations, text_search
+    # include_ddl_object_types: ["tables", "sequences", "types"] # only replicate DDL for these object types
+    # exclude_ddl_object_types: ["functions", "views", "triggers"] # skip DDL replication for these object types
   kafka:
     servers: ["localhost:9092"]
     topic:
@@ -237,6 +245,8 @@ Here's a list of all the environment variables that can be used to configure the
 | PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_SECURITY_LABELS     | []                           | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, list of providers whose security labels will be excluded.                                                                                                                                                                         |
 | PGSTREAM_POSTGRES_SNAPSHOT_REFRESH_MATERIALIZED_VIEWS   | False                        | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, whether to refresh materialized views (REFRESH MATERIALIZED VIEW ... WITH DATA) after the table data has been restored.                                                                                                            |
 | PGSTREAM_POSTGRES_SNAPSHOT_INDEX_CONSTRAINT_SESSION_SETTINGS | []                       | No       | Space-separated PostgreSQL `name=value` session settings applied only while restoring indexes and constraints, for example `maintenance_work_mem=4GB max_parallel_maintenance_workers=4`. Each setting must be a whitespace-free `name=value` pair; invalid entries fail at startup. Unset or empty preserves existing behavior.                                           |
+| PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_OBJECT_TYPES         | []                           | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, list of object type categories to include in the schema snapshot. Everything else is excluded. Mutually exclusive with `PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDE_OBJECT_TYPES`. See [object type filtering](#object-type-filtering).      |
+| PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDE_OBJECT_TYPES         | []                           | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, list of object type categories to exclude from the schema snapshot. Mutually exclusive with `PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_OBJECT_TYPES`. See [object type filtering](#object-type-filtering).                                 |
 | PGSTREAM_POSTGRES_SNAPSHOT_ROLE                         | ""                           | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, role name to be used to create the dump.                                                                                                                                                                                          |
 | PGSTREAM_POSTGRES_SNAPSHOT_ROLES_SNAPSHOT_MODE          | "no_passwords"               | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, controls how roles are snapshotted. Possible values: "enabled" (snapshot all roles including passwords), "disabled" (do not snapshot roles), "no_passwords" (snapshot roles but exclude passwords).                               |
 | PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_DUMP_FILE             | ""                           | No       | When using `pg_dump`/`pg_restore` to snapshot schema for Postgres targets, file where the contents of the schema pg_dump command and output will be written for debugging purposes.                                                                                                                          |
@@ -393,6 +403,8 @@ One of exponential/constant/disable retries backoff policies can be provided for
 | PGSTREAM_POSTGRES_WRITER_BACKOFF_MAX_RETRIES                   | 0                               | No       | Max retries for the backoff policy to be applied to the Postgres connection retries.                                                                                                                           |
 | PGSTREAM_POSTGRES_WRITER_DISABLE_RETRIES                       | False                           | No       | Disable any retry policy.                                                                                                                                                                                      |
 | PGSTREAM_POSTGRES_WRITER_IGNORE_DDL                            | False                           | No       | Disable processing of DDL events on the target Postgres database. Consider enabling if source and target roles have different trust levels (see [privileges](privileges.md)).                                    |
+| PGSTREAM_POSTGRES_WRITER_INCLUDE_DDL_OBJECT_TYPES              | []                              | No       | List of object type categories for which DDL is replicated. DDL for everything else is skipped. Mutually exclusive with `PGSTREAM_POSTGRES_WRITER_EXCLUDE_DDL_OBJECT_TYPES`, and ignored when `PGSTREAM_POSTGRES_WRITER_IGNORE_DDL` is true. See [object type filtering](#object-type-filtering). |
+| PGSTREAM_POSTGRES_WRITER_EXCLUDE_DDL_OBJECT_TYPES              | []                              | No       | List of object type categories for which DDL replication is skipped. Mutually exclusive with `PGSTREAM_POSTGRES_WRITER_INCLUDE_DDL_OBJECT_TYPES`, and ignored when `PGSTREAM_POSTGRES_WRITER_IGNORE_DDL` is true. See [object type filtering](#object-type-filtering).                            |
 | PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_ENABLE                | False                           | No       | Whether to enable auto tuning of batch bytes.                                                                                                                                                                  |
 | PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_MIN_BYTES             | 1048576 (1MB)                   | No       | Minimum batch size in bytes used by the auto tune process.                                                                                                                                                     |
 | PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_MAX_BYTES             | 52428800 (50MB)                 | No       | Maximum batch size in bytes used by the auto tune process.                                                                                                                                                     |
@@ -475,3 +487,34 @@ Exposes `/health` (liveness, always 200), `/ready` (readiness, pings the source 
 | PGSTREAM_HEALTH_CHECK_ADDRESS  | localhost:9910   | No       | Address the health server listens on. Use `:9910` or `0.0.0.0:9910` to expose externally (e.g. in k8s pods). |
 
 </details>
+
+## Object type filtering
+
+Both the schema snapshot and DDL replication can be restricted to a subset of database object types. Each side is configured independently, with an allowlist (`include_*`) or a denylist (`exclude_*`); setting both on the same side is rejected at startup, and so is an unknown category name.
+
+The available categories are:
+
+| Category             | Schema snapshot | DDL replication |
+| -------------------- | --------------- | --------------- |
+| `tables`             | ✅              | ✅              |
+| `sequences`          | ✅              | ✅              |
+| `types`              | ✅              | ✅              |
+| `indexes`            | ✅              | ✅              |
+| `constraints`        | ✅              | ✅              |
+| `functions`          | ✅              | ✅              |
+| `views`              | ✅              | ✅              |
+| `materialized_views` | ✅              | ✅              |
+| `triggers`           | ✅              | ✅              |
+| `event_triggers`     | ✅              | ✅              |
+| `policies`           | ✅              | ✅              |
+| `rules`              | ✅              | ✅              |
+| `extensions`         | ✅              | ✅              |
+| `collations`         | ✅              | ✅              |
+| `text_search`        | ✅              | ✅              |
+| `comments`           | ✅              | ❌              |
+
+Schemas themselves are never filtered out, since the remaining objects need their namespaces to exist.
+
+For DDL replication, a single statement can create objects of several types at once (`CREATE TABLE` with a primary key produces both a table and an index). Such an event is only skipped when *all* of its objects belong to excluded categories.
+
+> ⚠️ Filtering does not resolve dependencies between object types. Excluding a category that surviving objects depend on (for example excluding `types` while keeping tables with columns of those types) will make the snapshot or the DDL replay fail. Use this with a good understanding of your schema.
