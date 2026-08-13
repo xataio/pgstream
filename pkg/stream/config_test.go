@@ -7,11 +7,61 @@ import (
 
 	"github.com/stretchr/testify/require"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
+	pgdumprestore "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/adapter"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/filter"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
+
+func TestConfig_SnapshotRestoresRoles(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cfg  *Config
+		want bool
+	}{
+		{name: "no postgres listener", cfg: &Config{}},
+		{
+			name: "no snapshot configuration",
+			cfg:  &Config{Listener: ListenerConfig{Postgres: &PostgresListenerConfig{}}},
+		},
+		{
+			name: "enabled",
+			cfg:  configWithRolesSnapshotMode("enabled"),
+			want: true,
+		},
+		{
+			name: "no passwords",
+			cfg:  configWithRolesSnapshotMode("no_passwords"),
+			want: true,
+		},
+		{name: "disabled", cfg: configWithRolesSnapshotMode("disabled")},
+		{name: "empty mode", cfg: configWithRolesSnapshotMode("")},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, tc.cfg.SnapshotRestoresRoles())
+		})
+	}
+}
+
+func configWithRolesSnapshotMode(mode string) *Config {
+	return &Config{
+		Listener: ListenerConfig{
+			Postgres: &PostgresListenerConfig{
+				Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+					Schema: &snapshotbuilder.SchemaSnapshotConfig{
+						DumpRestore: &pgdumprestore.Config{RolesSnapshotMode: mode},
+					},
+				},
+			},
+		},
+	}
+}
 
 func TestConfig_ReplicationTableSelection(t *testing.T) {
 	t.Parallel()

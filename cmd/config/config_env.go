@@ -71,9 +71,12 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_SECURITY_LABELS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_REFRESH_MATERIALIZED_VIEWS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_INDEX_CONSTRAINT_SESSION_SETTINGS")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_OBJECT_TYPES")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDE_OBJECT_TYPES")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_DISABLE_PROGRESS_TRACKING")
 
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_TARGET_URL")
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_MAX_CONNECTIONS")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_BYTES")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_BATCH_SIZE")
@@ -95,6 +98,8 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_DISABLE_RETRIES")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_IGNORE_DDL")
 	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_STRICT_MODE")
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_INCLUDE_DDL_OBJECT_TYPES")
+	viper.BindEnv("PGSTREAM_POSTGRES_WRITER_EXCLUDE_DDL_OBJECT_TYPES")
 
 	viper.BindEnv("PGSTREAM_KAFKA_READER_SERVERS")
 	viper.BindEnv("PGSTREAM_KAFKA_WRITER_SERVERS")
@@ -180,11 +185,20 @@ func envToOtelConfig() (*otel.Config, error) {
 	cfg := &otel.Config{}
 
 	metricsEndpoint := viper.GetString("PGSTREAM_METRICS_ENDPOINT")
-	if metricsEndpoint != "" {
-		cfg.Metrics = &otel.MetricsConfig{
-			Endpoint:           metricsEndpoint,
-			CollectionInterval: viper.GetDuration("PGSTREAM_METRICS_COLLECTION_INTERVAL"),
+	prometheusEnabled := viper.GetBool("PGSTREAM_METRICS_PROMETHEUS_ENABLED")
+	if metricsEndpoint != "" || prometheusEnabled {
+		metricsCfg := &otel.MetricsConfig{}
+		if metricsEndpoint != "" {
+			metricsCfg.Endpoint = metricsEndpoint
+			metricsCfg.CollectionInterval = viper.GetDuration("PGSTREAM_METRICS_COLLECTION_INTERVAL")
 		}
+		if prometheusEnabled {
+			metricsCfg.Prometheus = &otel.PrometheusConfig{
+				Enabled:  prometheusEnabled,
+				Endpoint: viper.GetString("PGSTREAM_METRICS_PROMETHEUS_ENDPOINT"),
+			}
+		}
+		cfg.Metrics = metricsCfg
 	}
 
 	tracesEndpoint := viper.GetString("PGSTREAM_TRACES_ENDPOINT")
@@ -364,6 +378,8 @@ func parseSchemaSnapshotConfig(pgurl string) (*snapshotbuilder.SchemaSnapshotCon
 			ExcludedSecurityLabels:         viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_SECURITY_LABELS"),
 			RefreshMaterializedViews:       viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_REFRESH_MATERIALIZED_VIEWS"),
 			IndexConstraintSessionSettings: viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_INDEX_CONSTRAINT_SESSION_SETTINGS"),
+			IncludeObjectTypes:             viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_OBJECT_TYPES"),
+			ExcludeObjectTypes:             viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDE_OBJECT_TYPES"),
 		},
 	}, nil
 }
@@ -591,7 +607,8 @@ func parsePostgresProcessorConfig() (*stream.PostgresProcessorConfig, error) {
 	bulkIngestEnabled := viper.GetBool("PGSTREAM_POSTGRES_WRITER_BULK_INGEST_ENABLED")
 	cfg := &stream.PostgresProcessorConfig{
 		BatchWriter: postgres.Config{
-			URL: targetPostgresURL,
+			URL:            targetPostgresURL,
+			MaxConnections: viper.GetUint("PGSTREAM_POSTGRES_WRITER_MAX_CONNECTIONS"),
 			BatchConfig: batch.Config{
 				BatchTimeout:     viper.GetDuration("PGSTREAM_POSTGRES_WRITER_BATCH_TIMEOUT"),
 				MaxBatchBytes:    maxBatchBytes,
@@ -605,12 +622,14 @@ func parsePostgresProcessorConfig() (*stream.PostgresProcessorConfig, error) {
 					ConvergenceThreshold: viper.GetFloat64("PGSTREAM_POSTGRES_WRITER_BATCH_AUTO_TUNE_CONVERGENCE_THRESHOLD"),
 				},
 			},
-			DisableTriggers:   viper.GetBool("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS"),
-			OnConflictAction:  viper.GetString("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION"),
-			BulkIngestEnabled: bulkIngestEnabled,
-			RetryPolicy:       parseBackoffConfig("PGSTREAM_POSTGRES_WRITER"),
-			IgnoreDDL:         viper.GetBool("PGSTREAM_POSTGRES_WRITER_IGNORE_DDL"),
-			StrictMode:        viper.GetBool("PGSTREAM_POSTGRES_WRITER_STRICT_MODE"),
+			DisableTriggers:       viper.GetBool("PGSTREAM_POSTGRES_WRITER_DISABLE_TRIGGERS"),
+			OnConflictAction:      viper.GetString("PGSTREAM_POSTGRES_WRITER_ON_CONFLICT_ACTION"),
+			BulkIngestEnabled:     bulkIngestEnabled,
+			RetryPolicy:           parseBackoffConfig("PGSTREAM_POSTGRES_WRITER"),
+			IgnoreDDL:             viper.GetBool("PGSTREAM_POSTGRES_WRITER_IGNORE_DDL"),
+			StrictMode:            viper.GetBool("PGSTREAM_POSTGRES_WRITER_STRICT_MODE"),
+			IncludeDDLObjectTypes: viper.GetStringSlice("PGSTREAM_POSTGRES_WRITER_INCLUDE_DDL_OBJECT_TYPES"),
+			ExcludeDDLObjectTypes: viper.GetStringSlice("PGSTREAM_POSTGRES_WRITER_EXCLUDE_DDL_OBJECT_TYPES"),
 		},
 	}
 

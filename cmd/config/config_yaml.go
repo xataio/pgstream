@@ -43,8 +43,14 @@ type HealthConfig struct {
 }
 
 type MetricsConfig struct {
-	Endpoint           string `mapstructure:"endpoint" yaml:"endpoint"`
-	CollectionInterval int    `mapstructure:"collection_interval" yaml:"collection_interval"`
+	Prometheus         *PrometheusConfig `mapstructure:"prometheus" yaml:"prometheus"`
+	Endpoint           string            `mapstructure:"endpoint" yaml:"endpoint"`
+	CollectionInterval int               `mapstructure:"collection_interval" yaml:"collection_interval"`
+}
+
+type PrometheusConfig struct {
+	Enabled  bool   `mapstructure:"enabled" yaml:"enabled"`
+	Endpoint string `mapstructure:"endpoint" yaml:"endpoint"`
 }
 
 type TracesConfig struct {
@@ -132,6 +138,8 @@ type PgDumpPgRestoreConfig struct {
 	ExcludedSecurityLabels         []string `mapstructure:"excluded_security_labels" yaml:"excluded_security_labels"`
 	RefreshMaterializedViews       bool     `mapstructure:"refresh_materialized_views" yaml:"refresh_materialized_views"`
 	IndexConstraintSessionSettings []string `mapstructure:"index_constraint_session_settings" yaml:"index_constraint_session_settings"`
+	IncludeObjectTypes             []string `mapstructure:"include_object_types" yaml:"include_object_types"`
+	ExcludeObjectTypes             []string `mapstructure:"exclude_object_types" yaml:"exclude_object_types"`
 }
 
 type ReplicationConfig struct {
@@ -190,14 +198,17 @@ type ConstantBackoffConfig struct {
 }
 
 type PostgresTargetConfig struct {
-	URL              string            `mapstructure:"url" yaml:"url"`
-	Batch            *BatchConfig      `mapstructure:"batch" yaml:"batch"`
-	BulkIngest       *BulkIngestConfig `mapstructure:"bulk_ingest" yaml:"bulk_ingest"`
-	DisableTriggers  bool              `mapstructure:"disable_triggers" yaml:"disable_triggers"`
-	OnConflictAction string            `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
-	RetryPolicy      BackoffConfig     `mapstructure:"retry_policy" yaml:"retry_policy"`
-	IgnoreDDL        bool              `mapstructure:"ignore_ddl" yaml:"ignore_ddl"`
-	StrictMode       bool              `mapstructure:"strict_mode" yaml:"strict_mode"`
+	URL                   string            `mapstructure:"url" yaml:"url"`
+	MaxConnections        uint              `mapstructure:"max_connections" yaml:"max_connections"`
+	Batch                 *BatchConfig      `mapstructure:"batch" yaml:"batch"`
+	BulkIngest            *BulkIngestConfig `mapstructure:"bulk_ingest" yaml:"bulk_ingest"`
+	DisableTriggers       bool              `mapstructure:"disable_triggers" yaml:"disable_triggers"`
+	OnConflictAction      string            `mapstructure:"on_conflict_action" yaml:"on_conflict_action"`
+	RetryPolicy           BackoffConfig     `mapstructure:"retry_policy" yaml:"retry_policy"`
+	IgnoreDDL             bool              `mapstructure:"ignore_ddl" yaml:"ignore_ddl"`
+	StrictMode            bool              `mapstructure:"strict_mode" yaml:"strict_mode"`
+	IncludeDDLObjectTypes []string          `mapstructure:"include_ddl_object_types" yaml:"include_ddl_object_types"`
+	ExcludeDDLObjectTypes []string          `mapstructure:"exclude_ddl_object_types" yaml:"exclude_ddl_object_types"`
 }
 
 type KafkaTargetConfig struct {
@@ -405,10 +416,18 @@ func (c *InstrumentationConfig) toHealthConfig() *health.Config {
 func (c *InstrumentationConfig) toOtelConfig() (*otel.Config, error) {
 	cfg := &otel.Config{}
 	if c.Metrics != nil {
-		cfg.Metrics = &otel.MetricsConfig{
+		metricsCfg := &otel.MetricsConfig{
 			Endpoint:           c.Metrics.Endpoint,
 			CollectionInterval: time.Duration(c.Metrics.CollectionInterval) * time.Second,
+			Prometheus:         nil,
 		}
+		if c.Metrics.Prometheus != nil {
+			metricsCfg.Prometheus = &otel.PrometheusConfig{
+				Enabled:  c.Metrics.Prometheus.Enabled,
+				Endpoint: c.Metrics.Prometheus.Endpoint,
+			}
+		}
+		cfg.Metrics = metricsCfg
 	}
 
 	if c.Traces != nil {
@@ -638,6 +657,8 @@ func (c *YAMLConfig) parseSchemaSnapshotConfig() (*snapshotbuilder.SchemaSnapsho
 		streamSchemaCfg.DumpRestore.ExcludedSecurityLabels = schemaSnapshotCfg.PgDumpPgRestore.ExcludedSecurityLabels
 		streamSchemaCfg.DumpRestore.RefreshMaterializedViews = schemaSnapshotCfg.PgDumpPgRestore.RefreshMaterializedViews
 		streamSchemaCfg.DumpRestore.IndexConstraintSessionSettings = schemaSnapshotCfg.PgDumpPgRestore.IndexConstraintSessionSettings
+		streamSchemaCfg.DumpRestore.IncludeObjectTypes = schemaSnapshotCfg.PgDumpPgRestore.IncludeObjectTypes
+		streamSchemaCfg.DumpRestore.ExcludeObjectTypes = schemaSnapshotCfg.PgDumpPgRestore.ExcludeObjectTypes
 
 		var err error
 		streamSchemaCfg.DumpRestore.RolesSnapshotMode, err = getRolesSnapshotMode(schemaSnapshotCfg.PgDumpPgRestore.RolesSnapshotMode)
@@ -704,13 +725,16 @@ func (c *YAMLConfig) parsePostgresProcessorConfig() *stream.PostgresProcessorCon
 
 	cfg := &stream.PostgresProcessorConfig{
 		BatchWriter: postgres.Config{
-			URL:              c.Target.Postgres.URL,
-			BatchConfig:      c.Target.Postgres.Batch.parseBatchConfig(),
-			DisableTriggers:  c.Target.Postgres.DisableTriggers,
-			OnConflictAction: c.Target.Postgres.OnConflictAction,
-			RetryPolicy:      c.Target.Postgres.RetryPolicy.parseBackoffConfig(),
-			IgnoreDDL:        c.Target.Postgres.IgnoreDDL,
-			StrictMode:       c.Target.Postgres.StrictMode,
+			URL:                   c.Target.Postgres.URL,
+			MaxConnections:        c.Target.Postgres.MaxConnections,
+			BatchConfig:           c.Target.Postgres.Batch.parseBatchConfig(),
+			DisableTriggers:       c.Target.Postgres.DisableTriggers,
+			OnConflictAction:      c.Target.Postgres.OnConflictAction,
+			RetryPolicy:           c.Target.Postgres.RetryPolicy.parseBackoffConfig(),
+			IgnoreDDL:             c.Target.Postgres.IgnoreDDL,
+			StrictMode:            c.Target.Postgres.StrictMode,
+			IncludeDDLObjectTypes: c.Target.Postgres.IncludeDDLObjectTypes,
+			ExcludeDDLObjectTypes: c.Target.Postgres.ExcludeDDLObjectTypes,
 		},
 	}
 

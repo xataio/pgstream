@@ -14,6 +14,7 @@ import (
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 	synclib "github.com/xataio/pgstream/internal/sync"
+	"github.com/xataio/pgstream/pkg/backoff"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -487,4 +488,95 @@ func TestBulkIngestWriter_sendBatch_copyBudget(t *testing.T) {
 
 	require.NoError(t, eg.Wait())
 	require.Equal(t, int32(budget), maxActive.Load(), "concurrent COPYs must not exceed the budget")
+}
+
+func TestCopyBudgetSize(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		maxConnections int32
+		expected       int64
+	}{
+		{name: "default pool", maxConnections: pglib.MaxConns, expected: 45},
+		{name: "configured pool", maxConnections: 12, expected: 7},
+		{name: "reserve matches pool", maxConnections: copyBudgetReserve, expected: 1},
+		{name: "pool smaller than reserve", maxConnections: 2, expected: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.expected, copyBudgetSize(tt.maxConnections))
+		})
+	}
+}
+
+func TestNewBulkIngestWriter_maxConnections(t *testing.T) {
+	tests := []struct {
+		name             string
+		url              string
+		maxConnections   uint
+		expected         int32
+		expectedObserver int32
+	}{
+		{
+			name:             "connection URL",
+			url:              "postgresql://user:password@localhost:5432/database?pool_max_conns=12",
+			expected:         12,
+			expectedObserver: 12,
+		},
+		{
+			name:             "writer config overrides connection URL",
+			url:              "postgresql://user:password@localhost:5432/database?pool_max_conns=12",
+			maxConnections:   20,
+			expected:         20,
+			expectedObserver: maxObserverConnections,
+		},
+		{
+			name:             "observer capped below the writer pool",
+			url:              "postgresql://user:password@localhost:5432/database",
+			maxConnections:   200,
+			expected:         200,
+			expectedObserver: maxObserverConnections,
+		},
+		{
+			name:             "observer never exceeds the writer pool",
+			url:              "postgresql://user:password@localhost:5432/database",
+			maxConnections:   2,
+			expected:         2,
+			expectedObserver: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			writer, err := NewBulkIngestWriter(t.Context(), &Config{
+				URL:            tt.url,
+				MaxConnections: tt.maxConnections,
+				RetryPolicy:    backoff.Config{DisableRetries: true},
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, writer.Close()) })
+
+			writerPool, ok := writer.pgConn.(*pglib.Pool)
+			require.True(t, ok)
+			require.Equal(t, tt.expected, writerPool.Config().MaxConns)
+
+			adapter, ok := writer.adapter.(*adapter)
+			require.True(t, ok)
+			observer, ok := adapter.schemaObserver.(*pgSchemaObserver)
+			require.True(t, ok)
+			observerPool, ok := observer.pgConn.(*pglib.Pool)
+			require.True(t, ok)
+			require.Equal(t, tt.expectedObserver, observerPool.Config().MaxConns)
+
+			budget := copyBudgetSize(tt.expected)
+			for range budget {
+				require.True(t, writer.copyBudget.TryAcquire(1))
+			}
+			require.False(t, writer.copyBudget.TryAcquire(1))
+			writer.copyBudget.Release(budget)
+		})
+	}
 }

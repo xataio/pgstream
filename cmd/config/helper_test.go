@@ -132,7 +132,8 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 		Processor: stream.ProcessorConfig{
 			Postgres: &stream.PostgresProcessorConfig{
 				BatchWriter: postgres.Config{
-					URL: "postgresql://user:password@localhost:5432/mytargetdatabase",
+					URL:            "postgresql://user:password@localhost:5432/mytargetdatabase",
+					MaxConnections: 60,
 					BatchConfig: batch.Config{
 						MaxBatchSize:     100,
 						BatchTimeout:     time.Second,

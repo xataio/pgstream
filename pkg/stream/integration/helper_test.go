@@ -151,7 +151,7 @@ func startPhaseHealthServer(t *testing.T, tracker *phase.Tracker) (statusURL str
 	addr := ln.Addr().String()
 	require.NoError(t, ln.Close())
 
-	srv := health.NewServer(health.Config{Address: addr},
+	srv := health.NewServer(health.Config{Address: addr}, nil,
 		health.WithVersion("test"),
 		health.WithPhaseProvider(func() string {
 			return string(tracker.Get())
@@ -386,6 +386,20 @@ func withFilter(filterCfg *filter.Config) option {
 	return func(cfg *stream.ProcessorConfig) {
 		cfg.Filter = filterCfg
 	}
+}
+
+func withDDLObjectTypeFilter(include []string) option {
+	return func(cfg *stream.ProcessorConfig) {
+		if cfg.Postgres != nil {
+			cfg.Postgres.BatchWriter.IncludeDDLObjectTypes = include
+		}
+	}
+}
+
+func testPostgresListenerCfgWithSnapshotAndFilter(sourceURL, targetURL string, tables []string, includeObjectTypes []string) stream.ListenerConfig {
+	cfg := testPostgresListenerCfgWithSnapshot(sourceURL, targetURL, tables)
+	cfg.Postgres.Snapshot.Schema.DumpRestore.IncludeObjectTypes = includeObjectTypes
+	return cfg
 }
 
 func testPostgresProcessorCfg(opts ...option) stream.ProcessorConfig {

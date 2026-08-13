@@ -26,6 +26,7 @@ type Writer struct {
 	writerType      string
 	disableTriggers bool
 	strictMode      bool
+	maxConnections  int32
 
 	droppedQueries       atomic.Uint64
 	instrumentation      *otel.Instrumentation
@@ -49,11 +50,18 @@ type walMessageBatchSender interface {
 type WriterOption func(*Writer)
 
 func newWriter(ctx context.Context, config *Config, writerType string, opts ...WriterOption) (*Writer, error) {
+	poolOpts := config.poolOptions()
+	maxConnections, err := pglib.ConnPoolMaxConnections(config.URL, poolOpts...)
+	if err != nil {
+		return nil, err
+	}
+
 	w := &Writer{
 		logger:          loglib.NewNoopLogger(),
 		writerType:      writerType,
 		disableTriggers: config.DisableTriggers,
 		strictMode:      config.StrictMode,
+		maxConnections:  maxConnections,
 		dropped:         batch.NewDroppedCounter(),
 	}
 
@@ -78,14 +86,13 @@ func newWriter(ctx context.Context, config *Config, writerType string, opts ...W
 		w.logger.Info("strict_mode is disabled: non-internal query failures will be dropped and counted rather than stopping the pipeline")
 	}
 
-	var err error
 	if config.RetryPolicy.DisableRetries {
-		w.pgConn, err = pglib.NewConnPool(ctx, config.URL)
+		w.pgConn, err = pglib.NewConnPool(ctx, config.URL, poolOpts...)
 	} else {
 		// unless retries are disabled, wrap the Postgres querier with a retrier
 		// and apply default retry policy if none is set
 		w.pgConn, err = pglibretrier.NewQuerier(ctx, config.retryPolicy(), func(ctx context.Context) (pglib.Querier, error) {
-			return pglib.NewConnPool(ctx, config.URL)
+			return pglib.NewConnPool(ctx, config.URL, poolOpts...)
 		}, w.logger)
 	}
 	if err != nil {
@@ -94,7 +101,7 @@ func newWriter(ctx context.Context, config *Config, writerType string, opts ...W
 
 	forCopy := writerType == bulkIngestWriter
 
-	w.adapter, err = newAdapter(ctx, w.logger, config, forCopy)
+	w.adapter, err = newAdapter(ctx, w.logger, config, forCopy, w.maxConnections)
 	if err != nil {
 		return nil, err
 	}

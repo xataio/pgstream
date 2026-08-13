@@ -51,6 +51,10 @@ source:
             # - lock_timeout=0
             # - synchronous_commit=off # faster restore, but a target crash right after the restore can lose the final index/constraint commits
           dump_file: pg_dump.sql # name of the file where the contents of the schema pg_dump command and output will be written for debugging purposes.
+          # Granular object type filtering for schema snapshots. Only one of include_object_types or exclude_object_types can be set.
+          # Available categories: tables, sequences, types, indexes, constraints, functions, views, materialized_views, triggers, event_triggers, policies, rules, comments, extensions, collations, text_search
+          # include_object_types: ["tables", "sequences", "types"] # only include these object types in the schema snapshot
+          # exclude_object_types: ["functions", "views", "triggers"] # exclude these object types from the schema snapshot
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
       plugin:
@@ -79,6 +83,7 @@ source:
 target:
   postgres:
     url: "postgresql://user:password@localhost:5432/mytargetdatabase"
+    max_connections: 50 # maximum number of connections in the writer pool to the target database. Defaults to 50; overrides pool_max_conns in the URL when set. The schema observer keeps its own pool, capped at 16 and never larger than this value, so the process opens at most this many plus 16.
     batch:
       timeout: 1000 # batch timeout in milliseconds. Defaults to 30s
       size: 100 # number of messages in a batch. Defaults to 20000
@@ -93,6 +98,11 @@ target:
     schema_log_store_url: "postgresql://user:password@localhost:5432/mydatabase" # url to the postgres database where the schema log is stored to be used when performing schema change diffs
     disable_triggers: false # whether to disable triggers on the target database. Defaults to false
     on_conflict_action: "nothing" # options are update, nothing or error. Defaults to error
+    ignore_ddl: false # whether to skip all DDL replication. Defaults to false
+    # Selective DDL object type filtering for replication. Only one of include_ddl_object_types or exclude_ddl_object_types can be set. Ignored if ignore_ddl is true.
+    # Available categories: tables, sequences, types, indexes, constraints, functions, views, materialized_views, triggers, event_triggers, policies, rules, extensions, collations, text_search
+    # include_ddl_object_types: ["tables", "sequences", "types"] # only replicate DDL for these object types
+    # exclude_ddl_object_types: ["functions", "views", "triggers"] # skip DDL replication for these object types
     bulk_ingest:
       enabled: true # whether to enable bulk ingest on the target postgres, using COPY FROM (supported for insert only workloads)
       copy_workers: 8 # number of concurrent COPY streams per table when bulk ingesting. Defaults to 8. Only applies when bulk_ingest.enabled is true.
