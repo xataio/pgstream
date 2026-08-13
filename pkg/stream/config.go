@@ -12,6 +12,7 @@ import (
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
+	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/filter"
@@ -246,6 +247,60 @@ func (c *Config) restoreConflictTargetsBeforeData() bool {
 	}
 	bw := c.Processor.Postgres.BatchWriter
 	return !bw.BulkIngestEnabled && strings.EqualFold(bw.OnConflictAction, "update")
+}
+
+// the row visible layers addProcessorModifiers wraps;
+// instrumentation is excluded, it cannot change a row
+func (c *ProcessorConfig) rowVisibleModifiers() []string {
+	var names []string
+	if c.Transformer != nil {
+		names = append(names, "transformer")
+	}
+	if c.Injector != nil {
+		names = append(names, "injector")
+	}
+	if c.Filter != nil {
+		names = append(names, "filter")
+	}
+	// only wrapped when stripping
+	if c.Sanitize != nil && c.Sanitize.StripNullCharBytes {
+		names = append(names, "sanitizer")
+	}
+	return names
+}
+
+// the reason gets logged
+func (c *Config) snapshotCopyPassthroughEligible() (bool, string) {
+	if c.Processor.Postgres == nil {
+		return false, "target is not postgres"
+	}
+	if !c.Processor.Postgres.BatchWriter.BulkIngestEnabled {
+		return false, "bulk ingest is disabled"
+	}
+	if c.Listener.Postgres == nil || c.Listener.Postgres.Snapshot == nil || c.Listener.Postgres.Snapshot.Data == nil {
+		return false, "no postgres data snapshot configured"
+	}
+	if blockers := c.Processor.rowVisibleModifiers(); len(blockers) > 0 {
+		return false, fmt.Sprintf("these layers need to see every row: %s", strings.Join(blockers, ", "))
+	}
+	return true, ""
+}
+
+// takes the bypassed writer's settings
+func (c *Config) applySnapshotCopyPassthrough() (bool, string) {
+	eligible, reason := c.snapshotCopyPassthroughEligible()
+	if !eligible {
+		return false, reason
+	}
+
+	target := c.Processor.Postgres.BatchWriter
+	c.Listener.Postgres.Snapshot.Data.CopyPassthrough = &pgsnapshotgenerator.CopyPassthroughConfig{
+		TargetURL:       target.URL,
+		DisableTriggers: target.DisableTriggers,
+		MaxConnections:  target.MaxConnections,
+		RetryPolicy:     target.EffectiveRetryPolicy(),
+	}
+	return true, ""
 }
 
 // applySnapshotRawJSONValues enables raw (text) decoding of json/jsonb values

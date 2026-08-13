@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -18,6 +19,9 @@ type Tx interface {
 	Exec(ctx context.Context, query string, args ...any) (CommandTag, error)
 	CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
 	CopyFromText(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
+	// CopyFrom is taken
+	CopyToWriter(ctx context.Context, w io.Writer, sql string) (int64, error)
+	CopyFromReader(ctx context.Context, r io.Reader, sql string) (int64, error)
 }
 
 type TxIsolationLevel string
@@ -218,6 +222,25 @@ func writeCopyTextEscaped(buf *bytes.Buffer, b []byte) {
 	if start < len(b) {
 		buf.Write(b[start:])
 	}
+}
+
+// caller owns sql and FORMAT
+func (t *Txn) CopyToWriter(ctx context.Context, w io.Writer, sql string) (int64, error) {
+	tag, err := t.Conn().PgConn().CopyTo(ctx, w, sql)
+	if err != nil {
+		// surfaces a vanished relation
+		return -1, MapError(err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// server rejects FORMAT mismatch
+func (t *Txn) CopyFromReader(ctx context.Context, r io.Reader, sql string) (int64, error) {
+	tag, err := t.Conn().PgConn().CopyFrom(ctx, r, sql)
+	if err != nil {
+		return -1, MapError(err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func toTxOptions(opts TxOptions) pgx.TxOptions {

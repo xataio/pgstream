@@ -416,7 +416,7 @@ func TestBulkIngestWriter_sendBatch(t *testing.T) {
 					pgConn:          tc.pgConn,
 					disableTriggers: tc.disableTriggers,
 				},
-				copyBudget: synclib.NewWeightedSemaphore(pglib.MaxConns - copyBudgetReserve),
+				copyBudget: synclib.NewWeightedSemaphore(pglib.MaxConns - synclib.CopyBudgetReserve),
 			}
 
 			err := writer.sendBatch(context.Background(), tc.batch)
@@ -500,14 +500,14 @@ func TestCopyBudgetSize(t *testing.T) {
 	}{
 		{name: "default pool", maxConnections: pglib.MaxConns, expected: 45},
 		{name: "configured pool", maxConnections: 12, expected: 7},
-		{name: "reserve matches pool", maxConnections: copyBudgetReserve, expected: 1},
+		{name: "reserve matches pool", maxConnections: synclib.CopyBudgetReserve, expected: 1},
 		{name: "pool smaller than reserve", maxConnections: 2, expected: 1},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tt.expected, copyBudgetSize(tt.maxConnections))
+			require.Equal(t, tt.expected, synclib.CopyBudgetSize(tt.maxConnections))
 		})
 	}
 }
@@ -571,7 +571,7 @@ func TestNewBulkIngestWriter_maxConnections(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, tt.expectedObserver, observerPool.Config().MaxConns)
 
-			budget := copyBudgetSize(tt.expected)
+			budget := synclib.CopyBudgetSize(tt.expected)
 			for range budget {
 				require.True(t, writer.copyBudget.TryAcquire(1))
 			}

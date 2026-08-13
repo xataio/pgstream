@@ -2,6 +2,11 @@
 
 package postgres
 
+import (
+	pglib "github.com/xataio/pgstream/internal/postgres"
+	"github.com/xataio/pgstream/pkg/backoff"
+)
+
 type Config struct {
 	// Postgres connection URL. Required.
 	URL string
@@ -30,6 +35,17 @@ type Config struct {
 	// expect unmarshalled values. This setting is derived from the stream
 	// configuration for postgres targets, not set by users.
 	RawJSONValues bool
+	// derived from stream config
+	CopyPassthrough *CopyPassthroughConfig
+}
+
+// the generator writes the target
+type CopyPassthroughConfig struct {
+	TargetURL       string
+	DisableTriggers bool
+	// 0 defers to the url
+	MaxConnections uint
+	RetryPolicy    backoff.Config
 }
 
 const (
@@ -39,6 +55,17 @@ const (
 	defaultBatchBytes      = 80 * 1024 * 1024 // 80 MiB
 	defaultMaxConnections  = 50
 )
+
+// array_recv ignores user-defined OID mismatch
+// needs target schema from source
+const copyFormat = " WITH (FORMAT binary)"
+
+func (c *CopyPassthroughConfig) poolOptions() []pglib.PoolOption {
+	if c.MaxConnections == 0 {
+		return nil
+	}
+	return []pglib.PoolOption{pglib.WithMaxConnections(int32(c.MaxConnections))}
+}
 
 func (c *Config) batchBytes() uint64 {
 	if c.BatchBytes > 0 {

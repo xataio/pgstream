@@ -44,6 +44,8 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 	// Listener
 
 	config.applySnapshotRawJSONValues()
+	passthrough, passthroughReason := config.applySnapshotCopyPassthrough()
+	logCopyPassthrough(logger, passthrough, passthroughReason)
 	snapshotGenerator, err := snapshotbuilder.NewSnapshotGenerator(
 		ctx,
 		config.Listener.Postgres.Snapshot,
