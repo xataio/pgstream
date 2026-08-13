@@ -790,6 +790,13 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		case strings.HasPrefix(line, "ALTER TABLE") && isClusterOnAlterTable(line):
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
+		case isAttachPartitionIndexStatement(line):
+			// ATTACH PARTITION references the parent index, which is created in
+			// the indices and constraints section. Restored in place it runs
+			// before that index exists, fails with "relation does not exist",
+			// and is never retried, leaving the parent index invalid.
+			indicesAndConstraints.WriteString(line)
+			indicesAndConstraints.WriteString("\n\n")
 		case strings.HasPrefix(line, "ALTER TABLE") && strings.Contains(line, "REPLICA IDENTITY"):
 			// REPLICA IDENTITY lines should be in the indicesAndConstraints section
 			// since they reference constraints/indices that are also there
@@ -979,6 +986,14 @@ func materializedViewRefreshDump(connectStatements, materializedViews []string) 
 func isIndexStatement(line string) bool {
 	return strings.HasPrefix(line, "CREATE INDEX") ||
 		strings.HasPrefix(line, "CREATE UNIQUE INDEX")
+}
+
+// isAttachPartitionIndexStatement reports whether the line attaches a partition
+// index to its parent. pg_dump emits these for partitioned tables, after the
+// CREATE INDEX statements they depend on.
+func isAttachPartitionIndexStatement(line string) bool {
+	return strings.HasPrefix(line, "ALTER INDEX") &&
+		strings.Contains(line, "ATTACH PARTITION")
 }
 
 func materializedViewName(line string) (string, bool) {
