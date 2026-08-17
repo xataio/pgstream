@@ -41,6 +41,8 @@ const (
 //   - hot_standby_feedback=on stops the primary from vacuuming away catalog
 //     rows the logical decoder on the standby still needs. Without it the
 //     standby's logical slot is invalidated by recovery conflicts.
+//   - output_plugin_libraries=wal2json is required on Postgres 17.11+ before
+//     REPLICATION users may create a logical slot with wal2json on the standby.
 //
 // The PG_VERSION guard keeps the script idempotent, so a container restart
 // re-execs postgres against the existing data directory rather than trying to
@@ -58,6 +60,8 @@ if [ ! -s "$PGDATA/PG_VERSION" ]; then
   {
     echo "wal_level = logical"
     echo "hot_standby_feedback = on"
+    echo "shared_preload_libraries = 'wal2json'"
+    echo "output_plugin_libraries = 'wal2json'"
   } >> "$PGDATA/postgresql.auto.conf"
 fi
 exec gosu postgres postgres
@@ -122,6 +126,8 @@ func SetupPostgresPrimaryReplica(ctx context.Context, primaryURL, replicaURL *st
 		Cmd: []string{
 			"postgres",
 			"-c", "wal_level=logical",
+			"-c", "shared_preload_libraries=wal2json",
+			"-c", "output_plugin_libraries=wal2json",
 			"-c", "max_wal_senders=10",
 			"-c", "max_replication_slots=10",
 			"-c", "hot_standby=on",
