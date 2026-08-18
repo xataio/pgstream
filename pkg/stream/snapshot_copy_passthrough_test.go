@@ -3,69 +3,38 @@
 package stream
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/filter"
-	"github.com/xataio/pgstream/pkg/wal/processor/injector"
+	"github.com/xataio/pgstream/pkg/wal/processor/mocks"
 	pgwriter "github.com/xataio/pgstream/pkg/wal/processor/postgres"
 	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 )
 
-// select a writer, not a layer
-var targetFields = map[string]struct{}{
-	"Kafka":    {},
-	"Search":   {},
-	"Webhook":  {},
-	"Postgres": {},
-	"Stdout":   {},
-}
-
-// each enables its layer alone
-var modifierFields = map[string]func(*ProcessorConfig){
-	"Transformer": func(c *ProcessorConfig) { c.Transformer = &transformer.Config{} },
-	"Injector":    func(c *ProcessorConfig) { c.Injector = &injector.Config{} },
-	"Filter":      func(c *ProcessorConfig) { c.Filter = &filter.Config{} },
-	"Sanitize":    func(c *ProcessorConfig) { c.Sanitize = &SanitizeConfig{StripNullCharBytes: true} },
-}
-
-// unclassified layers get bypassed
-func TestProcessorConfig_allFieldsClassified(t *testing.T) {
-	t.Parallel()
-
-	cfgType := reflect.TypeOf(ProcessorConfig{})
-	for i := range cfgType.NumField() {
-		name := cfgType.Field(i).Name
-		_, isTarget := targetFields[name]
-		_, isModifier := modifierFields[name]
-		switch {
-		case isTarget && isModifier:
-			t.Errorf("ProcessorConfig field %q is classified as both a target and a modifier", name)
-		case !isTarget && !isModifier:
-			t.Errorf("unclassified ProcessorConfig field %q: add it to targetFields if it selects a target "+
-				"writer, or to modifierFields and have rowVisibleModifiers report it, after deciding whether "+
-				"the layer needs to see every row", name)
-		}
-	}
-}
-
-// with allFieldsClassified, fails closed
+// every row visible layer must block it
 func TestConfig_snapshotCopyPassthroughEligible_blockedByEveryModifier(t *testing.T) {
 	t.Parallel()
 
-	for name, enable := range modifierFields {
+	// injector is left out: injector.New dials the source
+	modifiers := map[string]func(*ProcessorConfig){
+		"transformer": func(c *ProcessorConfig) { c.Transformer = &transformer.Config{} },
+		"filter":      func(c *ProcessorConfig) { c.Filter = &filter.Config{IncludeTables: []string{"*"}} },
+		"sanitizer":   func(c *ProcessorConfig) { c.Sanitize = &SanitizeConfig{StripNullCharBytes: true} },
+	}
+
+	for name, enable := range modifiers {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			config := newPassthroughEligibleConfig()
 			enable(&config.Processor)
 
-			eligible, reason := config.snapshotCopyPassthroughEligible()
-			require.False(t, eligible, "%s must block the copy passthrough", name)
-			require.Contains(t, reason, "need to see every row")
+			require.False(t, config.snapshotCopyPassthroughEligible(newTestChain(t, config)),
+				"%s must block the copy passthrough", name)
 		})
 	}
 }
@@ -74,10 +43,10 @@ func TestConfig_snapshotCopyPassthroughEligible(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		build   func(*Config)
-		want    bool
-		wantErr string
+		name  string
+		build func(*Config)
+
+		want bool
 	}{
 		{
 			name:  "postgres target with bulk ingest and no modifiers",
@@ -85,34 +54,21 @@ func TestConfig_snapshotCopyPassthroughEligible(t *testing.T) {
 			want:  true,
 		},
 		{
-			name:    "non postgres target",
-			build:   func(c *Config) { c.Processor.Postgres = nil },
-			wantErr: "target is not postgres",
+			name:  "non postgres target",
+			build: func(c *Config) { c.Processor.Postgres = nil },
 		},
 		{
-			name:    "bulk ingest disabled",
-			build:   func(c *Config) { c.Processor.Postgres.BatchWriter.BulkIngestEnabled = false },
-			wantErr: "bulk ingest is disabled",
+			name:  "bulk ingest disabled",
+			build: func(c *Config) { c.Processor.Postgres.BatchWriter.BulkIngestEnabled = false },
 		},
 		{
-			name:    "no data snapshot configured",
-			build:   func(c *Config) { c.Listener.Postgres.Snapshot.Data = nil },
-			wantErr: "no postgres data snapshot configured",
+			name:  "no data snapshot configured",
+			build: func(c *Config) { c.Listener.Postgres.Snapshot.Data = nil },
 		},
 		{
-			name: "sanitizer that strips nothing does not block",
-			build: func(c *Config) {
-				c.Processor.Sanitize = &SanitizeConfig{StripNullCharBytes: false}
-			},
-			want: true,
-		},
-		{
-			name: "every modifier is named in the reason",
-			build: func(c *Config) {
-				c.Processor.Transformer = &transformer.Config{}
-				c.Processor.Filter = &filter.Config{}
-			},
-			wantErr: "these layers need to see every row: transformer, filter",
+			name:  "a sanitizer that strips nothing is never wrapped",
+			build: func(c *Config) { c.Processor.Sanitize = &SanitizeConfig{} },
+			want:  true,
 		},
 	}
 
@@ -123,11 +79,7 @@ func TestConfig_snapshotCopyPassthroughEligible(t *testing.T) {
 			config := newPassthroughEligibleConfig()
 			tc.build(config)
 
-			eligible, reason := config.snapshotCopyPassthroughEligible()
-			require.Equal(t, tc.want, eligible)
-			if tc.wantErr != "" {
-				require.Equal(t, tc.wantErr, reason)
-			}
+			require.Equal(t, tc.want, config.snapshotCopyPassthroughEligible(newTestChain(t, config)))
 		})
 	}
 }
@@ -142,9 +94,7 @@ func TestConfig_applySnapshotCopyPassthrough(t *testing.T) {
 		config.Processor.Postgres.BatchWriter.DisableTriggers = true
 		config.Processor.Postgres.BatchWriter.MaxConnections = 25
 
-		applied, reason := config.applySnapshotCopyPassthrough()
-		require.True(t, applied)
-		require.Empty(t, reason)
+		require.True(t, config.applySnapshotCopyPassthrough(newTestChain(t, config)))
 
 		require.Equal(t, &pgsnapshotgenerator.CopyPassthroughConfig{
 			TargetURL:       "postgresql://target",
@@ -160,18 +110,27 @@ func TestConfig_applySnapshotCopyPassthrough(t *testing.T) {
 		config := newPassthroughEligibleConfig()
 		config.Processor.Transformer = &transformer.Config{}
 
-		applied, reason := config.applySnapshotCopyPassthrough()
-		require.False(t, applied)
-		require.Contains(t, reason, "transformer")
+		require.False(t, config.applySnapshotCopyPassthrough(newTestChain(t, config)))
 		require.Nil(t, config.Listener.Postgres.Snapshot.Data.CopyPassthrough)
 	})
+}
+
+// assembled the way the pipeline assembles it
+func newTestChain(t *testing.T, config *Config) *processorChain {
+	t.Helper()
+
+	chain, closer, err := addProcessorModifiers(t.Context(), config, loglib.NewNoopLogger(),
+		&mocks.Processor{}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, closer()) })
+	return chain
 }
 
 func newPassthroughEligibleConfig() *Config {
 	return &Config{
 		Listener: ListenerConfig{
 			Postgres: &PostgresListenerConfig{
-				URL: "postgresql://source",
+				// empty: a source url makes the transformer layer dial it
 				Snapshot: &builder.SnapshotListenerConfig{
 					Data: &pgsnapshotgenerator.Config{URL: "postgresql://source"},
 				},

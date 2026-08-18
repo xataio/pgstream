@@ -249,48 +249,21 @@ func (c *Config) restoreConflictTargetsBeforeData() bool {
 	return !bw.BulkIngestEnabled && strings.EqualFold(bw.OnConflictAction, "update")
 }
 
-// the row visible layers addProcessorModifiers wraps;
-// instrumentation is excluded, it cannot change a row
-func (c *ProcessorConfig) rowVisibleModifiers() []string {
-	var names []string
-	if c.Transformer != nil {
-		names = append(names, "transformer")
-	}
-	if c.Injector != nil {
-		names = append(names, "injector")
-	}
-	if c.Filter != nil {
-		names = append(names, "filter")
-	}
-	// only wrapped when stripping
-	if c.Sanitize != nil && c.Sanitize.StripNullCharBytes {
-		names = append(names, "sanitizer")
-	}
-	return names
-}
-
-// the reason gets logged
-func (c *Config) snapshotCopyPassthroughEligible() (bool, string) {
-	if c.Processor.Postgres == nil {
-		return false, "target is not postgres"
-	}
-	if !c.Processor.Postgres.BatchWriter.BulkIngestEnabled {
-		return false, "bulk ingest is disabled"
+// the chain is the authority on what reads rows
+func (c *Config) snapshotCopyPassthroughEligible(chain *processorChain) bool {
+	if c.Processor.Postgres == nil || !c.Processor.Postgres.BatchWriter.BulkIngestEnabled {
+		return false
 	}
 	if c.Listener.Postgres == nil || c.Listener.Postgres.Snapshot == nil || c.Listener.Postgres.Snapshot.Data == nil {
-		return false, "no postgres data snapshot configured"
+		return false
 	}
-	if blockers := c.Processor.rowVisibleModifiers(); len(blockers) > 0 {
-		return false, fmt.Sprintf("these layers need to see every row: %s", strings.Join(blockers, ", "))
-	}
-	return true, ""
+	return !chain.hasRowVisibleLayers()
 }
 
 // takes the bypassed writer's settings
-func (c *Config) applySnapshotCopyPassthrough() (bool, string) {
-	eligible, reason := c.snapshotCopyPassthroughEligible()
-	if !eligible {
-		return false, reason
+func (c *Config) applySnapshotCopyPassthrough(chain *processorChain) bool {
+	if !c.snapshotCopyPassthroughEligible(chain) {
+		return false
 	}
 
 	target := c.Processor.Postgres.BatchWriter
@@ -300,7 +273,7 @@ func (c *Config) applySnapshotCopyPassthrough() (bool, string) {
 		MaxConnections:  target.MaxConnections,
 		RetryPolicy:     target.EffectiveRetryPolicy(),
 	}
-	return true, ""
+	return true
 }
 
 // applySnapshotRawJSONValues enables raw (text) decoding of json/jsonb values

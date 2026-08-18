@@ -33,16 +33,6 @@ import (
 
 type closerFn func() error
 
-// the fallback is otherwise invisible
-func logCopyPassthrough(logger loglib.Logger, enabled bool, reason string) {
-	if enabled {
-		logger.Info("snapshot copy passthrough enabled: rows will be streamed to the target without being decoded")
-		return
-	}
-	logger.Info("snapshot copy passthrough disabled, rows will be decoded and processed individually",
-		loglib.Fields{"reason": reason})
-}
-
 type processorType int
 
 const (

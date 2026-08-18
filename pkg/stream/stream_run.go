@@ -146,8 +146,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 			}
 
 			config.applySnapshotRawJSONValues()
-			passthrough, passthroughReason := config.applySnapshotCopyPassthrough()
-			logCopyPassthrough(logger, passthrough, passthroughReason)
+			config.applySnapshotCopyPassthrough(snapshotChain)
 			snapshotGenerator, err := snapshotbuilder.NewSnapshotGenerator(
 				ctx,
 				config.Listener.Postgres.Snapshot,
