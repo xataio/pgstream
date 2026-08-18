@@ -35,18 +35,11 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 
 	// Processor
 
-	processor, err := buildProcessor(ctx, logger, &config.Processor, nil, processorTypeSnapshot, instrumentation)
-	if err != nil {
-		return err
-	}
-	defer processor.Close()
-
-	var closer closerFn
-	processor, closer, err = addProcessorModifiers(ctx, config, logger, processor, instrumentation)
-	if err != nil {
-		return err
-	}
+	chain, closer, err := newProcessor(ctx, logger, config, nil, processorTypeSnapshot, instrumentation)
 	defer closer()
+	if err != nil {
+		return err
+	}
 
 	// Listener
 
@@ -54,7 +47,7 @@ func Snapshot(ctx context.Context, logger loglib.Logger, config *Config, instrum
 	snapshotGenerator, err := snapshotbuilder.NewSnapshotGenerator(
 		ctx,
 		config.Listener.Postgres.Snapshot,
-		processor,
+		chain.processor,
 		logger,
 		instrumentation,
 		config.restoreConflictTargetsBeforeData())
