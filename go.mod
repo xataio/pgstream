@@ -40,7 +40,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/elasticsearch v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/kafka v0.43.0
 	github.com/testcontainers/testcontainers-go/modules/opensearch v0.44.0
-	github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0
+	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5
 	github.com/tink-crypto/tink-go/v2 v2.7.0
