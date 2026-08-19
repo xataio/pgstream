@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
+	pglibretrier "github.com/xataio/pgstream/internal/postgres/retrier"
 	"github.com/xataio/pgstream/internal/progress"
 	synclib "github.com/xataio/pgstream/internal/sync"
 	loglib "github.com/xataio/pgstream/pkg/log"
@@ -42,6 +43,14 @@ type SnapshotGenerator struct {
 	// Function called for processing produced rows.
 	processor              processor.Processor
 	tableSnapshotGenerator snapshotTableFn
+
+	instrumentation *otel.Instrumentation
+
+	// set only with the copy passthrough
+	passthrough *CopyPassthroughConfig
+	targetConn  pglib.Querier
+	// the bypassed writer caps COPYs too
+	copyBudget synclib.WeightedSemaphore
 
 	progressTracking   bool
 	progressBars       *synclib.Map[string, progress.Bar]
@@ -78,6 +87,8 @@ type table struct {
 	rowSize int64
 	// one list per page range
 	columns []string
+	// the target computes these itself
+	generatedColumns []string
 }
 
 type snapshotTableFn func(ctx context.Context, snapshotID string, table *table) error
@@ -112,7 +123,92 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, processor processor.
 
 	sg.adapter = newAdapter(pglib.NewMapper(conn), sg.logger)
 
+	if cfg.CopyPassthrough != nil {
+		if err := sg.setupCopyPassthrough(ctx, cfg.CopyPassthrough); err != nil {
+			return nil, errors.Join(err, conn.Close(ctx))
+		}
+	}
+
 	return sg, nil
+}
+
+func (sg *SnapshotGenerator) setupCopyPassthrough(ctx context.Context, cfg *CopyPassthroughConfig) error {
+	if cfg.TargetURL == "" {
+		return errMissingCopyPassthroughTarget
+	}
+
+	poolOpts := cfg.poolOptions()
+	maxConnections, err := pglib.ConnPoolMaxConnections(cfg.TargetURL, poolOpts...)
+	if err != nil {
+		return fmt.Errorf("resolving copy passthrough target connections: %w", err)
+	}
+
+	var targetConn pglib.Querier
+	if cfg.RetryPolicy.DisableRetries {
+		targetConn, err = pglib.NewConnPool(ctx, cfg.TargetURL, poolOpts...)
+	} else {
+		targetConn, err = pglibretrier.NewQuerier(ctx, cfg.RetryPolicy, func(ctx context.Context) (pglib.Querier, error) {
+			return pglib.NewConnPool(ctx, cfg.TargetURL, poolOpts...)
+		}, sg.logger)
+	}
+	if err != nil {
+		return fmt.Errorf("connecting to copy passthrough target: %w", err)
+	}
+
+	if sg.instrumentation.IsEnabled() {
+		targetConn, err = pglibinstrumentation.NewQuerier(targetConn, sg.instrumentation)
+		if err != nil {
+			return errors.Join(fmt.Errorf("instrumenting copy passthrough target: %w", err), targetConn.Close(ctx))
+		}
+	}
+
+	if err := targetConn.Ping(ctx); err != nil {
+		return errors.Join(fmt.Errorf("pinging copy passthrough target: %w", err), targetConn.Close(ctx))
+	}
+
+	sg.passthrough = cfg
+	sg.targetConn = targetConn
+	sg.copyBudget = synclib.NewWeightedSemaphore(synclib.CopyBudgetSize(maxConnections))
+
+	return nil
+}
+
+const targetGeneratedColumnsQuery = `SELECT a.attname::text
+FROM pg_catalog.pg_attribute a
+  JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relname = $1 AND n.nspname = $2 AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated <> ''
+ORDER BY a.attnum`
+
+// the target rejects these, so the target decides
+func (sg *SnapshotGenerator) targetGeneratedColumns(ctx context.Context, schema, name string) ([]string, error) {
+	rows, err := sg.targetConn.Query(ctx, targetGeneratedColumnsQuery,
+		pglib.UnquoteIdentifier(name), pglib.UnquoteIdentifier(schema))
+	if err != nil {
+		return nil, fmt.Errorf("getting target generated columns for %s.%s: %w", schema, name, err)
+	}
+	defer rows.Close()
+
+	var generated []string
+	for rows.Next() {
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			return nil, fmt.Errorf("scanning target generated column: %w", err)
+		}
+		generated = append(generated, column)
+	}
+	return generated, rows.Err()
+}
+
+func (sg *SnapshotGenerator) usesCopyPassthrough(table *table) bool {
+	return sg.passthrough != nil && table.hasCopyableColumns()
+}
+
+func (sg *SnapshotGenerator) snapshotRange(ctx context.Context, tx pglib.Tx, table *table, r pageRange) (int64, error) {
+	if sg.usesCopyPassthrough(table) {
+		return sg.copyPassthroughRange(ctx, tx, table, r)
+	}
+	return sg.processTableRange(ctx, tx, table, r)
 }
 
 func WithLogger(logger loglib.Logger) Option {
@@ -126,6 +222,7 @@ func WithLogger(logger loglib.Logger) Option {
 func WithInstrumentation(i *otel.Instrumentation) Option {
 	return func(sg *SnapshotGenerator) {
 		var err error
+		sg.instrumentation = i
 		sg.conn, err = pglibinstrumentation.NewQuerier(sg.conn, i)
 		if err != nil {
 			// this should never happen
@@ -196,7 +293,11 @@ func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sn
 }
 
 func (sg *SnapshotGenerator) Close() error {
-	return sg.conn.Close(context.Background())
+	err := sg.conn.Close(context.Background())
+	if sg.targetConn != nil {
+		err = errors.Join(err, sg.targetConn.Close(context.Background()))
+	}
+	return err
 }
 
 func (sg *SnapshotGenerator) createSchemaSnapshot(ctx context.Context, schemaTables *schemaTables) error {
@@ -354,6 +455,13 @@ func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID strin
 			pglib.UnquoteIdentifier(table.schema), pglib.UnquoteIdentifier(table.name))
 	}
 	table.columns = columns
+	if sg.passthrough != nil {
+		generated, err := sg.targetGeneratedColumns(ctx, table.schema, table.name)
+		if err != nil {
+			return err
+		}
+		table.generatedColumns = generated
+	}
 
 	// If one page range fails, we abort the entire table snapshot. The
 	// snapshot relies on the transaction snapshot id to ensure all workers
@@ -407,54 +515,28 @@ func buildPageRangeQuery(t *table, r pageRange) string {
 }
 
 func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID string, table *table, pageRange pageRange) error {
+	// held outside the source tx, not inside it
+	if sg.usesCopyPassthrough(table) {
+		if err := sg.copyBudget.Acquire(ctx, 1); err != nil {
+			return fmt.Errorf("acquiring copy budget: %w", err)
+		}
+		defer sg.copyBudget.Release(1)
+	}
+
 	return sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
 		sg.logger.Debug(fmt.Sprintf("querying table page range %d-%d", pageRange.start, pageRange.end), loglib.Fields{
 			"schema": table.schema, "table": table.name, "snapshotID": snapshotID,
 		})
 
-		query := buildPageRangeQuery(table, pageRange)
-		rows, err := tx.Query(ctx, query)
+		rowCount, err := sg.snapshotRange(ctx, tx, table, pageRange)
 		if err != nil {
-			// something this query names vanished
-			var relationErr *pglib.ErrRelationDoesNotExist
-			if errors.As(err, &relationErr) {
-				return fmt.Errorf("%w: querying table rows: %w", ErrSchemaChangedDuringSnapshot, err)
-			}
-			return fmt.Errorf("querying table rows: %w", err)
-		}
-		defer rows.Close()
-
-		// resolve the column metadata (names/types) and timestamp once per page
-		// range, since the field descriptions are identical for every row in the
-		// result set.
-		rowAdapter := sg.adapter.newRowEventAdapter(ctx, table.schema, table.name, rows.FieldDescriptions())
-		rowCount := uint(0)
-		for rows.Next() {
-			rowCount++
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-				values, err := rows.Values()
-				if err != nil {
-					return fmt.Errorf("retrieving rows values: %w", err)
-				}
-
-				event := rowAdapter.rowToWalEvent(values)
-				if event == nil {
-					continue
-				}
-
-				if err := sg.processor.ProcessWALEvent(ctx, event); err != nil {
-					return fmt.Errorf("processing snapshot row: %w", err)
-				}
-			}
+			return err
 		}
 
 		if sg.progressTracking {
 			bar, found := sg.progressBars.Get(table.schema)
 			if found {
-				bar.Add64(int64(rowCount) * table.rowSize)
+				bar.Add64(rowCount * table.rowSize)
 			}
 		}
 
@@ -462,8 +544,55 @@ func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID 
 			"schema": table.schema, "table": table.name, "snapshotID": snapshotID,
 		})
 
-		return rows.Err()
+		return nil
 	})
+}
+
+func (sg *SnapshotGenerator) processTableRange(ctx context.Context, tx pglib.Tx, table *table, pageRange pageRange) (int64, error) {
+	query := buildPageRangeQuery(table, pageRange)
+	rows, err := tx.Query(ctx, query)
+	if err != nil {
+		return 0, wrapPageRangeQueryError(err)
+	}
+	defer rows.Close()
+
+	// resolve the column metadata (names/types) and timestamp once per page
+	// range, since the field descriptions are identical for every row in the
+	// result set.
+	rowAdapter := sg.adapter.newRowEventAdapter(ctx, table.schema, table.name, rows.FieldDescriptions())
+	rowCount := int64(0)
+	for rows.Next() {
+		rowCount++
+		select {
+		case <-ctx.Done():
+			return rowCount, ctx.Err()
+		default:
+			values, err := rows.Values()
+			if err != nil {
+				return rowCount, fmt.Errorf("retrieving rows values: %w", err)
+			}
+
+			event := rowAdapter.rowToWalEvent(values)
+			if event == nil {
+				continue
+			}
+
+			if err := sg.processor.ProcessWALEvent(ctx, event); err != nil {
+				return rowCount, fmt.Errorf("processing snapshot row: %w", err)
+			}
+		}
+	}
+
+	return rowCount, rows.Err()
+}
+
+// a vanished relation means schema drift
+func wrapPageRangeQueryError(err error) error {
+	var relationErr *pglib.ErrRelationDoesNotExist
+	if errors.As(err, &relationErr) {
+		return fmt.Errorf("%w: querying table rows: %w", ErrSchemaChangedDuringSnapshot, err)
+	}
+	return fmt.Errorf("querying table rows: %w", err)
 }
 
 func (sg *SnapshotGenerator) addProgressBar(ctx context.Context, snapshotID string, schemaTables *schemaTables) error {

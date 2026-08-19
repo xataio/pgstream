@@ -146,6 +146,7 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 			}
 
 			config.applySnapshotRawJSONValues()
+			config.applySnapshotCopyPassthrough(snapshotChain)
 			snapshotGenerator, err := snapshotbuilder.NewSnapshotGenerator(
 				ctx,
 				config.Listener.Postgres.Snapshot,

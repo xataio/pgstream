@@ -12,6 +12,7 @@ import (
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/kafka"
+	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	kafkacheckpoint "github.com/xataio/pgstream/pkg/wal/checkpointer/kafka"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
 	"github.com/xataio/pgstream/pkg/wal/processor/filter"
@@ -246,6 +247,33 @@ func (c *Config) restoreConflictTargetsBeforeData() bool {
 	}
 	bw := c.Processor.Postgres.BatchWriter
 	return !bw.BulkIngestEnabled && strings.EqualFold(bw.OnConflictAction, "update")
+}
+
+// the chain is the authority on what reads rows
+func (c *Config) snapshotCopyPassthroughEligible(chain *processorChain) bool {
+	if c.Processor.Postgres == nil || !c.Processor.Postgres.BatchWriter.BulkIngestEnabled {
+		return false
+	}
+	if c.Listener.Postgres == nil || c.Listener.Postgres.Snapshot == nil || c.Listener.Postgres.Snapshot.Data == nil {
+		return false
+	}
+	return !chain.hasRowVisibleLayers()
+}
+
+// takes the bypassed writer's settings
+func (c *Config) applySnapshotCopyPassthrough(chain *processorChain) bool {
+	if !c.snapshotCopyPassthroughEligible(chain) {
+		return false
+	}
+
+	target := c.Processor.Postgres.BatchWriter
+	c.Listener.Postgres.Snapshot.Data.CopyPassthrough = &pgsnapshotgenerator.CopyPassthroughConfig{
+		TargetURL:       target.URL,
+		DisableTriggers: target.DisableTriggers,
+		MaxConnections:  target.MaxConnections,
+		RetryPolicy:     target.EffectiveRetryPolicy(),
+	}
+	return true
 }
 
 // applySnapshotRawJSONValues enables raw (text) decoding of json/jsonb values
