@@ -186,13 +186,66 @@ func buildProcessor(ctx context.Context, logger loglib.Logger, config *Processor
 	return processor, nil
 }
 
-func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Logger, processor processor.Processor, instrumentation *otel.Instrumentation) (processor.Processor, closerFn, error) {
+// modifier is a layer wrapped around the target writer. rowVisible reports
+// whether it observes or changes row data: such a layer must see every row, so
+// a fast path that bypasses the chain is only correct without one.
+type modifier struct {
+	rowVisible bool
+}
+
+var (
+	modifierSanitizer       = modifier{rowVisible: true}
+	modifierTransformer     = modifier{rowVisible: true}
+	modifierInjector        = modifier{rowVisible: true}
+	modifierFilter          = modifier{rowVisible: true}
+	modifierInstrumentation = modifier{}
+)
+
+// processorChain is a target writer with the modifier layers wrapped around
+// it. It records which layers were applied, so a fast path that bypasses the
+// chain can tell whether bypassing it is safe.
+type processorChain struct {
+	processor processor.Processor
+	applied   []modifier
+}
+
+// apply wraps the current processor in a new layer and records it. It is the
+// only way to extend the chain: a layer cannot be added without naming a
+// modifier, which forces whoever adds one to decide whether it is row
+// visible. Recording happens where the wrapping happens, so a layer that is
+// configured but not actually applied is not recorded either.
+func (c *processorChain) apply(m modifier, wrap func(processor.Processor) (processor.Processor, error)) error {
+	p, err := wrap(c.processor)
+	if err != nil {
+		return err
+	}
+	c.processor = p
+	c.applied = append(c.applied, m)
+	return nil
+}
+
+// hasRowVisibleLayers reports whether any applied layer must see every row.
+// When false, rows may be written straight to the target, bypassing the chain.
+func (c *processorChain) hasRowVisibleLayers() bool {
+	for _, m := range c.applied {
+		if m.rowVisible {
+			return true
+		}
+	}
+	return false
+}
+
+func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Logger, target processor.Processor, instrumentation *otel.Instrumentation) (*processorChain, closerFn, error) {
 	closerAgg := &closerAggregator{}
-	var err error
+	chain := &processorChain{processor: target}
 
 	if config.Processor.Sanitize != nil && config.Processor.Sanitize.StripNullCharBytes {
 		logger.Info("adding null byte sanitizer to processor...")
-		processor = sanitizer.New(processor, sanitizer.WithLogger(logger))
+		if err := chain.apply(modifierSanitizer, func(p processor.Processor) (processor.Processor, error) {
+			return sanitizer.New(p, sanitizer.WithLogger(logger)), nil
+		}); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	if config.Processor.Transformer != nil {
@@ -243,8 +296,9 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 
 			opts = append(opts, transformer.WithParser(parser))
 		}
-		processor, err = transformer.New(ctx, config.Processor.Transformer, processor, transformerBuilder, opts...)
-		if err != nil {
+		if err := chain.apply(modifierTransformer, func(p processor.Processor) (processor.Processor, error) {
+			return transformer.New(ctx, config.Processor.Transformer, p, transformerBuilder, opts...)
+		}); err != nil {
 			logger.Error(err, "creating transformer layer")
 			return nil, nil, err
 		}
@@ -258,31 +312,31 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 		if instrumentation.IsEnabled() {
 			opts = append(opts, injector.WithInstrumentation(instrumentation))
 		}
-		processor, err = injector.New(ctx, config.Processor.Injector, processor, opts...)
-		if err != nil {
+		if err := chain.apply(modifierInjector, func(p processor.Processor) (processor.Processor, error) {
+			return injector.New(ctx, config.Processor.Injector, p, opts...)
+		}); err != nil {
 			return nil, nil, fmt.Errorf("error creating processor injection layer: %w", err)
 		}
 	}
 
 	if config.Processor.Filter != nil {
 		logger.Info("adding filtering to processor...")
-		var err error
-		processor, err = filter.New(processor, config.Processor.Filter,
-			filter.WithLogger(logger))
-		if err != nil {
+		if err := chain.apply(modifierFilter, func(p processor.Processor) (processor.Processor, error) {
+			return filter.New(p, config.Processor.Filter, filter.WithLogger(logger))
+		}); err != nil {
 			return nil, nil, err
 		}
 	}
 
-	if processor != nil && instrumentation.IsEnabled() {
-		var err error
-		processor, err = processinstrumentation.NewProcessor(processor, instrumentation)
-		if err != nil {
+	if chain.processor != nil && instrumentation.IsEnabled() {
+		if err := chain.apply(modifierInstrumentation, func(p processor.Processor) (processor.Processor, error) {
+			return processinstrumentation.NewProcessor(p, instrumentation)
+		}); err != nil {
 			return nil, nil, err
 		}
 	}
 
-	return processor, closerAgg.close, nil
+	return chain, closerAgg.close, nil
 }
 
 type closerAggregator struct {
