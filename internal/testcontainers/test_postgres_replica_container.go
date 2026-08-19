@@ -41,6 +41,11 @@ const (
 //   - hot_standby_feedback=on stops the primary from vacuuming away catalog
 //     rows the logical decoder on the standby still needs. Without it the
 //     standby's logical slot is invalidated by recovery conflicts.
+//   - output_plugin_libraries names wal2json as a trusted output plugin. Recent
+//     Postgres minors refuse to load any plugin absent from this allowlist,
+//     with `library "wal2json" may not be used as an output plugin`. It shares
+//     wal_level's problem: the primary sets it on the command line, so the base
+//     backup never sees it.
 //
 // The PG_VERSION guard keeps the script idempotent, so a container restart
 // re-execs postgres against the existing data directory rather than trying to
@@ -58,6 +63,7 @@ if [ ! -s "$PGDATA/PG_VERSION" ]; then
   {
     echo "wal_level = logical"
     echo "hot_standby_feedback = on"
+    echo "output_plugin_libraries = 'wal2json'"
   } >> "$PGDATA/postgresql.auto.conf"
 fi
 exec gosu postgres postgres
@@ -122,6 +128,7 @@ func SetupPostgresPrimaryReplica(ctx context.Context, primaryURL, replicaURL *st
 		Cmd: []string{
 			"postgres",
 			"-c", "wal_level=logical",
+			"-c", "output_plugin_libraries=wal2json",
 			"-c", "max_wal_senders=10",
 			"-c", "max_replication_slots=10",
 			"-c", "hot_standby=on",
