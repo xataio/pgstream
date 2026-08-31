@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"runtime/debug"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
@@ -14,6 +15,10 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor"
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 )
+
+// prependSearchPath puts the event schema first, keeping the existing entries.
+const prependSearchPath = `SELECT pg_catalog.set_config('search_path',
+	pg_catalog.concat_ws(', ', $1::text, NULLIF(pg_catalog.current_setting('search_path'), '')), true)`
 
 // BatchWriter is a WAL processor implementation that batches and writes wal
 // events to a Postgres instance. It coalesces consecutive same-table DML
@@ -152,7 +157,7 @@ func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]
 					if q.IsEmpty() {
 						continue
 					}
-					if _, err := w.pgConn.Exec(ctx, q.sql, q.args...); err != nil {
+					if err := w.execDDLQuery(ctx, q); err != nil {
 						w.logger.Error(err, "running DDL query", loglib.Fields{"query_sql": q.sql, "query_args": q.args})
 						if !w.isInternalError(err) {
 							if w.strictMode {
@@ -193,6 +198,37 @@ func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]
 	}
 
 	return nil
+}
+
+// execDDLQuery replays DDL under the upstream schema search path.
+func (w *BatchWriter) execDDLQuery(ctx context.Context, q *query) error {
+	if q.schema == "" || isConcurrentDDL(q.sql) {
+		if q.schema != "" {
+			w.logger.Warn(nil, "replaying DDL that cannot run in a transaction without the upstream search path, it may apply to the wrong schema", loglib.Fields{
+				"sql":      q.sql,
+				"schema":   q.schema,
+				"severity": "DATALOSS",
+			})
+		}
+		_, err := w.pgConn.Exec(ctx, q.sql, q.args...)
+		return err
+	}
+
+	return w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
+		if _, err := tx.Exec(ctx, prependSearchPath, pglib.QuoteIdentifier(q.schema)); err != nil {
+			return fmt.Errorf("setting search path to %q for DDL replay: %w", q.schema, err)
+		}
+		_, err := tx.Exec(ctx, q.sql, q.args...)
+		return err
+	})
+}
+
+// concurrentDDL matches DDL commands postgres rejects inside transaction blocks.
+var concurrentDDL = regexp.MustCompile(`(?is)^\s*(create(\s+unique)?\s+index|drop\s+index|reindex|refresh\s+materialized\s+view)\b.*\bconcurrently\b`)
+
+// isConcurrentDDL reports whether the statement must run outside transactions.
+func isConcurrentDDL(sql string) bool {
+	return concurrentDDL.MatchString(sql)
 }
 
 func (w *BatchWriter) buildCoalescedQueries(run []*walMessage) ([]*query, error) {

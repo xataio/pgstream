@@ -417,6 +417,71 @@ func Test_PostgresToPostgres_IndexesAndConstraints(t *testing.T) {
 	}, 20*time.Second, 200*time.Millisecond)
 }
 
+func Test_PostgresToPostgres_UnqualifiedDDLUnderSearchPath(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfg(t),
+		Processor: testPostgresProcessorCfg(),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runStream(t, ctx, cfg)
+
+	suffix := time.Now().UnixNano()
+	schemaName := fmt.Sprintf("pg2pg_search_path_%d", suffix)
+	tableName := fmt.Sprintf("pg2pg_unqualified_%d", suffix)
+	domainName := fmt.Sprintf("pg2pg_code_%d", suffix)
+
+	// CREATE SCHEMA does not replicate, so create it twice.
+	execQuery(t, ctx, fmt.Sprintf("create schema %s", schemaName))
+	execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("create schema %s", schemaName))
+	defer execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("drop schema if exists %s cascade", schemaName))
+	defer execQuery(t, ctx, fmt.Sprintf("drop schema if exists %s cascade", schemaName))
+
+	sourceConn, err := pglib.NewConn(ctx, pgurl)
+	require.NoError(t, err)
+	defer sourceConn.Close(ctx)
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	// The domain in public must resolve during unqualified DDL replay.
+	execQuery(t, ctx, fmt.Sprintf("create domain public.%s as text", domainName))
+	defer execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("drop domain if exists public.%s cascade", domainName))
+	defer execQuery(t, ctx, fmt.Sprintf("drop domain if exists public.%s cascade", domainName))
+	require.Eventually(t, func() bool {
+		return pgTypeExists(ctx, targetConn, "public", domainName)
+	}, 20*time.Second, 200*time.Millisecond, "expected the domain to be replicated to the target")
+
+	// The unqualified DDL relies on the session search path.
+	_, err = sourceConn.Exec(ctx, fmt.Sprintf("set search_path to %s, public", schemaName))
+	require.NoError(t, err)
+	_, err = sourceConn.Exec(ctx, fmt.Sprintf("create table %s (id int primary key, code %s)", tableName, domainName))
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return tableExists(ctx, targetConn, schemaName, tableName)
+	}, 20*time.Second, 200*time.Millisecond, "expected table to be created on the upstream schema")
+	require.False(t, tableExists(ctx, targetConn, "public", tableName),
+		"expected table not to be created on the target default schema")
+
+	// The following DML is schema qualified by WAL decoding.
+	_, err = sourceConn.Exec(ctx, fmt.Sprintf("insert into %s values (1)", tableName))
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		var count int
+		err := targetConn.QueryRow(ctx, []any{&count},
+			fmt.Sprintf("select count(*) from %s.%s", schemaName, tableName))
+		return err == nil && count == 1
+	}, 20*time.Second, 200*time.Millisecond, "expected the inserted row to be replicated")
+}
+
 func Test_PostgresToPostgres_IdentityColumns(t *testing.T) {
 	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
 		t.Skip("skipping integration test...")
