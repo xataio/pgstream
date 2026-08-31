@@ -57,6 +57,8 @@ func Test_PostgresSnapshotGenerator(t *testing.T) {
 
 	rows := make([]*wal.Event, 0, 3)
 	for event := range mockProcessor.eventChan {
+		// the snapshot stamps wall-clock time
+		event.Data.Timestamp = ""
 		rows = append(rows, event)
 	}
 
@@ -129,7 +131,10 @@ func Test_PostgresSnapshotGenerator_pinnedColumns(t *testing.T) {
 
 func newTestEvent(tableName string, id int32, name string) *wal.Event {
 	return &wal.Event{
+		CommitPosition: wal.CommitPosition(wal.ZeroLSN),
 		Data: &wal.Data{
+			Action: "I",
+			LSN:    wal.ZeroLSN,
 			Schema: "public",
 			Table:  tableName,
 			Columns: []wal.Column{
