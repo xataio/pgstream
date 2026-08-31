@@ -95,6 +95,37 @@ func TestDroppedCounter_RegisterMetrics(t *testing.T) {
 		require.NoError(t, NewDroppedCounter().RegisterMetrics(&otel.Instrumentation{}, "test_writer"))
 	})
 
+	// a counter that only appears once something has been dropped is
+	// indistinguishable from a writer that is not reporting at all, so an
+	// alert cannot tell "nothing lost" from "nothing scraped"
+	t.Run("counters are exported at zero before anything is dropped", func(t *testing.T) {
+		t.Parallel()
+
+		reader := metric.NewManualReader()
+		provider := metric.NewMeterProvider(metric.WithReader(reader))
+		instrumentation := &otel.Instrumentation{Meter: provider.Meter("test")}
+
+		require.NoError(t, NewDroppedCounter().RegisterMetrics(instrumentation, "test_writer"))
+
+		var rm metricdata.ResourceMetrics
+		require.NoError(t, reader.Collect(context.Background(), &rm))
+
+		got := map[string]int64{}
+		for _, sm := range rm.ScopeMetrics {
+			for _, m := range sm.Metrics {
+				sum, ok := m.Data.(metricdata.Sum[int64])
+				require.True(t, ok, "metric %s is not an int64 sum", m.Name)
+				require.Len(t, sum.DataPoints, 1)
+				got[m.Name] = sum.DataPoints[0].Value
+			}
+		}
+
+		require.Contains(t, got, droppedBatchesMetricName, "%s was not exported", droppedBatchesMetricName)
+		require.Contains(t, got, droppedMessagesMetricName, "%s was not exported", droppedMessagesMetricName)
+		require.Equal(t, int64(0), got[droppedBatchesMetricName])
+		require.Equal(t, int64(0), got[droppedMessagesMetricName])
+	})
+
 	t.Run("counters are exported with the writer type", func(t *testing.T) {
 		t.Parallel()
 

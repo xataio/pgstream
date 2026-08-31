@@ -300,22 +300,6 @@ func withBulkIngestionEnabled() option {
 	}
 }
 
-func withStrictMode() option {
-	return func(cfg *stream.ProcessorConfig) {
-		if cfg.Postgres != nil {
-			cfg.Postgres.BatchWriter.StrictMode = true
-		}
-	}
-}
-
-func withIgnoreSendErrors() option {
-	return func(cfg *stream.ProcessorConfig) {
-		if cfg.Postgres != nil {
-			cfg.Postgres.BatchWriter.BatchConfig.IgnoreSendErrors = true
-		}
-	}
-}
-
 func testPostgresListenerCfgWithSnapshotAndFilter(sourceURL, targetURL string, tables []string, includeObjectTypes []string) stream.ListenerConfig {
 	cfg := testPostgresListenerCfgWithSnapshot(sourceURL, targetURL, tables)
 	cfg.Postgres.Snapshot.Schema.DumpRestore.IncludeObjectTypes = includeObjectTypes
