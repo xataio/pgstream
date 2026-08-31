@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"log"
 	"os"
 	"testing"
 
@@ -16,6 +17,26 @@ import (
 	"github.com/xataio/pgstream/pkg/snapshot/store"
 	pgstore "github.com/xataio/pgstream/pkg/snapshot/store/postgres"
 )
+
+// sharedPGURL serves the tests that only insert snapshot requests. Each one
+// uses its own schema name, so they do not collide on the unique index.
+//
+// Test_SnapshotStore_UpgradeFromLegacyIndex is deliberately not among them: it
+// replaces the unique index itself, which is structure the others depend on,
+// so it builds a container of its own.
+var sharedPGURL string
+
+func TestMain(m *testing.M) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") != "" {
+		cleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &sharedPGURL, testcontainers.Postgres14)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer cleanup()
+	}
+
+	os.Exit(m.Run())
+}
 
 // Test_SnapshotStore_WideSchema is a regression test for the btree index row
 // size limit: a schema with hundreds of tables used to overflow the unique
@@ -30,16 +51,11 @@ func Test_SnapshotStore_WideSchema(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var pgurl string
-	pgCleanup, err := testcontainers.SetupPostgresContainer(ctx, &pgurl, testcontainers.Postgres14)
-	require.NoError(t, err)
-	defer pgCleanup()
-
-	s, err := pgstore.New(ctx, pgurl)
+	s, err := pgstore.New(ctx, sharedPGURL)
 	require.NoError(t, err)
 	defer s.Close()
 
-	req := wideSchemaRequest()
+	req := wideSchemaRequest("wide_schema_wide")
 
 	// the fix: this insert must not trip the btree row size limit
 	require.NoError(t, s.CreateSnapshotRequest(ctx, req))
@@ -56,6 +72,9 @@ func Test_SnapshotStore_WideSchema(t *testing.T) {
 // recreate the hashed index, since CREATE UNIQUE INDEX IF NOT EXISTS would
 // otherwise keep the broken definition in place and wide-schema inserts would
 // keep failing.
+//
+// This test owns its container: it swaps the unique index out from under the
+// snapshots table, which is not state to share with anything.
 func Test_SnapshotStore_UpgradeFromLegacyIndex(t *testing.T) {
 	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
 		t.Skip("skipping integration test...")
@@ -87,7 +106,7 @@ func Test_SnapshotStore_UpgradeFromLegacyIndex(t *testing.T) {
 	require.NoError(t, err)
 
 	// sanity check: the legacy index reproduces the original bug
-	require.Error(t, s.CreateSnapshotRequest(ctx, wideSchemaRequest()))
+	require.Error(t, s.CreateSnapshotRequest(ctx, wideSchemaRequest("wide_schema_upgrade")))
 
 	// constructing the store again runs createTable, which performs the
 	// migration: drop legacy, create hashed
@@ -96,7 +115,7 @@ func Test_SnapshotStore_UpgradeFromLegacyIndex(t *testing.T) {
 	defer migrated.Close()
 
 	// the wide-schema insert now succeeds against the migrated index
-	require.NoError(t, migrated.CreateSnapshotRequest(ctx, wideSchemaRequest()))
+	require.NoError(t, migrated.CreateSnapshotRequest(ctx, wideSchemaRequest("wide_schema_upgrade")))
 }
 
 // Test_SnapshotStore_CommaInTableNameNoCollision verifies the digest does not
@@ -111,12 +130,7 @@ func Test_SnapshotStore_CommaInTableNameNoCollision(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var pgurl string
-	pgCleanup, err := testcontainers.SetupPostgresContainer(ctx, &pgurl, testcontainers.Postgres14)
-	require.NoError(t, err)
-	defer pgCleanup()
-
-	s, err := pgstore.New(ctx, pgurl)
+	s, err := pgstore.New(ctx, sharedPGURL)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -141,22 +155,17 @@ func Test_SnapshotStore_RepeatedInitIsIdempotent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var pgurl string
-	pgCleanup, err := testcontainers.SetupPostgresContainer(ctx, &pgurl, testcontainers.Postgres14)
-	require.NoError(t, err)
-	defer pgCleanup()
-
-	s, err := pgstore.New(ctx, pgurl)
+	s, err := pgstore.New(ctx, sharedPGURL)
 	require.NoError(t, err)
 	defer s.Close()
 
-	req := wideSchemaRequest()
+	req := wideSchemaRequest("wide_schema_repeat")
 	require.NoError(t, s.CreateSnapshotRequest(ctx, req))
 
 	// re-initialising must not fail even with an existing non-completed request
 	// (a per-startup drop+recreate could momentarily lose the constraint or fail)
 	for range 3 {
-		reinit, err := pgstore.New(ctx, pgurl)
+		reinit, err := pgstore.New(ctx, sharedPGURL)
 		require.NoError(t, err)
 		reinit.Close()
 	}
@@ -171,14 +180,17 @@ func Test_SnapshotStore_RepeatedInitIsIdempotent(t *testing.T) {
 // names must be high-entropy: postgres pglz-compresses the index value before
 // the size check, so repetitive names would compress under the limit and fail
 // to reproduce the bug.
-func wideSchemaRequest() *snapshot.Request {
+//
+// The schema is a parameter so that tests sharing a database do not collide on
+// the unique index and read each other's failures as their own.
+func wideSchemaRequest(schema string) *snapshot.Request {
 	tables := make([]string, 0, 300)
 	for i := range 300 {
 		sum := sha256.Sum256([]byte(fmt.Sprintf("pgstream-wide-schema-table-%d", i)))
 		tables = append(tables, fmt.Sprintf("t_%x", sum))
 	}
 	return &snapshot.Request{
-		Schema: "wide_schema",
+		Schema: schema,
 		Tables: tables,
 	}
 }
