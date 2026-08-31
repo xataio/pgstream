@@ -1764,6 +1764,44 @@ ALTER TABLE public.example_table CLUSTER ON example_table_created_at_idx;
 		strings.Index(string(dump.indicesAndConstraints), "CLUSTER ON example_table_created_at_idx"))
 }
 
+func TestSnapshotGenerator_parseDumpMovesAttachPartitionToConstraints(t *testing.T) {
+	t.Parallel()
+
+	dumpBytes := []byte(`CREATE TABLE public.events (
+    event_id bigint NOT NULL,
+    partition_id integer NOT NULL
+)
+PARTITION BY LIST (partition_id);
+
+CREATE TABLE public.events_0 (
+    event_id bigint NOT NULL,
+    partition_id integer NOT NULL
+);
+
+ALTER TABLE ONLY public.events ATTACH PARTITION public.events_0 FOR VALUES IN (0);
+
+CREATE INDEX events_partition_id_idx ON ONLY public.events USING btree (partition_id);
+
+CREATE INDEX events_0_partition_id_idx ON public.events_0 USING btree (partition_id);
+
+ALTER INDEX public.events_partition_id_idx ATTACH PARTITION public.events_0_partition_id_idx;
+`)
+
+	dump := (&SnapshotGenerator{}).parseDump(dumpBytes)
+
+	// the table attachment stays with the tables, the index attachment does not
+	require.Contains(t, string(dump.filtered), "ALTER TABLE ONLY public.events ATTACH PARTITION public.events_0")
+	require.NotContains(t, string(dump.filtered), "ALTER INDEX public.events_partition_id_idx ATTACH PARTITION")
+
+	require.Contains(t, string(dump.indicesAndConstraints), "ALTER INDEX public.events_partition_id_idx ATTACH PARTITION public.events_0_partition_id_idx;")
+
+	// and it has to land after the parent index it references, or it fails the
+	// same way it did when it was restored in place
+	require.Less(t,
+		strings.Index(string(dump.indicesAndConstraints), "CREATE INDEX events_partition_id_idx"),
+		strings.Index(string(dump.indicesAndConstraints), "ALTER INDEX public.events_partition_id_idx ATTACH PARTITION"))
+}
+
 func TestSnapshotGenerator_parseDumpMovesMaterializedViewIndexesToViews(t *testing.T) {
 	t.Parallel()
 
