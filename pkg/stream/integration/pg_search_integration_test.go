@@ -140,6 +140,8 @@ func Test_PostgresToSearch(t *testing.T) {
 	}
 
 	t.Run("postgres to opensearch", func(t *testing.T) {
+		opensearchContainer.require(t)
+
 		cfg := &stream.Config{
 			Listener: testPostgresListenerCfg(t),
 			Processor: testSearchProcessorCfg(store.Config{
@@ -154,6 +156,8 @@ func Test_PostgresToSearch(t *testing.T) {
 	})
 
 	t.Run("postgres to elasticsearch", func(t *testing.T) {
+		elasticsearchContainer.require(t)
+
 		cfg := &stream.Config{
 			Listener: testPostgresListenerCfg(t),
 			Processor: testSearchProcessorCfg(store.Config{
