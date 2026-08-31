@@ -337,6 +337,18 @@ func TestBatchKafkaWriter_getMessageKey(t *testing.T) {
 			wantKey: `test_schema.test_table:a\\,b`,
 		},
 		{
+			name:         "primary key - update event keys on the same row identity",
+			partitionKey: PartitionKeyPrimaryKey,
+			walData: func() *wal.Data {
+				d := testWalData()
+				d.Action = "U"
+				d.Identity = d.Columns
+				return d
+			}(),
+
+			wantKey: "test_schema.test_table:1",
+		},
+		{
 			name:         "primary key - delete event with identity columns",
 			partitionKey: PartitionKeyPrimaryKey,
 			walData: func() *wal.Data {
