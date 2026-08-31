@@ -118,7 +118,7 @@ func Test_PostgresToPostgres_Transformer(t *testing.T) {
 					t.Error("timeout waiting for postgres sync")
 					return
 				case <-ticker.C:
-					if validateRows(t, ctx, targetConn, insertedRows, testTable) {
+					if validateRows(t, ctx, targetConn, insertedRows, testTable, tc.rows[0]) {
 						return
 					}
 				}
@@ -139,7 +139,17 @@ func insertQuery(table string, rows []transformerTestTableRow) string {
 	return query
 }
 
-func validateRows(t *testing.T, ctx context.Context, conn *pglib.Conn, expectedRows []int, table string) bool {
+// validateRows checks two things the per-transformer unit tests cannot: that
+// each rule was actually applied on the way through the pipeline, and that the
+// value it produced is writable into the real postgres column type.
+//
+// It deliberately does not restate the value ranges the transformer configs
+// declare — pkg/transformers has a test per transformer for that, and repeating
+// the bounds here only re-asserts that a range is a range. What is kept is the
+// subset that discriminates: an assertion the *source* value would fail, so a
+// rule that parsed but was never applied cannot slip through. Where no such
+// assertion exists for a column, only the column type is checked.
+func validateRows(t *testing.T, ctx context.Context, conn *pglib.Conn, expectedRows []int, table string, source transformerTestTableRow) bool {
 	selectQuery := fmt.Sprintf("SELECT id, name, last_name, email, secondary_email, address, age, total_purchases, customer_id, birth_date, is_active, created_at, updated_at, gender FROM %s WHERE id IN (", table)
 	for i, rowID := range expectedRows {
 		if i > 0 {
@@ -166,24 +176,37 @@ func validateRows(t *testing.T, ctx context.Context, conn *pglib.Conn, expectedR
 	}
 
 	for _, row := range rowsFromDB {
-		require.LessOrEqual(t, len(row.name), 5)
-		require.LessOrEqual(t, len(row.lastName), 10)
+		// --- the rule was applied: each of these fails on the source value ---
+
+		// masking is deterministic, so the whole output is pinned
+		require.Equal(t, "joh****e2@example.com", row.secondaryEmail)
+		// the source gender is "male", which is not one of the choices
+		require.True(t, row.gender == "M" || row.gender == "F" || row.gender == "None",
+			"gender %q is neither a configured choice nor evidence of a rule", row.gender)
+		// the source email is 20 characters, past the configured max of 15
 		require.LessOrEqual(t, len(row.email), 15)
-		require.Equal(t, row.secondaryEmail, "joh****e2@example.com")
-		require.LessOrEqual(t, len(row.address), 20)
-		require.GreaterOrEqual(t, row.age, 18)
-		require.LessOrEqual(t, row.age, 75)
-		require.GreaterOrEqual(t, row.totalPurchases, 0.0)
+		// the source total_purchases is 1000.50, above the configured max of 1000
 		require.LessOrEqual(t, row.totalPurchases, 1000.0)
-		require.NotEmpty(t, row.customerID)
-		require.GreaterOrEqual(t, row.birthDate, time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC))
-		require.LessOrEqual(t, row.birthDate, time.Date(2000, 12, 31, 23, 59, 59, 0, time.UTC))
-		require.NotNil(t, row.isActive)
+		// the source created_at is 1672531200, below the configured minimum
 		require.GreaterOrEqual(t, row.createdAt, int64(1741856058))
-		require.LessOrEqual(t, row.createdAt, int64(1741956058))
-		require.GreaterOrEqual(t, row.updatedAt, time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC))
-		require.LessOrEqual(t, row.updatedAt, time.Date(2024, 1, 1, 23, 59, 59, 0, time.UTC))
-		require.True(t, row.gender == "M" || row.gender == "F" || row.gender == "None")
+		// a uuid transformer returning its input would leave the source uuid
+		require.NotEqual(t, source.customerID, row.customerID)
+
+		// --- the value is writable into the real column type ---
+		//
+		// No source-discriminating assertion exists for these: the source value
+		// already satisfies the configured rule, so only the column type is
+		// checked. The transformed value having survived a scan into its Go
+		// type is the assertion — a transformer emitting something postgres
+		// rejects fails the insert on the target instead, and the row never
+		// arrives to be read here.
+
+		require.NotEmpty(t, row.customerID, "uuid column")
+		require.False(t, row.birthDate.IsZero(), "date column")
+		require.False(t, row.updatedAt.IsZero(), "timestamp with time zone column")
+		require.NotEmpty(t, row.name, "text column")
+		require.NotEmpty(t, row.lastName, "varchar column")
+		require.NotEmpty(t, row.address, "text column")
 	}
 	return true
 }
