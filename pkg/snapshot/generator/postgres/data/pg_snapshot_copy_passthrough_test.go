@@ -74,7 +74,7 @@ func TestBuildCopyFromSQL(t *testing.T) {
 	}
 }
 
-func TestSnapshotGenerator_copyPassthroughRange(t *testing.T) {
+func TestCopyPassthroughSnapshotter_copyRange(t *testing.T) {
 	t.Parallel()
 
 	errSource := errors.New("source copy failed")
@@ -160,14 +160,9 @@ func TestSnapshotGenerator_copyPassthroughRange(t *testing.T) {
 			t.Parallel()
 
 			var got string
-			sg := &SnapshotGenerator{
-				logger:      loglib.NewNoopLogger(),
-				passthrough: &CopyPassthroughConfig{},
-				targetConn:  newTargetConn(tc.targetRow, tc.targetErr, &got),
-				copyBudget:  synclib.NewWeightedSemaphore(1),
-			}
+			s := newTestCopyPassthrough(newTargetConn(tc.targetRow, tc.targetErr, &got), nil)
 
-			rows, err := sg.copyPassthroughRange(t.Context(), tc.sourceTx, testTable, pageRange{start: 0, end: 10})
+			rows, err := s.copyRange(t.Context(), tc.sourceTx, testTable, pageRange{start: 0, end: 10})
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				return
@@ -180,7 +175,7 @@ func TestSnapshotGenerator_copyPassthroughRange(t *testing.T) {
 	}
 }
 
-func TestSnapshotGenerator_prepareTargetTx(t *testing.T) {
+func TestCopyPassthroughSnapshotter_prepareTargetTx(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -216,8 +211,8 @@ func TestSnapshotGenerator_prepareTargetTx(t *testing.T) {
 				},
 			}
 
-			sg := &SnapshotGenerator{passthrough: &CopyPassthroughConfig{DisableTriggers: tc.disableTriggers}}
-			require.NoError(t, sg.prepareTargetTx(t.Context(), tx))
+			s := &copyPassthroughSnapshotter{cfg: &CopyPassthroughConfig{DisableTriggers: tc.disableTriggers}}
+			require.NoError(t, s.prepareTargetTx(t.Context(), tx))
 			require.Equal(t, tc.wantQueries, queries)
 		})
 	}
@@ -304,7 +299,7 @@ func TestTable_hasCopyableColumns(t *testing.T) {
 	require.False(t, (&table{generatedColumns: []string{"slug"}}).hasCopyableColumns())
 }
 
-func TestSnapshotGenerator_snapshotRange_dispatch(t *testing.T) {
+func TestCopyPassthroughSnapshotter_snapshotRange_fallback(t *testing.T) {
 	t.Parallel()
 
 	copyable := &table{schema: "public", name: "users", columns: []string{"id"}}
@@ -316,29 +311,21 @@ func TestSnapshotGenerator_snapshotRange_dispatch(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		passthrough *CopyPassthroughConfig
-		table       *table
+		name  string
+		table *table
 
-		wantCopied  bool
-		wantDecoded bool
+		wantCopied   bool
+		wantFellBack bool
 	}{
 		{
-			name:        "no passthrough decodes",
-			table:       copyable,
-			wantDecoded: true,
+			name:       "copies the rows COPY can carry",
+			table:      copyable,
+			wantCopied: true,
 		},
 		{
-			name:        "passthrough copies",
-			passthrough: &CopyPassthroughConfig{},
-			table:       copyable,
-			wantCopied:  true,
-		},
-		{
-			name:        "all generated columns decode",
-			passthrough: &CopyPassthroughConfig{},
-			table:       allGenerated,
-			wantDecoded: true,
+			name:         "delegates a table COPY cannot carry",
+			table:        allGenerated,
+			wantFellBack: true,
 		},
 	}
 
@@ -346,51 +333,59 @@ func TestSnapshotGenerator_snapshotRange_dispatch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			var copied, decoded bool
+			var copied bool
 			sourceTx := &mocks.Tx{
 				CopyToWriterFn: func(_ context.Context, w io.Writer, _ string) (int64, error) {
 					copied = true
 					_, err := io.WriteString(w, "1\n")
 					return 1, err
 				},
-				QueryFn: func(context.Context, string, ...any) (pglib.Rows, error) {
-					decoded = true
-					return nil, errTestDecodePath
+			}
+			targetConn := &mocks.Querier{
+				ExecInTxFn: func(ctx context.Context, fn func(tx pglib.Tx) error) error {
+					return fn(&mocks.Tx{
+						ExecFn: func(context.Context, uint, string, ...any) (pglib.CommandTag, error) {
+							return pglib.CommandTag{}, nil
+						},
+						CopyFromReaderFn: func(_ context.Context, r io.Reader, _ string) (int64, error) {
+							if _, err := io.ReadAll(r); err != nil {
+								return -1, err
+							}
+							return 1, nil
+						},
+					})
 				},
 			}
 
-			sg := &SnapshotGenerator{
-				logger:      loglib.NewNoopLogger(),
-				passthrough: tc.passthrough,
-				copyBudget:  synclib.NewWeightedSemaphore(1),
-				targetConn: &mocks.Querier{
-					ExecInTxFn: func(ctx context.Context, fn func(tx pglib.Tx) error) error {
-						return fn(&mocks.Tx{
-							ExecFn: func(context.Context, uint, string, ...any) (pglib.CommandTag, error) {
-								return pglib.CommandTag{}, nil
-							},
-							CopyFromReaderFn: func(_ context.Context, r io.Reader, _ string) (int64, error) {
-								if _, err := io.ReadAll(r); err != nil {
-									return -1, err
-								}
-								return 1, nil
-							},
-						})
-					},
-				},
-			}
+			fallback := &stubSnapshotter{}
+			s := newTestCopyPassthrough(targetConn, fallback)
 
-			_, err := sg.snapshotRange(t.Context(), sourceTx, tc.table, pageRange{start: 0, end: 1})
-			if tc.wantDecoded {
-				require.ErrorIs(t, err, errTestDecodePath)
-			} else {
-				require.NoError(t, err)
-			}
+			run := func(ctx context.Context, fn func(tx pglib.Tx) error) error { return fn(sourceTx) }
+			_, err := s.snapshotRange(t.Context(), run, tc.table, pageRange{start: 0, end: 1})
+			require.NoError(t, err)
 
 			require.Equal(t, tc.wantCopied, copied)
-			require.Equal(t, tc.wantDecoded, decoded)
+			require.Equal(t, tc.wantFellBack, fallback.called)
 		})
 	}
 }
 
-var errTestDecodePath = errors.New("decode path reached")
+func newTestCopyPassthrough(targetConn pglib.Querier, fallback rangeSnapshotter) *copyPassthroughSnapshotter {
+	return &copyPassthroughSnapshotter{
+		cfg:        &CopyPassthroughConfig{},
+		logger:     loglib.NewNoopLogger(),
+		targetConn: targetConn,
+		budget:     synclib.NewWeightedSemaphore(1),
+		fallback:   fallback,
+	}
+}
+
+type stubSnapshotter struct{ called bool }
+
+func (s *stubSnapshotter) prepareTable(context.Context, *table) error { return nil }
+func (s *stubSnapshotter) close(context.Context) error                { return nil }
+
+func (s *stubSnapshotter) snapshotRange(context.Context, runInSnapshotTx, *table, pageRange) (int64, error) {
+	s.called = true
+	return 0, nil
+}
