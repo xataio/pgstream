@@ -250,7 +250,7 @@ func tableSizeRows(t *testing.T, rows []tableSize) postgres.AcquireFunc {
 				return &mocks.Rows{
 					NextFn: func(i uint) bool { return int(i) <= len(rows) },
 					ScanFn: func(i uint, dest ...any) error {
-						require.Len(t, dest, 4)
+						require.Len(t, dest, 6)
 						row := rows[i-1]
 						schema, ok := dest[0].(*string)
 						require.True(t, ok)
@@ -260,7 +260,12 @@ func tableSizeRows(t *testing.T, rows []tableSize) postgres.AcquireFunc {
 						require.True(t, ok)
 						pretty, ok := dest[3].(*string)
 						require.True(t, ok)
+						indexBytes, ok := dest[4].(*int64)
+						require.True(t, ok)
+						indexPretty, ok := dest[5].(*string)
+						require.True(t, ok)
 						*schema, *table, *bytes, *pretty = row.schema, row.table, row.bytes, row.pretty
+						*indexBytes, *indexPretty = row.indexBytes, row.indexPretty
 						return nil
 					},
 					ErrFn: func() error { return nil },
@@ -270,40 +275,56 @@ func tableSizeRows(t *testing.T, rows []tableSize) postgres.AcquireFunc {
 	}
 }
 
+// catalogEntry returns the catalog row for a "schema.table" name.
+func catalogEntry(t *testing.T, catalog []tableSize, name string) tableSize {
+	t.Helper()
+	for _, row := range catalog {
+		if fmt.Sprintf("%s.%s", row.schema, row.table) == name {
+			return row
+		}
+	}
+	t.Fatalf("no catalog row for %q", name)
+	return tableSize{}
+}
+
 func TestTableSizesCheck_Run(t *testing.T) {
 	t.Parallel()
 
 	catalog := []tableSize{
-		{schema: "public", table: "events", bytes: 8 * 1024 * 1024, pretty: "8192 kB"},
-		{schema: "public", table: "users", bytes: 2 * 1024 * 1024, pretty: "2048 kB"},
-		{schema: "billing", table: "invoices", bytes: 1024, pretty: "1024 bytes"},
-		{schema: "public", table: "audit_log", bytes: 512, pretty: "512 bytes"},
+		{schema: "public", table: "events", bytes: 8 * 1024 * 1024, pretty: "8192 kB", indexBytes: 4 * 1024 * 1024, indexPretty: "4096 kB"},
+		{schema: "public", table: "users", bytes: 2 * 1024 * 1024, pretty: "2048 kB", indexBytes: 1024 * 1024, indexPretty: "1024 kB"},
+		{schema: "billing", table: "invoices", bytes: 1024, pretty: "1024 bytes", indexBytes: 512, indexPretty: "512 bytes"},
+		{schema: "public", table: "audit_log", bytes: 512, pretty: "512 bytes", indexBytes: 0, indexPretty: "0 bytes"},
 	}
 
 	tests := []struct {
-		name       string
-		include    []string
-		exclude    []string
-		wantTables []string
-		wantTotal  int64
+		name           string
+		include        []string
+		exclude        []string
+		wantTables     []string
+		wantTotal      int64
+		wantIndexTotal int64
 	}{
 		{
-			name:       "include list keeps only the listed tables",
-			include:    []string{"public.users", "billing.invoices"},
-			wantTables: []string{"public.users", "billing.invoices"},
-			wantTotal:  2*1024*1024 + 1024,
+			name:           "include list keeps only the listed tables",
+			include:        []string{"public.users", "billing.invoices"},
+			wantTables:     []string{"public.users", "billing.invoices"},
+			wantTotal:      2*1024*1024 + 1024,
+			wantIndexTotal: 1024*1024 + 512,
 		},
 		{
-			name:       "schema wildcard keeps the whole schema",
-			include:    []string{"public.*"},
-			wantTables: []string{"public.events", "public.users", "public.audit_log"},
-			wantTotal:  8*1024*1024 + 2*1024*1024 + 512,
+			name:           "schema wildcard keeps the whole schema",
+			include:        []string{"public.*"},
+			wantTables:     []string{"public.events", "public.users", "public.audit_log"},
+			wantTotal:      8*1024*1024 + 2*1024*1024 + 512,
+			wantIndexTotal: 4*1024*1024 + 1024*1024,
 		},
 		{
-			name:       "exclude list drops the listed tables",
-			exclude:    []string{"public.audit_log", "public.events"},
-			wantTables: []string{"public.users", "billing.invoices"},
-			wantTotal:  2*1024*1024 + 1024,
+			name:           "exclude list drops the listed tables",
+			exclude:        []string{"public.audit_log", "public.events"},
+			wantTables:     []string{"public.users", "billing.invoices"},
+			wantTotal:      2*1024*1024 + 1024,
+			wantIndexTotal: 1024*1024 + 512,
 		},
 		{
 			name:       "nothing in scope reports an empty set",
@@ -327,6 +348,8 @@ func TestTableSizesCheck_Run(t *testing.T) {
 
 			details := check.Details()
 			require.Equal(t, tc.wantTotal, details["tables_size_bytes"])
+			require.Equal(t, tc.wantIndexTotal, details["indexes_size_bytes"],
+				"index bytes are totalled separately from table bytes")
 
 			reported, ok := details["tables"].([]map[string]any)
 			require.True(t, ok)
@@ -335,6 +358,14 @@ func TestTableSizesCheck_Run(t *testing.T) {
 				names = append(names, fmt.Sprintf("%s.%s", r["schema"], r["table"]))
 			}
 			require.Equal(t, tc.wantTables, names, "order follows the query's largest-first sort")
+
+			for i, r := range reported {
+				source := catalogEntry(t, catalog, names[i])
+				require.Equal(t, source.bytes, r["size_bytes"])
+				require.Equal(t, source.pretty, r["size"])
+				require.Equal(t, source.indexBytes, r["index_size_bytes"])
+				require.Equal(t, source.indexPretty, r["index_size"])
+			}
 		})
 	}
 }
