@@ -113,6 +113,14 @@ func (e *ErrFeatureNotSupported) Error() string {
 	return fmt.Sprintf("feature not supported: %s", e.Details)
 }
 
+type ErrActiveSQLTransaction struct {
+	Details string
+}
+
+func (e *ErrActiveSQLTransaction) Error() string {
+	return fmt.Sprintf("active sql transaction: %s", e.Details)
+}
+
 type ErrValueEncoding struct {
 	Details string
 }
@@ -177,6 +185,11 @@ func MapError(err error) error {
 				return &ErrCacheLookupFailed{
 					Details: pgErr.Message,
 				}
+			}
+		case "25001":
+			// 25001 	active_sql_transaction
+			return &ErrActiveSQLTransaction{
+				Details: pgErr.Message,
 			}
 		case "0A000":
 			// 0A000 	feature_not_supported
