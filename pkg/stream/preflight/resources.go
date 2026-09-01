@@ -10,27 +10,8 @@ import (
 	"github.com/xataio/pgstream/pkg/stream"
 )
 
-// tableSizesQuery reports the table and index size of every user table,
-// largest table first.
-//
-// The two sizes stay separate because they answer different questions: the
-// data snapshot copies table data, while indexes are rebuilt on the target
-// from the schema dump. Table size predicts copy volume, index size predicts
-// target disk headroom and post-restore rebuild cost, so pg_total_relation_size
-// (which merges them) would lose that.
-//
-// Table size is pg_table_size (heap plus TOAST, without indexes); index size is
-// pg_indexes_size. Declarative partitions are rolled into their root parent
-// rather than listed separately: a partitioned parent stores nothing itself, so
-// both functions return zero on it — reporting that would show an empty table
-// for the very name the user configured — and listing parent and partitions
-// side by side would double count the totals. Legacy inheritance children are
-// not partitions, so they stay standalone rows.
-//
-// Every reported table seeds partition_tree as the root of its own tree, so a
-// table without partitions sums to just itself and the rollup needs no special
-// case. The recursion walks pg_inherits rather than pg_partition_tree, which
-// needs PostgreSQL 12 while pgstream supports 10+.
+// tableSizesQuery reports the table and index size in bytes of every user
+// table, largest table first.
 const tableSizesQuery = `
 WITH RECURSIVE partition_tree AS (
   SELECT c.oid AS root, c.oid AS relid
@@ -57,9 +38,7 @@ SELECT
   n.nspname AS schema_name,
   c.relname AS table_name,
   s.size_bytes,
-  pg_size_pretty(s.size_bytes) AS size,
-  s.index_bytes,
-  pg_size_pretty(s.index_bytes) AS index_size
+  s.index_bytes
 FROM sizes s
 JOIN pg_class c ON c.oid = s.root
 JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -67,31 +46,24 @@ ORDER BY s.size_bytes DESC, schema_name, table_name
 `
 
 // TableSizesCheck reports the on-disk table and index size of each configured
-// table. It is purely informational — no size is wrong on its own — so it never
-// produces a finding; the sizes are surfaced through Details, which means the
-// JSON report only.
+// table. It is purely informational. The sizes are surfaced through Details,
+// which means the JSON report only.
 //
 // The builder only instantiates it when a table selection is configured.
-// Reporting every table of an unfiltered database would be a catalog dump, not
-// a preflight result.
 type TableSizesCheck struct {
 	Source    postgres.AcquireFunc
 	Selection stream.TableSelection
 
-	// tables and the totals are captured during Run and surfaced through
-	// Details. Empty until Run has read them.
 	tables          []tableSize
 	totalBytes      int64
 	totalIndexBytes int64
 }
 
 type tableSize struct {
-	schema      string
-	table       string
-	bytes       int64
-	pretty      string
-	indexBytes  int64
-	indexPretty string
+	schema     string
+	table      string
+	bytes      int64
+	indexBytes int64
 }
 
 func (c *TableSizesCheck) Name() string { return "table_sizes" }
@@ -110,7 +82,7 @@ func (c *TableSizesCheck) Run(ctx context.Context) ([]Finding, error) {
 
 	for rows.Next() {
 		var t tableSize
-		if err := rows.Scan(&t.schema, &t.table, &t.bytes, &t.pretty, &t.indexBytes, &t.indexPretty); err != nil {
+		if err := rows.Scan(&t.schema, &t.table, &t.bytes, &t.indexBytes); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
 		if !c.Selection.IsTableInScope(t.schema, t.table) {
@@ -126,9 +98,6 @@ func (c *TableSizesCheck) Run(ctx context.Context) ([]Finding, error) {
 	return nil, nil
 }
 
-// Summary condenses the report to one line for the human-readable output: how
-// many tables are in scope and what they weigh, table data and indexes kept
-// apart because only the former is what the data snapshot copies.
 func (c *TableSizesCheck) Summary() string {
 	return fmt.Sprintf("%d tables · %s + %s indexes",
 		len(c.tables), prettySize(c.totalBytes), prettySize(c.totalIndexBytes))
@@ -153,7 +122,7 @@ func (c *TableSizesCheck) ExpandedSummary() []string {
 	rows := make([]string, 0, len(c.tables)+1)
 	for _, t := range c.tables {
 		rows = append(rows, fmt.Sprintf("%-*s  %10s  indexes %s",
-			width, t.schema+"."+t.table, t.pretty, t.indexPretty))
+			width, t.schema+"."+t.table, prettySize(t.bytes), prettySize(t.indexBytes)))
 	}
 	return append(rows, fmt.Sprintf("%-*s  %10s  indexes %s",
 		width, tableSizesTotalLabel, prettySize(c.totalBytes), prettySize(c.totalIndexBytes)))
@@ -161,8 +130,6 @@ func (c *TableSizesCheck) ExpandedSummary() []string {
 
 const tableSizesTotalLabel = "total"
 
-// Details exposes the in-scope tables largest first, alongside their totals, so
-// the report records what the run was sizing itself against.
 func (c *TableSizesCheck) Details() map[string]any {
 	tables := make([]map[string]any, 0, len(c.tables))
 	for _, t := range c.tables {
@@ -170,9 +137,7 @@ func (c *TableSizesCheck) Details() map[string]any {
 			"schema":           t.schema,
 			"table":            t.table,
 			"size_bytes":       t.bytes,
-			"size":             t.pretty,
 			"index_size_bytes": t.indexBytes,
-			"index_size":       t.indexPretty,
 		})
 	}
 	return map[string]any{

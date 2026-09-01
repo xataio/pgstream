@@ -250,7 +250,7 @@ func tableSizeRows(t *testing.T, rows []tableSize) postgres.AcquireFunc {
 				return &mocks.Rows{
 					NextFn: func(i uint) bool { return int(i) <= len(rows) },
 					ScanFn: func(i uint, dest ...any) error {
-						require.Len(t, dest, 6)
+						require.Len(t, dest, 4)
 						row := rows[i-1]
 						schema, ok := dest[0].(*string)
 						require.True(t, ok)
@@ -258,14 +258,9 @@ func tableSizeRows(t *testing.T, rows []tableSize) postgres.AcquireFunc {
 						require.True(t, ok)
 						bytes, ok := dest[2].(*int64)
 						require.True(t, ok)
-						pretty, ok := dest[3].(*string)
+						indexBytes, ok := dest[3].(*int64)
 						require.True(t, ok)
-						indexBytes, ok := dest[4].(*int64)
-						require.True(t, ok)
-						indexPretty, ok := dest[5].(*string)
-						require.True(t, ok)
-						*schema, *table, *bytes, *pretty = row.schema, row.table, row.bytes, row.pretty
-						*indexBytes, *indexPretty = row.indexBytes, row.indexPretty
+						*schema, *table, *bytes, *indexBytes = row.schema, row.table, row.bytes, row.indexBytes
 						return nil
 					},
 					ErrFn: func() error { return nil },
@@ -291,10 +286,10 @@ func TestTableSizesCheck_Run(t *testing.T) {
 	t.Parallel()
 
 	catalog := []tableSize{
-		{schema: "public", table: "events", bytes: 8 * 1024 * 1024, pretty: "8192 kB", indexBytes: 4 * 1024 * 1024, indexPretty: "4096 kB"},
-		{schema: "public", table: "users", bytes: 2 * 1024 * 1024, pretty: "2048 kB", indexBytes: 1024 * 1024, indexPretty: "1024 kB"},
-		{schema: "billing", table: "invoices", bytes: 1024, pretty: "1024 bytes", indexBytes: 512, indexPretty: "512 bytes"},
-		{schema: "public", table: "audit_log", bytes: 512, pretty: "512 bytes", indexBytes: 0, indexPretty: "0 bytes"},
+		{schema: "public", table: "events", bytes: 8 * 1024 * 1024, indexBytes: 4 * 1024 * 1024},
+		{schema: "public", table: "users", bytes: 2 * 1024 * 1024, indexBytes: 1024 * 1024},
+		{schema: "billing", table: "invoices", bytes: 1024, indexBytes: 512},
+		{schema: "public", table: "audit_log", bytes: 512, indexBytes: 0},
 	}
 
 	tests := []struct {
@@ -361,13 +356,50 @@ func TestTableSizesCheck_Run(t *testing.T) {
 
 			for i, r := range reported {
 				source := catalogEntry(t, catalog, names[i])
-				require.Equal(t, source.bytes, r["size_bytes"])
-				require.Equal(t, source.pretty, r["size"])
-				require.Equal(t, source.indexBytes, r["index_size_bytes"])
-				require.Equal(t, source.indexPretty, r["index_size"])
+				// raw byte counts only: display belongs to Summary/ExpandedSummary
+				require.Equal(t, map[string]any{
+					"schema":           source.schema,
+					"table":            source.table,
+					"size_bytes":       source.bytes,
+					"index_size_bytes": source.indexBytes,
+				}, r)
 			}
 		})
 	}
+}
+
+func TestTableSizesCheck_Report(t *testing.T) {
+	t.Parallel()
+
+	catalog := []tableSize{
+		{schema: "public", table: "users", bytes: 5005312, indexBytes: 1236992},
+		{schema: "public", table: "events", bytes: 2736128, indexBytes: 1384448},
+		{schema: "billing", table: "invoices", bytes: 8192, indexBytes: 0},
+	}
+	check := &TableSizesCheck{Source: tableSizeRows(t, catalog)}
+
+	_, err := check.Run(context.Background())
+	require.NoError(t, err)
+
+	require.Equal(t, "3 tables · 7568 kB + 2560 kB indexes", check.Summary())
+	require.Equal(t, []string{
+		"public.users         4888 kB  indexes 1208 kB",
+		"public.events        2672 kB  indexes 1352 kB",
+		"billing.invoices  8192 bytes  indexes 0 bytes",
+		"total                7568 kB  indexes 2560 kB",
+	}, check.ExpandedSummary())
+}
+
+func TestTableSizesCheck_ReportEmpty(t *testing.T) {
+	t.Parallel()
+
+	check := &TableSizesCheck{Source: tableSizeRows(t, nil)}
+
+	_, err := check.Run(context.Background())
+	require.NoError(t, err)
+
+	require.Equal(t, "0 tables · 0 bytes + 0 bytes indexes", check.Summary())
+	require.Nil(t, check.ExpandedSummary())
 }
 
 func TestTableSizesCheck_Run_ConnectFails(t *testing.T) {

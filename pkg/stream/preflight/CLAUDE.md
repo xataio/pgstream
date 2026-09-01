@@ -6,7 +6,7 @@ Guidance for Claude Code when working inside `pkg/stream/preflight`. The planned
 
 - `preflight.go` — `Check` interface (`Name()` + `Run(ctx) ([]Finding, error)`), optional `Detailer` interface (`Details() map[string]any` — structured, non-finding context the engine merges into the result's JSON only; not shown in the human report), `Finding`, `CheckResult`, `Report`, `Run(ctx, []Check, ...RunOption)` engine.
 - `printer.go` — `ReportPrinter{Report}` is the only thing that formats reports. The `Report` struct itself stays pure data.
-- `size.go` — `prettySize`, a `pg_size_pretty`-compatible byte formatter, so totals computed in Go read consistently beside per-row strings formatted by Postgres. Pinned to live server output in `size_test.go`.
+- `size.go` — `prettySize`, a `pg_size_pretty`-compatible byte formatter. Size checks report raw bytes through `Details` and render them for readers in `Summary`/`ExpandedSummary`, so this is the single place a byte count becomes text. Pinned to live server output in `size_test.go`.
 - `builder.go` — `Builder` struct (returns `[]Check` + optional cleanup), `Builders` registry slice, per-category builder functions (`BuildConnectivityChecks`, …), `BuildChecks(cfg, selected)`.
 - One file per category of concrete checks (`connectivity.go`, `replication.go`, …).
 

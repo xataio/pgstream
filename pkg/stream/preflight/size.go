@@ -4,9 +4,10 @@ package preflight
 
 import "fmt"
 
-// prettySize renders a byte count the way pg_size_pretty does, so a total
-// computed in Go reads consistently beside the per-row strings the size
-// queries get from Postgres itself.
+// prettySize renders a byte count the way pg_size_pretty does. Size checks
+// report raw bytes and leave display to their Summary and ExpandedSummary, so
+// this is the single place byte counts become text — matching the server's
+// familiar formatting rather than inventing a second convention.
 //
 // Postgres steps up a unit once the value reaches 10 times that unit's size,
 // and rounds half away from zero on each step (see pg_size_pretty in
