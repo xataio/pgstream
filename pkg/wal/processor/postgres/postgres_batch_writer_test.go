@@ -355,6 +355,45 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - DDL rejected inside a transaction is replayed outside one",
+			pgconn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, i uint, sql string, args ...any) (pglib.CommandTag, error) {
+							if i == 1 {
+								return pglib.CommandTag{}, nil
+							}
+							return pglib.CommandTag{}, &pglib.ErrActiveSQLTransaction{
+								Details: "VACUUM cannot run inside a transaction block",
+							}
+						},
+					}
+					return f(&mockTx)
+				},
+				ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
+					require.Equal(t, "VACUUM FULL test", sql)
+					return pglib.CommandTag{}, nil
+				},
+				CloseFn: func(ctx context.Context) error { return nil },
+			},
+			adapter: &mockAdapter{
+				walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
+					return []*query{{
+						schema: testSchema,
+						table:  testTable,
+						sql:    "VACUUM FULL test",
+						isDDL:  true,
+					}}, nil
+				},
+			},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
+				{data: &wal.Data{Action: "M", Prefix: "pgstream.ddl", Schema: testSchema, Table: testTable}, isDDL: true},
+			}, []wal.CommitPosition{testCommitPosition}),
+
+			wantErr: nil,
+		},
+		{
 			name: "ok - DDL without schema replayed as is",
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
@@ -817,6 +856,7 @@ func Test_isConcurrentDDL(t *testing.T) {
 		{name: "drop index concurrently lowercase", sql: "drop index concurrently test_idx", want: true},
 		{name: "reindex concurrently", sql: "REINDEX INDEX CONCURRENTLY test_idx", want: true},
 		{name: "refresh materialized view concurrently", sql: "REFRESH MATERIALIZED VIEW CONCURRENTLY mv", want: true},
+		{name: "detach partition concurrently", sql: "ALTER TABLE test DETACH PARTITION test_p1 CONCURRENTLY", want: true},
 		{name: "leading whitespace and newline", sql: "\n\t create index concurrently\n test_idx on test (id)", want: true},
 		// The keyword alone does not make a statement non-transactional.
 		{name: "concurrently as part of an identifier", sql: "create table concurrently_run (id int)", want: false},

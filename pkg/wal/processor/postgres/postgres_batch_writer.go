@@ -17,6 +17,10 @@ import (
 )
 
 // prependSearchPath puts the event schema first, keeping the existing entries.
+// The upstream search path is not part of the DDL event, so the schema postgres
+// reports for the affected objects stands in for it. Unqualified DDL that
+// resolves through a schema other than the one it affects still lands wherever
+// the target search path points, as it did before.
 const prependSearchPath = `SELECT pg_catalog.set_config('search_path',
 	pg_catalog.concat_ws(', ', $1::text, NULLIF(pg_catalog.current_setting('search_path'), '')), true)`
 
@@ -200,31 +204,53 @@ func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]
 	return nil
 }
 
-// execDDLQuery replays DDL under the upstream schema search path.
+// execDDLQuery replays DDL under the upstream schema search path. The search
+// path can only be scoped to the DDL with SET LOCAL, which requires a
+// transaction, so statements postgres refuses to run in one are replayed as
+// they were before, on the target's own search path.
 func (w *BatchWriter) execDDLQuery(ctx context.Context, q *query) error {
-	if q.schema == "" || isConcurrentDDL(q.sql) {
-		if q.schema != "" {
-			w.logger.Warn(nil, "replaying DDL that cannot run in a transaction without the upstream search path, it may apply to the wrong schema", loglib.Fields{
-				"sql":      q.sql,
-				"schema":   q.schema,
-				"severity": "DATALOSS",
-			})
-		}
+	if q.schema == "" {
 		_, err := w.pgConn.Exec(ctx, q.sql, q.args...)
 		return err
 	}
 
-	return w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
+	if isConcurrentDDL(q.sql) {
+		return w.execDDLQueryOutsideTx(ctx, q)
+	}
+
+	err := w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
 		if _, err := tx.Exec(ctx, prependSearchPath, pglib.QuoteIdentifier(q.schema)); err != nil {
 			return fmt.Errorf("setting search path to %q for DDL replay: %w", q.schema, err)
 		}
 		_, err := tx.Exec(ctx, q.sql, q.args...)
 		return err
 	})
+	// isConcurrentDDL only recognises the statements known to be
+	// transaction-unsafe. Postgres is the authority, and it rejects them before
+	// doing any work, so a rejection is a safe signal to replay outside the tx
+	// rather than a failure to report.
+	var errActiveTx *pglib.ErrActiveSQLTransaction
+	if errors.As(err, &errActiveTx) {
+		return w.execDDLQueryOutsideTx(ctx, q)
+	}
+
+	return err
 }
 
-// concurrentDDL matches DDL commands postgres rejects inside transaction blocks.
-var concurrentDDL = regexp.MustCompile(`(?is)^\s*(create(\s+unique)?\s+index|drop\s+index|reindex|refresh\s+materialized\s+view)\b.*\bconcurrently\b`)
+func (w *BatchWriter) execDDLQueryOutsideTx(ctx context.Context, q *query) error {
+	w.logger.Warn(nil, "replaying DDL that cannot run in a transaction without the upstream search path, it may apply to the wrong schema", loglib.Fields{
+		"sql":      q.sql,
+		"schema":   q.schema,
+		"severity": "DATALOSS",
+	})
+	_, err := w.pgConn.Exec(ctx, q.sql, q.args...)
+	return err
+}
+
+// concurrentDDL matches DDL commands postgres rejects inside transaction
+// blocks. It is a fast path only: anything it misses is caught by the
+// active_sql_transaction error postgres returns.
+var concurrentDDL = regexp.MustCompile(`(?is)^\s*(create(\s+unique)?\s+index|drop\s+index|reindex|refresh\s+materialized\s+view|alter\s+table)\b.*\bconcurrently\b`)
 
 // isConcurrentDDL reports whether the statement must run outside transactions.
 func isConcurrentDDL(sql string) bool {
