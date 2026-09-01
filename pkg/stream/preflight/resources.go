@@ -27,54 +27,43 @@ import (
 // side by side would double count the totals. Legacy inheritance children are
 // not partitions, so they stay standalone rows.
 //
-// pg_inherits recursion rather than pg_partition_tree, which needs PostgreSQL
-// 12 and pgstream supports 10+.
+// Every reported table seeds partition_tree as the root of its own tree, so a
+// table without partitions sums to just itself and the rollup needs no special
+// case. The recursion walks pg_inherits rather than pg_partition_tree, which
+// needs PostgreSQL 12 while pgstream supports 10+.
 const tableSizesQuery = `
 WITH RECURSIVE partition_tree AS (
   SELECT c.oid AS root, c.oid AS relid
   FROM pg_class c
-  WHERE c.relkind = 'p'
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE c.relkind IN ('r', 'p')
+    AND NOT c.relispartition
+    AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pgstream')
+    AND n.nspname NOT LIKE 'pg_toast%'
   UNION ALL
-  SELECT t.root, child.oid
+  SELECT t.root, partition.oid
   FROM partition_tree t
   JOIN pg_inherits i ON i.inhparent = t.relid
-  JOIN pg_class child ON child.oid = i.inhrelid AND child.relispartition
-), partition_sizes AS (
+  JOIN pg_class partition ON partition.oid = i.inhrelid AND partition.relispartition
+), sizes AS (
   SELECT
     root,
-    sum(pg_table_size(relid))::bigint AS table_bytes,
+    sum(pg_table_size(relid))::bigint AS size_bytes,
     sum(pg_indexes_size(relid))::bigint AS index_bytes
   FROM partition_tree
   GROUP BY root
 )
 SELECT
-  schema_name,
-  table_name,
-  size_bytes,
-  pg_size_pretty(size_bytes) AS size,
-  index_bytes,
-  pg_size_pretty(index_bytes) AS index_size
-FROM (
-  SELECT
-    n.nspname AS schema_name,
-    c.relname AS table_name,
-    CASE
-      WHEN c.relkind = 'p' THEN COALESCE(ps.table_bytes, 0)
-      ELSE pg_table_size(c.oid)
-    END::bigint AS size_bytes,
-    CASE
-      WHEN c.relkind = 'p' THEN COALESCE(ps.index_bytes, 0)
-      ELSE pg_indexes_size(c.oid)
-    END::bigint AS index_bytes
-  FROM pg_class c
-  JOIN pg_namespace n ON n.oid = c.relnamespace
-  LEFT JOIN partition_sizes ps ON ps.root = c.oid
-  WHERE c.relkind IN ('r', 'p')
-    AND NOT c.relispartition
-    AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pgstream')
-    AND n.nspname NOT LIKE 'pg_toast%'
-) s
-ORDER BY size_bytes DESC, schema_name, table_name
+  n.nspname AS schema_name,
+  c.relname AS table_name,
+  s.size_bytes,
+  pg_size_pretty(s.size_bytes) AS size,
+  s.index_bytes,
+  pg_size_pretty(s.index_bytes) AS index_size
+FROM sizes s
+JOIN pg_class c ON c.oid = s.root
+JOIN pg_namespace n ON n.oid = c.relnamespace
+ORDER BY s.size_bytes DESC, schema_name, table_name
 `
 
 // TableSizesCheck reports the on-disk table and index size of each configured
