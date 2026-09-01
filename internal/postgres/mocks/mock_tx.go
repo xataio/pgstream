@@ -4,17 +4,20 @@ package mocks
 
 import (
 	"context"
+	"io"
 
 	"github.com/xataio/pgstream/internal/postgres"
 )
 
 type Tx struct {
-	QueryRowFn     func(ctx context.Context, dest []any, query string, args ...any) error
-	QueryFn        func(ctx context.Context, query string, args ...any) (postgres.Rows, error)
-	ExecFn         func(ctx context.Context, i uint, query string, args ...any) (postgres.CommandTag, error)
-	CopyFromFn     func(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
-	CopyFromTextFn func(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
-	execCallCount  uint
+	QueryRowFn       func(ctx context.Context, dest []any, query string, args ...any) error
+	QueryFn          func(ctx context.Context, query string, args ...any) (postgres.Rows, error)
+	ExecFn           func(ctx context.Context, i uint, query string, args ...any) (postgres.CommandTag, error)
+	CopyFromFn       func(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
+	CopyFromTextFn   func(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
+	CopyToWriterFn   func(ctx context.Context, w io.Writer, sql string) (int64, error)
+	CopyFromReaderFn func(ctx context.Context, r io.Reader, sql string) (int64, error)
+	execCallCount    uint
 }
 
 func (m *Tx) QueryRow(ctx context.Context, dest []any, query string, args ...any) error {
@@ -39,4 +42,12 @@ func (m *Tx) CopyFromText(ctx context.Context, tableName string, columnNames []s
 		return m.CopyFromTextFn(ctx, tableName, columnNames, srcRows)
 	}
 	return m.CopyFromFn(ctx, tableName, columnNames, srcRows)
+}
+
+func (m *Tx) CopyToWriter(ctx context.Context, w io.Writer, sql string) (rowCount int64, err error) {
+	return m.CopyToWriterFn(ctx, w, sql)
+}
+
+func (m *Tx) CopyFromReader(ctx context.Context, r io.Reader, sql string) (rowCount int64, err error) {
+	return m.CopyFromReaderFn(ctx, r, sql)
 }

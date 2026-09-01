@@ -49,6 +49,27 @@ func TestWAL2JSONCheck_Run(t *testing.T) {
 			wantSubs: []string{"wal2json output plugin not available"},
 		},
 		{
+			// postgres 17.11+ consults the output_plugin_libraries allowlist
+			// before looking for the library, and raises 42501 — the same code
+			// as a role lacking REPLICATION — so this must be classified by
+			// message or the check goes silent on every modern server without
+			// wal2json. MapError types 42501 as ErrPermissionDenied, which is
+			// what the probe actually receives.
+			name: "plugin not in output_plugin_libraries - a wal2json finding, not a permission precondition",
+			probeErr: &postgres.ErrPermissionDenied{
+				Details: `library "wal2json" may not be used as an output plugin`,
+			},
+			wantHit:  true,
+			wantSubs: []string{"wal2json output plugin not available", "output_plugin_libraries"},
+		},
+		{
+			// the same rejection arriving untyped, as a raw pgconn error
+			name:     "plugin not in output_plugin_libraries - raw 42501",
+			probeErr: &pgconn.PgError{Code: "42501", Message: `library "wal2json" may not be used as an output plugin`},
+			wantHit:  true,
+			wantSubs: []string{"wal2json output plugin not available", "output_plugin_libraries"},
+		},
+		{
 			// 55000 is mapped to ErrPreconditionFailed by MapError.
 			name:     "wal_level not logical - inconclusive, not a wal2json finding",
 			probeErr: &postgres.ErrPreconditionFailed{Details: `logical decoding requires "wal_level" >= "logical"`},

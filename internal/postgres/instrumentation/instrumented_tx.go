@@ -4,6 +4,7 @@ package instrumentation
 
 import (
 	"context"
+	"io"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/otel"
@@ -57,4 +58,18 @@ func (i *Tx) CopyFromText(ctx context.Context, tableName string, columnNames []s
 	ctx, span := otel.StartSpan(ctx, i.tracer, "tx.CopyFromText")
 	defer otel.CloseSpan(span, err)
 	return i.inner.CopyFromText(ctx, tableName, columnNames, srcRows)
+}
+
+func (i *Tx) CopyToWriter(ctx context.Context, w io.Writer, sql string) (rowCount int64, err error) {
+	queryAttrs := queryAttributes(sql)
+	ctx, span := otel.StartSpan(ctx, i.tracer, "tx.CopyToWriter", trace.WithAttributes(queryAttrs...))
+	defer otel.CloseSpan(span, err)
+	return i.inner.CopyToWriter(ctx, w, sql)
+}
+
+func (i *Tx) CopyFromReader(ctx context.Context, r io.Reader, sql string) (rowCount int64, err error) {
+	queryAttrs := queryAttributes(sql)
+	ctx, span := otel.StartSpan(ctx, i.tracer, "tx.CopyFromReader", trace.WithAttributes(queryAttrs...))
+	defer otel.CloseSpan(span, err)
+	return i.inner.CopyFromReader(ctx, r, sql)
 }

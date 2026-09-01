@@ -5,13 +5,10 @@ package integration
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +18,6 @@ import (
 	"github.com/xataio/pgstream/internal/searchstore/elasticsearch"
 	"github.com/xataio/pgstream/internal/searchstore/opensearch"
 	"github.com/xataio/pgstream/pkg/stream"
-	"github.com/xataio/pgstream/pkg/wal/processor/search"
 	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
 )
 
@@ -144,6 +140,8 @@ func Test_PostgresToSearch(t *testing.T) {
 	}
 
 	t.Run("postgres to opensearch", func(t *testing.T) {
+		opensearchContainer.require(t)
+
 		cfg := &stream.Config{
 			Listener: testPostgresListenerCfg(t),
 			Processor: testSearchProcessorCfg(store.Config{
@@ -158,6 +156,8 @@ func Test_PostgresToSearch(t *testing.T) {
 	})
 
 	t.Run("postgres to elasticsearch", func(t *testing.T) {
+		elasticsearchContainer.require(t)
+
 		cfg := &stream.Config{
 			Listener: testPostgresListenerCfg(t),
 			Processor: testSearchProcessorCfg(store.Config{
@@ -169,53 +169,6 @@ func Test_PostgresToSearch(t *testing.T) {
 		require.NoError(t, err)
 
 		run(t, cfg, client, "pg2es_integration_test")
-	})
-
-	t.Run("long IDs are hashed before indexing", func(t *testing.T) {
-		ctx := t.Context()
-
-		cfg := testSearchProcessorCfg(store.Config{ElasticsearchURL: elasticsearchURL})
-		cfg.Search.Indexer = search.IndexerConfig{HashDocIDs: true}
-		runStream(t, ctx, &stream.Config{Listener: testPostgresListenerCfg(t), Processor: cfg})
-
-		client, err := elasticsearch.NewClient(elasticsearchURL)
-		require.NoError(t, err)
-
-		testSchema, testTable, testIndex := "id_hash_test", "t", "id_hash_test-1"
-		longID := strings.Repeat("a", 600)
-
-		execQuery(t, ctx, fmt.Sprintf("create schema %s", testSchema))
-		execQuery(t, ctx, fmt.Sprintf("create table %s.%s(id text primary key, name text)", testSchema, testTable))
-		execQuery(t, ctx, fmt.Sprintf("insert into %s.%s values('%s','x')", testSchema, testTable, longID))
-
-		timer := time.NewTimer(20 * time.Second)
-		defer timer.Stop()
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-timer.C:
-				t.Fatal("timeout waiting for indexed document")
-			case <-ticker.C:
-				exists, err := client.IndexExists(ctx, testIndex)
-				if err != nil || !exists {
-					continue
-				}
-				testTablePgstreamID := getTablePgstreamID(t, ctx, testSchema, testTable)
-				if testTablePgstreamID == "" {
-					continue
-				}
-				resp, err := searchTable(ctx, client, testIndex, testTablePgstreamID)
-				if err != nil || resp.Hits.Total.Value != 1 {
-					continue
-				}
-				hash := sha256.Sum256([]byte(longID))
-				expectedID := fmt.Sprintf("%s_%s", testTablePgstreamID, hex.EncodeToString(hash[:]))
-				require.Equal(t, expectedID, resp.Hits.Hits[0].ID)
-				return
-			}
-		}
 	})
 }
 

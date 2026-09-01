@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package integration
+package store
 
 import (
 	"context"
 	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
@@ -15,10 +14,9 @@ import (
 	"github.com/xataio/pgstream/internal/searchstore/elasticsearch"
 	"github.com/xataio/pgstream/internal/searchstore/opensearch"
 	pgtls "github.com/xataio/pgstream/pkg/tls"
-	"github.com/xataio/pgstream/pkg/wal/processor/search/store"
 )
 
-// Test_Search_TLSInsecureSkipVerify verifies that the TLS plumbing introduced
+// TestSearch_TLSInsecureSkipVerify verifies that the TLS plumbing introduced
 // for #798 lets pgstream talk to a search backend over HTTPS with a
 // self-signed certificate when InsecureSkipVerify is set — and that without
 // it, the TLS handshake fails with the expected x509 error.
@@ -27,10 +25,8 @@ import (
 // stand-in for an OpenSearch 3 cluster behind self-signed HTTPS. The test
 // asserts on the request that reaches the server, which is enough to prove
 // the HTTPS connection was established.
-func Test_Search_TLSInsecureSkipVerify(t *testing.T) {
-	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
-		t.Skip("skipping integration test...")
-	}
+func TestSearch_TLSInsecureSkipVerify(t *testing.T) {
+	t.Parallel()
 
 	ctx := context.Background()
 
@@ -95,11 +91,11 @@ func Test_Search_TLSInsecureSkipVerify(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 	})
 
-	// End-to-end through store.NewStore — the path pgstream's config
-	// surface (YAML/env) actually traverses to build a search client.
-	t.Run("store.NewStore wires TLS through to the underlying client", func(t *testing.T) {
+	// End-to-end through NewStore — the path pgstream's config surface
+	// (YAML/env) actually traverses to build a search client.
+	t.Run("NewStore wires TLS through to the underlying client", func(t *testing.T) {
 		t.Parallel()
-		_, err := store.NewStore(store.Config{
+		_, err := NewStore(Config{
 			OpenSearchURL: srv.URL,
 			TLS: pgtls.Config{
 				Enabled:            true,
