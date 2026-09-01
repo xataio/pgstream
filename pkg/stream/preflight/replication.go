@@ -93,9 +93,9 @@ func (c *WAL2JSONCheck) Run(ctx context.Context) ([]Finding, error) {
 	}
 
 	switch {
-	case isWAL2JSONMissing(probeErr):
+	case isWAL2JSONMissing(probeErr), isWAL2JSONNotAllowed(probeErr):
 		return []Finding{{
-			Message: "wal2json output plugin not available on source; install the wal2json package so the wal2json shared library is loadable as a logical-decoding output plugin",
+			Message: "wal2json output plugin not available on source; install the wal2json package, and on postgres 17.11+ add wal2json to output_plugin_libraries (it defaults to \"pgoutput, test_decoding\") and reload the server — that allowlist is checked before the library is loaded, so an installed wal2json is still refused while it is missing from it",
 		}}, nil
 	case isProbePreconditionUnmet(probeErr):
 		// The probe needs wal_level=logical, the REPLICATION role attribute and a
@@ -132,6 +132,12 @@ func isWAL2JSONMissing(err error) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "could not access file") ||
 		(strings.Contains(msg, "could not load library") && strings.Contains(msg, "wal2json"))
+}
+
+// isWAL2JSONNotAllowed reports whether the probe error is postgres refusing
+// wal2json because it is absent from the output_plugin_libraries allowlist.
+func isWAL2JSONNotAllowed(err error) bool {
+	return strings.Contains(err.Error(), "may not be used as an output plugin")
 }
 
 // isProbePreconditionUnmet reports whether the probe failed for a reason owned

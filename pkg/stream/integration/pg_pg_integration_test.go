@@ -369,7 +369,10 @@ func Test_PostgresToPostgres_UnqualifiedDDLUnderSearchPath(t *testing.T) {
 	defer execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("drop domain if exists public.%s cascade", domainName))
 	defer execQuery(t, ctx, fmt.Sprintf("drop domain if exists public.%s cascade", domainName))
 	require.Eventually(t, func() bool {
-		return pgTypeExists(ctx, targetConn, "public", domainName)
+		// a failed probe is just "not yet" while polling; the exclusion
+		// assertion below is the one that has to tell an error from an absence
+		exists, err := pgTypeExists(ctx, targetConn, "public", domainName)
+		return err == nil && exists
 	}, 20*time.Second, 200*time.Millisecond, "expected the domain to be replicated to the target")
 
 	// The unqualified DDL relies on the session search path.
@@ -379,9 +382,13 @@ func Test_PostgresToPostgres_UnqualifiedDDLUnderSearchPath(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		return tableExists(ctx, targetConn, schemaName, tableName)
+		exists, err := tableExists(ctx, targetConn, schemaName, tableName)
+		return err == nil && exists
 	}, 20*time.Second, 200*time.Millisecond, "expected table to be created on the upstream schema")
-	require.False(t, tableExists(ctx, targetConn, "public", tableName),
+
+	publicTableExists, err := tableExists(ctx, targetConn, "public", tableName)
+	require.NoError(t, err)
+	require.False(t, publicTableExists,
 		"expected table not to be created on the target default schema")
 
 	// The following DML is schema qualified by WAL decoding.
