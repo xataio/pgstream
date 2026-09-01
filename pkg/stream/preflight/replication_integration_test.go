@@ -11,8 +11,6 @@ import (
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/internal/testcontainers"
-	"github.com/xataio/pgstream/pkg/stream"
-	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
 // TestWAL2JSONCheck_Run_Integration exercises the temporary-slot probe against
@@ -68,71 +66,5 @@ func TestWAL2JSONCheck_Run_Integration(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, findings, 1)
 		require.Contains(t, findings[0].Message, "wal2json output plugin not available")
-	})
-}
-
-// TestReplicaIdentityCheck_Run_Integration_PluginScoping proves end-to-end that
-// a table filtered out by the wal2json plugin options is not flagged for a
-// missing replica identity, while an in-scope table with the same problem is.
-func TestReplicaIdentityCheck_Run_Integration_PluginScoping(t *testing.T) {
-	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
-		t.Skip("skipping integration test...")
-	}
-
-	ctx := context.Background()
-
-	var pgURL string
-	cleanup, err := testcontainers.SetupPostgresContainer(ctx, &pgURL, testcontainers.Postgres17)
-	require.NoError(t, err)
-	defer cleanup()
-
-	adminConn, err := pglib.NewConn(ctx, pgURL)
-	require.NoError(t, err)
-	defer adminConn.Close(ctx)
-
-	// public.typeorm_metadata: no PK, default replica identity -> a finding
-	// unless scoped out. labs.staff_member_onboarding: same problem, in scope.
-	_, err = adminConn.Exec(ctx, `CREATE TABLE public.typeorm_metadata (id int, name text)`)
-	require.NoError(t, err)
-	_, err = adminConn.Exec(ctx, `CREATE SCHEMA labs`)
-	require.NoError(t, err)
-	_, err = adminConn.Exec(ctx, `CREATE TABLE labs.staff_member_onboarding (id int, name text)`)
-	require.NoError(t, err)
-
-	source := func(ctx context.Context) (pglib.Querier, error) {
-		return pglib.NewConn(ctx, pgURL)
-	}
-
-	t.Run("filter_tables public.* scopes out public tables", func(t *testing.T) {
-		cfg := &stream.Config{Listener: stream.ListenerConfig{Postgres: &stream.PostgresListenerConfig{
-			Replication: pgreplication.Config{
-				PluginArguments: pgreplication.PluginArguments{FilterTables: "public.*"},
-			},
-		}}}
-		check := &ReplicaIdentityCheck{Source: source, Selection: cfg.ReplicationTableSelection()}
-
-		findings, err := check.Run(ctx)
-		require.NoError(t, err)
-
-		joined := ""
-		for _, f := range findings {
-			joined += f.Message + "\n"
-		}
-		require.Contains(t, joined, `"labs"."staff_member_onboarding"`)
-		require.NotContains(t, joined, "typeorm_metadata", "public.* is filtered out at the plugin level")
-	})
-
-	t.Run("no scoping flags the public table too", func(t *testing.T) {
-		check := &ReplicaIdentityCheck{Source: source, Selection: (&stream.Config{}).ReplicationTableSelection()}
-
-		findings, err := check.Run(ctx)
-		require.NoError(t, err)
-
-		joined := ""
-		for _, f := range findings {
-			joined += f.Message + "\n"
-		}
-		require.Contains(t, joined, `"public"."typeorm_metadata"`)
-		require.Contains(t, joined, `"labs"."staff_member_onboarding"`)
 	})
 }

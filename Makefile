@@ -10,9 +10,19 @@ test:
 
 .PHONY: integration-test
 integration-test:
-	@PGSTREAM_INTEGRATION_TESTS=true go test -timeout 600s \
+# -count=1 because the results depend on containers the go build cache cannot
+# see: a cached "ok" from an earlier run would report success without starting
+# anything. The list must cover every package holding PGSTREAM_INTEGRATION_TESTS
+# gated tests, or those tests silently never run:
+#   grep -rl PGSTREAM_INTEGRATION_TESTS --include='*_test.go' .
+	@PGSTREAM_INTEGRATION_TESTS=true go test -count=1 -timeout 600s \
+		github.com/xataio/pgstream/pkg/stream \
 		github.com/xataio/pgstream/pkg/stream/integration \
+		github.com/xataio/pgstream/pkg/stream/preflight \
 		github.com/xataio/pgstream/pkg/snapshot/store/postgres/integration \
+		github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data \
+		github.com/xataio/pgstream/pkg/wal/processor/postgres \
+		github.com/xataio/pgstream/pkg/wal/processor/transformer \
 		github.com/xataio/pgstream/internal/postgres
 
 .PHONY: fuzz

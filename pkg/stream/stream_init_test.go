@@ -128,17 +128,18 @@ func TestInit_Upgrade_WithInjector(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Clean up any prior state and set up v0.9.x state
+	// Clean up any prior state and set up v0.9.x state.
+	//
+	// v0.9.x has no pgstream.table_ids: the table arrives with the injector
+	// migrations, which post-date it. Seeding one here would not reproduce any
+	// deployment that can exist, and a hand-made one whose shape differs from
+	// the migration's is worse than nothing — CREATE TABLE IF NOT EXISTS then
+	// keeps the wrong definition, and the migration fails building
+	// create_table_mapping against a table with no oid column.
 	conn, err := pgx.Connect(ctx, testPGURL)
 	require.NoError(t, err)
 	cleanupAllState(t, ctx, conn)
 	setupV09xState(t, ctx, conn)
-
-	// Insert test data into table_ids (should be preserved across upgrade)
-	_, err = conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS pgstream.table_ids (id text PRIMARY KEY)`)
-	require.NoError(t, err)
-	_, err = conn.Exec(ctx, `INSERT INTO pgstream.table_ids (id) VALUES ('test-id') ON CONFLICT DO NOTHING`)
-	require.NoError(t, err)
 	conn.Close(ctx)
 
 	// Run Init with Upgrade and injector enabled
@@ -161,11 +162,13 @@ func TestInit_Upgrade_WithInjector(t *testing.T) {
 	// Verify injector migration table exists
 	assertObjectExists(t, ctx, conn, "table", "pgstream", "schema_migrations_injector")
 
-	// Verify table_ids data was preserved
-	var id string
-	err = conn.QueryRow(ctx, `SELECT id FROM pgstream.table_ids WHERE id = 'test-id'`).Scan(&id)
-	require.NoError(t, err)
-	require.Equal(t, "test-id", id)
+	// The injector migrations really ran against the upgraded schema, rather
+	// than being skipped over a pre-existing table: table_ids has to carry the
+	// oid column that create_table_mapping inserts into. A table left behind in
+	// some other shape would still satisfy assertObjectExists.
+	assertObjectExists(t, ctx, conn, "table", "pgstream", "table_ids")
+	assertColumnExists(t, ctx, conn, "pgstream", "table_ids", "id")
+	assertColumnExists(t, ctx, conn, "pgstream", "table_ids", "oid")
 }
 
 func TestWithUpgrade(t *testing.T) {
@@ -268,6 +271,20 @@ func assertObjectExists(t *testing.T, ctx context.Context, conn *pgx.Conn, objec
 		schema, name).Scan(&exists)
 	require.NoError(t, err)
 	require.True(t, exists, "%s %s.%s should exist", objectType, schema, name)
+}
+
+func assertColumnExists(t *testing.T, ctx context.Context, conn *pgx.Conn, schema, table, column string) {
+	t.Helper()
+
+	var exists bool
+	err := conn.QueryRow(ctx,
+		`SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema = $1 AND table_name = $2 AND column_name = $3
+		)`,
+		schema, table, column).Scan(&exists)
+	require.NoError(t, err)
+	require.True(t, exists, "column %s.%s.%s should exist", schema, table, column)
 }
 
 func assertObjectNotExists(t *testing.T, ctx context.Context, conn *pgx.Conn, objectType, schema, name string) {

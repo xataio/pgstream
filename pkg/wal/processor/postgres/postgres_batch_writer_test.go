@@ -172,6 +172,51 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 		})
 	}
 
+	rowColumns := func(id any, name string) []wal.Column {
+		return []wal.Column{
+			{Name: "id", Type: "bigint", Value: id},
+			{Name: "name", Type: "text", Value: name},
+		}
+	}
+
+	insertMsg := func(id any, name string) *walMessage {
+		return &walMessage{data: &wal.Data{
+			Action:  "I",
+			Schema:  testSchema,
+			Table:   testTable,
+			Columns: rowColumns(id, name),
+		}}
+	}
+
+	updateMsg := func(id any, name string) *walMessage {
+		return &walMessage{data: &wal.Data{
+			Action:   "U",
+			Schema:   testSchema,
+			Table:    testTable,
+			Columns:  rowColumns(id, name),
+			Identity: []wal.Column{{Name: "id", Type: "bigint", Value: id}},
+		}}
+	}
+
+	// recordingConn captures the statements a case executes in order, so a case
+	// can assert on how the batch was split rather than only on the error.
+	recordingConn := func(executed *[]string) *pgmocks.Querier {
+		return &pgmocks.Querier{
+			ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+				mockTx := pgmocks.Tx{
+					ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
+						*executed = append(*executed, sql)
+						return pglib.CommandTag{}, nil
+					},
+				}
+				return f(&mockTx)
+			},
+			CloseFn: func(ctx context.Context) error { return nil },
+		}
+	}
+
+	var runBoundarySQL, updateRunSQL []string
+
 	tests := []struct {
 		name         string
 		pgconn       *pgmocks.Querier
@@ -180,6 +225,7 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 		batch        *batch.Batch[*walMessage]
 		checkpointer checkpointer.Checkpoint
 
+		assert  func(t *testing.T)
 		wantErr error
 	}{
 		{
@@ -241,16 +287,25 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 			name: "ok - DDL flushes pending DML",
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					// Each transaction is separate, so statements are matched by content.
 					mockTx := pgmocks.Tx{
-						ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
+						ExecFn: func(ctx context.Context, i uint, sql string, args ...any) (pglib.CommandTag, error) {
+							switch {
+							case sql == prependSearchPath:
+								require.Equal(t, uint(1), i, "search path must be set first")
+								require.Equal(t, []any{`"test_schema"`}, args)
+							case strings.HasPrefix(sql, "ALTER TABLE"):
+								require.Equal(t, "ALTER TABLE test_schema.test_table ADD COLUMN x text", sql)
+								require.Equal(t, uint(2), i, "DDL must run after the search path is set")
+							}
 							return pglib.CommandTag{}, nil
 						},
 					}
 					return f(&mockTx)
 				},
 				ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
-					require.Equal(t, "ALTER TABLE test_schema.test_table ADD COLUMN x text", sql)
-					return pglib.CommandTag{}, nil
+					t.Errorf("DDL must be replayed with the upstream search path, got bare exec of %q", sql)
+					return pglib.CommandTag{}, errTest
 				},
 				CloseFn: func(ctx context.Context) error { return nil },
 			},
@@ -267,6 +322,202 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 			dmlAdapter: mustNewDMLAdapter(t),
 			batch: batch.NewBatch([]*walMessage{
 				deleteMsg(float64(1)),
+				{data: &wal.Data{Action: "M", Prefix: "pgstream.ddl", Schema: testSchema, Table: testTable}, isDDL: true},
+			}, []wal.CommitPosition{testCommitPosition}),
+
+			wantErr: nil,
+		},
+		{
+			// a run is the unit of coalescing, so the boundary between two of
+			// them is what keeps a delete from being folded into the inserts
+			// around it. Without the flush on action change the two inserts
+			// would merge across the delete and the rows would land in the
+			// wrong order.
+			name:       "ok - a change of action flushes the pending run",
+			pgconn:     recordingConn(&runBoundarySQL),
+			adapter:    &mockAdapter{},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
+				insertMsg(float64(1), "a"),
+				insertMsg(float64(2), "b"),
+				deleteMsg(float64(3)),
+				insertMsg(float64(4), "d"),
+			}, []wal.CommitPosition{testCommitPosition}),
+
+			assert: func(t *testing.T) {
+				require.Len(t, runBoundarySQL, 3, "expected three runs: insert, delete, insert")
+
+				require.Contains(t, runBoundarySQL[0], "INSERT INTO")
+				// two rows of two columns coalesced into one statement
+				require.Contains(t, runBoundarySQL[0], "$4")
+				require.NotContains(t, runBoundarySQL[0], "$5")
+
+				require.Contains(t, runBoundarySQL[1], "DELETE FROM")
+				require.Contains(t, runBoundarySQL[1], "ANY")
+
+				// the trailing insert is its own run, not appended to the first
+				require.Contains(t, runBoundarySQL[2], "INSERT INTO")
+				require.Contains(t, runBoundarySQL[2], "$2")
+				require.NotContains(t, runBoundarySQL[2], "$3")
+			},
+			wantErr: nil,
+		},
+		{
+			// updates take the default branch of buildCoalescedQueries: they
+			// are emitted one statement per event rather than coalesced
+			name:       "ok - updates are not coalesced",
+			pgconn:     recordingConn(&updateRunSQL),
+			adapter:    &mockAdapter{},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
+				updateMsg(float64(1), "a"),
+				updateMsg(float64(2), "b"),
+			}, []wal.CommitPosition{testCommitPosition}),
+
+			assert: func(t *testing.T) {
+				require.Len(t, updateRunSQL, 2, "each update is its own statement")
+				for _, sql := range updateRunSQL {
+					require.Contains(t, sql, "UPDATE")
+					require.Contains(t, sql, "WHERE")
+				}
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - unqualified DDL replayed on the upstream schema",
+			pgconn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, i uint, sql string, args ...any) (pglib.CommandTag, error) {
+							switch i {
+							case 1:
+								require.Equal(t, prependSearchPath, sql)
+								require.Equal(t, []any{`"test_schema"`}, args)
+							case 2:
+								require.Equal(t, "create table test (id int)", sql)
+							default:
+								t.Errorf("unexpected query in DDL transaction: %q", sql)
+							}
+							return pglib.CommandTag{}, nil
+						},
+					}
+					return f(&mockTx)
+				},
+				ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
+					t.Errorf("DDL must be replayed with the upstream search path, got bare exec of %q", sql)
+					return pglib.CommandTag{}, errTest
+				},
+				CloseFn: func(ctx context.Context) error { return nil },
+			},
+			adapter: &mockAdapter{
+				walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
+					return []*query{{
+						schema: testSchema,
+						table:  testTable,
+						sql:    "create table test (id int)",
+						isDDL:  true,
+					}}, nil
+				},
+			},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
+				{data: &wal.Data{Action: "M", Prefix: "pgstream.ddl", Schema: testSchema, Table: testTable}, isDDL: true},
+			}, []wal.CommitPosition{testCommitPosition}),
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - concurrent DDL replayed outside a transaction",
+			pgconn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					t.Error("concurrent DDL must not run inside a transaction")
+					return errTest
+				},
+				ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
+					require.Equal(t, "CREATE INDEX CONCURRENTLY test_idx ON test (id)", sql)
+					return pglib.CommandTag{}, nil
+				},
+				CloseFn: func(ctx context.Context) error { return nil },
+			},
+			adapter: &mockAdapter{
+				walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
+					return []*query{{
+						schema: testSchema,
+						table:  testTable,
+						sql:    "CREATE INDEX CONCURRENTLY test_idx ON test (id)",
+						isDDL:  true,
+					}}, nil
+				},
+			},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
+				{data: &wal.Data{Action: "M", Prefix: "pgstream.ddl", Schema: testSchema, Table: testTable}, isDDL: true},
+			}, []wal.CommitPosition{testCommitPosition}),
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - DDL rejected inside a transaction is replayed outside one",
+			pgconn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, i uint, sql string, args ...any) (pglib.CommandTag, error) {
+							if i == 1 {
+								return pglib.CommandTag{}, nil
+							}
+							return pglib.CommandTag{}, &pglib.ErrActiveSQLTransaction{
+								Details: "VACUUM cannot run inside a transaction block",
+							}
+						},
+					}
+					return f(&mockTx)
+				},
+				ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
+					require.Equal(t, "VACUUM FULL test", sql)
+					return pglib.CommandTag{}, nil
+				},
+				CloseFn: func(ctx context.Context) error { return nil },
+			},
+			adapter: &mockAdapter{
+				walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
+					return []*query{{
+						schema: testSchema,
+						table:  testTable,
+						sql:    "VACUUM FULL test",
+						isDDL:  true,
+					}}, nil
+				},
+			},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
+				{data: &wal.Data{Action: "M", Prefix: "pgstream.ddl", Schema: testSchema, Table: testTable}, isDDL: true},
+			}, []wal.CommitPosition{testCommitPosition}),
+
+			wantErr: nil,
+		},
+		{
+			name: "ok - DDL without schema replayed as is",
+			pgconn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					t.Error("DDL without a schema must not run inside a transaction")
+					return errTest
+				},
+				ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
+					require.Equal(t, "CREATE SCHEMA schema1", sql)
+					return pglib.CommandTag{}, nil
+				},
+				CloseFn: func(ctx context.Context) error { return nil },
+			},
+			adapter: &mockAdapter{
+				walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
+					return []*query{{
+						sql:   "CREATE SCHEMA schema1",
+						isDDL: true,
+					}}, nil
+				},
+			},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
 				{data: &wal.Data{Action: "M", Prefix: "pgstream.ddl", Schema: testSchema, Table: testTable}, isDDL: true},
 			}, []wal.CommitPosition{testCommitPosition}),
 
@@ -335,6 +586,10 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 
 			err := writer.sendBatch(context.Background(), tc.batch)
 			require.ErrorIs(t, err, tc.wantErr)
+
+			if tc.assert != nil {
+				tc.assert(t)
+			}
 		})
 	}
 }
@@ -690,6 +945,39 @@ func TestBatchWriter_execQueries_strictMode(t *testing.T) {
 		require.Nil(t, retry)
 		require.Equal(t, uint64(0), bw.DroppedQueries())
 	})
+}
+
+func Test_isConcurrentDDL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		sql  string
+		want bool
+	}{
+		{name: "create table", sql: "create table test (id int)", want: false},
+		{name: "create index", sql: "CREATE INDEX test_idx ON test (id)", want: false},
+		{name: "create index concurrently", sql: "CREATE INDEX CONCURRENTLY test_idx ON test (id)", want: true},
+		{name: "create unique index concurrently", sql: "create unique index concurrently test_idx on test (id)", want: true},
+		{name: "drop index concurrently lowercase", sql: "drop index concurrently test_idx", want: true},
+		{name: "reindex concurrently", sql: "REINDEX INDEX CONCURRENTLY test_idx", want: true},
+		{name: "refresh materialized view concurrently", sql: "REFRESH MATERIALIZED VIEW CONCURRENTLY mv", want: true},
+		{name: "detach partition concurrently", sql: "ALTER TABLE test DETACH PARTITION test_p1 CONCURRENTLY", want: true},
+		{name: "leading whitespace and newline", sql: "\n\t create index concurrently\n test_idx on test (id)", want: true},
+		// The keyword alone does not make a statement non-transactional.
+		{name: "concurrently as part of an identifier", sql: "create table concurrently_run (id int)", want: false},
+		{name: "concurrently in a string literal", sql: "COMMENT ON TABLE test IS 'built concurrently'", want: false},
+		{name: "concurrently in a column default", sql: "create table test (note text default 'run concurrently')", want: false},
+		{name: "concurrently in a quoted identifier", sql: `create table test ("concurrently" int)`, want: false},
+		{name: "concurrently in a trailing comment", sql: "create table test (id int) -- concurrently", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, isConcurrentDDL(tc.sql))
+		})
+	}
 }
 
 func mustNewDMLAdapter(t *testing.T) *dmlAdapter {
