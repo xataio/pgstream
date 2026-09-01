@@ -77,7 +77,7 @@ func Test_BulkQueries_AcceptedByPostgres(t *testing.T) {
 						},
 					})
 				}
-				queries := a.buildBulkInsertQueries(events, emptySchemaInfo())
+				queries := a.buildBulkInsertQueries(events, schemaInfo{})
 				require.Len(t, queries, 1, "200 rows should coalesce into one insert")
 				return queries
 			},
@@ -110,7 +110,7 @@ func Test_BulkQueries_AcceptedByPostgres(t *testing.T) {
 						},
 					})
 				}
-				queries, err := a.buildBulkDeleteQuery(events, emptySchemaInfo())
+				queries, err := a.buildBulkDeleteQuery(events, schemaInfo{})
 				require.NoError(t, err)
 				require.Len(t, queries, 1, "100 deletes should coalesce into one query")
 				return queries
@@ -153,7 +153,7 @@ func Test_BulkQueries_AcceptedByPostgres(t *testing.T) {
 						},
 					})
 				}
-				queries, err := a.buildBulkDeleteQuery(events, emptySchemaInfo())
+				queries, err := a.buildBulkDeleteQuery(events, schemaInfo{})
 				require.NoError(t, err)
 				require.Len(t, queries, 1)
 				return queries
@@ -188,7 +188,7 @@ func Test_BulkQueries_AcceptedByPostgres(t *testing.T) {
 						},
 					})
 				}
-				queries := a.buildBulkInsertQueries(events, emptySchemaInfo())
+				queries := a.buildBulkInsertQueries(events, schemaInfo{})
 				require.Len(t, queries, 1)
 				return queries
 			},
@@ -225,15 +225,8 @@ func Test_BulkQueries_AcceptedByPostgres(t *testing.T) {
 	}
 }
 
-func emptySchemaInfo() schemaInfo {
-	return schemaInfo{
-		generatedColumns:      map[string]struct{}{},
-		alwaysIdentityColumns: map[string]struct{}{},
-		sequenceColumns:       map[string]string{},
-		enumColumns:           map[string]enumColumn{},
-	}
-}
-
+// requireCount asserts a single integer the query projects — a count, a min, or
+// anything else that comes back as one number.
 func requireCount(t *testing.T, conn pglib.Querier, query string, want int) {
 	t.Helper()
 

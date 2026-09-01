@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/internal/testcontainers"
 	"github.com/xataio/pgstream/pkg/stream"
+	"golang.org/x/sync/errgroup"
 )
 
 // Both postgres instances are started up front: nearly every test in this
@@ -31,11 +32,14 @@ func TestMain(m *testing.M) {
 // alongside the os.Exit call would leave every container to the testcontainers
 // reaper. For the same reason nothing below reaches for log.Fatal.
 func runTests(m *testing.M) int {
+	// registered before the env check so that anything started along the way is
+	// still torn down, rather than depending on every caller having skipped
+	// first.
+	defer stopContainers()
+
 	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
 		return m.Run()
 	}
-
-	defer stopContainers()
 
 	if err := setupPostgres(context.Background()); err != nil {
 		log.Print(err)
@@ -45,28 +49,41 @@ func runTests(m *testing.M) int {
 	return m.Run()
 }
 
+// setupPostgres brings up the source and target instances. They are independent
+// of each other, so they start concurrently: this is the fixed cost every test
+// in the package pays before the first one runs. A plain errgroup rather than
+// errgroup.WithContext, so a failure on one side still lets the other finish and
+// register its cleanup instead of leaving a container behind.
 func setupPostgres(ctx context.Context) error {
-	pgcleanup, err := testcontainers.SetupPostgresContainer(ctx, &pgurl, testcontainers.Postgres14, "config/postgresql.conf")
-	if err != nil {
-		return fmt.Errorf("setting up source postgres: %w", err)
-	}
-	addContainerCleanup(pgcleanup)
+	var eg errgroup.Group
 
-	if err := stream.Init(ctx, &stream.InitConfig{
-		PostgresURL:               pgurl,
-		InjectorMigrationsEnabled: true,
-		MigrationsOnly:            true,
-	}); err != nil {
-		return fmt.Errorf("initialising pgstream on the source: %w", err)
-	}
+	eg.Go(func() error {
+		pgcleanup, err := testcontainers.SetupPostgresContainer(ctx, &pgurl, testcontainers.Postgres14, "config/postgresql.conf")
+		if err != nil {
+			return fmt.Errorf("setting up source postgres: %w", err)
+		}
+		addContainerCleanup(pgcleanup)
 
-	targetPGCleanup, err := testcontainers.SetupPostgresContainer(ctx, &targetPGURL, testcontainers.Postgres17)
-	if err != nil {
-		return fmt.Errorf("setting up target postgres: %w", err)
-	}
-	addContainerCleanup(targetPGCleanup)
+		if err := stream.Init(ctx, &stream.InitConfig{
+			PostgresURL:               pgurl,
+			InjectorMigrationsEnabled: true,
+			MigrationsOnly:            true,
+		}); err != nil {
+			return fmt.Errorf("initialising pgstream on the source: %w", err)
+		}
+		return nil
+	})
 
-	return nil
+	eg.Go(func() error {
+		targetPGCleanup, err := testcontainers.SetupPostgresContainer(ctx, &targetPGURL, testcontainers.Postgres17)
+		if err != nil {
+			return fmt.Errorf("setting up target postgres: %w", err)
+		}
+		addContainerCleanup(targetPGCleanup)
+		return nil
+	})
+
+	return eg.Wait()
 }
 
 // lazyContainer starts a container the first time a test asks for it, and keeps
@@ -81,6 +98,13 @@ type lazyContainer struct {
 
 func (c *lazyContainer) require(t *testing.T) {
 	t.Helper()
+
+	// the guard lives here rather than only in the callers: reaching this
+	// method without integration tests enabled would otherwise pull an image
+	// and start a container during a plain `go test ./...`.
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
 
 	c.once.Do(func() {
 		cleanup, err := c.start(context.Background())

@@ -95,37 +95,6 @@ func TestDroppedCounter_RegisterMetrics(t *testing.T) {
 		require.NoError(t, NewDroppedCounter().RegisterMetrics(&otel.Instrumentation{}, "test_writer"))
 	})
 
-	// a counter that only appears once something has been dropped is
-	// indistinguishable from a writer that is not reporting at all, so an
-	// alert cannot tell "nothing lost" from "nothing scraped"
-	t.Run("counters are exported at zero before anything is dropped", func(t *testing.T) {
-		t.Parallel()
-
-		reader := metric.NewManualReader()
-		provider := metric.NewMeterProvider(metric.WithReader(reader))
-		instrumentation := &otel.Instrumentation{Meter: provider.Meter("test")}
-
-		require.NoError(t, NewDroppedCounter().RegisterMetrics(instrumentation, "test_writer"))
-
-		var rm metricdata.ResourceMetrics
-		require.NoError(t, reader.Collect(context.Background(), &rm))
-
-		got := map[string]int64{}
-		for _, sm := range rm.ScopeMetrics {
-			for _, m := range sm.Metrics {
-				sum, ok := m.Data.(metricdata.Sum[int64])
-				require.True(t, ok, "metric %s is not an int64 sum", m.Name)
-				require.Len(t, sum.DataPoints, 1)
-				got[m.Name] = sum.DataPoints[0].Value
-			}
-		}
-
-		require.Contains(t, got, droppedBatchesMetricName, "%s was not exported", droppedBatchesMetricName)
-		require.Contains(t, got, droppedMessagesMetricName, "%s was not exported", droppedMessagesMetricName)
-		require.Equal(t, int64(0), got[droppedBatchesMetricName])
-		require.Equal(t, int64(0), got[droppedMessagesMetricName])
-	})
-
 	t.Run("counters are exported with the writer type", func(t *testing.T) {
 		t.Parallel()
 
@@ -136,29 +105,50 @@ func TestDroppedCounter_RegisterMetrics(t *testing.T) {
 		c := NewDroppedCounter()
 		require.NoError(t, c.RegisterMetrics(instrumentation, "postgres_bulk_ingest_writer"))
 
+		// a counter that only appears once something has been dropped is
+		// indistinguishable from a writer that is not reporting at all, so an
+		// alert cannot tell "nothing lost" from "nothing scraped". Collect
+		// before recording anything to pin that the zero is exported.
+		atZero, _ := collectInt64Sums(t, reader)
+		require.Contains(t, atZero, droppedBatchesMetricName, "%s was not exported", droppedBatchesMetricName)
+		require.Contains(t, atZero, droppedMessagesMetricName, "%s was not exported", droppedMessagesMetricName)
+		require.Equal(t, int64(0), atZero[droppedBatchesMetricName])
+		require.Equal(t, int64(0), atZero[droppedMessagesMetricName])
+
 		c.record(25000)
 		c.record(25000)
 
-		var rm metricdata.ResourceMetrics
-		require.NoError(t, reader.Collect(context.Background(), &rm))
-
-		got := map[string]int64{}
-		attrs := map[string]string{}
-		for _, sm := range rm.ScopeMetrics {
-			for _, m := range sm.Metrics {
-				sum, ok := m.Data.(metricdata.Sum[int64])
-				require.True(t, ok, "metric %s is not an int64 sum", m.Name)
-				require.Len(t, sum.DataPoints, 1)
-				got[m.Name] = sum.DataPoints[0].Value
-				writerType, found := sum.DataPoints[0].Attributes.Value("writer_type")
-				require.True(t, found, "metric %s is missing the writer_type attribute", m.Name)
-				attrs[m.Name] = writerType.AsString()
-			}
-		}
-
+		got, attrs := collectInt64Sums(t, reader)
 		require.Equal(t, int64(2), got[droppedBatchesMetricName])
 		require.Equal(t, int64(50000), got[droppedMessagesMetricName])
 		require.Equal(t, "postgres_bulk_ingest_writer", attrs[droppedBatchesMetricName])
 		require.Equal(t, "postgres_bulk_ingest_writer", attrs[droppedMessagesMetricName])
 	})
+}
+
+// collectInt64Sums drains the reader and returns, per metric name, the single
+// data point's value and its writer_type attribute. Every metric the dropped
+// counter exports is an int64 sum with exactly one reporting writer, so
+// anything else is a failure rather than something to skip.
+func collectInt64Sums(t *testing.T, reader *metric.ManualReader) (map[string]int64, map[string]string) {
+	t.Helper()
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+
+	values := map[string]int64{}
+	attrs := map[string]string{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			require.True(t, ok, "metric %s is not an int64 sum", m.Name)
+			require.Len(t, sum.DataPoints, 1, "metric %s has more than one writer reporting", m.Name)
+			values[m.Name] = sum.DataPoints[0].Value
+
+			writerType, found := sum.DataPoints[0].Attributes.Value("writer_type")
+			require.True(t, found, "metric %s is missing the writer_type attribute", m.Name)
+			attrs[m.Name] = writerType.AsString()
+		}
+	}
+	return values, attrs
 }

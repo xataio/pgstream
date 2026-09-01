@@ -49,8 +49,7 @@ func Test_PostgresToWebhook(t *testing.T) {
 		name  string
 		query string
 
-		wantData    *wal.Data
-		wantContent bool
+		wantData *wal.Data
 	}{
 		{
 			name:  "schema event",
@@ -60,7 +59,6 @@ func Test_PostgresToWebhook(t *testing.T) {
 				Action: wal.LogicalMessageAction,
 				Prefix: wal.DDLPrefix,
 			},
-			wantContent: true,
 		},
 		{
 			name:  "data event",
@@ -92,7 +90,7 @@ func Test_PostgresToWebhook(t *testing.T) {
 					require.Equal(t, tc.wantData.Schema, data.Schema)
 					require.Equal(t, tc.wantData.Table, data.Table)
 					require.Equal(t, tc.wantData.Prefix, data.Prefix)
-					if tc.wantContent {
+					if tc.wantData.Prefix == wal.DDLPrefix {
 						// the payload survived the round trip as a DDL event
 						// for the table under test
 						ddlEvent := &wal.DDLEvent{}

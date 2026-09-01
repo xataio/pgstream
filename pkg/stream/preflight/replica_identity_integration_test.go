@@ -5,6 +5,7 @@ package preflight
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -137,7 +138,7 @@ func TestReplicaIdentityCheck_Run_Integration_CatalogQuery(t *testing.T) {
 			// the message has to name the reason, not just the table: a query
 			// that mislabelled the identity would still flag the right table
 			for _, f := range findings {
-				if len(f.Message) > 0 && f.Message[:len(quoted)] == quoted {
+				if strings.HasPrefix(f.Message, quoted) {
 					require.Contains(t, f.Message, tc.wantReason)
 					return
 				}

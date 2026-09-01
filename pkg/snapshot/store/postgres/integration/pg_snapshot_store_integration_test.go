@@ -27,15 +27,31 @@ import (
 var sharedPGURL string
 
 func TestMain(m *testing.M) {
-	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") != "" {
-		cleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &sharedPGURL, testcontainers.Postgres14)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer cleanup()
+	os.Exit(runTests(m))
+}
+
+// runTests exists so that the container cleanup can run before the process
+// exits: os.Exit does not run deferred functions, so deferring the cleanup in
+// TestMain alongside the os.Exit call would leave the container to the
+// testcontainers reaper. For the same reason nothing below reaches for
+// log.Fatal.
+func runTests(m *testing.M) int {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		return m.Run()
 	}
 
-	os.Exit(m.Run())
+	cleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &sharedPGURL, testcontainers.Postgres14)
+	if err != nil {
+		log.Print(err)
+		return 1
+	}
+	defer func() {
+		if err := cleanup(); err != nil {
+			log.Printf("terminating container: %v", err)
+		}
+	}()
+
+	return m.Run()
 }
 
 // Test_SnapshotStore_WideSchema is a regression test for the btree index row
@@ -50,6 +66,8 @@ func Test_SnapshotStore_WideSchema(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	clearRequests(t, "wide_schema_wide")
 
 	s, err := pgstore.New(ctx, sharedPGURL)
 	require.NoError(t, err)
@@ -130,6 +148,8 @@ func Test_SnapshotStore_CommaInTableNameNoCollision(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	clearRequests(t, "collision")
+
 	s, err := pgstore.New(ctx, sharedPGURL)
 	require.NoError(t, err)
 	defer s.Close()
@@ -155,6 +175,8 @@ func Test_SnapshotStore_RepeatedInitIsIdempotent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	clearRequests(t, "wide_schema_repeat")
+
 	s, err := pgstore.New(ctx, sharedPGURL)
 	require.NoError(t, err)
 	defer s.Close()
@@ -172,6 +194,30 @@ func Test_SnapshotStore_RepeatedInitIsIdempotent(t *testing.T) {
 
 	// uniqueness is still enforced after the re-initialisations
 	require.Error(t, s.CreateSnapshotRequest(ctx, req))
+}
+
+// clearRequests arranges for the rows a test inserted into the shared database
+// to be removed once it finishes, so that a repeated run (go test -count=2, a
+// -race rerun) starts from the same state as the first. Without it the second
+// iteration trips the unique index the first iteration's rows still occupy.
+//
+// The cleanup takes its own context: t.Cleanup runs after the test's deferred
+// cancel(), so the test's context is already done by then.
+func clearRequests(t *testing.T, schema string) {
+	t.Helper()
+
+	t.Cleanup(func() {
+		ctx := context.Background()
+		conn, err := pglib.NewConn(ctx, sharedPGURL)
+		require.NoError(t, err)
+		defer conn.Close(ctx)
+
+		_, err = conn.Exec(ctx,
+			fmt.Sprintf(`DELETE FROM %s WHERE schema_name = $1`,
+				pglib.QuoteQualifiedIdentifier(store.SchemaName, store.TableName)),
+			schema)
+		require.NoError(t, err)
+	})
 }
 
 // wideSchemaRequest builds a request whose table_names array comfortably exceeds

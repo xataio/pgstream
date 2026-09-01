@@ -55,19 +55,34 @@ func Test_SnapshotToPostgres_ObjectTypeFilter(t *testing.T) {
 	require.NoError(t, err)
 	defer targetConn.Close(ctx)
 
+	// The catalog helpers return their error rather than folding it into the
+	// boolean. An exclusion assertion written over `err == nil && exists`
+	// passes just as happily when the query itself failed, which is exactly
+	// the case these assertions exist to catch.
+	mustExist := func(exists bool, err error) {
+		t.Helper()
+		require.NoError(t, err)
+		require.True(t, exists, "expected on the target after the snapshot")
+	}
+	mustNotExist := func(exists bool, err error) {
+		t.Helper()
+		require.NoError(t, err)
+		require.False(t, exists, "expected to be dropped by the object type filter")
+	}
+
 	// included categories reach the target
-	require.True(t, tableExists(ctx, targetConn, "app", "users"))
-	require.True(t, tableExists(ctx, targetConn, "app", "posts"))
-	require.True(t, tableExists(ctx, targetConn, "app", "categories"))
-	require.True(t, tableExists(ctx, targetConn, "analytics", "page_views"))
-	require.True(t, tableExists(ctx, targetConn, "analytics", "daily_stats"))
+	mustExist(tableExists(ctx, targetConn, "app", "users"))
+	mustExist(tableExists(ctx, targetConn, "app", "posts"))
+	mustExist(tableExists(ctx, targetConn, "app", "categories"))
+	mustExist(tableExists(ctx, targetConn, "analytics", "page_views"))
+	mustExist(tableExists(ctx, targetConn, "analytics", "daily_stats"))
 
-	require.True(t, pgTypeExists(ctx, targetConn, "app", "status"))
-	require.True(t, pgTypeExists(ctx, targetConn, "app", "address"))
-	require.True(t, pgTypeExists(ctx, targetConn, "app", "email"))
-	require.True(t, pgTypeExists(ctx, targetConn, "app", "positive_int"))
+	mustExist(pgTypeExists(ctx, targetConn, "app", "status"))
+	mustExist(pgTypeExists(ctx, targetConn, "app", "address"))
+	mustExist(pgTypeExists(ctx, targetConn, "app", "email"))
+	mustExist(pgTypeExists(ctx, targetConn, "app", "positive_int"))
 
-	require.True(t, sequenceExists(ctx, targetConn, "app", "invoice_number_seq"))
+	mustExist(sequenceExists(ctx, targetConn, "app", "invoice_number_seq"))
 
 	// the tables that survived the filter are restored well enough to hold
 	// their data, not just their DDL
@@ -80,85 +95,80 @@ func Test_SnapshotToPostgres_ObjectTypeFilter(t *testing.T) {
 	require.Equal(t, 6, count)
 
 	// excluded categories do not
-	require.False(t, functionExists(ctx, targetConn, "app", "slugify"))
-	require.False(t, functionExists(ctx, targetConn, "app", "get_post_comment_count"))
+	mustNotExist(functionExists(ctx, targetConn, "app", "slugify"))
+	mustNotExist(functionExists(ctx, targetConn, "app", "get_post_comment_count"))
 
-	require.False(t, viewExists(ctx, targetConn, "app", "published_posts"))
-	require.False(t, viewExists(ctx, targetConn, "app", "user_stats"))
+	mustNotExist(viewExists(ctx, targetConn, "app", "published_posts"))
+	mustNotExist(viewExists(ctx, targetConn, "app", "user_stats"))
 
 	// primary key indexes come with their tables; other indexes do not
-	require.False(t, indexExists(ctx, targetConn, "app", "idx_users_email"))
-	require.False(t, indexExists(ctx, targetConn, "app", "idx_posts_slug"))
+	mustNotExist(indexExists(ctx, targetConn, "app", "idx_users_email"))
+	mustNotExist(indexExists(ctx, targetConn, "app", "idx_posts_slug"))
 
-	require.False(t, matviewExists(ctx, targetConn, "analytics", "top_posts"))
+	mustNotExist(matviewExists(ctx, targetConn, "analytics", "top_posts"))
 }
 
 // --- Catalog query helpers ---
 
-func tableExists(ctx context.Context, conn pglib.Querier, schema, table string) bool {
+// catalogExists runs an EXISTS probe and hands back the query error separately
+// from the answer, so a caller asserting an absence cannot mistake a failed
+// query for a missing object.
+func catalogExists(ctx context.Context, conn pglib.Querier, query string, args ...any) (bool, error) {
 	var exists bool
-	err := conn.QueryRow(ctx, []any{&exists},
-		`SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2)`,
-		schema, table)
-	return err == nil && exists
+	err := conn.QueryRow(ctx, []any{&exists}, query, args...)
+	return exists, err
 }
 
-func pgTypeExists(ctx context.Context, conn pglib.Querier, schema, typeName string) bool {
-	var exists bool
-	err := conn.QueryRow(ctx, []any{&exists},
+func tableExists(ctx context.Context, conn pglib.Querier, schema, table string) (bool, error) {
+	return catalogExists(ctx, conn,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2)`,
+		schema, table)
+}
+
+func pgTypeExists(ctx context.Context, conn pglib.Querier, schema, typeName string) (bool, error) {
+	return catalogExists(ctx, conn,
 		`SELECT EXISTS(
 			SELECT 1 FROM pg_type t
 			JOIN pg_namespace n ON n.oid = t.typnamespace
 			WHERE n.nspname = $1 AND t.typname = $2
 		)`,
 		schema, typeName)
-	return err == nil && exists
 }
 
-func sequenceExists(ctx context.Context, conn pglib.Querier, schema, seqName string) bool {
-	var exists bool
-	err := conn.QueryRow(ctx, []any{&exists},
+func sequenceExists(ctx context.Context, conn pglib.Querier, schema, seqName string) (bool, error) {
+	return catalogExists(ctx, conn,
 		`SELECT EXISTS(SELECT 1 FROM information_schema.sequences WHERE sequence_schema = $1 AND sequence_name = $2)`,
 		schema, seqName)
-	return err == nil && exists
 }
 
-func functionExists(ctx context.Context, conn pglib.Querier, schema, funcName string) bool {
-	var exists bool
-	err := conn.QueryRow(ctx, []any{&exists},
+func functionExists(ctx context.Context, conn pglib.Querier, schema, funcName string) (bool, error) {
+	return catalogExists(ctx, conn,
 		`SELECT EXISTS(
 			SELECT 1 FROM pg_proc p
 			JOIN pg_namespace n ON n.oid = p.pronamespace
 			WHERE n.nspname = $1 AND p.proname = $2
 		)`,
 		schema, funcName)
-	return err == nil && exists
 }
 
-func viewExists(ctx context.Context, conn pglib.Querier, schema, viewName string) bool {
-	var exists bool
-	err := conn.QueryRow(ctx, []any{&exists},
+func viewExists(ctx context.Context, conn pglib.Querier, schema, viewName string) (bool, error) {
+	return catalogExists(ctx, conn,
 		`SELECT EXISTS(SELECT 1 FROM information_schema.views WHERE table_schema = $1 AND table_name = $2)`,
 		schema, viewName)
-	return err == nil && exists
 }
 
-func indexExists(ctx context.Context, conn pglib.Querier, schema, indexName string) bool {
-	var exists bool
-	err := conn.QueryRow(ctx, []any{&exists},
+func indexExists(ctx context.Context, conn pglib.Querier, schema, indexName string) (bool, error) {
+	return catalogExists(ctx, conn,
 		`SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE schemaname = $1 AND indexname = $2)`,
 		schema, indexName)
-	return err == nil && exists
 }
 
-func matviewExists(ctx context.Context, conn pglib.Querier, schema, matviewName string) bool {
-	var exists bool
-	err := conn.QueryRow(ctx, []any{&exists},
+func matviewExists(ctx context.Context, conn pglib.Querier, schema, matviewName string) (bool, error) {
+	return catalogExists(ctx, conn,
 		`SELECT EXISTS(
 			SELECT 1 FROM pg_matviews WHERE schemaname = $1 AND matviewname = $2
 		)`,
 		schema, matviewName)
-	return err == nil && exists
 }
 
 func rowCount(ctx context.Context, conn pglib.Querier, qualifiedTable string) (int, error) {

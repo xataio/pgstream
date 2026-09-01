@@ -100,9 +100,16 @@ func Test_PostgresToPostgres_Transformer(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			execQuery(t, ctx, insertQuery(testTable, tc.rows))
+
+			// the serial primary key hands out ids in insert order, so each
+			// inserted id maps back to the source row it was built from. The
+			// assertions that compare against the source have to use that row,
+			// not an arbitrary one.
 			insertedRows := []int{}
-			for range tc.rows {
+			sourceByID := map[int]transformerTestTableRow{}
+			for _, row := range tc.rows {
 				insertedRows = append(insertedRows, nextRowID)
+				sourceByID[nextRowID] = row
 				nextRowID++
 			}
 
@@ -118,7 +125,7 @@ func Test_PostgresToPostgres_Transformer(t *testing.T) {
 					t.Error("timeout waiting for postgres sync")
 					return
 				case <-ticker.C:
-					if validateRows(t, ctx, targetConn, insertedRows, testTable, tc.rows[0]) {
+					if validateRows(t, ctx, targetConn, insertedRows, testTable, sourceByID) {
 						return
 					}
 				}
@@ -148,8 +155,15 @@ func insertQuery(table string, rows []transformerTestTableRow) string {
 // the bounds here only re-asserts that a range is a range. What is kept is the
 // subset that discriminates: an assertion the *source* value would fail, so a
 // rule that parsed but was never applied cannot slip through. Where no such
-// assertion exists for a column, only the column type is checked.
-func validateRows(t *testing.T, ctx context.Context, conn *pglib.Conn, expectedRows []int, table string, source transformerTestTableRow) bool {
+// assertion exists for a column, the column is still checked, either against
+// the bounds its rule declares or, where the type admits nothing else, by
+// having survived the scan into its Go type. Every column carrying a
+// transformer rule is covered by one of the three.
+//
+// sourceByID maps each inserted primary key to the row it was built from, so
+// the comparisons against the source use the row that actually produced the
+// value rather than whichever row happened to be first.
+func validateRows(t *testing.T, ctx context.Context, conn *pglib.Conn, expectedRows []int, table string, sourceByID map[int]transformerTestTableRow) bool {
 	selectQuery := fmt.Sprintf("SELECT id, name, last_name, email, secondary_email, address, age, total_purchases, customer_id, birth_date, is_active, created_at, updated_at, gender FROM %s WHERE id IN (", table)
 	for i, rowID := range expectedRows {
 		if i > 0 {
@@ -176,6 +190,9 @@ func validateRows(t *testing.T, ctx context.Context, conn *pglib.Conn, expectedR
 	}
 
 	for _, row := range rowsFromDB {
+		source, ok := sourceByID[row.id]
+		require.True(t, ok, "row %d was not inserted by this test", row.id)
+
 		// --- the rule was applied: each of these fails on the source value ---
 
 		// masking is deterministic, so the whole output is pinned
@@ -192,14 +209,26 @@ func validateRows(t *testing.T, ctx context.Context, conn *pglib.Conn, expectedR
 		// a uuid transformer returning its input would leave the source uuid
 		require.NotEqual(t, source.customerID, row.customerID)
 
+		// --- no source-discriminating assertion exists, so the declared
+		// bounds stand in ---
+		//
+		// The source value already satisfies these rules, so passing does not
+		// prove the rule ran. What it does catch is a transformer that ran and
+		// produced something outside the domain it was configured for.
+
+		require.GreaterOrEqual(t, row.age, 18, "age below the configured minimum")
+		require.LessOrEqual(t, row.age, 75, "age above the configured maximum")
+		require.LessOrEqual(t, row.createdAt, int64(1741956058), "created_at above the configured maximum")
+
 		// --- the value is writable into the real column type ---
 		//
-		// No source-discriminating assertion exists for these: the source value
-		// already satisfies the configured rule, so only the column type is
-		// checked. The transformed value having survived a scan into its Go
-		// type is the assertion — a transformer emitting something postgres
-		// rejects fails the insert on the target instead, and the row never
-		// arrives to be read here.
+		// Nothing else is checkable for these: the rule declares no bounds, or
+		// the type admits every value the rule can produce. The transformed
+		// value having survived a scan into its Go type is the assertion — a
+		// transformer emitting something postgres rejects fails the insert on
+		// the target instead, and the row never arrives to be read here.
+		// row.isActive is covered by that scan alone: a bool has no shape left
+		// to assert on.
 
 		require.NotEmpty(t, row.customerID, "uuid column")
 		require.False(t, row.birthDate.IsZero(), "date column")

@@ -172,6 +172,51 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 		})
 	}
 
+	rowColumns := func(id any, name string) []wal.Column {
+		return []wal.Column{
+			{Name: "id", Type: "bigint", Value: id},
+			{Name: "name", Type: "text", Value: name},
+		}
+	}
+
+	insertMsg := func(id any, name string) *walMessage {
+		return &walMessage{data: &wal.Data{
+			Action:  "I",
+			Schema:  testSchema,
+			Table:   testTable,
+			Columns: rowColumns(id, name),
+		}}
+	}
+
+	updateMsg := func(id any, name string) *walMessage {
+		return &walMessage{data: &wal.Data{
+			Action:   "U",
+			Schema:   testSchema,
+			Table:    testTable,
+			Columns:  rowColumns(id, name),
+			Identity: []wal.Column{{Name: "id", Type: "bigint", Value: id}},
+		}}
+	}
+
+	// recordingConn captures the statements a case executes in order, so a case
+	// can assert on how the batch was split rather than only on the error.
+	recordingConn := func(executed *[]string) *pgmocks.Querier {
+		return &pgmocks.Querier{
+			ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+				mockTx := pgmocks.Tx{
+					ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
+						*executed = append(*executed, sql)
+						return pglib.CommandTag{}, nil
+					},
+				}
+				return f(&mockTx)
+			},
+			CloseFn: func(ctx context.Context) error { return nil },
+		}
+	}
+
+	var runBoundarySQL, updateRunSQL []string
+
 	tests := []struct {
 		name         string
 		pgconn       *pgmocks.Querier
@@ -180,6 +225,7 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 		batch        *batch.Batch[*walMessage]
 		checkpointer checkpointer.Checkpoint
 
+		assert  func(t *testing.T)
 		wantErr error
 	}{
 		{
@@ -273,6 +319,62 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			// a run is the unit of coalescing, so the boundary between two of
+			// them is what keeps a delete from being folded into the inserts
+			// around it. Without the flush on action change the two inserts
+			// would merge across the delete and the rows would land in the
+			// wrong order.
+			name:       "ok - a change of action flushes the pending run",
+			pgconn:     recordingConn(&runBoundarySQL),
+			adapter:    &mockAdapter{},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
+				insertMsg(float64(1), "a"),
+				insertMsg(float64(2), "b"),
+				deleteMsg(float64(3)),
+				insertMsg(float64(4), "d"),
+			}, []wal.CommitPosition{testCommitPosition}),
+
+			assert: func(t *testing.T) {
+				require.Len(t, runBoundarySQL, 3, "expected three runs: insert, delete, insert")
+
+				require.Contains(t, runBoundarySQL[0], "INSERT INTO")
+				// two rows of two columns coalesced into one statement
+				require.Contains(t, runBoundarySQL[0], "$4")
+				require.NotContains(t, runBoundarySQL[0], "$5")
+
+				require.Contains(t, runBoundarySQL[1], "DELETE FROM")
+				require.Contains(t, runBoundarySQL[1], "ANY")
+
+				// the trailing insert is its own run, not appended to the first
+				require.Contains(t, runBoundarySQL[2], "INSERT INTO")
+				require.Contains(t, runBoundarySQL[2], "$2")
+				require.NotContains(t, runBoundarySQL[2], "$3")
+			},
+			wantErr: nil,
+		},
+		{
+			// updates take the default branch of buildCoalescedQueries: they
+			// are emitted one statement per event rather than coalesced
+			name:       "ok - updates are not coalesced",
+			pgconn:     recordingConn(&updateRunSQL),
+			adapter:    &mockAdapter{},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
+				updateMsg(float64(1), "a"),
+				updateMsg(float64(2), "b"),
+			}, []wal.CommitPosition{testCommitPosition}),
+
+			assert: func(t *testing.T) {
+				require.Len(t, updateRunSQL, 2, "each update is its own statement")
+				for _, sql := range updateRunSQL {
+					require.Contains(t, sql, "UPDATE")
+					require.Contains(t, sql, "WHERE")
+				}
+			},
+			wantErr: nil,
+		},
+		{
 			name: "error - executing query",
 			pgconn: &pgmocks.Querier{
 				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
@@ -335,6 +437,10 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 
 			err := writer.sendBatch(context.Background(), tc.batch)
 			require.ErrorIs(t, err, tc.wantErr)
+
+			if tc.assert != nil {
+				tc.assert(t)
+			}
 		})
 	}
 }
