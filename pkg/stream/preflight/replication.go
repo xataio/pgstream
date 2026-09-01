@@ -93,7 +93,6 @@ func (c *WAL2JSONCheck) Run(ctx context.Context) ([]Finding, error) {
 	}
 
 	switch {
-	case isWAL2JSONMissing(probeErr):
 	case isWAL2JSONMissing(probeErr), isWAL2JSONNotAllowed(probeErr):
 		return []Finding{{
 			Message: "wal2json output plugin not available on source; install the wal2json package, and on postgres 17.11+ add wal2json to output_plugin_libraries (it defaults to \"pgoutput, test_decoding\") and reload the server — that allowlist is checked before the library is loaded, so an installed wal2json is still refused while it is missing from it",
