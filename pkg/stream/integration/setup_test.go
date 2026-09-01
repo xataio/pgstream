@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/internal/testcontainers"
 	"github.com/xataio/pgstream/pkg/stream"
-	"golang.org/x/sync/errgroup"
 )
 
 // Both postgres instances are started up front: nearly every test in this
@@ -49,41 +48,37 @@ func runTests(m *testing.M) int {
 	return m.Run()
 }
 
-// setupPostgres brings up the source and target instances. They are independent
-// of each other, so they start concurrently: this is the fixed cost every test
-// in the package pays before the first one runs. A plain errgroup rather than
-// errgroup.WithContext, so a failure on one side still lets the other finish and
-// register its cleanup instead of leaving a container behind.
+// setupPostgres brings up the source and target instances, one after the other.
+//
+// They are independent, so starting them concurrently is tempting, and it was
+// tried: it saves roughly a second on a suite that runs for minutes. It is not
+// worth it. SetupPostgresContainer gives each container five seconds to report
+// "database system is ready to accept connections", and `go test` already runs
+// the integration packages in parallel, so several containers are competing for
+// the runner during exactly that window. Overlapping two more inside a single
+// package spends a scarce budget to buy nothing.
 func setupPostgres(ctx context.Context) error {
-	var eg errgroup.Group
+	pgcleanup, err := testcontainers.SetupPostgresContainer(ctx, &pgurl, testcontainers.Postgres14, "config/postgresql.conf")
+	if err != nil {
+		return fmt.Errorf("setting up source postgres: %w", err)
+	}
+	addContainerCleanup(pgcleanup)
 
-	eg.Go(func() error {
-		pgcleanup, err := testcontainers.SetupPostgresContainer(ctx, &pgurl, testcontainers.Postgres14, "config/postgresql.conf")
-		if err != nil {
-			return fmt.Errorf("setting up source postgres: %w", err)
-		}
-		addContainerCleanup(pgcleanup)
+	if err := stream.Init(ctx, &stream.InitConfig{
+		PostgresURL:               pgurl,
+		InjectorMigrationsEnabled: true,
+		MigrationsOnly:            true,
+	}); err != nil {
+		return fmt.Errorf("initialising pgstream on the source: %w", err)
+	}
 
-		if err := stream.Init(ctx, &stream.InitConfig{
-			PostgresURL:               pgurl,
-			InjectorMigrationsEnabled: true,
-			MigrationsOnly:            true,
-		}); err != nil {
-			return fmt.Errorf("initialising pgstream on the source: %w", err)
-		}
-		return nil
-	})
+	targetPGCleanup, err := testcontainers.SetupPostgresContainer(ctx, &targetPGURL, testcontainers.Postgres17)
+	if err != nil {
+		return fmt.Errorf("setting up target postgres: %w", err)
+	}
+	addContainerCleanup(targetPGCleanup)
 
-	eg.Go(func() error {
-		targetPGCleanup, err := testcontainers.SetupPostgresContainer(ctx, &targetPGURL, testcontainers.Postgres17)
-		if err != nil {
-			return fmt.Errorf("setting up target postgres: %w", err)
-		}
-		addContainerCleanup(targetPGCleanup)
-		return nil
-	})
-
-	return eg.Wait()
+	return nil
 }
 
 // lazyContainer starts a container the first time a test asks for it, and keeps
