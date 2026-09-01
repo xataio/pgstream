@@ -42,6 +42,10 @@ type SnapshotGenerator struct {
 	// Function called for processing produced rows.
 	processor              processor.Processor
 	tableSnapshotGenerator snapshotTableFn
+	// decides what becomes of the rows of a page range
+	rangeSnapshotter rangeSnapshotter
+
+	instrumentation *otel.Instrumentation
 
 	progressTracking   bool
 	progressBars       *synclib.Map[string, progress.Bar]
@@ -78,6 +82,8 @@ type table struct {
 	rowSize int64
 	// one list per page range
 	columns []string
+	// the target computes these itself
+	generatedColumns []string
 }
 
 type snapshotTableFn func(ctx context.Context, snapshotID string, table *table) error
@@ -94,6 +100,31 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, processor processor.
 		return nil, err
 	}
 
+	sg, err := newSnapshotGenerator(cfg, conn, processor, func(sg *SnapshotGenerator) (rangeSnapshotter, error) {
+		decoding := newDecodingSnapshotter(sg.adapter, sg.processor)
+		if cfg.CopyPassthrough == nil {
+			return decoding, nil
+		}
+		return newCopyPassthroughSnapshotter(ctx, cfg.CopyPassthrough, sg.logger, sg.instrumentation, decoding)
+	}, opts...)
+	if err != nil {
+		return nil, errors.Join(err, conn.Close(ctx))
+	}
+
+	return sg, nil
+}
+
+// buildSnapshotter is called once the generator holds everything a page range
+// reader is built from: the source connection behind the adapter, and the
+// logger and instrumentation the options carry.
+type buildSnapshotter func(*SnapshotGenerator) (rangeSnapshotter, error)
+
+// newSnapshotGenerator is the only way to build a generator, so the page range
+// reader cannot be left unset. Everything a reader varies on is resolved
+// before build is called.
+func newSnapshotGenerator(cfg *Config, conn pglib.Querier, processor processor.Processor,
+	build buildSnapshotter, opts ...Option,
+) (*SnapshotGenerator, error) {
 	sg := &SnapshotGenerator{
 		logger:          loglib.NewNoopLogger(),
 		conn:            conn,
@@ -112,6 +143,12 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, processor processor.
 
 	sg.adapter = newAdapter(pglib.NewMapper(conn), sg.logger)
 
+	snapshotter, err := build(sg)
+	if err != nil {
+		return nil, err
+	}
+	sg.rangeSnapshotter = snapshotter
+
 	return sg, nil
 }
 
@@ -126,6 +163,7 @@ func WithLogger(logger loglib.Logger) Option {
 func WithInstrumentation(i *otel.Instrumentation) Option {
 	return func(sg *SnapshotGenerator) {
 		var err error
+		sg.instrumentation = i
 		sg.conn, err = pglibinstrumentation.NewQuerier(sg.conn, i)
 		if err != nil {
 			// this should never happen
@@ -196,7 +234,8 @@ func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sn
 }
 
 func (sg *SnapshotGenerator) Close() error {
-	return sg.conn.Close(context.Background())
+	ctx := context.Background()
+	return errors.Join(sg.conn.Close(ctx), sg.rangeSnapshotter.close(ctx))
 }
 
 func (sg *SnapshotGenerator) createSchemaSnapshot(ctx context.Context, schemaTables *schemaTables) error {
@@ -354,6 +393,9 @@ func (sg *SnapshotGenerator) snapshotTable(ctx context.Context, snapshotID strin
 			pglib.UnquoteIdentifier(table.schema), pglib.UnquoteIdentifier(table.name))
 	}
 	table.columns = columns
+	if err := sg.rangeSnapshotter.prepareTable(ctx, table); err != nil {
+		return err
+	}
 
 	// If one page range fails, we abort the entire table snapshot. The
 	// snapshot relies on the transaction snapshot id to ensure all workers
@@ -407,63 +449,40 @@ func buildPageRangeQuery(t *table, r pageRange) string {
 }
 
 func (sg *SnapshotGenerator) snapshotTableRange(ctx context.Context, snapshotID string, table *table, pageRange pageRange) error {
-	return sg.execInSnapshotTx(ctx, snapshotID, func(tx pglib.Tx) error {
-		sg.logger.Debug(fmt.Sprintf("querying table page range %d-%d", pageRange.start, pageRange.end), loglib.Fields{
-			"schema": table.schema, "table": table.name, "snapshotID": snapshotID,
-		})
-
-		query := buildPageRangeQuery(table, pageRange)
-		rows, err := tx.Query(ctx, query)
-		if err != nil {
-			// something this query names vanished
-			var relationErr *pglib.ErrRelationDoesNotExist
-			if errors.As(err, &relationErr) {
-				return fmt.Errorf("%w: querying table rows: %w", ErrSchemaChangedDuringSnapshot, err)
-			}
-			return fmt.Errorf("querying table rows: %w", err)
-		}
-		defer rows.Close()
-
-		// resolve the column metadata (names/types) and timestamp once per page
-		// range, since the field descriptions are identical for every row in the
-		// result set.
-		rowAdapter := sg.adapter.newRowEventAdapter(ctx, table.schema, table.name, rows.FieldDescriptions())
-		rowCount := uint(0)
-		for rows.Next() {
-			rowCount++
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-				values, err := rows.Values()
-				if err != nil {
-					return fmt.Errorf("retrieving rows values: %w", err)
-				}
-
-				event := rowAdapter.rowToWalEvent(values)
-				if event == nil {
-					continue
-				}
-
-				if err := sg.processor.ProcessWALEvent(ctx, event); err != nil {
-					return fmt.Errorf("processing snapshot row: %w", err)
-				}
-			}
-		}
-
-		if sg.progressTracking {
-			bar, found := sg.progressBars.Get(table.schema)
-			if found {
-				bar.Add64(int64(rowCount) * table.rowSize)
-			}
-		}
-
-		sg.logger.Debug(fmt.Sprintf("%d rows processed", rowCount), loglib.Fields{
-			"schema": table.schema, "table": table.name, "snapshotID": snapshotID,
-		})
-
-		return rows.Err()
+	sg.logger.Debug(fmt.Sprintf("querying table page range %d-%d", pageRange.start, pageRange.end), loglib.Fields{
+		"schema": table.schema, "table": table.name, "snapshotID": snapshotID,
 	})
+
+	run := func(ctx context.Context, fn func(tx pglib.Tx) error) error {
+		return sg.execInSnapshotTx(ctx, snapshotID, fn)
+	}
+
+	rowCount, err := sg.rangeSnapshotter.snapshotRange(ctx, run, table, pageRange)
+	if err != nil {
+		return err
+	}
+
+	if sg.progressTracking {
+		bar, found := sg.progressBars.Get(table.schema)
+		if found {
+			bar.Add64(rowCount * table.rowSize)
+		}
+	}
+
+	sg.logger.Debug(fmt.Sprintf("%d rows processed", rowCount), loglib.Fields{
+		"schema": table.schema, "table": table.name, "snapshotID": snapshotID,
+	})
+
+	return nil
+}
+
+// a vanished relation means schema drift
+func wrapPageRangeQueryError(err error) error {
+	var relationErr *pglib.ErrRelationDoesNotExist
+	if errors.As(err, &relationErr) {
+		return fmt.Errorf("%w: querying table rows: %w", ErrSchemaChangedDuringSnapshot, err)
+	}
+	return fmt.Errorf("querying table rows: %w", err)
 }
 
 func (sg *SnapshotGenerator) addProgressBar(ctx context.Context, snapshotID string, schemaTables *schemaTables) error {

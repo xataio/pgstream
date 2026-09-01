@@ -20,8 +20,6 @@ import (
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 	"github.com/xataio/pgstream/internal/progress"
 	progressmocks "github.com/xataio/pgstream/internal/progress/mocks"
-	synclib "github.com/xataio/pgstream/internal/sync"
-	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
@@ -1382,32 +1380,25 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			t.Parallel()
 
 			eventChan := make(chan *wal.Event, 10)
-			sg := SnapshotGenerator{
-				logger: zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
-					LogLevel: "debug",
-				})),
-				conn:    tc.querier,
-				adapter: newAdapter(pglib.NewMapper(tc.querier), loglib.NewNoopLogger()),
-				processor: &processormocks.Processor{
-					ProcessWALEventFn: func(ctx context.Context, e *wal.Event) error {
-						eventChan <- e
-						return nil
-					},
-					CloseFn: func() error {
-						return tc.processorCloseErr
-					},
+			sg, err := newTestSnapshotGenerator(&Config{
+				SnapshotWorkers: 1,
+				SchemaWorkers:   1,
+				TableWorkers:    1,
+				BatchBytes:      1024 * 1024, // 1MB
+			}, tc.querier, &processormocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, e *wal.Event) error {
+					eventChan <- e
+					return nil
 				},
-				schemaWorkers:    1,
-				tableWorkers:     1,
-				batchBytes:       1024 * 1024, // 1MB
-				snapshotWorkers:  1,
-				progressTracking: tc.progressBar != nil,
-				progressBars:     synclib.NewMap[string, progress.Bar](),
-				progressBarBuilder: func(totalBytes int64, description string) progress.Bar {
-					return tc.progressBar
+				CloseFn: func() error {
+					return tc.processorCloseErr
 				},
+			})
+			require.NoError(t, err)
+			sg.progressTracking = tc.progressBar != nil
+			sg.progressBarBuilder = func(totalBytes int64, description string) progress.Bar {
+				return tc.progressBar
 			}
-			sg.tableSnapshotGenerator = sg.snapshotTable
 
 			if tc.schemaWorkers != 0 {
 				sg.schemaWorkers = tc.schemaWorkers
@@ -1418,7 +1409,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				s = tc.snapshot
 			}
 
-			err := sg.CreateSnapshot(context.Background(), s)
+			err = sg.CreateSnapshot(context.Background(), s)
 			require.Equal(t, tc.wantErr, err)
 			close(eventChan)
 
@@ -2018,32 +2009,25 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 				},
 			}
 
-			sg := SnapshotGenerator{
-				logger: zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
-					LogLevel: "debug",
-				})),
-				conn:    tc.querier,
-				adapter: newAdapter(pglib.NewMapper(tc.querier), loglib.NewNoopLogger()),
-				processor: &processormocks.Processor{
-					ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
-						if tc.processor != nil {
-							if err := tc.processor.ProcessWALEvent(ctx, walEvent); err != nil {
-								return err
-							}
+			sg, err := newTestSnapshotGenerator(&Config{}, tc.querier, &processormocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					if tc.processor != nil {
+						if err := tc.processor.ProcessWALEvent(ctx, walEvent); err != nil {
+							return err
 						}
-						eventChan <- walEvent
-						return nil
-					},
+					}
+					eventChan <- walEvent
+					return nil
 				},
-				progressTracking: tc.name == "ok - with progress tracking",
-				progressBars:     synclib.NewMap[string, progress.Bar](),
-			}
+			})
+			require.NoError(t, err)
+			sg.progressTracking = tc.name == "ok - with progress tracking"
 
 			if sg.progressTracking {
 				sg.progressBars.Set(tc.table.schema, progressBar)
 			}
 
-			err := sg.snapshotTableRange(context.Background(), testSnapshotID, tc.table, tc.pageRange)
+			err = sg.snapshotTableRange(context.Background(), testSnapshotID, tc.table, tc.pageRange)
 			require.Equal(t, tc.wantErr, err)
 			close(eventChan)
 
@@ -2058,4 +2042,13 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 			require.Empty(t, diff, fmt.Sprintf("got: \n%v, \nwant \n%v, \ndiff: \n%s", events, tc.wantEvents, diff))
 		})
 	}
+}
+
+// newTestSnapshotGenerator goes through the same constructor production does,
+// so the page range reader is always set.
+func newTestSnapshotGenerator(cfg *Config, conn pglib.Querier, p processor.Processor) (*SnapshotGenerator, error) {
+	return newSnapshotGenerator(cfg, conn, p, func(sg *SnapshotGenerator) (rangeSnapshotter, error) {
+		return newDecodingSnapshotter(sg.adapter, sg.processor), nil
+	}, WithLogger(zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{LogLevel: "debug"}))),
+		WithProgressTracking())
 }
