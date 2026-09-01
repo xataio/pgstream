@@ -5,6 +5,7 @@ package preflight
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,7 +14,9 @@ import (
 	"github.com/xataio/pgstream/internal/postgres/mocks"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/stream"
+	"github.com/xataio/pgstream/pkg/wal/listener/snapshot/adapter"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
+	"github.com/xataio/pgstream/pkg/wal/processor/filter"
 )
 
 // sourceWithConnLimits returns an AcquireFunc whose Querier answers the
@@ -122,13 +125,14 @@ func TestBuildResourcesChecks(t *testing.T) {
 		cfg        *stream.Config
 		wantChecks int
 		wantDemand uint
+		wantSizes  bool
 	}{
 		{
 			name: "no source postgres url returns no checks",
 			cfg:  &stream.Config{},
 		},
 		{
-			name: "source without data snapshot returns no checks",
+			name: "source without data snapshot or tables returns no checks",
 			cfg: &stream.Config{
 				Listener: stream.ListenerConfig{
 					Postgres: &stream.PostgresListenerConfig{URL: "postgres://source"},
@@ -165,6 +169,44 @@ func TestBuildResourcesChecks(t *testing.T) {
 			wantChecks: 1,
 			wantDemand: 15,
 		},
+		{
+			name: "configured snapshot tables add the size report",
+			cfg: &stream.Config{
+				Listener: stream.ListenerConfig{
+					Postgres: &stream.PostgresListenerConfig{
+						URL: "postgres://source",
+						Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+							Data:    &pgsnapshotgenerator.Config{},
+							Adapter: adapter.SnapshotConfig{Tables: []string{"public.users"}},
+						},
+					},
+				},
+				Processor: stream.ProcessorConfig{
+					Filter: &filter.Config{IncludeTables: []string{"public.users"}},
+				},
+			},
+			wantChecks: 2,
+			wantDemand: 4,
+			wantSizes:  true,
+		},
+		{
+			name: "configured tables without a data snapshot report sizes alone",
+			cfg: &stream.Config{
+				Listener: stream.ListenerConfig{
+					Postgres: &stream.PostgresListenerConfig{
+						URL: "postgres://source",
+						Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+							Adapter: adapter.SnapshotConfig{Tables: []string{"public.users"}},
+						},
+					},
+				},
+				Processor: stream.ProcessorConfig{
+					Filter: &filter.Config{IncludeTables: []string{"public.users"}},
+				},
+			},
+			wantChecks: 1,
+			wantSizes:  true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -179,11 +221,185 @@ func TestBuildResourcesChecks(t *testing.T) {
 				return
 			}
 			require.NotNil(t, cleanup)
-			connCheck, ok := checks[0].(*SnapshotConnectionsCheck)
-			require.True(t, ok)
-			require.Equal(t, tc.wantDemand, connCheck.Demand)
+
+			var sizeCheck *TableSizesCheck
+			for _, c := range checks {
+				switch check := c.(type) {
+				case *SnapshotConnectionsCheck:
+					require.Equal(t, tc.wantDemand, check.Demand)
+				case *TableSizesCheck:
+					sizeCheck = check
+				}
+			}
+			if !tc.wantSizes {
+				require.Nil(t, sizeCheck)
+				return
+			}
+			require.NotNil(t, sizeCheck)
+			require.False(t, sizeCheck.Selection.IsUnfiltered())
 		})
 	}
+}
+
+// tableSizeRows drives a TableSizesCheck from the given catalog rows.
+func tableSizeRows(t *testing.T, rows []tableSize) postgres.AcquireFunc {
+	t.Helper()
+	return func(context.Context) (postgres.Querier, error) {
+		return &mocks.Querier{
+			QueryFn: func(context.Context, uint, string, ...any) (postgres.Rows, error) {
+				return &mocks.Rows{
+					NextFn: func(i uint) bool { return int(i) <= len(rows) },
+					ScanFn: func(i uint, dest ...any) error {
+						require.Len(t, dest, 4)
+						row := rows[i-1]
+						schema, ok := dest[0].(*string)
+						require.True(t, ok)
+						table, ok := dest[1].(*string)
+						require.True(t, ok)
+						bytes, ok := dest[2].(*int64)
+						require.True(t, ok)
+						pretty, ok := dest[3].(*string)
+						require.True(t, ok)
+						*schema, *table, *bytes, *pretty = row.schema, row.table, row.bytes, row.pretty
+						return nil
+					},
+					ErrFn: func() error { return nil },
+				}, nil
+			},
+		}, nil
+	}
+}
+
+func TestTableSizesCheck_Run(t *testing.T) {
+	t.Parallel()
+
+	catalog := []tableSize{
+		{schema: "public", table: "events", bytes: 8 * 1024 * 1024, pretty: "8192 kB"},
+		{schema: "public", table: "users", bytes: 2 * 1024 * 1024, pretty: "2048 kB"},
+		{schema: "billing", table: "invoices", bytes: 1024, pretty: "1024 bytes"},
+		{schema: "public", table: "audit_log", bytes: 512, pretty: "512 bytes"},
+	}
+
+	tests := []struct {
+		name       string
+		include    []string
+		exclude    []string
+		wantTables []string
+		wantTotal  int64
+	}{
+		{
+			name:       "include list keeps only the listed tables",
+			include:    []string{"public.users", "billing.invoices"},
+			wantTables: []string{"public.users", "billing.invoices"},
+			wantTotal:  2*1024*1024 + 1024,
+		},
+		{
+			name:       "schema wildcard keeps the whole schema",
+			include:    []string{"public.*"},
+			wantTables: []string{"public.events", "public.users", "public.audit_log"},
+			wantTotal:  8*1024*1024 + 2*1024*1024 + 512,
+		},
+		{
+			name:       "exclude list drops the listed tables",
+			exclude:    []string{"public.audit_log", "public.events"},
+			wantTables: []string{"public.users", "billing.invoices"},
+			wantTotal:  2*1024*1024 + 1024,
+		},
+		{
+			name:       "nothing in scope reports an empty set",
+			include:    []string{"public.missing"},
+			wantTables: []string{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			selection, err := stream.NewTableSelection(tc.include, tc.exclude)
+			require.NoError(t, err)
+			check := &TableSizesCheck{Source: tableSizeRows(t, catalog), Selection: selection}
+
+			findings, err := check.Run(context.Background())
+
+			require.NoError(t, err)
+			require.Empty(t, findings, "the size report is informational")
+
+			details := check.Details()
+			require.Equal(t, tc.wantTotal, details["tables_size_bytes"])
+
+			reported, ok := details["tables"].([]map[string]any)
+			require.True(t, ok)
+			names := make([]string, 0, len(reported))
+			for _, r := range reported {
+				names = append(names, fmt.Sprintf("%s.%s", r["schema"], r["table"]))
+			}
+			require.Equal(t, tc.wantTables, names, "order follows the query's largest-first sort")
+		})
+	}
+}
+
+func TestTableSizesCheck_Run_ConnectFails(t *testing.T) {
+	t.Parallel()
+
+	connErr := errors.New("boom")
+	check := &TableSizesCheck{
+		Source: func(context.Context) (postgres.Querier, error) {
+			return nil, connErr
+		},
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.Nil(t, findings)
+	require.ErrorIs(t, err, connErr)
+	require.ErrorContains(t, err, "connecting to source")
+}
+
+func TestTableSizesCheck_Run_QueryFails(t *testing.T) {
+	t.Parallel()
+
+	queryErr := errors.New("query failed")
+	check := &TableSizesCheck{
+		Source: func(context.Context) (postgres.Querier, error) {
+			return &mocks.Querier{
+				QueryFn: func(context.Context, uint, string, ...any) (postgres.Rows, error) {
+					return nil, queryErr
+				},
+			}, nil
+		},
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.Nil(t, findings)
+	require.ErrorIs(t, err, queryErr)
+	require.ErrorContains(t, err, "querying table sizes")
+}
+
+func TestTableSizesCheck_Run_RowsFail(t *testing.T) {
+	t.Parallel()
+
+	rowsErr := errors.New("rows failed")
+	check := &TableSizesCheck{
+		Source: func(context.Context) (postgres.Querier, error) {
+			return &mocks.Querier{
+				QueryFn: func(context.Context, uint, string, ...any) (postgres.Rows, error) {
+					return &mocks.Rows{
+						NextFn: func(uint) bool { return false },
+						ScanFn: func(uint, ...any) error { return nil },
+						ErrFn:  func() error { return rowsErr },
+					}, nil
+				},
+			}, nil
+		},
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.Nil(t, findings)
+	require.ErrorIs(t, err, rowsErr)
+	require.ErrorContains(t, err, "iterating rows")
 }
 
 func TestSnapshotConnectionsCheck_Run_ConnectFails(t *testing.T) {
