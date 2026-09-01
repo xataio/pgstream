@@ -794,6 +794,9 @@ func TestBatchWriter_execQueries_strictMode(t *testing.T) {
 		require.Error(t, err)
 		var cv *pglib.ErrConstraintViolation
 		require.ErrorAs(t, err, &cv)
+		// the message is what a snapshot caller sees when rows would otherwise
+		// be dropped silently, so it is part of the contract
+		require.ErrorContains(t, err, "strict mode: stopping on non-internal query failure")
 		require.Nil(t, retry)
 		require.Equal(t, uint64(0), bw.DroppedQueries())
 	})
