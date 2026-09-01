@@ -156,6 +156,14 @@ func TestMapError(t *testing.T) {
 			wantErr: &ErrPreconditionFailed{},
 		},
 		{
+			name: "25001 active_sql_transaction",
+			err: &pgconn.PgError{
+				Code:    "25001",
+				Message: "CREATE INDEX CONCURRENTLY cannot run inside a transaction block",
+			},
+			wantErr: &ErrActiveSQLTransaction{},
+		},
+		{
 			name: "42P07 duplicate_table",
 			err: &pgconn.PgError{
 				Code:    "42P07",

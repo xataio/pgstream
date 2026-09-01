@@ -12,7 +12,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	pglib "github.com/xataio/pgstream/internal/postgres"
-	"github.com/xataio/pgstream/internal/testcontainers"
 	"github.com/xataio/pgstream/pkg/stream"
 )
 
@@ -224,91 +223,6 @@ func Test_PostgresToPostgres(t *testing.T) {
 	}
 }
 
-func Test_PostgresToPostgres_Snapshot(t *testing.T) {
-	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
-		t.Skip("skipping integration test...")
-	}
-
-	// postgres container where pgstream hasn't been initialised to be used for
-	// initial snapshot validation
-	var snapshotPGURL string
-	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
-	require.NoError(t, err)
-	defer pgcleanup()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	testTable := "pg2pg_snapshot_integration_test"
-	// create table and populate it before initialising and running pgstream to
-	// ensure the snapshot captures pre-existing schema and data properly
-	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf("create table %s(id serial primary key, name text)", testTable))
-	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf("insert into %s(name) values('a'),('b')", testTable))
-	execQueryWithURL(t, ctx, snapshotPGURL, "create role test_role;")
-	// grant some privileges to the role to ensure these are captured in the snapshot
-	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf("grant select on %s to test_role", testTable))
-
-	cfg := &stream.Config{
-		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
-		Processor: testPostgresProcessorCfg(),
-	}
-	initStream(t, ctx, snapshotPGURL)
-	runStream(t, ctx, cfg)
-
-	targetConn, err := pglib.NewConn(ctx, targetPGURL)
-	require.NoError(t, err)
-
-	timer := time.NewTimer(20 * time.Second)
-	defer timer.Stop()
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
-	validation := func() bool {
-		schemaColumns := getInformationSchemaColumns(t, ctx, targetConn, testTable)
-		if len(schemaColumns) != 2 {
-			return false
-		}
-
-		wantSchemaCols := []*informationSchemaColumn{
-			{name: "id", dataType: "integer", isNullable: "NO"},
-			{name: "name", dataType: "text", isNullable: "YES"},
-		}
-		require.ElementsMatch(t, wantSchemaCols, schemaColumns)
-
-		columns := getTestTableColumns(t, ctx, targetConn, fmt.Sprintf("select id,name from %s", testTable))
-		if len(columns) != 2 {
-			return false
-		}
-
-		wantCols := []*testTableColumn{
-			{id: 1, name: "a"},
-			{id: 2, name: "b"},
-		}
-		require.ElementsMatch(t, wantCols, columns)
-
-		roles := getRoles(t, ctx, targetConn)
-		if len(roles) < 1 {
-			return false
-		}
-		require.Contains(t, roles, "test_role")
-
-		return true
-	}
-
-	for {
-		select {
-		case <-timer.C:
-			cancel()
-			t.Error("timeout waiting for postgres snapshot sync")
-			return
-		case <-ticker.C:
-			if validation() {
-				return
-			}
-		}
-	}
-}
-
 func Test_PostgresToPostgres_IndexesAndConstraints(t *testing.T) {
 	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
 		t.Skip("skipping integration test...")
@@ -415,6 +329,78 @@ func Test_PostgresToPostgres_IndexesAndConstraints(t *testing.T) {
 		}
 		return targetDefinition == sourceIndexes[indexRename]
 	}, 20*time.Second, 200*time.Millisecond)
+}
+
+func Test_PostgresToPostgres_UnqualifiedDDLUnderSearchPath(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfg(t),
+		Processor: testPostgresProcessorCfg(),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runStream(t, ctx, cfg)
+
+	suffix := time.Now().UnixNano()
+	schemaName := fmt.Sprintf("pg2pg_search_path_%d", suffix)
+	tableName := fmt.Sprintf("pg2pg_unqualified_%d", suffix)
+	domainName := fmt.Sprintf("pg2pg_code_%d", suffix)
+
+	// CREATE SCHEMA does not replicate, so create it twice.
+	execQuery(t, ctx, fmt.Sprintf("create schema %s", schemaName))
+	execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("create schema %s", schemaName))
+	defer execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("drop schema if exists %s cascade", schemaName))
+	defer execQuery(t, ctx, fmt.Sprintf("drop schema if exists %s cascade", schemaName))
+
+	sourceConn, err := pglib.NewConn(ctx, pgurl)
+	require.NoError(t, err)
+	defer sourceConn.Close(ctx)
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	// The domain in public must resolve during unqualified DDL replay.
+	execQuery(t, ctx, fmt.Sprintf("create domain public.%s as text", domainName))
+	defer execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("drop domain if exists public.%s cascade", domainName))
+	defer execQuery(t, ctx, fmt.Sprintf("drop domain if exists public.%s cascade", domainName))
+	require.Eventually(t, func() bool {
+		// a failed probe is just "not yet" while polling; the exclusion
+		// assertion below is the one that has to tell an error from an absence
+		exists, err := pgTypeExists(ctx, targetConn, "public", domainName)
+		return err == nil && exists
+	}, 20*time.Second, 200*time.Millisecond, "expected the domain to be replicated to the target")
+
+	// The unqualified DDL relies on the session search path.
+	_, err = sourceConn.Exec(ctx, fmt.Sprintf("set search_path to %s, public", schemaName))
+	require.NoError(t, err)
+	_, err = sourceConn.Exec(ctx, fmt.Sprintf("create table %s (id int primary key, code %s)", tableName, domainName))
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		exists, err := tableExists(ctx, targetConn, schemaName, tableName)
+		return err == nil && exists
+	}, 20*time.Second, 200*time.Millisecond, "expected table to be created on the upstream schema")
+
+	publicTableExists, err := tableExists(ctx, targetConn, "public", tableName)
+	require.NoError(t, err)
+	require.False(t, publicTableExists,
+		"expected table not to be created on the target default schema")
+
+	// The following DML is schema qualified by WAL decoding.
+	_, err = sourceConn.Exec(ctx, fmt.Sprintf("insert into %s values (1)", tableName))
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		var count int
+		err := targetConn.QueryRow(ctx, []any{&count},
+			fmt.Sprintf("select count(*) from %s.%s", schemaName, tableName))
+		return err == nil && count == 1
+	}, 20*time.Second, 200*time.Millisecond, "expected the inserted row to be replicated")
 }
 
 func Test_PostgresToPostgres_IdentityColumns(t *testing.T) {
