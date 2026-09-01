@@ -137,6 +137,41 @@ func (c *TableSizesCheck) Run(ctx context.Context) ([]Finding, error) {
 	return nil, nil
 }
 
+// Summary condenses the report to one line for the human-readable output: how
+// many tables are in scope and what they weigh, table data and indexes kept
+// apart because only the former is what the data snapshot copies.
+func (c *TableSizesCheck) Summary() string {
+	return fmt.Sprintf("%d tables · %s + %s indexes",
+		len(c.tables), prettySize(c.totalBytes), prettySize(c.totalIndexBytes))
+}
+
+// ExpandedSummary lists every in-scope table behind the summary, largest first,
+// closing with the totals. Rendered only in verbose mode.
+func (c *TableSizesCheck) ExpandedSummary() []string {
+	if len(c.tables) == 0 {
+		return nil
+	}
+	width := 0
+	for _, t := range c.tables {
+		if n := len(t.schema) + len(t.table) + 1; n > width {
+			width = n
+		}
+	}
+	if n := len(tableSizesTotalLabel); n > width {
+		width = n
+	}
+
+	rows := make([]string, 0, len(c.tables)+1)
+	for _, t := range c.tables {
+		rows = append(rows, fmt.Sprintf("%-*s  %10s  indexes %s",
+			width, t.schema+"."+t.table, t.pretty, t.indexPretty))
+	}
+	return append(rows, fmt.Sprintf("%-*s  %10s  indexes %s",
+		width, tableSizesTotalLabel, prettySize(c.totalBytes), prettySize(c.totalIndexBytes)))
+}
+
+const tableSizesTotalLabel = "total"
+
 // Details exposes the in-scope tables largest first, alongside their totals, so
 // the report records what the run was sizing itself against.
 func (c *TableSizesCheck) Details() map[string]any {
@@ -197,7 +232,8 @@ func (c *SnapshotConnectionsCheck) Run(ctx context.Context) ([]Finding, error) {
 		return []Finding{{
 			Message: fmt.Sprintf(
 				"snapshot needs %d concurrent connections (snapshot_workers × table_workers) but source has only %d available (max_connections=%d, superuser_reserved_connections=%d, %d in use); lower snapshot_workers/table_workers, raise max_connections (requires restart), or reduce existing connections",
-				c.Demand, available, maxConns, reserved, used),
+				c.Demand, available, maxConns, reserved, used,
+			),
 		}}, nil
 	}
 	return nil, nil
