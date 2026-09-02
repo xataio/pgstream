@@ -205,6 +205,7 @@ var extensionTypes = []extensionType{
 	}},
 	{name: "cube", register: registerWithCodec("cube", pgtype.TextCodec{})},
 	{name: "ltree", register: registerWithCodec("ltree", pgtype.TextCodec{})},
+	{name: "timetz", register: registerWithCodec("timetz", pgtype.TextCodec{})},
 }
 
 // ExtensionTypeNames returns the names of every postgres extension type

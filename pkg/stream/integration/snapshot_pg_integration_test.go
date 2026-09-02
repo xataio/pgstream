@@ -818,6 +818,116 @@ func Test_SnapshotToPostgres_CircularDependencyView(t *testing.T) {
 	require.Equal(t, []idNameRow{{id: 1, name: "a"}, {id: 2, name: "b"}}, rows)
 }
 
+// Test_SnapshotToPostgres_TimetzColumns verifies that snapshot/restore
+// preserves timetz column values end-to-end. timetz shares the root cause of
+// cube (#801) and ltree (#834): pgx registers no codec for it, so the
+// preflight schema check reports it as an unknown type and binary COPY writes
+// the text representation into a binary field, which the server reads as an
+// int64 microsecond count and rejects with "time out of range".
+func Test_SnapshotToPostgres_TimetzColumns(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	run := func(suffix string, opts ...option) {
+		testTable := fmt.Sprintf("timetz_columns_%s", suffix)
+
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`CREATE TABLE %s(
+				id       INTEGER PRIMARY KEY,
+				start_at timetz NOT NULL,
+				end_at   timetz
+			)`, testTable))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`INSERT INTO %s(id, start_at, end_at) VALUES
+				(1, '12:34:56.789+02', '23:59:59.999999-07:30'),
+				(2, '00:00:00+00', NULL),
+				(3, '24:00:00+14', '08:15:00-05')`,
+			testTable))
+
+		cfg := &stream.Config{
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
+			Processor: testPostgresProcessorCfg(opts...),
+		}
+		initStream(t, ctx, snapshotPGURL)
+		runSnapshot(t, ctx, cfg)
+
+		targetConn, err := pglib.NewConn(ctx, targetPGURL)
+		require.NoError(t, err)
+		sourceConn, err := pglib.NewConn(ctx, snapshotPGURL)
+		require.NoError(t, err)
+
+		timer := time.NewTimer(20 * time.Second)
+		defer timer.Stop()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		type row struct {
+			id      int
+			startAt string
+			endAt   *string
+		}
+		query := fmt.Sprintf("SELECT id, start_at::text, end_at::text FROM %s ORDER BY id", testTable)
+		fetch := func(conn pglib.Querier) ([]row, error) {
+			rows, err := conn.Query(ctx, query)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+			out := []row{}
+			for rows.Next() {
+				var r row
+				if err := rows.Scan(&r.id, &r.startAt, &r.endAt); err != nil {
+					return nil, err
+				}
+				out = append(out, r)
+			}
+			return out, rows.Err()
+		}
+
+		want, err := fetch(sourceConn)
+		require.NoError(t, err)
+		require.Len(t, want, 3)
+
+		validation := func() bool {
+			got, err := fetch(targetConn)
+			if err != nil || len(got) != len(want) {
+				return false
+			}
+			require.Equal(t, want, got)
+			return true
+		}
+
+		for {
+			select {
+			case <-timer.C:
+				cancel()
+				t.Error("timeout waiting for postgres snapshot sync of timetz columns")
+				return
+			case <-ticker.C:
+				if validation() {
+					return
+				}
+			}
+		}
+	}
+
+	t.Run("bulk ingest", func(t *testing.T) {
+		run("bulk", withBulkIngestionEnabled())
+	})
+	t.Run("batch writer", func(t *testing.T) {
+		run("batch")
+	})
+}
+
 // Test_SnapshotToPostgres_IdentityAndGeneratedColumns verifies that identity
 // columns have their values preserved while generated (stored) columns are
 // correctly excluded from inserts and recomputed by the target database.

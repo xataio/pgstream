@@ -136,43 +136,38 @@ func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 
 	cleanups := []CleanupFunc{src.Close}
 
-	if cfg.SnapshotCreateTargetDB() {
-		if targetURL := cfg.SnapshotTargetPostgresURL(); targetURL != "" {
-			var err error
-			targetURL, err = postgres.RemoveDatabaseFromConnectionString(targetURL)
-			if err != nil {
-				checks = append(checks, &TargetCreateDBPrivilegeCheck{
-					Target: func(context.Context) (postgres.Querier, error) {
-						return nil, err
-					},
-				})
-				return checks, joinCleanups(cleanups)
-			}
-			target := postgres.NewLazyConn(targetURL)
-			checks = append(checks, &TargetCreateDBPrivilegeCheck{Target: target.Acquire})
+	createDB, restoreRoles := cfg.SnapshotCreateTargetDB(), cfg.SnapshotRestoresRoles()
+	if targetURL := cfg.SnapshotTargetPostgresURL(); targetURL != "" && (createDB || restoreRoles) {
+		// both checks ask the same cluster the same kind of question, so they
+		// resolve one connection string and share one connection
+		checkURL, err := targetPrivilegeCheckURL(targetURL, createDB)
+		acquire := func(context.Context) (postgres.Querier, error) { return nil, err }
+		if err == nil {
+			target := postgres.NewLazyConn(checkURL)
+			acquire = target.Acquire
 			cleanups = append(cleanups, target.Close)
 		}
-	}
-
-	if cfg.SnapshotRestoresRoles() {
-		if targetURL := cfg.SnapshotTargetPostgresURL(); targetURL != "" {
-			var err error
-			targetURL, err = postgres.RemoveDatabaseFromConnectionString(targetURL)
-			if err != nil {
-				checks = append(checks, &TargetCreateRolePrivilegeCheck{
-					Target: func(context.Context) (postgres.Querier, error) {
-						return nil, err
-					},
-				})
-				return checks, joinCleanups(cleanups)
-			}
-			target := postgres.NewLazyConn(targetURL)
-			checks = append(checks, &TargetCreateRolePrivilegeCheck{Target: target.Acquire})
-			cleanups = append(cleanups, target.Close)
+		if createDB {
+			checks = append(checks, &TargetCreateDBPrivilegeCheck{Target: acquire})
+		}
+		if restoreRoles {
+			checks = append(checks, &TargetCreateRolePrivilegeCheck{Target: acquire})
 		}
 	}
 
 	return checks, joinCleanups(cleanups)
+}
+
+// targetPrivilegeCheckURL returns the connection string the target privilege
+// checks connect to. CREATEDB and CREATEROLE are cluster wide role attributes,
+// so any database in the target cluster can answer the question. The
+// configured target database is only dropped from the connection string when
+// the snapshot creates it, since it does not exist yet at check time.
+func targetPrivilegeCheckURL(targetURL string, createTargetDB bool) (string, error) {
+	if !createTargetDB {
+		return targetURL, nil
+	}
+	return postgres.RemoveDatabaseFromConnectionString(targetURL)
 }
 
 // BuildSchemaChecks returns the schema-preflight checks applicable to cfg,
