@@ -948,3 +948,136 @@ func sequencePrivilegeRows(t *testing.T, rows []sourceSequenceSelectPrivilegeRow
 		ErrFn: func() error { return nil },
 	}
 }
+
+func TestBuildAccessChecks_TargetPrivilegeChecks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		targetURL      string
+		createTargetDB bool
+		rolesMode      string
+		wantCreateDB   bool
+		wantCreateRole bool
+	}{
+		{
+			name:           "both checks share the resolved target",
+			targetURL:      "postgres://pgstream:secret@localhost:5432/target_db",
+			createTargetDB: true,
+			rolesMode:      "enabled",
+			wantCreateDB:   true,
+			wantCreateRole: true,
+		},
+		{
+			name:           "an unresolvable target still reports both checks",
+			targetURL:      "://not-a-url",
+			createTargetDB: true,
+			rolesMode:      "enabled",
+			wantCreateDB:   true,
+			wantCreateRole: true,
+		},
+		{
+			name:           "roles only",
+			targetURL:      "postgres://pgstream:secret@localhost:5432/target_db",
+			rolesMode:      "enabled",
+			wantCreateRole: true,
+		},
+		{
+			name:           "no target url adds neither",
+			createTargetDB: true,
+			rolesMode:      "enabled",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &stream.Config{
+				Listener: stream.ListenerConfig{
+					Postgres: &stream.PostgresListenerConfig{
+						URL: "postgres://source",
+						Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+							Schema: &snapshotbuilder.SchemaSnapshotConfig{
+								DumpRestore: &pgdumprestore.Config{
+									TargetPGURL:       tc.targetURL,
+									CreateTargetDB:    tc.createTargetDB,
+									RolesSnapshotMode: tc.rolesMode,
+								},
+							},
+						},
+					},
+				},
+			}
+
+			checks, cleanup := BuildAccessChecks(cfg)
+			require.NotNil(t, cleanup)
+			defer func() { require.NoError(t, cleanup(context.Background())) }()
+
+			var gotCreateDB, gotCreateRole bool
+			for _, check := range checks {
+				switch check.(type) {
+				case *TargetCreateDBPrivilegeCheck:
+					gotCreateDB = true
+				case *TargetCreateRolePrivilegeCheck:
+					gotCreateRole = true
+				}
+			}
+			require.Equal(t, tc.wantCreateDB, gotCreateDB)
+			require.Equal(t, tc.wantCreateRole, gotCreateRole)
+		})
+	}
+}
+
+func TestTargetPrivilegeCheckURL(t *testing.T) {
+	t.Parallel()
+
+	const targetURL = "postgres://pgstream:secret@localhost:5432/target_db?sslmode=disable"
+
+	tests := []struct {
+		name           string
+		targetURL      string
+		createTargetDB bool
+		want           string
+		wantErr        bool
+	}{
+		{
+			name:      "existing target database is kept",
+			targetURL: targetURL,
+			want:      targetURL,
+		},
+		{
+			name:           "target database created by the snapshot is dropped",
+			targetURL:      targetURL,
+			createTargetDB: true,
+			want:           "postgres://pgstream:secret@localhost:5432/?sslmode=disable",
+		},
+		{
+			name:           "user matching the target database name is kept",
+			targetURL:      "postgres://app:secret@app.internal:5432/app",
+			createTargetDB: true,
+			want:           "postgres://app:secret@app.internal:5432/",
+		},
+		{
+			name:           "unparseable url is reported",
+			targetURL:      "://not-a-url",
+			createTargetDB: true,
+			wantErr:        true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := targetPrivilegeCheckURL(tc.targetURL, tc.createTargetDB)
+
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
