@@ -4142,7 +4142,7 @@
                       "type": ""
                     },
                     "op": "=",
-                    "value": "tableSnapshotGenerator.SnapshotTable"
+                    "value": "tableReader.ReadTable"
                   }
                 ],
                 "op": "AND"
@@ -4305,7 +4305,7 @@
                       "type": ""
                     },
                     "op": "=",
-                    "value": "tableSnapshotGenerator.SnapshotTable"
+                    "value": "tableReader.ReadTable"
                   }
                 ],
                 "op": "AND"
@@ -9109,7 +9109,7 @@
 						"type": ""
 					  },
 					  "op": "=",
-					  "value": "tableSnapshotGenerator.SnapshotTable"
+					  "value": "tableReader.ReadTable"
 					}
 				  ],
 				  "op": "AND"
@@ -9272,7 +9272,7 @@
 						"type": ""
 					  },
 					  "op": "=",
-					  "value": "tableSnapshotGenerator.SnapshotTable"
+					  "value": "tableReader.ReadTable"
 					}
 				  ],
 				  "op": "AND"

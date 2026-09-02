@@ -302,7 +302,8 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 							QueryFn: func(ctx context.Context, query string, args ...any) (pglib.Rows, error) {
 								require.Equal(t, fmt.Sprintf(
 									`SELECT "id" FROM ONLY %s WHERE ctid BETWEEN '(0,0)' AND '(1,0)'`,
-									quotedSchemaTable1), query)
+									quotedSchemaTable1,
+								), query)
 								return &pgmocks.Rows{
 									CloseFn: func() {},
 									NextFn:  func(i uint) bool { return i == 1 },
@@ -1382,32 +1383,40 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 			t.Parallel()
 
 			eventChan := make(chan *wal.Event, 10)
-			sg := SnapshotGenerator{
-				logger: zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
-					LogLevel: "debug",
-				})),
-				conn:    tc.querier,
-				adapter: newAdapter(pglib.NewMapper(tc.querier), loglib.NewNoopLogger()),
-				processor: &processormocks.Processor{
-					ProcessWALEventFn: func(ctx context.Context, e *wal.Event) error {
-						eventChan <- e
-						return nil
-					},
-					CloseFn: func() error {
-						return tc.processorCloseErr
-					},
+			logger := zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
+				LogLevel: "debug",
+			}))
+			processor := &processormocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, e *wal.Event) error {
+					eventChan <- e
+					return nil
 				},
-				schemaWorkers:    1,
-				tableWorkers:     1,
-				batchBytes:       1024 * 1024, // 1MB
-				snapshotWorkers:  1,
-				progressTracking: tc.progressBar != nil,
-				progressBars:     synclib.NewMap[string, progress.Bar](),
+				CloseFn: func() error {
+					return tc.processorCloseErr
+				},
+			}
+			pt := progressTracker{
+				enabled: tc.progressBar != nil,
+				bars:    synclib.NewMap[string, progress.Bar](),
+			}
+			sg := SnapshotGenerator{
+				logger:          logger,
+				conn:            tc.querier,
+				processor:       processor,
+				schemaWorkers:   1,
+				snapshotWorkers: 1,
+				progress:        pt,
 				progressBarBuilder: func(totalBytes int64, description string) progress.Bar {
 					return tc.progressBar
 				},
+				reader: &ctidReader{
+					conn:         tc.querier,
+					logger:       logger,
+					sink:         newRowSink(pglib.NewMapper(tc.querier), processor, loglib.NewNoopLogger(), pt),
+					tableWorkers: 1,
+					batchBytes:   1024 * 1024, // 1MB
+				},
 			}
-			sg.tableSnapshotGenerator = sg.snapshotTable
 
 			if tc.schemaWorkers != 0 {
 				sg.schemaWorkers = tc.schemaWorkers
@@ -2018,13 +2027,20 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 				},
 			}
 
-			sg := SnapshotGenerator{
+			pt := progressTracker{
+				enabled: tc.name == "ok - with progress tracking",
+				bars:    synclib.NewMap[string, progress.Bar](),
+			}
+			if pt.enabled {
+				pt.set(tc.table.schema, progressBar)
+			}
+
+			reader := &ctidReader{
 				logger: zerolog.NewStdLogger(zerolog.NewLogger(&zerolog.Config{
 					LogLevel: "debug",
 				})),
-				conn:    tc.querier,
-				adapter: newAdapter(pglib.NewMapper(tc.querier), loglib.NewNoopLogger()),
-				processor: &processormocks.Processor{
+				conn: tc.querier,
+				sink: newRowSink(pglib.NewMapper(tc.querier), &processormocks.Processor{
 					ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
 						if tc.processor != nil {
 							if err := tc.processor.ProcessWALEvent(ctx, walEvent); err != nil {
@@ -2034,16 +2050,15 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 						eventChan <- walEvent
 						return nil
 					},
-				},
-				progressTracking: tc.name == "ok - with progress tracking",
-				progressBars:     synclib.NewMap[string, progress.Bar](),
+				}, loglib.NewNoopLogger(), pt),
+			}
+			session := &ctidSession{
+				reader:       reader,
+				schemaTables: &schemaTables{schema: tc.table.schema, tables: []string{tc.table.name}},
+				snapshotID:   testSnapshotID,
 			}
 
-			if sg.progressTracking {
-				sg.progressBars.Set(tc.table.schema, progressBar)
-			}
-
-			err := sg.snapshotTableRange(context.Background(), testSnapshotID, tc.table, tc.pageRange)
+			err := session.snapshotTableRange(context.Background(), tc.table, tc.pageRange)
 			require.Equal(t, tc.wantErr, err)
 			close(eventChan)
 
