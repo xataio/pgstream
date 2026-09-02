@@ -940,6 +940,20 @@ func Test_needsTextCopyForColumns(t *testing.T) {
 			want:        true,
 		},
 		{
+			name:        "timetz column",
+			columnNames: []string{`"id"`, `"start_at"`},
+			columnTypes: []string{"integer", "timetz"},
+			enumColumns: nil,
+			want:        true,
+		},
+		{
+			name:        "timetz column, format_type spelling",
+			columnNames: []string{`"id"`, `"start_at"`},
+			columnTypes: []string{"integer", "time with time zone"},
+			enumColumns: nil,
+			want:        true,
+		},
+		{
 			name:        "enum column",
 			columnNames: []string{`"id"`, `"mood"`},
 			columnTypes: []string{"integer", "mood"},

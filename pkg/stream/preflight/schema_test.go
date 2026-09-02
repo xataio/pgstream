@@ -8,6 +8,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
 	"github.com/xataio/pgstream/internal/postgres"
@@ -102,6 +103,27 @@ func TestSchemaTypeCompatibilityCheck_Run_PgstreamExtraTypesPass(t *testing.T) {
 	require.Len(t, findings, 1)
 	require.Contains(t, findings[0].Message, `"public"."t"."g"`)
 	require.Contains(t, findings[0].Message, `type "geometry"`)
+}
+
+func TestSchemaTypeCompatibilityCheck_Run_TimetzPasses(t *testing.T) {
+	t.Parallel()
+
+	// timetz is a core postgres type, but pgx's static type map has no codec
+	// for it, so the check has to recognise the codec pgstream registers for
+	// it instead. Its array variant is still unsupported.
+	check := &SchemaTypeCompatibilityCheck{
+		Source: sourceWithColumns(t, []schemaColumnRow{
+			{Schema: "public", Table: "t", Column: "start_at", BaseOID: int64(pgtype.TimetzOID), TypeName: "timetz", TypeKind: "b"},
+			{Schema: "public", Table: "t", Column: "windows", BaseOID: int64(pgtype.TimetzArrayOID), TypeName: "_timetz", TypeKind: "b"},
+		}),
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, findings, 1)
+	require.Contains(t, findings[0].Message, `"public"."t"."windows"`)
+	require.Contains(t, findings[0].Message, `type "_timetz"`)
 }
 
 func TestPgstreamSupportedTypesMatchesRegistry(t *testing.T) {
