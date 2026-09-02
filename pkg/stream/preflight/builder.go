@@ -137,9 +137,8 @@ func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 	cleanups := []CleanupFunc{src.Close}
 
 	if cfg.SnapshotCreateTargetDB() {
-		if targetURL := cfg.SnapshotTargetPostgresURL(); targetURL != "" {
-			var err error
-			targetURL, err = postgres.RemoveDatabaseFromConnectionString(targetURL)
+		if cfg.SnapshotTargetPostgresURL() != "" {
+			targetURL, err := targetPrivilegeCheckURL(cfg)
 			if err != nil {
 				checks = append(checks, &TargetCreateDBPrivilegeCheck{
 					Target: func(context.Context) (postgres.Querier, error) {
@@ -155,9 +154,8 @@ func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 	}
 
 	if cfg.SnapshotRestoresRoles() {
-		if targetURL := cfg.SnapshotTargetPostgresURL(); targetURL != "" {
-			var err error
-			targetURL, err = postgres.RemoveDatabaseFromConnectionString(targetURL)
+		if cfg.SnapshotTargetPostgresURL() != "" {
+			targetURL, err := targetPrivilegeCheckURL(cfg)
 			if err != nil {
 				checks = append(checks, &TargetCreateRolePrivilegeCheck{
 					Target: func(context.Context) (postgres.Querier, error) {
@@ -173,6 +171,19 @@ func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 	}
 
 	return checks, joinCleanups(cleanups)
+}
+
+// targetPrivilegeCheckURL returns the connection string the target privilege
+// checks connect to. CREATEDB and CREATEROLE are cluster wide role attributes,
+// so any database in the target cluster can answer the question. The
+// configured target database is only dropped from the connection string when
+// the snapshot creates it, since it does not exist yet at check time.
+func targetPrivilegeCheckURL(cfg *stream.Config) (string, error) {
+	targetURL := cfg.SnapshotTargetPostgresURL()
+	if !cfg.SnapshotCreateTargetDB() {
+		return targetURL, nil
+	}
+	return postgres.RemoveDatabaseFromConnectionString(targetURL)
 }
 
 // BuildSchemaChecks returns the schema-preflight checks applicable to cfg,

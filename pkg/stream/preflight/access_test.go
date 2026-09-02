@@ -948,3 +948,52 @@ func sequencePrivilegeRows(t *testing.T, rows []sourceSequenceSelectPrivilegeRow
 		ErrFn: func() error { return nil },
 	}
 }
+
+func TestTargetPrivilegeCheckURL(t *testing.T) {
+	t.Parallel()
+
+	const targetURL = "postgres://pgstream:secret@localhost:5432/target_db?sslmode=disable"
+
+	tests := []struct {
+		name           string
+		createTargetDB bool
+		want           string
+	}{
+		{
+			name: "existing target database is kept",
+			want: targetURL,
+		},
+		{
+			name:           "target database created by the snapshot is dropped",
+			createTargetDB: true,
+			want:           "postgres://pgstream:secret@localhost:5432/?sslmode=disable",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &stream.Config{
+				Listener: stream.ListenerConfig{
+					Postgres: &stream.PostgresListenerConfig{
+						URL: "postgres://source",
+						Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+							Schema: &snapshotbuilder.SchemaSnapshotConfig{
+								DumpRestore: &pgdumprestore.Config{
+									TargetPGURL:    targetURL,
+									CreateTargetDB: tc.createTargetDB,
+								},
+							},
+						},
+					},
+				},
+			}
+
+			got, err := targetPrivilegeCheckURL(cfg)
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
