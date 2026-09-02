@@ -31,6 +31,26 @@ func TestRemoveDatabaseFromConnectionString(t *testing.T) {
 			connection: "postgres://pgstream:secret@localhost:5432/postgres?sslmode=disable",
 			want:       "postgres://pgstream:secret@localhost:5432/postgres?sslmode=disable",
 		},
+		{
+			name:       "user matching the database name is preserved",
+			connection: "postgres://app:secret@app.internal:5432/app?sslmode=disable",
+			want:       "postgres://app:secret@app.internal:5432/?sslmode=disable",
+		},
+		{
+			name:       "host matching the database name is preserved",
+			connection: "postgres://pgstream:secret@target_db:5432/target_db",
+			want:       "postgres://pgstream:secret@target_db:5432/",
+		},
+		{
+			name:       "no database to remove",
+			connection: "postgres://pgstream:secret@localhost:5432/",
+			want:       "postgres://pgstream:secret@localhost:5432/",
+		},
+		{
+			name:       "dsn database is removed",
+			connection: "host=localhost port=5432 user=app dbname=app sslmode=disable",
+			want:       "host=localhost port=5432 user=app sslmode=disable",
+		},
 	}
 
 	for _, tc := range tests {

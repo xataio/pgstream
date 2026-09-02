@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"regexp"
@@ -165,16 +166,63 @@ func tailOutput(out []byte, maxBytes int) string {
 	return "..." + redacted[len(redacted)-maxBytes:]
 }
 
-func RemoveDatabaseFromConnectionString(url string) (string, error) {
-	dbName, err := extractDatabase(url)
+// RemoveDatabaseFromConnectionString returns connString with the database
+// removed, so a connection made with it lands on the server's default database
+// instead of one that may not exist yet. The postgres maintenance database is
+// left in place, since it always exists.
+//
+// Connection strings come in two shapes and both are handled: a URL, whose
+// path is emptied, and a libpq key=value DSN, whose dbname keyword is dropped.
+// A DSN value quoted around a space (dbname='my db') is not recognised; libpq
+// permits it but nothing in pgstream produces one.
+func RemoveDatabaseFromConnectionString(connString string) (string, error) {
+	dbName, err := extractDatabase(connString)
 	if err != nil {
 		return "", err
 	}
 	if dbName == "" || dbName == postgres {
-		return url, nil
+		return connString, nil
 	}
 
-	return strings.ReplaceAll(url, "/"+dbName, "/"), nil
+	if strings.HasPrefix(connString, "postgres://") || strings.HasPrefix(connString, "postgresql://") {
+		return removeDatabaseFromURL(connString)
+	}
+	return removeDatabaseFromDSN(connString), nil
+}
+
+// removeDatabaseFromURL empties the path of a postgres URL. It parses rather
+// than substituting the database name textually, because that name also occurs
+// elsewhere in a connection string — most commonly as the user, since
+// `postgres://app:pw@host/app` is a routine shape — and a textual replacement
+// would strip it from there too.
+func removeDatabaseFromURL(rawURL string) (string, error) {
+	parsed, err := neturl.Parse(rawURL)
+	if err != nil {
+		// pgx tolerates unescaped characters in the password that net/url
+		// rejects; ParseConfig escapes them the same way before parsing.
+		escaped, escapeErr := escapeConnectionURL(rawURL)
+		if escapeErr != nil {
+			return "", fmt.Errorf("removing database from connection string: %w", escapeErr)
+		}
+		if parsed, err = neturl.Parse(escaped); err != nil {
+			return "", fmt.Errorf("removing database from connection string: %w", err)
+		}
+	}
+	parsed.Path = "/"
+	return parsed.String(), nil
+}
+
+// removeDatabaseFromDSN drops the dbname keyword from a libpq key=value DSN.
+func removeDatabaseFromDSN(dsn string) string {
+	fields := strings.Fields(dsn)
+	kept := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if strings.HasPrefix(field, "dbname=") {
+			continue
+		}
+		kept = append(kept, field)
+	}
+	return strings.Join(kept, " ")
 }
 
 func parsePgRestoreOutputErrs(out []byte) error {
