@@ -205,6 +205,11 @@ var extensionTypes = []extensionType{
 	}},
 	{name: "cube", register: registerWithCodec("cube", pgtype.TextCodec{})},
 	{name: "ltree", register: registerWithCodec("ltree", pgtype.TextCodec{})},
+
+	// timetz is a core type rather than an extension one, but pgx ships no
+	// codec for it, so it needs the same treatment: without an entry here pgx
+	// cannot encode it and the preflight schema check reports it as unknown.
+	{name: "timetz", register: registerWithCodec("timetz", pgtype.TextCodec{})},
 }
 
 // ExtensionTypeNames returns the names of every postgres extension type
