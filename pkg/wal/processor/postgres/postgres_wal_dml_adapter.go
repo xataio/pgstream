@@ -486,9 +486,10 @@ func getTypedInt8Range(value any) any {
 // can't produce correctly, so bulk ingest must fall back to text-format
 // COPY for any batch that touches one of these columns.
 var textOnlyCopyTypes = map[string]struct{}{
-	"cube":   {}, // binary header: int32 dim+flags + N×float8 — pgx writes the text rep, server misreads it as a dimension count
-	"ltree":  {}, // binary format: 1-byte version + path string — pgx writes the text rep, server reads byte 0 as the version number
-	"timetz": {}, // binary format: int64 microseconds + int32 UTC offset — pgx writes the text rep, server reads its first 8 bytes as the microsecond count and errors with "time out of range"
+	"cube":                {}, // binary header: int32 dim+flags + N×float8 — pgx writes the text rep, server misreads it as a dimension count
+	"ltree":               {}, // binary format: 1-byte version + path string — pgx writes the text rep, server reads byte 0 as the version number
+	"timetz":              {}, // binary format: int64 microseconds + int32 UTC offset — pgx writes the text rep, server reads its first 8 bytes as the microsecond count and errors with "time out of range"
+	"time with time zone": {}, // format_type spelling of the timetz. Only the "timetz" key is reachable
 }
 
 func needsTextCopy(columnTypes []string) bool {

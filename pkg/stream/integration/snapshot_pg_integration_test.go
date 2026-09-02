@@ -854,7 +854,7 @@ func Test_SnapshotToPostgres_TimetzColumns(t *testing.T) {
 			testTable))
 
 		cfg := &stream.Config{
-			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"*.*"}),
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
 			Processor: testPostgresProcessorCfg(opts...),
 		}
 		initStream(t, ctx, snapshotPGURL)
