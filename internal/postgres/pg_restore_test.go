@@ -613,9 +613,47 @@ func TestParseErrorLine(t *testing.T) {
 			wantErr: &ErrRelationAlreadyExists{Details: `ERROR:  "linking_queue_000" is already a partition`},
 		},
 		{
+			name:    "connection lost",
+			line:    `psql: error: connection to server was lost`,
+			wantErr: &ErrTransientFailure{Details: `psql: error: connection to server was lost`},
+		},
+		{
+			name:    "server closed the connection",
+			line:    "pg_restore: error: could not execute query: server closed the connection unexpectedly",
+			wantErr: &ErrTransientFailure{Details: "pg_restore: error: could not execute query: server closed the connection unexpectedly"},
+		},
+		{
+			name:    "lock timeout",
+			line:    `ERROR:  canceling statement due to lock timeout`,
+			wantErr: &ErrTransientFailure{Details: `ERROR:  canceling statement due to lock timeout`},
+		},
+		{
+			name:    "deadlock",
+			line:    `ERROR:  deadlock detected`,
+			wantErr: &ErrTransientFailure{Details: `ERROR:  deadlock detected`},
+		},
+		{
+			name:    "connection refused",
+			line:    `psql: error: connection to server at "localhost" (::1), port 5432 failed: Connection refused`,
+			wantErr: &ErrTransientFailure{Details: `psql: error: connection to server at "localhost" (::1), port 5432 failed: Connection refused`},
+		},
+		{
+			// a connection failure that reports a permanent cause keeps the
+			// classification of that cause, so it is not retried
+			name:    "connection failure with a permanent cause",
+			line:    `psql: error: connection to server at "localhost" (::1), port 5432 failed: FATAL:  database "test" does not exist`,
+			wantErr: &ErrRelationDoesNotExist{Details: `psql: error: connection to server at "localhost" (::1), port 5432 failed: FATAL:  database "test" does not exist`},
+		},
+		{
+			// retrying a statement that is simply too slow times out again
+			name:    "statement timeout",
+			line:    `ERROR:  canceling statement due to statement timeout`,
+			wantErr: errors.New(`ERROR:  canceling statement due to statement timeout`),
+		},
+		{
 			name:    "generic error",
-			line:    "pg_restore: error: connection failed",
-			wantErr: errors.New("pg_restore: error: connection failed"),
+			line:    "pg_restore: error: unrecognized data block type",
+			wantErr: errors.New("pg_restore: error: unrecognized data block type"),
 		},
 	}
 
@@ -623,7 +661,70 @@ func TestParseErrorLine(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := parseErrorLine(tt.line)
 			require.NotNil(t, err)
-			require.ErrorAs(t, err, &tt.wantErr)
+			require.IsType(t, tt.wantErr, err)
+			require.Equal(t, tt.wantErr.Error(), err.Error())
+		})
+	}
+}
+
+func TestPGRestoreErrors_classification(t *testing.T) {
+	t.Parallel()
+
+	errCritical := errors.New("oh noes")
+	errIgnored := &ErrRelationAlreadyExists{Details: "relation exists"}
+	errTransient := &ErrTransientFailure{Details: "connection to server was lost"}
+
+	tests := []struct {
+		name string
+		errs []error
+
+		wantCritical  bool
+		wantRetryable bool
+		wantIgnored   int
+	}{
+		{
+			name: "no errors",
+			errs: nil,
+		},
+		{
+			name:        "ignored only",
+			errs:        []error{errIgnored},
+			wantIgnored: 1,
+		},
+		{
+			name:          "transient only",
+			errs:          []error{errTransient},
+			wantCritical:  true,
+			wantRetryable: true,
+		},
+		{
+			name:          "transient alongside ignored",
+			errs:          []error{errTransient, errIgnored},
+			wantCritical:  true,
+			wantRetryable: true,
+			wantIgnored:   1,
+		},
+		{
+			name:         "transient alongside critical",
+			errs:         []error{errTransient, errCritical},
+			wantCritical: true,
+		},
+		{
+			name:         "critical only",
+			errs:         []error{errCritical},
+			wantCritical: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			errs := NewPGRestoreErrors(tt.errs...)
+			require.Equal(t, len(tt.errs) > 0, errs.HasErrors())
+			require.Equal(t, tt.wantCritical, errs.HasCriticalErrors())
+			require.Equal(t, tt.wantRetryable, errs.IsRetryable())
+			require.Len(t, errs.GetIgnoredErrors(), tt.wantIgnored)
 		})
 	}
 }

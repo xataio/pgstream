@@ -352,14 +352,70 @@ func parseErrorLine(line string) error {
 		return &ErrPermissionDenied{Details: line}
 	case strings.Contains(line, "does not exist"):
 		return &ErrRelationDoesNotExist{Details: line}
+	case isTransientErrorLine(line):
+		return &ErrTransientFailure{Details: line}
 	default:
 		return errors.New(line)
 	}
 }
 
+// transientErrorFragments are lowercased fragments of the messages postgres and
+// its client tools emit for failures that are unrelated to the statement being
+// restored: a connection that dropped, a server that is not accepting queries
+// yet, or a lock that could not be taken. Rerunning the statement is the only
+// way to tell whether the condition has cleared.
+//
+// Fragments that a permanent failure can also produce are deliberately absent.
+// A statement timeout, for instance, reads like a transient cancellation but
+// recurs on every attempt when the statement is simply too slow, and
+// "out of shared memory" recurs until the server is reconfigured.
+var transientErrorFragments = []string{
+	"broken pipe",
+	"canceling statement due to conflict with recovery",
+	"canceling statement due to lock timeout",
+	"connection reset by peer",
+	"connection timed out",
+	"connection to server at",
+	"connection to server was lost",
+	"could not connect to server",
+	"could not obtain lock on",
+	"could not receive data from server",
+	"could not send data to server",
+	"could not serialize access",
+	"deadlock detected",
+	"eof detected",
+	"is not yet accepting connections",
+	"no connection to the server",
+	"remaining connection slots are reserved",
+	"server closed the connection unexpectedly",
+	"sorry, too many clients already",
+	"ssl connection has been closed unexpectedly",
+	"ssl syscall error",
+	"terminating connection due to administrator command",
+	"terminating connection due to unexpected postmaster exit",
+	"the database system is in recovery mode",
+	"the database system is shutting down",
+	"the database system is starting up",
+	"timeout expired",
+}
+
+// isTransientErrorLine is checked only after the permanent classifications
+// above, so that a connection failure reporting a permanent cause — a missing
+// database, say — keeps the classification of that cause.
+func isTransientErrorLine(line string) bool {
+	lowered := strings.ToLower(line)
+	for _, fragment := range transientErrorFragments {
+		if strings.Contains(lowered, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
 type PGRestoreErrors struct {
-	ignoredErrs  []error
-	criticalErrs []error
+	ignoredErrs   []error
+	criticalErrs  []error
+	retryableErrs []error
 }
 
 func NewPGRestoreErrors(errs ...error) *PGRestoreErrors {
@@ -371,23 +427,41 @@ func NewPGRestoreErrors(errs ...error) *PGRestoreErrors {
 }
 
 func (e PGRestoreErrors) Error() string {
-	if len(e.criticalErrs) == 0 && len(e.ignoredErrs) == 0 {
+	if !e.HasErrors() {
 		return ""
 	}
 
-	return errors.Join(append(e.criticalErrs, e.ignoredErrs...)...).Error()
+	all := make([]error, 0, len(e.criticalErrs)+len(e.retryableErrs)+len(e.ignoredErrs))
+	all = append(all, e.criticalErrs...)
+	all = append(all, e.retryableErrs...)
+	all = append(all, e.ignoredErrs...)
+	return errors.Join(all...).Error()
 }
 
 func (e PGRestoreErrors) HasErrors() bool {
-	return len(e.criticalErrs) > 0 || len(e.ignoredErrs) > 0
+	return len(e.criticalErrs) > 0 || len(e.retryableErrs) > 0 || len(e.ignoredErrs) > 0
 }
 
+// HasCriticalErrors reports whether the restore hit an error that must not be
+// swallowed. Transient errors count as critical: a caller that does not retry
+// has to surface them rather than treat the restore as complete.
 func (e *PGRestoreErrors) HasCriticalErrors() bool {
-	return len(e.criticalErrs) > 0
+	return len(e.criticalErrs) > 0 || len(e.retryableErrs) > 0
+}
+
+// IsRetryable reports whether every error that failed the restore is transient,
+// which is the only case where rerunning the same dump can produce a different
+// outcome.
+func (e *PGRestoreErrors) IsRetryable() bool {
+	return len(e.criticalErrs) == 0 && len(e.retryableErrs) > 0
 }
 
 func (e *PGRestoreErrors) GetIgnoredErrors() []error {
 	return e.ignoredErrs
+}
+
+func (e *PGRestoreErrors) GetRetryableErrors() []error {
+	return e.retryableErrs
 }
 
 func (e *PGRestoreErrors) addError(err error) {
@@ -400,6 +474,7 @@ func (e *PGRestoreErrors) addError(err error) {
 	var errPermissionDenied *ErrPermissionDenied
 	var errDoesNotExist *ErrRelationDoesNotExist
 	var errCommentOwnership *ErrCommentOwnership
+	var errTransient *ErrTransientFailure
 	switch {
 	case errors.As(err, &errAlreadyExists),
 		errors.As(err, &errConstraintViolation),
@@ -407,6 +482,8 @@ func (e *PGRestoreErrors) addError(err error) {
 		errors.As(err, &errDoesNotExist),
 		errors.As(err, &errCommentOwnership):
 		e.ignoredErrs = append(e.ignoredErrs, err)
+	case errors.As(err, &errTransient):
+		e.retryableErrs = append(e.retryableErrs, err)
 	default:
 		e.criticalErrs = append(e.criticalErrs, err)
 	}
