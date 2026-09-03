@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/stream"
+	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 )
 
 type transformerTestTableRow struct {
@@ -238,4 +239,123 @@ func validateRows(t *testing.T, ctx context.Context, conn *pglib.Conn, expectedR
 		require.NotEmpty(t, row.address, "text column")
 	}
 	return true
+}
+
+// Test_PostgresToPostgres_NumericTransformer covers the replication half of
+// numeric support. wal2json renders a whole numeric as a JSON integer and the
+// listener decodes those as int64, so a numeric column reaches the transformer
+// as an int64 here and as a pgtype.Numeric during a snapshot. A transformer
+// that only accepts the snapshot shape rejects the value, and the default
+// on_error policy then nulls the column rather than failing the run, so
+// nothing but an assertion on the target catches it.
+func Test_PostgresToPostgres_NumericTransformer(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	testTable := "pg2pg_integration_numeric_transformer_test"
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	createTable := fmt.Sprintf(
+		`CREATE TABLE %s(
+			id      serial PRIMARY KEY,
+			amount  numeric,
+			lat     numeric(9,6),
+			dbl     double precision
+		)`, testTable)
+	execQuery(t, ctx, createTable)
+	// this pipeline has no injector, so DDL is not replicated; the target
+	// table has to exist before the first row arrives
+	execQueryWithURL(t, ctx, targetPGURL, createTable)
+
+	rules := []transformer.TableRules{{
+		Schema: "public",
+		Table:  testTable,
+		ColumnRules: map[string]transformer.TransformerRules{
+			"amount": {Name: "greenmask_float", Parameters: map[string]any{
+				"generator": "deterministic", "min_value": 0.0, "max_value": 1000.0,
+			}},
+			"lat": {Name: "greenmask_float", Parameters: map[string]any{
+				"generator": "deterministic", "min_value": -90.0, "max_value": 90.0, "precision": 6,
+			}},
+			"dbl": {Name: "greenmask_float", Parameters: map[string]any{
+				"generator": "deterministic", "min_value": 0.0, "max_value": 1000.0,
+			}},
+		},
+	}}
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfg(t),
+		Processor: testPostgresProcessorCfg(withTransformerRules(rules)),
+	}
+	runStream(t, ctx, cfg)
+
+	// whole numbers on purpose: wal2json emits those unquoted, which is the
+	// shape that used to be rejected. Row 2 mixes in fractional values.
+	execQuery(t, ctx, fmt.Sprintf(
+		`INSERT INTO %s(id, amount, lat, dbl) VALUES
+			(1, 1234, 51, 1000),
+			(2, 1234.5678, 51.507351, 1000.5)`, testTable))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	type row struct {
+		id     int
+		amount *float64
+		lat    *float64
+		dbl    *float64
+	}
+	query := fmt.Sprintf("SELECT id, amount, lat, dbl FROM %s ORDER BY id", testTable)
+
+	timer := time.NewTimer(30 * time.Second)
+	defer timer.Stop()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	var got []row
+	for got == nil {
+		select {
+		case <-timer.C:
+			t.Fatal("timeout waiting for replicated numeric columns")
+		case <-ticker.C:
+			rows, err := targetConn.Query(ctx, query)
+			if err != nil {
+				continue
+			}
+			out := []row{}
+			for rows.Next() {
+				var r row
+				if err := rows.Scan(&r.id, &r.amount, &r.lat, &r.dbl); err != nil {
+					break
+				}
+				out = append(out, r)
+			}
+			rows.Close()
+			if len(out) == 2 {
+				got = out
+			}
+		}
+	}
+
+	for _, r := range got {
+		// a rejected value is nulled by the default on_error policy, so a nil
+		// here is the exact regression this test exists for
+		require.NotNil(t, r.amount, "row %d: amount was nulled, the transformer rejected the replicated value", r.id)
+		require.NotNil(t, r.lat, "row %d: lat was nulled, the transformer rejected the replicated value", r.id)
+		require.NotNil(t, r.dbl, "row %d: dbl was nulled, the transformer rejected the replicated value", r.id)
+
+		require.GreaterOrEqual(t, *r.amount, 0.0)
+		require.LessOrEqual(t, *r.amount, 1000.0)
+		require.GreaterOrEqual(t, *r.lat, -90.0)
+		require.LessOrEqual(t, *r.lat, 90.0)
+		require.GreaterOrEqual(t, *r.dbl, 0.0)
+		require.LessOrEqual(t, *r.dbl, 1000.0)
+	}
+	// the source values must not survive untransformed
+	require.NotEqual(t, 1234.0, *got[0].amount)
+	require.NotEqual(t, 51.0, *got[0].lat)
 }

@@ -384,9 +384,14 @@ transformations:
 
 **Description:** Generates random or deterministic floating-point numbers within a specified range.
 
-| Supported PostgreSQL types |
-| -------------------------- |
-| `real`, `double precision` |
+| Supported PostgreSQL types            |
+| ------------------------------------- |
+| `real`, `double precision`, `numeric` |
+⚠️ On a `numeric` column `min_value` and `max_value` are **required**. Their defaults span the whole `float32` range, which produces the same out-of-range constant for every row .
+
+A `numeric` value is converted to a `float64` before it seeds the generator, and the generated value is a `float64` too, so a `numeric` column is anonymized within float64's range: values beyond it are clamped, and values beyond float64's significand are rounded. Only the seed is affected, since the original is discarded.
+
+On a `numeric(p,s)` column the configured range is checked against the column when the rules are validated, so a range that cannot fit fails the run. An unconstrained `numeric` accepts any value, so nothing is checked there beyond the bounds being set.
 
 | Parameter | Type   | Default                                       | Required | Values               |
 | --------- | ------ | --------------------------------------------- | -------- | -------------------- |
@@ -401,9 +406,9 @@ transformations:
 
 **Description:** Generates random or deterministic integers within a specified range.
 
-| Supported PostgreSQL types     |
-| ------------------------------ |
-| `smallint`,`integer`, `bigint` |
+| Supported PostgreSQL types                                             |
+| ---------------------------------------------------------------------- |
+| `smallint`, `integer`, `bigint`, `real`, `double precision`, `numeric` |
 
 | Parameter | Type   | Default     | Required | Values               |
 | --------- | ------ | ----------- | -------- | -------------------- |
@@ -470,9 +475,9 @@ transformations:
 
 **Description:** Generates random or deterministic unix timestamps.
 
-| Supported PostgreSQL types    |
-| ----------------------------- |
-| `smallint`,`integer`,`bigint` |
+| Supported PostgreSQL types                                             |
+| ---------------------------------------------------------------------- |
+| `smallint`, `integer`, `bigint`, `real`, `double precision`, `numeric` |
 
 | Parameter | Type   | Default | Required | Values               |
 | --------- | ------ | ------- | -------- | -------------------- |

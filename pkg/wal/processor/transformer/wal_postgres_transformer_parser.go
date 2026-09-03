@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -57,11 +58,25 @@ const (
 	AND k.ord <= i.indnkeyatts
 	AND n.nspname = $1 AND c.relname = $2
 	ORDER BY idx.relname, k.ord`
-	publicSchema = "public"
-	wildcard     = "*"
+	publicSchema        = "public"
+	wildcard            = "*"
+	numericTypmodOffset = 4
 )
 
-var errInvalidTableName = errors.New("invalid table name, expected format: schema.table or table")
+var (
+	errInvalidTableName = errors.New("invalid table name, expected format: schema.table or table")
+	// ErrNumericRange is returned when a transformer configured on a numeric
+	// column can generate values the column cannot store.
+	ErrNumericRange = errors.New("transformer range does not fit the numeric column")
+)
+
+// columnType is what rules validation needs to know about a column's type: the
+// OID says which transformers accept it, and the modifier carries the
+// precision and scale a numeric column constrains its values to.
+type columnType struct {
+	oid      uint32
+	modifier int32
+}
 
 func NewPostgresTransformerParser(ctx context.Context, pgURL string, builder transformerBuilder, requiredTables []string, opts ...ParserOption) (*PostgresTransformerParser, error) {
 	pool, err := pglib.NewConnPool(ctx, pgURL)
@@ -102,8 +117,8 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 			return nil, err
 		}
 
-		// map column names to column pg type OIDs
-		mappedColumnTypes := make(map[string]uint32, len(fieldDescriptions))
+		// map column names to their pg type OID and modifier
+		mappedColumnTypes := make(map[string]columnType, len(fieldDescriptions))
 		for _, desc := range fieldDescriptions {
 			if _, found := table.ColumnRules[string(desc.Name)]; !found {
 				// column is not configured in rules, error out if strict validation mode is enabled
@@ -112,7 +127,7 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 				}
 				continue
 			}
-			mappedColumnTypes[string(desc.Name)] = desc.DataTypeOID
+			mappedColumnTypes[string(desc.Name)] = columnType{oid: desc.DataTypeOID, modifier: desc.TypeModifier}
 		}
 
 		for colName, transformerRules := range table.ColumnRules {
@@ -137,17 +152,21 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 			}
 
 			// get the data type so that we can later validate if it's compatible with the configured transformer
-			dataTypeOID, found := mappedColumnTypes[colName]
+			colType, found := mappedColumnTypes[colName]
 			if !found {
 				// validate that the column in the rules is present in the table
 				return nil, fmt.Errorf("column %s not found in table %q.%q", colName, table.Schema, table.Table)
 			}
 
-			dataTypeName, err := v.pgtypeMap.TypeForOID(ctx, dataTypeOID)
+			dataTypeName, err := v.pgtypeMap.TypeForOID(ctx, colType.oid)
 
 			// validate that the transformer is compatible with the column type
-			if err != nil || !pgTypeCompatibleWithTransformerType(transformer.CompatibleTypes(), dataTypeOID, dataTypeName) {
-				return nil, fmt.Errorf("transformer '%s' specified for column '%s' in table %q.%q does not support pg data type: %s with OID: %d", transformer.Type(), colName, table.Schema, table.Table, dataTypeName, dataTypeOID)
+			if err != nil || !pgTypeCompatibleWithTransformerType(transformer.CompatibleTypes(), colType.oid, dataTypeName) {
+				return nil, fmt.Errorf("transformer '%s' specified for column '%s' in table %q.%q does not support pg data type: %s with OID: %d", transformer.Type(), colName, table.Schema, table.Table, dataTypeName, colType.oid)
+			}
+
+			if err := validateNumericRange(cfg, colType); err != nil {
+				return nil, fmt.Errorf("column '%s' in table %q.%q: %w", colName, table.Schema, table.Table, err)
 			}
 
 			// add the transformer to the map
@@ -364,7 +383,7 @@ func pgTypeCompatibleWithTransformerType(compatibleTypes []transformers.Supporte
 		return slices.Contains(compatibleTypes, transformers.StringDataType)
 	case pgtype.Float4OID:
 		return slices.Contains(compatibleTypes, transformers.Float32DataType)
-	case pgtype.Float8OID:
+	case pgtype.Float8OID, pgtype.NumericOID:
 		return slices.Contains(compatibleTypes, transformers.Float64DataType)
 	case pgtype.Int2OID:
 		return slices.Contains(compatibleTypes, transformers.Integer16DataType)
@@ -394,5 +413,60 @@ func pgTypeCompatibleWithTransformerType(compatibleTypes []transformers.Supporte
 		default:
 			return false
 		}
+	}
+}
+
+func (c columnType) numericPrecisionScale() (precision, scale int, ok bool) {
+	if c.oid != pgtype.NumericOID || c.modifier < numericTypmodOffset {
+		return 0, 0, false
+	}
+	typmod := c.modifier - numericTypmodOffset
+	return int(typmod>>16) & 0xffff, int(typmod) & 0xffff, true
+}
+
+// validateNumericRange checks that a transformer configured on a numeric
+// column cannot generate a value the column will reject.
+func validateNumericRange(cfg *transformers.Config, colType columnType) error {
+	if cfg.Name != transformers.GreenmaskFloat && cfg.Name != transformers.GreenmaskInteger {
+		return nil
+	}
+	precision, scale, ok := colType.numericPrecisionScale()
+	if !ok {
+		return nil
+	}
+
+	// the largest magnitude a numeric(p,s) can hold, exclusive
+	limit := math.Pow(10, float64(precision-scale))
+
+	for _, param := range []string{"min_value", "max_value"} {
+		value, found := cfg.Parameters[param]
+		if !found {
+			return fmt.Errorf("%w: %q defaults to the full range of its type, which does not fit numeric(%d,%d); set it explicitly",
+				ErrNumericRange, param, precision, scale)
+		}
+		magnitude, err := numericParamMagnitude(value)
+		if err != nil {
+			return fmt.Errorf("%w: %q: %w", ErrNumericRange, param, err)
+		}
+		if magnitude >= limit {
+			return fmt.Errorf("%w: %q is %g, which does not fit numeric(%d,%d) (maximum magnitude %g)",
+				ErrNumericRange, param, magnitude, precision, scale, limit)
+		}
+	}
+	return nil
+}
+
+func numericParamMagnitude(value any) (float64, error) {
+	switch v := value.(type) {
+	case float64:
+		return math.Abs(v), nil
+	case float32:
+		return math.Abs(float64(v)), nil
+	case int:
+		return math.Abs(float64(v)), nil
+	case int64:
+		return math.Abs(float64(v)), nil
+	default:
+		return 0, fmt.Errorf("got %T, want a number", value)
 	}
 }
