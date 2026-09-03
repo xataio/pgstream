@@ -24,6 +24,7 @@ import (
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"github.com/xataio/pgstream/pkg/snapshot/generator"
 	"github.com/xataio/pgstream/pkg/wal/processor"
+	"golang.org/x/sync/errgroup"
 )
 
 // SnapshotGenerator generates postgres schema snapshots using pg_dump and
@@ -64,6 +65,10 @@ type SnapshotGenerator struct {
 	// created by an earlier attempt fail with "already exists", which the
 	// restore ignores.
 	indexRestoreBackoff backoff.Provider
+	// indexRestoreWorkers controls how many standalone CREATE INDEX/CREATE
+	// UNIQUE INDEX statements are restored concurrently. Defaults to 1
+	// (sequential, unchanged behaviour).
+	indexRestoreWorkers uint
 }
 
 type snapshotProgressTracker interface {
@@ -104,6 +109,17 @@ type Config struct {
 	// exponential backoff with an initial interval of 1s, a max interval of
 	// 1min and 3 retries.
 	IndexRestoreRetries backoff.Config
+	// IndexRestoreWorkers is the number of standalone CREATE INDEX/CREATE
+	// UNIQUE INDEX statements restored concurrently against the target
+	// database. Statements that depend on an index existing (constraints
+	// added USING INDEX, comments, partition attachments, REPLICA IDENTITY
+	// and CLUSTER) are always restored afterwards, once every index has been
+	// created. Defaults to 1, which preserves the existing sequential
+	// behaviour. Each worker holds a target connection and applies
+	// IndexConstraintSessionSettings to it, so both the connections and the
+	// memory those settings reserve scale with this value. Capped at
+	// maxIndexRestoreWorkers.
+	IndexRestoreWorkers uint
 	// IncludeObjectTypes is a list of object type categories to include in the
 	// schema snapshot. Only one of IncludeObjectTypes or ExcludeObjectTypes
 	// can be set.
@@ -128,7 +144,21 @@ const (
 	defaultIndexRestoreRetryInitialInterval = time.Second
 	defaultIndexRestoreRetryMaxInterval     = time.Minute
 	defaultIndexRestoreMaxRetries           = 3
+	defaultIndexRestoreWorkers              = 1
+	// maxIndexRestoreWorkers keeps IndexRestoreWorkers from exhausting the
+	// target's connection slots or memory, and catches a negative value that
+	// wrapped around into a huge uint in the config decoder.
+	maxIndexRestoreWorkers = 32
 )
+
+var errTooManyIndexRestoreWorkers = errors.New("index restore workers above the maximum")
+
+func (c *Config) indexRestoreWorkers() uint {
+	if c.IndexRestoreWorkers > 0 {
+		return c.IndexRestoreWorkers
+	}
+	return defaultIndexRestoreWorkers
+}
 
 func (c *Config) indexRestoreBackoffConfig() *backoff.Config {
 	if c.IndexRestoreRetries.DisableRetries {
@@ -185,6 +215,10 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		return nil, err
 	}
 
+	if workers := c.indexRestoreWorkers(); workers > maxIndexRestoreWorkers {
+		return nil, fmt.Errorf("%w: %d configured, maximum is %d", errTooManyIndexRestoreWorkers, workers, maxIndexRestoreWorkers)
+	}
+
 	sourceConnPool, err := pglib.NewConnPool(ctx, c.SourcePGURL)
 	if err != nil {
 		return nil, err
@@ -211,6 +245,7 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		indexConstraintSessionSettings: c.IndexConstraintSessionSettings,
 		objectTypeFilter:               objTypeFilter,
 		indexRestoreBackoff:            backoff.NewProvider(c.indexRestoreBackoffConfig()),
+		indexRestoreWorkers:            c.indexRestoreWorkers(),
 	}
 
 	for _, opt := range opts {
@@ -264,6 +299,11 @@ func WithRestoreToWAL(processor processor.Processor) Option {
 	return func(sg *SnapshotGenerator) {
 		sg.pgRestoreFn = newPGSnapshotWALRestore(processor, sg.sourceQuerier).restoreToWAL
 		sg.indexConstraintSessionSettings = nil
+		// this path converts the dump into WAL events for a non-postgres
+		// target instead of running index builds against a target database,
+		// so concurrency buys nothing and would emit the DDL events out of
+		// order
+		sg.indexRestoreWorkers = defaultIndexRestoreWorkers
 	}
 }
 
@@ -484,7 +524,8 @@ func (s *SnapshotGenerator) restoreIndicesAndConstraints(ctx context.Context, du
 				"retries": retries,
 				"backoff": d,
 			})
-		})
+		},
+	)
 	if err == nil {
 		return nil
 	}
@@ -513,7 +554,116 @@ func (s *SnapshotGenerator) restoreIndices(ctx context.Context, opts pglib.PGRes
 	if s.snapshotTracker != nil {
 		return s.restoreIndicesWithTracking(ctx, opts, dump)
 	}
-	return s.restoreDumpWithOptions(ctx, opts, dump)
+	return s.restoreIndexDump(ctx, opts, dump)
+}
+
+// restoreIndexDump restores standalone CREATE INDEX/CREATE UNIQUE INDEX
+// statements concurrently across up to indexRestoreWorkers connections, since
+// they have no dependencies on each other. Every other statement in dump may
+// depend on an index existing (a constraint added USING INDEX, a comment on
+// the index, a partition attachment, REPLICA IDENTITY or CLUSTER), so it is
+// only restored once all indexes above have been created, preserving its
+// original relative order.
+func (s *SnapshotGenerator) restoreIndexDump(ctx context.Context, opts pglib.PGRestoreOptions, dump []byte) error {
+	if s.indexRestoreWorkers <= 1 {
+		return s.restoreDumpWithOptions(ctx, opts, dump)
+	}
+
+	connectBlocks, indexBlocks, otherBlocks := partitionDumpBlocks(dump, isIndexStatement)
+	if len(indexBlocks) <= 1 {
+		s.logger.Debug("restoring indices sequentially, too few index statements to parallelise",
+			loglib.Fields{"index_statements": len(indexBlocks)})
+		return s.restoreDumpWithOptions(ctx, opts, dump)
+	}
+
+	s.logger.Info("restoring indices concurrently", loglib.Fields{
+		"index_restore_workers": s.indexRestoreWorkers,
+		"index_statements":      len(indexBlocks),
+		"dependent_statements":  len(otherBlocks),
+	})
+	indexErr := s.restoreIndexBlocksInParallel(ctx, opts, connectBlocks, indexBlocks)
+
+	// the dependent statements are restored even when an index failed. The
+	// single restore this replaces applied all of them and reported the
+	// failure, and the ones whose index is missing fail with "does not
+	// exist", which the restore already ignores. Skipping them would leave
+	// the target with data but without its constraints, foreign keys and
+	// replica identities, and nothing short of a re-snapshot to repair it.
+	if ctx.Err() != nil {
+		return errors.Join(indexErr, ctx.Err())
+	}
+
+	otherErr := s.restoreDumpWithOptions(ctx, opts, joinDumpBlocks(connectBlocks, otherBlocks))
+	return pglib.MergePGRestoreErrors(indexErr, otherErr)
+}
+
+// restoreIndexBlocksInParallel restores each of indexBlocks on its own restore
+// call, prefixed with any connect statements, running up to
+// indexRestoreWorkers of them at a time.
+//
+// A failing index deliberately does not cancel the restores still in flight.
+// Cancelling kills psql mid-CREATE INDEX, which the server only notices once
+// the statement completes, so the index it was building is committed anyway
+// and collides with the retry that restoreIndicesAndConstraints issues moments
+// later: the reissued statement waits on the orphan's uncommitted catalog row
+// and then fails with a duplicate key error that is classified as permanent,
+// turning a transient failure into a lost snapshot. Every block is attempted
+// instead, and the failures are merged so the retry decision is taken over the
+// whole wave rather than over whichever error happened to arrive first.
+func (s *SnapshotGenerator) restoreIndexBlocksInParallel(ctx context.Context, opts pglib.PGRestoreOptions, connectBlocks, indexBlocks []string) error {
+	eg := errgroup.Group{}
+	// the conversion is safe: the worker count is capped at
+	// maxIndexRestoreWorkers when the generator is built
+	eg.SetLimit(int(s.indexRestoreWorkers))
+
+	mutex := sync.Mutex{}
+	restoreErrs := make([]error, 0, len(indexBlocks))
+
+	for _, block := range indexBlocks {
+		if ctx.Err() != nil {
+			break
+		}
+		eg.Go(func() error {
+			err := s.restoreDumpWithOptions(ctx, opts, joinDumpBlocks(connectBlocks, []string{block}))
+			if err != nil {
+				s.logger.Warn(err, "restoring index", loglib.Fields{"statement": block})
+				mutex.Lock()
+				restoreErrs = append(restoreErrs, err)
+				mutex.Unlock()
+			}
+			// the failure is collected rather than returned, so that the
+			// group keeps the remaining indices going
+			return nil
+		})
+	}
+	_ = eg.Wait()
+
+	return pglib.MergePGRestoreErrors(restoreErrs...)
+}
+
+// partitionDumpBlocks splits a dump into the blank line separated statement
+// blocks pg_dump emits, and sorts them into the connect statements, the blocks
+// matching the predicate, and the rest, preserving the relative order of the
+// last two groups.
+//
+// The connect statements are kept apart because they select the database the
+// statements after them apply to, so every subset of the blocks has to be
+// prefixed with them (see joinDumpBlocks).
+func partitionDumpBlocks(dump []byte, matches func(block string) bool) (connectBlocks, matchingBlocks, otherBlocks []string) {
+	for _, block := range strings.Split(string(dump), "\n\n") {
+		block = strings.TrimSpace(block)
+		switch {
+		case block == "":
+			continue
+		case strings.Contains(block, `\connect`):
+			connectBlocks = append(connectBlocks, block)
+		case matches(block):
+			matchingBlocks = append(matchingBlocks, block)
+		default:
+			otherBlocks = append(otherBlocks, block)
+		}
+	}
+	return connectBlocks, matchingBlocks, otherBlocks
 }
 
 // asRetryError marks any error that rerunning the dump cannot resolve as
@@ -921,6 +1071,10 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			indicesAndConstraints.WriteString("\n\n")
 		case strings.HasPrefix(line, "ALTER TABLE") && strings.Contains(line, "ADD CONSTRAINT"):
 			indicesAndConstraints.WriteString(line)
+			// the separator keeps this statement from being glued to the next
+			// one, which would hide the statement that follows it from the
+			// block splitting the restore does
+			indicesAndConstraints.WriteString("\n\n")
 		case strings.HasPrefix(line, "ALTER TABLE") && isClusterOnAlterTable(line):
 			indicesAndConstraints.WriteString(line)
 			indicesAndConstraints.WriteString("\n\n")
@@ -1295,7 +1449,7 @@ func (s *SnapshotGenerator) restoreIndicesWithTracking(ctx context.Context, opts
 		defer wg.Done()
 		s.snapshotTracker.trackIndexesCreation(trackingCtx)
 	}()
-	err := s.restoreDumpWithOptions(ctx, opts, dump)
+	err := s.restoreIndexDump(ctx, opts, dump)
 	// wait for the tracking to finish once the restore is done
 	cancel()
 	wg.Wait()

@@ -86,6 +86,7 @@ func bindEnvVars() {
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_SECURITY_LABELS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_REFRESH_MATERIALIZED_VIEWS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_INDEX_CONSTRAINT_SESSION_SETTINGS")
+	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_INDEX_RESTORE_WORKERS")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_OBJECT_TYPES")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDE_OBJECT_TYPES")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_DISABLE_PROGRESS_TRACKING")
@@ -378,6 +379,7 @@ func parseSchemaSnapshotConfig(pgurl string) (*snapshotbuilder.SchemaSnapshotCon
 	if err != nil {
 		return nil, err
 	}
+
 	return &snapshotbuilder.SchemaSnapshotConfig{
 		DumpRestore: &pgdumprestore.Config{
 			SourcePGURL:                    pgurl,
@@ -393,6 +395,7 @@ func parseSchemaSnapshotConfig(pgurl string) (*snapshotbuilder.SchemaSnapshotCon
 			ExcludedSecurityLabels:         viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDED_SECURITY_LABELS"),
 			RefreshMaterializedViews:       viper.GetBool("PGSTREAM_POSTGRES_SNAPSHOT_REFRESH_MATERIALIZED_VIEWS"),
 			IndexConstraintSessionSettings: viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_INDEX_CONSTRAINT_SESSION_SETTINGS"),
+			IndexRestoreWorkers:            viper.GetUint("PGSTREAM_POSTGRES_SNAPSHOT_INDEX_RESTORE_WORKERS"),
 			IncludeObjectTypes:             viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_INCLUDE_OBJECT_TYPES"),
 			ExcludeObjectTypes:             viper.GetStringSlice("PGSTREAM_POSTGRES_SNAPSHOT_EXCLUDE_OBJECT_TYPES"),
 		},

@@ -90,6 +90,7 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 								"statement_timeout=0",
 								"lock_timeout=0",
 							},
+							IndexRestoreWorkers: 4,
 						},
 					},
 					Recorder: &builder.SnapshotRecorderConfig{

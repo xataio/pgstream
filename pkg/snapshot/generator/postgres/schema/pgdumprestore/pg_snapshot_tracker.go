@@ -17,13 +17,15 @@ import (
 // pg restore, such as index creation, and displays progress bars.
 type snapshotTracker struct {
 	conn         pglib.Querier
-	progressBars *synclib.Map[string, progress.Bar]
+	progressBars *synclib.Map[int, progress.Bar]
 	barBuilder   func(total int64, description, unit string) progress.Bar
 	clock        clockwork.Clock
 }
 
 // indexCreationRow representation of a row from pg_stat_progress_create_index
 type indexCreationRow struct {
+	// PID of the backend building the index.
+	PID int
 	// Table on which the index is being created.
 	Table string
 	// OID of the index being created or reindexed. During a non-concurrent CREATE INDEX, this is 0.
@@ -48,7 +50,7 @@ func newSnapshotTracker(ctx context.Context, pgurl string) (*snapshotTracker, er
 	}
 	return &snapshotTracker{
 		conn:         connPool,
-		progressBars: synclib.NewMap[string, progress.Bar](),
+		progressBars: synclib.NewMap[int, progress.Bar](),
 		clock:        clockwork.NewRealClock(),
 		barBuilder:   progress.NewBar,
 	}, nil
@@ -61,8 +63,8 @@ func (st *snapshotTracker) trackIndexesCreation(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			for table := range st.progressBars.GetMap() {
-				st.markProgressBarCompleted(table)
+			for pid := range st.progressBars.GetMap() {
+				st.markProgressBarCompleted(pid)
 			}
 			return
 		case <-ticker.Chan():
@@ -71,7 +73,7 @@ func (st *snapshotTracker) trackIndexesCreation(ctx context.Context) {
 				continue
 			}
 
-			for table, row := range rowMap {
+			for pid, row := range rowMap {
 				// skip initialization phase where total is 0
 				if row.TuplesTotal == 0 {
 					continue
@@ -80,39 +82,37 @@ func (st *snapshotTracker) trackIndexesCreation(ctx context.Context) {
 				// We can't use the index oid in the row to uniquely identify
 				// the index being tracked since it is not set for CREATE INDEX
 				// which is the command the restore produces. Instead we use the
-				// table name.
-				//
-				// There can only be one index being created per table at a
-				// time, so we can track progress bars by table name. When the
-				// number of tuples done is lower than the previous recorded
-				// value, it means a new index is being created for the same
-				// table and the previous one can be marked as completed.
-				existingBar, found := st.progressBars.Get(table)
+				// pid of the backend building it: a backend runs one statement
+				// at a time, so a single bar tracks it. When the number of
+				// tuples done drops below the previous value, the backend has
+				// moved on to the next index and the previous one is complete.
+				// Keying by table instead would collapse the bars of indices
+				// that concurrent restores build on the same table.
+				existingBar, found := st.progressBars.Get(pid)
 				switch {
 				case found && row.TuplesDone >= existingBar.Current():
 					existingBar.SetCurrent(row.TuplesDone)
 					continue
 				case found && row.TuplesDone < existingBar.Current():
 					// if we're setting a lower current value, it's likely that
-					// a new index creation has started on the same table. So
+					// a new index creation has started on the same backend. So
 					// complete the old bar and create a new one.
-					st.markProgressBarCompleted(table)
+					st.markProgressBarCompleted(pid)
 					fallthrough
 				default:
 					// Create new progress bar for the index being created if not
 					// found in the bar map
 					bar := st.barBuilder(row.TuplesTotal, st.barDescription(row.Table), "tuples")
-					st.progressBars.Set(row.Table, bar)
+					st.progressBars.Set(pid, bar)
 					bar.SetCurrent(row.TuplesDone)
 				}
 			}
 
-			// when the rows no longer return an existing table index being tracked,
-			// it means the index creation is done and we can mark it as
-			// complete.
-			for table := range st.progressBars.GetMap() {
-				if _, found := rowMap[table]; !found {
-					st.markProgressBarCompleted(table)
+			// when the rows no longer return an index being tracked, it means
+			// the index creation is done and we can mark it as complete.
+			for pid := range st.progressBars.GetMap() {
+				if _, found := rowMap[pid]; !found {
+					st.markProgressBarCompleted(pid)
 				}
 			}
 		}
@@ -120,22 +120,22 @@ func (st *snapshotTracker) trackIndexesCreation(ctx context.Context) {
 }
 
 // https://www.postgresql.org/docs/current/progress-reporting.html#CREATE-INDEX-PROGRESS-REPORTING
-const createIndexProgressQuery = `SELECT relid::regclass AS table,index_relid::regclass AS index, phase, tuples_done, tuples_total, command FROM pg_stat_progress_create_index;`
+const createIndexProgressQuery = `SELECT pid, relid::regclass AS table,index_relid::regclass AS index, phase, tuples_done, tuples_total, command FROM pg_stat_progress_create_index;`
 
-func (st *snapshotTracker) getCreateIndexProgressRows(ctx context.Context) (map[string]indexCreationRow, error) {
+func (st *snapshotTracker) getCreateIndexProgressRows(ctx context.Context) (map[int]indexCreationRow, error) {
 	rows, err := st.conn.Query(ctx, createIndexProgressQuery)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	result := map[string]indexCreationRow{}
+	result := map[int]indexCreationRow{}
 	for rows.Next() {
 		var row indexCreationRow
-		if err := rows.Scan(&row.Table, &row.Index, &row.Phase, &row.TuplesDone, &row.TuplesTotal, &row.Command); err != nil {
+		if err := rows.Scan(&row.PID, &row.Table, &row.Index, &row.Phase, &row.TuplesDone, &row.TuplesTotal, &row.Command); err != nil {
 			return nil, err
 		}
-		result[row.Table] = row
+		result[row.PID] = row
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -143,12 +143,12 @@ func (st *snapshotTracker) getCreateIndexProgressRows(ctx context.Context) (map[
 	return result, nil
 }
 
-func (st *snapshotTracker) markProgressBarCompleted(name string) {
-	bar, found := st.progressBars.Get(name)
+func (st *snapshotTracker) markProgressBarCompleted(pid int) {
+	bar, found := st.progressBars.Get(pid)
 	if found {
 		bar.Close()
 	}
-	st.progressBars.Delete(name)
+	st.progressBars.Delete(pid)
 }
 
 func (st *snapshotTracker) barDescription(table string) string {
