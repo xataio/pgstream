@@ -118,9 +118,10 @@ func TestBuildResourcesChecks(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		cfg        *stream.Config
-		wantChecks int
+		name      string
+		cfg       *stream.Config
+		wantNames []string
+		// wantDemand is asserted only when the headroom check is expected.
 		wantDemand uint
 	}{
 		{
@@ -128,12 +129,13 @@ func TestBuildResourcesChecks(t *testing.T) {
 			cfg:  &stream.Config{},
 		},
 		{
-			name: "source without data snapshot returns no checks",
+			name: "source without data snapshot reports size only",
 			cfg: &stream.Config{
 				Listener: stream.ListenerConfig{
 					Postgres: &stream.PostgresListenerConfig{URL: "postgres://source"},
 				},
 			},
+			wantNames: []string{"database_size"},
 		},
 		{
 			name: "data snapshot with defaults sizes 1x4",
@@ -147,7 +149,7 @@ func TestBuildResourcesChecks(t *testing.T) {
 					},
 				},
 			},
-			wantChecks: 1,
+			wantNames:  []string{"database_size", "snapshot_connection_headroom"},
 			wantDemand: 4,
 		},
 		{
@@ -162,7 +164,7 @@ func TestBuildResourcesChecks(t *testing.T) {
 					},
 				},
 			},
-			wantChecks: 1,
+			wantNames:  []string{"database_size", "snapshot_connection_headroom"},
 			wantDemand: 15,
 		},
 	}
@@ -173,17 +175,107 @@ func TestBuildResourcesChecks(t *testing.T) {
 
 			checks, cleanup := BuildResourcesChecks(tc.cfg)
 
-			require.Len(t, checks, tc.wantChecks)
-			if tc.wantChecks == 0 {
+			if len(tc.wantNames) == 0 {
+				require.Empty(t, checks)
 				require.Nil(t, cleanup)
 				return
 			}
+			names := make([]string, 0, len(checks))
+			for _, c := range checks {
+				names = append(names, c.Name())
+			}
+			require.Equal(t, tc.wantNames, names)
 			require.NotNil(t, cleanup)
-			connCheck, ok := checks[0].(*SnapshotConnectionsCheck)
+			if tc.wantDemand == 0 {
+				return
+			}
+			connCheck, ok := checks[1].(*SnapshotConnectionsCheck)
 			require.True(t, ok)
 			require.Equal(t, tc.wantDemand, connCheck.Demand)
 		})
 	}
+}
+
+func TestDatabaseSizeCheck_Run(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		sizeBytes int64
+		wantSize  string
+	}{
+		{name: "empty database", sizeBytes: 0, wantSize: "0 bytes"},
+		{name: "under the kilobyte step", sizeBytes: 512, wantSize: "512 bytes"},
+		{name: "kilobytes", sizeBytes: 10 * 1024, wantSize: "10 kB"},
+		{name: "megabytes", sizeBytes: 5 * 1024 * 1024, wantSize: "5120 kB"},
+		{name: "gigabytes", sizeBytes: 42 * 1024 * 1024 * 1024, wantSize: "42 GB"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			check := &DatabaseSizeCheck{
+				Source: func(context.Context) (postgres.Querier, error) {
+					return &mocks.Querier{
+						QueryRowFn: func(_ context.Context, dest []any, query string, _ ...any) error {
+							require.Contains(t, query, "pg_database_size")
+							sizeDest, ok := dest[0].(*int64)
+							require.True(t, ok)
+							*sizeDest = tc.sizeBytes
+							return nil
+						},
+					}, nil
+				},
+			}
+
+			findings, err := check.Run(context.Background())
+
+			require.NoError(t, err)
+			require.Empty(t, findings, "the size report is informational")
+			// Details stays typed; Summary renders it
+			require.Equal(t, map[string]any{"database_size_bytes": tc.sizeBytes}, check.Details())
+			require.Equal(t, tc.wantSize, check.Summary())
+		})
+	}
+}
+
+func TestDatabaseSizeCheck_Run_ConnectFails(t *testing.T) {
+	t.Parallel()
+
+	connErr := errors.New("boom")
+	check := &DatabaseSizeCheck{
+		Source: func(context.Context) (postgres.Querier, error) {
+			return nil, connErr
+		},
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.Nil(t, findings)
+	require.ErrorIs(t, err, connErr)
+	require.ErrorContains(t, err, "connecting to source")
+}
+
+func TestDatabaseSizeCheck_Run_QueryFails(t *testing.T) {
+	t.Parallel()
+
+	queryErr := errors.New("query failed")
+	check := &DatabaseSizeCheck{
+		Source: func(context.Context) (postgres.Querier, error) {
+			return &mocks.Querier{
+				QueryRowFn: func(context.Context, []any, string, ...any) error {
+					return queryErr
+				},
+			}, nil
+		},
+	}
+
+	findings, err := check.Run(context.Background())
+
+	require.Nil(t, findings)
+	require.ErrorIs(t, err, queryErr)
+	require.ErrorContains(t, err, "querying database size")
 }
 
 func TestSnapshotConnectionsCheck_Run_ConnectFails(t *testing.T) {
