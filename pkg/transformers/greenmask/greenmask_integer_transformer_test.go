@@ -5,9 +5,11 @@ package greenmask
 import (
 	"context"
 	"math"
+	"math/big"
 	"testing"
 
 	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/pkg/transformers"
 )
@@ -151,6 +153,48 @@ func TestIntegerTransformer_Transform(t *testing.T) {
 			input: []byte{0, 0, 0, 50},
 			params: map[string]any{
 				"generator": random,
+				"size":      4,
+				"min_value": -100,
+				"max_value": 500,
+			},
+		},
+		{
+			name:  "ok - transform numeric deterministically",
+			input: pgtype.Numeric{Int: big.NewInt(12345678), Exp: -4, Valid: true},
+			params: map[string]any{
+				"generator": deterministic,
+				"size":      4,
+				"min_value": -100,
+				"max_value": 500,
+			},
+		},
+		{
+			// seeded from the bit pattern, so no implementation-defined
+			// uint64 conversion is involved
+			name:  "ok - transform a negative numeric deterministically",
+			input: pgtype.Numeric{Int: big.NewInt(-33868820), Exp: -6, Valid: true},
+			params: map[string]any{
+				"generator": deterministic,
+				"size":      4,
+				"min_value": -100,
+				"max_value": 500,
+			},
+		},
+		{
+			name:  "ok - transform a NaN numeric deterministically",
+			input: pgtype.Numeric{NaN: true, Valid: true},
+			params: map[string]any{
+				"generator": deterministic,
+				"size":      4,
+				"min_value": -100,
+				"max_value": 500,
+			},
+		},
+		{
+			name:  "ok - transform a numeric beyond float64 range",
+			input: pgtype.Numeric{Int: big.NewInt(1), Exp: 400, Valid: true},
+			params: map[string]any{
+				"generator": deterministic,
 				"size":      4,
 				"min_value": -100,
 				"max_value": 500,

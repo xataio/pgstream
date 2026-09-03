@@ -13,6 +13,7 @@ import (
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/internal/testcontainers"
 	"github.com/xataio/pgstream/pkg/stream"
+	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 )
 
 func Test_SnapshotToPostgres(t *testing.T) {
@@ -925,6 +926,147 @@ func Test_SnapshotToPostgres_TimetzColumns(t *testing.T) {
 	})
 	t.Run("batch writer", func(t *testing.T) {
 		run("batch")
+	})
+}
+
+// Test_SnapshotToPostgres_NumericColumnTransformer verifies that a numeric
+// column can be transformed end to end. numeric has no entry in the
+// transformer type compatibility map, so any rule on such a column used to be
+// rejected up front with "does not support pg data type: numeric with OID:
+// 1700", and pgx decodes a numeric into a pgtype.Numeric, which the greenmask
+// numeric transformers did not accept either.
+func Test_SnapshotToPostgres_NumericColumnTransformer(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	// each subtest gets its own context, so a timeout in one cannot cancel
+	// the context the next one still needs
+	run := func(t *testing.T, suffix string, opts ...option) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		testTable := fmt.Sprintf("numeric_transformer_%s", suffix)
+
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`CREATE TABLE %s(
+				id       INTEGER PRIMARY KEY,
+				latitude numeric(9,6) NOT NULL,
+				amount   numeric
+			)`, testTable))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`INSERT INTO %s(id, latitude, amount) VALUES
+				(1, 51.507351, 1234.5678),
+				(2, -33.868820, 0),
+				(3, 0.000001, 987654321.123456789)`,
+			testTable))
+
+		rules := []transformer.TableRules{
+			{
+				Schema: "public",
+				Table:  testTable,
+				ColumnRules: map[string]transformer.TransformerRules{
+					"latitude": {
+						Name: "greenmask_float",
+						Parameters: map[string]any{
+							"generator": "deterministic",
+							"min_value": -90.0,
+							"max_value": 90.0,
+							"precision": 6,
+						},
+					},
+					"amount": {
+						Name: "greenmask_float",
+						Parameters: map[string]any{
+							"generator": "deterministic",
+							"min_value": 0.0,
+							"max_value": 1000.0,
+						},
+					},
+				},
+			},
+		}
+
+		cfg := &stream.Config{
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
+			Processor: testPostgresProcessorCfg(append(opts, withTransformerRules(rules))...),
+		}
+		initStream(t, ctx, snapshotPGURL)
+		runSnapshot(t, ctx, cfg)
+
+		targetConn, err := pglib.NewConn(ctx, targetPGURL)
+		require.NoError(t, err)
+		defer targetConn.Close(ctx)
+
+		timer := time.NewTimer(20 * time.Second)
+		defer timer.Stop()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		type row struct {
+			id       int
+			latitude float64
+			amount   *float64
+		}
+		query := fmt.Sprintf("SELECT id, latitude, amount FROM %s ORDER BY id", testTable)
+		fetch := func(conn pglib.Querier) ([]row, error) {
+			rows, err := conn.Query(ctx, query)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+			out := []row{}
+			for rows.Next() {
+				var r row
+				if err := rows.Scan(&r.id, &r.latitude, &r.amount); err != nil {
+					return nil, err
+				}
+				out = append(out, r)
+			}
+			return out, rows.Err()
+		}
+
+		// poll only for arrival, then assert once on the test's own goroutine:
+		// a require inside the poll predicate would fail the whole run on a
+		// transient intermediate state
+		var got []row
+		for got == nil {
+			select {
+			case <-timer.C:
+				t.Fatal("timeout waiting for postgres snapshot sync of transformed numeric columns")
+			case <-ticker.C:
+				rows, err := fetch(targetConn)
+				if err == nil && len(rows) == 3 {
+					got = rows
+				}
+			}
+		}
+
+		for _, r := range got {
+			require.GreaterOrEqual(t, r.latitude, -90.0)
+			require.LessOrEqual(t, r.latitude, 90.0)
+			require.NotNil(t, r.amount)
+			require.GreaterOrEqual(t, *r.amount, 0.0)
+			require.LessOrEqual(t, *r.amount, 1000.0)
+		}
+		// row 1 is the only one whose source values both sit outside the
+		// configured ranges, so it is what would expose a transformer that
+		// passed the original through untouched
+		require.NotEqual(t, 51.507351, got[0].latitude)
+		require.NotNil(t, got[0].amount)
+		require.NotEqual(t, 1234.5678, *got[0].amount)
+	}
+
+	t.Run("bulk ingest", func(t *testing.T) {
+		run(t, "bulk", withBulkIngestionEnabled())
+	})
+	t.Run("batch writer", func(t *testing.T) {
+		run(t, "batch")
 	})
 }
 

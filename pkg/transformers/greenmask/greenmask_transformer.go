@@ -3,7 +3,10 @@
 package greenmask
 
 import (
+	"math"
+
 	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/xataio/pgstream/pkg/transformers"
 	"github.com/xataio/pgstream/pkg/transformers/generators"
 )
@@ -59,4 +62,15 @@ func findParameterArray[T any](params transformers.ParameterValues, name string,
 		return defaultVal, nil
 	}
 	return val, nil
+}
+
+func float64FromNumeric(n pgtype.Numeric) float64 {
+	f, err := n.Float64Value()
+	if err == nil {
+		return f.Float64
+	}
+	if n.Int != nil && n.Int.Sign() < 0 {
+		return -math.MaxFloat64
+	}
+	return math.MaxFloat64
 }

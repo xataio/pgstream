@@ -9,6 +9,7 @@ import (
 	"math"
 
 	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/xataio/pgstream/pkg/transformers"
 )
 
@@ -96,6 +97,16 @@ func (ft *FloatTransformer) Transform(_ context.Context, value transformers.Valu
 		toTransform = getBytesForFloat(float64(val))
 	case float64:
 		toTransform = getBytesForFloat(val)
+	case pgtype.Numeric:
+		toTransform = getBytesForFloat(float64FromNumeric(val))
+	// wal2json renders a whole numeric or float as a JSON integer, and the
+	// replication listener decodes those as int64, so the same column reaches
+	// this transformer as an integer on the CDC path and as a float on the
+	// snapshot one
+	case int64:
+		toTransform = getBytesForFloat(float64(val))
+	case int:
+		toTransform = getBytesForFloat(float64(val))
 	case []byte:
 		toTransform = val
 	default:
