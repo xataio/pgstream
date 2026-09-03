@@ -4,7 +4,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -23,7 +22,7 @@ import (
 type ctidReader struct {
 	conn         pglib.Querier
 	logger       loglib.Logger
-	sink         rowSink
+	mover        chunkMover
 	tableWorkers uint
 	batchBytes   uint64
 }
@@ -96,6 +95,10 @@ func (s *ctidSession) readTable(ctx context.Context, table *table) error {
 	}
 	table.columns = columns
 
+	if err := s.reader.mover.prepareTable(ctx, table); err != nil {
+		return err
+	}
+
 	// If one page range fails, we abort the entire table snapshot. The
 	// snapshot relies on the transaction snapshot id to ensure all workers
 	// have the same table view, which allows us to use the ctid to
@@ -148,34 +151,20 @@ func buildPageRangeQuery(t *table, r pageRange) string {
 }
 
 func (s *ctidSession) snapshotTableRange(ctx context.Context, table *table, pageRange pageRange) error {
-	return s.execInTx(ctx, func(tx pglib.Tx) error {
-		s.reader.logger.Debug(fmt.Sprintf("querying table page range %d-%d", pageRange.start, pageRange.end), loglib.Fields{
-			"schema": table.schema, "table": table.name, "snapshotID": s.snapshotID,
-		})
-
-		query := buildPageRangeQuery(table, pageRange)
-		rows, err := tx.Query(ctx, query)
-		if err != nil {
-			// something this query names vanished
-			var relationErr *pglib.ErrRelationDoesNotExist
-			if errors.As(err, &relationErr) {
-				return fmt.Errorf("%w: querying table rows: %w", ErrSchemaChangedDuringSnapshot, err)
-			}
-			return fmt.Errorf("querying table rows: %w", err)
-		}
-		defer rows.Close()
-
-		rowCount, err := s.reader.sink.emit(ctx, table, rows)
-		if err != nil {
-			return err
-		}
-
-		s.reader.logger.Debug(fmt.Sprintf("%d rows processed", rowCount), loglib.Fields{
-			"schema": table.schema, "table": table.name, "snapshotID": s.snapshotID,
-		})
-
-		return nil
+	s.reader.logger.Debug(fmt.Sprintf("querying table page range %d-%d", pageRange.start, pageRange.end), loglib.Fields{
+		"schema": table.schema, "table": table.name, "snapshotID": s.snapshotID,
 	})
+
+	rowCount, err := s.reader.mover.move(ctx, s.execInTx, table, buildPageRangeQuery(table, pageRange))
+	if err != nil {
+		return err
+	}
+
+	s.reader.logger.Debug(fmt.Sprintf("%d rows processed", rowCount), loglib.Fields{
+		"schema": table.schema, "table": table.name, "snapshotID": s.snapshotID,
+	})
+
+	return nil
 }
 
 // tableInfoQuery shares the capture rule.

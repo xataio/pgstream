@@ -1412,7 +1412,7 @@ func TestSnapshotGenerator_CreateSnapshot(t *testing.T) {
 				reader: &ctidReader{
 					conn:         tc.querier,
 					logger:       logger,
-					sink:         newRowSink(pglib.NewMapper(tc.querier), processor, loglib.NewNoopLogger(), pt),
+					mover:        newDecodingMover(newRowSink(pglib.NewMapper(tc.querier), processor, loglib.NewNoopLogger(), pt)),
 					tableWorkers: 1,
 					batchBytes:   1024 * 1024, // 1MB
 				},
@@ -2040,7 +2040,7 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 					LogLevel: "debug",
 				})),
 				conn: tc.querier,
-				sink: newRowSink(pglib.NewMapper(tc.querier), &processormocks.Processor{
+				mover: newDecodingMover(newRowSink(pglib.NewMapper(tc.querier), &processormocks.Processor{
 					ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
 						if tc.processor != nil {
 							if err := tc.processor.ProcessWALEvent(ctx, walEvent); err != nil {
@@ -2050,7 +2050,7 @@ func TestSnapshotGenerator_snapshotTableRange(t *testing.T) {
 						eventChan <- walEvent
 						return nil
 					},
-				}, loglib.NewNoopLogger(), pt),
+				}, loglib.NewNoopLogger(), pt)),
 			}
 			session := &ctidSession{
 				reader:       reader,

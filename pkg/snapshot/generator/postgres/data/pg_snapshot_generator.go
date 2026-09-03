@@ -31,6 +31,8 @@ type SnapshotGenerator struct {
 	// reader encapsulates the strategy used to read a schema's tables (ctid
 	// range scan by default).
 	reader tableReader
+	// mover decides what becomes of the rows a reader selects
+	mover chunkMover
 	// instrumentation is captured while applying options and used to decorate
 	// the reader once it has been built.
 	instrumentation *otel.Instrumentation
@@ -74,6 +76,8 @@ type table struct {
 	rowSize int64
 	// one list per page range
 	columns []string
+	// set by the chunk mover: no COPY can carry this table's rows verbatim
+	decodeOnly bool
 }
 
 type Option func(sg *SnapshotGenerator)
@@ -101,7 +105,12 @@ func NewSnapshotGenerator(ctx context.Context, cfg *Config, processor processor.
 	}
 
 	sink := newRowSink(pglib.NewMapper(conn), sg.processor, sg.logger, sg.progress)
-	sg.reader = newTableReader(sg.conn, sg.logger, sink, cfg, sg.instrumentation)
+	mover, err := newChunkMover(ctx, cfg, sg.logger, sg.instrumentation, sg.progress, newDecodingMover(sink))
+	if err != nil {
+		return nil, errors.Join(err, conn.Close(ctx))
+	}
+	sg.mover = mover
+	sg.reader = newTableReader(sg.conn, sg.logger, mover, cfg, sg.instrumentation)
 
 	return sg, nil
 }
@@ -185,7 +194,8 @@ func (sg *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sn
 }
 
 func (sg *SnapshotGenerator) Close() error {
-	return sg.conn.Close(context.Background())
+	ctx := context.Background()
+	return errors.Join(sg.conn.Close(ctx), sg.mover.close(ctx))
 }
 
 func (sg *SnapshotGenerator) createSchemaSnapshot(ctx context.Context, schemaTables *schemaTables) error {

@@ -41,11 +41,11 @@ type readSession interface {
 // newTableReader builds the strategy used to read the snapshot tables and wraps
 // it with any active decorator. Picking between strategies belongs here, so
 // that the snapshot generator only ever sees a tableReader.
-func newTableReader(conn pglib.Querier, logger loglib.Logger, sink rowSink, cfg *Config, instrumentation *otel.Instrumentation) tableReader {
+func newTableReader(conn pglib.Querier, logger loglib.Logger, mover chunkMover, cfg *Config, instrumentation *otel.Instrumentation) tableReader {
 	var reader tableReader = &ctidReader{
 		conn:         conn,
 		logger:       logger,
-		sink:         sink,
+		mover:        mover,
 		tableWorkers: cfg.tableWorkers(),
 		batchBytes:   cfg.batchBytes(),
 	}
