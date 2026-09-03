@@ -31,10 +31,23 @@ import (
 )
 
 func init() {
+	bindEnvVars()
+}
+
+// bindEnvVars registers every environment variable the configuration reads.
+// viper resolves an environment variable only for the keys registered here:
+// the AutomaticEnv fallback the root command sets up looks each key up under a
+// second PGSTREAM_ prefix, so it never matches these names. A key that is read
+// but not registered is silently ignored when an operator exports it.
+//
+// Tests that reset viper's global state have to call this again.
+func bindEnvVars() {
 	viper.BindEnv("PGSTREAM_METRICS_ENDPOINT")
 	viper.BindEnv("PGSTREAM_METRICS_COLLECTION_INTERVAL")
 	viper.BindEnv("PGSTREAM_TRACES_ENDPOINT")
 	viper.BindEnv("PGSTREAM_TRACES_SAMPLE_RATIO")
+	viper.BindEnv("PGSTREAM_METRICS_PROMETHEUS_ENABLED")
+	viper.BindEnv("PGSTREAM_METRICS_PROMETHEUS_ENDPOINT")
 
 	viper.BindEnv("PGSTREAM_HEALTH_CHECK_ENABLED")
 	viper.BindEnv("PGSTREAM_HEALTH_CHECK_ADDRESS")
@@ -48,6 +61,8 @@ func init() {
 	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_DISABLE_RETRIES")
 	viper.BindEnv("PGSTREAM_POSTGRES_REPLICATION_SLOT_NAME")
 	viper.BindEnv("PGSTREAM_POSTGRES_REPLICATION_PLUGIN_INCLUDE_XIDS")
+	viper.BindEnv("PGSTREAM_POSTGRES_REPLICATION_PLUGIN_ADD_TABLES")
+	viper.BindEnv("PGSTREAM_POSTGRES_REPLICATION_PLUGIN_FILTER_TABLES")
 
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_BATCH_BYTES")
 	viper.BindEnv("PGSTREAM_POSTGRES_SNAPSHOT_SCHEMA_WORKERS")
