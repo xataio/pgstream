@@ -26,7 +26,7 @@ func SetupPostgresContainer(ctx context.Context, url *string, image PostgresImag
 	waitForLogs := wait.
 		ForLog("database system is ready to accept connections").
 		WithOccurrence(2).
-		WithStartupTimeout(5 * time.Second)
+		WithStartupTimeout(2 * time.Minute)
 
 	opts := []testcontainers.ContainerCustomizer{
 		testcontainers.WithWaitStrategy(waitForLogs),

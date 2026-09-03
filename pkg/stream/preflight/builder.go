@@ -4,9 +4,13 @@ package preflight
 
 import (
 	"context"
+	"errors"
 
 	"github.com/xataio/pgstream/internal/postgres"
+	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	"github.com/xataio/pgstream/pkg/stream"
+	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
+	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
 )
 
 // CleanupFunc releases any resources a builder set up (e.g. a shared Postgres
@@ -31,6 +35,75 @@ var Builders = []Builder{
 	{CategoryAccess, "access", BuildAccessChecks},
 	{CategorySchema, "schema", BuildSchemaChecks},
 	{CategoryResources, "resources", BuildResourcesChecks},
+}
+
+// sourceChecksReplicationSlot is the slot name BuildSourceChecks uses.
+const sourceChecksReplicationSlot = "pgstream_preflight_source_checks"
+
+// SourceOption configures BuildSourceChecks.
+type SourceOption func(*sourceOptions)
+
+type sourceOptions struct {
+	replicationSlot string
+	snapshotData    *pgsnapshotgenerator.Config
+	categories      []Category
+}
+
+// WithSourceCategories restricts the run to the given categories, in the order
+// they are registered in Builders. Omitting it runs every category.
+func WithSourceCategories(categories ...Category) SourceOption {
+	return func(o *sourceOptions) { o.categories = categories }
+}
+
+// BuildSourceChecks returns every preflight check that only needs a connection
+// to the source Postgres, plus a cleanup function releasing the connections
+// those checks share. It is the entry point for callers that want to validate a
+// source without assembling a full stream.Config: connectivity, replication
+// readiness, source read privileges, schema compatibility and snapshot capacity.
+//
+// Checks that compare the source against a target (extension compatibility,
+// range-type support, the target privilege checks) are excluded by
+// construction, and postgres_version reports the source version alone.
+//
+// The returned cleanup is always non-nil, including on error, so callers can
+// defer it unconditionally.
+func BuildSourceChecks(sourceURL string, opts ...SourceOption) ([]Check, CleanupFunc, error) {
+	if sourceURL == "" {
+		return nil, joinCleanups(nil), errors.New("source postgres url is required")
+	}
+
+	o := sourceOptions{
+		replicationSlot: sourceChecksReplicationSlot,
+		snapshotData:    &pgsnapshotgenerator.Config{},
+	}
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	checks, cleanup := BuildChecks(o.streamConfig(sourceURL), o.categories)
+	return checks, cleanup, nil
+}
+
+// streamConfig synthesises the source-only stream.Config the category builders
+// consume, so BuildSourceChecks picks up new source checks without a second
+// registration point. No table scope is configured, so every check that
+// inspects user tables covers the whole database.
+func (o *sourceOptions) streamConfig(sourceURL string) *stream.Config {
+	return &stream.Config{
+		Listener: stream.ListenerConfig{
+			Postgres: &stream.PostgresListenerConfig{
+				URL: sourceURL,
+				Replication: pgreplication.Config{
+					ReplicationSlotName: o.replicationSlot,
+				},
+				// Data carries the snapshot sizing the snapshot-only checks read,
+				// and its presence is the gate those checks use.
+				Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+					Data: o.snapshotData,
+				},
+			},
+		},
+	}
 }
 
 // BuildResourcesChecks returns the resource-capacity preflight checks that
