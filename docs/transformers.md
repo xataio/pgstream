@@ -410,11 +410,12 @@ transformations:
 | Supported PostgreSQL types            |
 | ------------------------------------- |
 | `real`, `double precision`, `numeric` |
-⚠️ On a `numeric` column `min_value` and `max_value` are **required**. Their defaults span the whole `float32` range, which produces the same out-of-range constant for every row .
 
-A `numeric` value is converted to a `float64` before it seeds the generator, and the generated value is a `float64` too, so a `numeric` column is anonymized within float64's range: values beyond it are clamped, and values beyond float64's significand are rounded. Only the seed is affected, since the original is discarded.
+⚠️ Set `min_value` and `max_value` for a `numeric` column. These parameters are required there. The default range covers all `float32` values. With the default range, the transformer writes the same constant value in each row.
 
-On a `numeric(p,s)` column the configured range is checked against the column when the rules are validated, so a range that cannot fit fails the run. An unconstrained `numeric` accepts any value, so nothing is checked there beyond the bounds being set.
+The transformer converts the `numeric` value to a `float64` and uses that `float64` as the seed for the generator. The output is also a `float64`. If the source value has more digits than a `float64` holds, the transformer rounds it. If the source value is outside the `float64` range, the transformer uses the largest `float64` value. These changes apply to the seed only, because the transformer discards the source value.
+
+pgstream compares the range with the column when it validates the rules. If the range does not fit a `numeric(p,s)` column, the run stops. A `numeric` column without a precision holds any value. For such a column, pgstream checks only that you set both bounds.
 
 | Parameter | Type   | Default                                       | Required | Values               |
 | --------- | ------ | --------------------------------------------- | -------- | -------------------- |
