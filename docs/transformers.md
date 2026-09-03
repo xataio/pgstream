@@ -42,6 +42,7 @@ Each transformer declares how it behaves with respect to uniqueness:
 | `greenmask_boolean`        | `lossy`          |
 | `greenmask_choice`         | `lossy`          |
 | `greenmask_firstname`      | `lossy`          |
+| `lookup_choice`            | `lossy`          |
 | `literal_string`           | `lossy`          |
 | `masking`                  | `lossy`          |
 | `neosync_firstname`        | `lossy`          |
@@ -1258,6 +1259,73 @@ transformations:
 | `hello world` | `key_hex: "000102…3e3f"`, `associated_data: "public.orders.file_path"` (example above) | `AsC2hoq-Y9V0iqK6JmNIxq0Fsr3SFPo27QNq` |
 
 Every run with the same key and parameters produces the same output. Tokens can be decrypted with any RFC 5297 AES-SIV implementation, for example Tink's `daead/subtle` package in Go.
+
+</details>
+
+ <details>
+  <summary>lookup_choice</summary>
+
+**Description:** Replaces a value with one taken from a column of another table, for example a foreign key column pointing at a lookup table. The values are read from the source database once, when the pipeline starts, so the configuration does not have to be regenerated when the lookup table's contents change. It is the live-table counterpart of [`greenmask_choice`](#supported-transformers), which chooses from a list written into the configuration.
+
+**Uniqueness:** `lossy`. Any table with more rows than the lookup column has values produces duplicates, in both generator modes. Cannot be used on a column covered by a unique index. See [Uniqueness and unique indexes](#uniqueness-and-unique-indexes).
+
+| Supported PostgreSQL types                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------ |
+| `text`, `varchar`, `char`, `bpchar`, `citext`, `bytea`, `boolean`, `int2`, `int4`, `int8`, `float4`, `float8`, `uuid`, `date`, `timestamp`, `timestamptz` |
+
+The type comes from the **lookup column**: the transformer asks PostgreSQL what it is and reports the column types its values can be written to, so a rule pointing a column at a lookup column of an incompatible type is rejected on startup. A narrower integer or float is accepted for a wider column (an `int4` lookup key can fill an `int8` foreign key). A lookup column of any other type is rejected rather than silently skipping the check.
+
+| Parameter     | Type     | Default | Required | Values                |
+| ------------- | -------- | ------- | -------- | --------------------- |
+| lookup_table  | string   | N/A     | Yes      | N/A                   |
+| lookup_column | string   | N/A     | Yes      | N/A                   |
+| generator     | string   | random  | No       | random, deterministic |
+| ignore_values | any[]    | []      | No       | N/A                   |
+| postgres_url  | string   | N/A     | Yes      | N/A                   |
+
+`lookup_table` is schema qualified, e.g. `public.countries`; an unqualified name is read from the `public` schema. Both names are quoted as written, so `Public.Countries` looks for a case-sensitive `"Countries"`.
+
+`postgres_url` is required, but the PostgreSQL parser fills it in with the URL of the source database being read, so it only has to be written out when the source is not PostgreSQL.
+
+`ignore_values` removes values from the list after it is read, for placeholder rows such as an "unknown" id. An entry that matches nothing is an error, so a typo or a value written in a form the column never produces is reported rather than quietly leaving the row in the choice set. If it excludes every value, or the lookup column is empty, the pipeline fails to start rather than writing the same value into every row.
+
+`generator: deterministic` picks the value from a hash of the incoming value, so every row that pointed at the same original value still points at one single new value. `generator: random` picks independently for each row and destroys that grouping. Deterministic mode is rejected for `timestamp` and `timestamptz` lookup columns, because a snapshot and a replication event deliver a timestamp in forms that cannot be reduced to the same hash input, so the same row would be mapped differently either side of the cutover.
+
+**Security note:** the deterministic mapping is an unsalted hash over a value set that is usually small and often public. Anyone holding the transformed data and a guess at the lookup table can compute the same hashes and recover much of the original mapping. Deterministic mode preserves structure; it does not hide the values it maps from. The same is true of `greenmask_choice`.
+
+⚠️ **A reference can be left dangling, and the rows are dropped rather than reported.** The values are read from the lookup table in the **source** database. If that table's own key column is itself transformed, or the lookup row is deleted after the pipeline started, the value chosen here will not exist in the target and the foreign key constraint rejects it. Nothing checks this for you. During a snapshot the constraints are restored after the data, so the failure arrives at the end of the load as a constraint violation that names the constraint rather than this rule. Under replication a constraint violation is not retried: in the default mode the row is **dropped** with a `DATALOSS` log line and the checkpoint advances, so the pipeline keeps running without it, and with `deterministic` every row sharing that original value is dropped too. Under `strict_mode` the pipeline stops instead. Leave the lookup table's key column untransformed, with `noop` if the validation mode requires a rule for it.
+
+⚠️ **The mapping only holds while the lookup column does.** The value is chosen by position in the loaded list, so inserting or deleting a single row in the lookup table — or editing `ignore_values` — remaps almost every input the next time the pipeline starts. Deterministic mode is reproducible across restarts for a **fixed** lookup set; it is not stable across changes to it. New rows in the lookup table are not picked up until a restart.
+
+⚠️ **The whole column is loaded into memory, once per rule.** There is no limit on how many values are read, and no paging, and each column rule runs its own query: three columns reading the same lookup table load it three times. Point this at a lookup table, not at a large one. The read is given 30 seconds, so a locked or unreachable lookup table fails startup instead of hanging it.
+
+**Example Configuration:**
+
+```yaml
+transformations:
+  table_transformers:
+    - schema: public
+      table: addresses
+      column_transformers:
+        country_id:
+          name: lookup_choice
+          parameters:
+            lookup_table: public.countries
+            lookup_column: id
+            generator: deterministic
+            ignore_values: [0, -1]
+```
+
+**Input-Output Examples:**
+
+Given a `public.countries` table whose `id` column holds `1, 2, 3`:
+
+| Input Value | Configuration Parameters   | Output Value          |
+| ----------- | -------------------------- | --------------------- |
+| `7`         | `generator: random`        | `3` (random)          |
+| `7`         | `generator: deterministic` | `2`                   |
+| `7`         | `generator: deterministic` | `2` (again, next run) |
+| `8`         | `generator: deterministic` | `1`                   |
 
 </details>
 

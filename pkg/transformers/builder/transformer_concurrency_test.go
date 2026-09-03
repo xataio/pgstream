@@ -174,6 +174,18 @@ func TestTransformers_ConcurrentTransform(t *testing.T) {
 		transformers.PGAnonymizer: {
 			skip: "requires a live PostgreSQL connection",
 		},
+		transformers.LookupChoice: {
+			params: transformers.ParameterValues{
+				"lookup_table":  "public.countries",
+				"lookup_column": "id",
+				"postgres_url":  "postgres://user:pass@localhost:5432/db",
+			},
+			input:              "hello",
+			supportsGenerators: true,
+			validate: func(t *testing.T, got any) {
+				require.Contains(t, lookupTestValues, got)
+			},
+		},
 	}
 
 	// every registered transformer must have a concurrency test, so that new

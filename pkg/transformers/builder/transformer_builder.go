@@ -90,6 +90,12 @@ var TransformersMap = map[transformers.TransformerType]struct {
 			return transformers.NewEncryptedAESSIVTransformer(cfg.Parameters)
 		},
 	},
+	transformers.LookupChoice: {
+		Definition: transformers.LookupChoiceTransformerDefinition(),
+		BuildFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
+			return transformers.NewLookupChoiceTransformer(cfg.Parameters)
+		},
+	},
 	// Greenmask transformers
 	transformers.GreenmaskString: {
 		Definition: greenmask.StringTransformerDefinition(),
