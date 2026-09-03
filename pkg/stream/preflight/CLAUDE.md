@@ -46,4 +46,4 @@ Findings are unaffected: remediation belongs in `Finding.Message` whether or not
 - Do not add `init()`-time registration, dependency injection frameworks, or other indirection — `Builders` is the registry, keep it a plain literal slice.
 - Do not move rendering logic onto `Report`. `ReportPrinter` owns formatting; `Report` stays data-only.
 - Do not import `pkg/stream` from anywhere except `builder.go`. Engine code (`preflight.go`, `printer.go`, individual check files) stays stream-agnostic so it can be reused.
-- Do not put display strings in `Details`, and do not let a check's SQL format them (`pg_size_pretty` and friends). `Details` carries typed values and `Summary`/`ExpandedSummary` render them, so the JSON and human reports cannot drift apart.
+- Do not put display strings in `Details`, and do not let a check's SQL format them (`pg_size_pretty` and friends). `Details` carries typed values and `Summary` renders them, so the JSON and human reports cannot drift apart.
