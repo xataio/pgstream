@@ -98,6 +98,15 @@ func (c *PostgresVersionCheck) Details() map[string]any {
 	return details
 }
 
+// Summary reports the version for the human-readable report. It reports the
+// source version alone when there is no target, and both versions otherwise.
+func (c *PostgresVersionCheck) Summary() string {
+	if c.Target == nil {
+		return c.sourceVersion.String()
+	}
+	return fmt.Sprintf("source %s → target %s", c.sourceVersion, c.targetVersion)
+}
+
 // queryPostgresVersion reads server_version_num from conn.
 func queryPostgresVersion(ctx context.Context, conn postgres.Querier) (pgVersion, error) {
 	var num int

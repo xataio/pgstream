@@ -34,40 +34,52 @@ type Check interface {
 	Run(ctx context.Context) ([]Finding, error)
 }
 
-// Detailer is an optional interface a Check may implement to attach structured,
-// non-finding context to its result (e.g. the set of extensions it inspected).
-// The engine calls Details after Run, so a check populates it from state it
-// gathered while running. Each key is merged into the check's JSON object; it is
-// only surfaced in the JSON report, not the human-readable one.
+// Detailer is an optional interface. A Check implements it to attach
+// structured, non-finding context to its result, for example the extensions it
+// inspected. The engine calls Details after Run and puts the result in the JSON
+// report only, under the "details" key.
 type Detailer interface {
 	Details() map[string]any
 }
 
+// Summarizer is an optional interface. A Check implements it to report one
+// short line about what it observed, such as a size or a version. The engine
+// calls Summary after Run and prints the result next to the check name in the
+// human-readable report only.
+type Summarizer interface {
+	Summary() string
+}
+
 // CheckResult bundles a check's name with whatever it produced.
 type CheckResult struct {
-	Name     string    `json:"name"`
-	Findings []Finding `json:"findings"`
-	Err      error     `json:"-"`
-	// Details holds optional structured context from a Detailer check. Keys are
-	// merged into the result's JSON object alongside name/findings/error.
-	Details map[string]any `json:"-"`
+	Name     string         `json:"name"`
+	Findings []Finding      `json:"findings"`
+	Err      error          `json:"-"`
+	Details  map[string]any `json:"-"`
+	Summary  string         `json:"-"`
+}
+
+// checkResultJSON is the wire shape of a CheckResult. Nesting Details lets a
+// check name its keys freely, because those keys cannot collide with the
+// engine's own fields. A struct also fixes the field order, which a map does
+// not.
+type checkResultJSON struct {
+	Name     string         `json:"name"`
+	Findings []Finding      `json:"findings"`
+	Error    string         `json:"error,omitempty"`
+	Details  map[string]any `json:"details,omitempty"`
 }
 
 // MarshalJSON renders Err as a string so the report is consumable from a
-// non-Go process (the default error marshaling drops the message), and merges
-// any Details keys into the object.
+// non-Go process (the default error marshaling drops the message).
 func (r CheckResult) MarshalJSON() ([]byte, error) {
-	out := map[string]any{
-		"name":     r.Name,
-		"findings": r.Findings,
+	out := checkResultJSON{
+		Name:     r.Name,
+		Findings: r.Findings,
+		Details:  r.Details,
 	}
 	if r.Err != nil {
-		out["error"] = r.Err.Error()
-	}
-	for k, v := range r.Details {
-		if _, taken := out[k]; !taken {
-			out[k] = v
-		}
+		out.Error = r.Err.Error()
 	}
 	return json.Marshal(out)
 }
@@ -116,6 +128,9 @@ func Run(ctx context.Context, checks []Check, opts ...RunOption) Report {
 		}
 		if d, ok := c.(Detailer); ok {
 			res.Details = d.Details()
+		}
+		if s, ok := c.(Summarizer); ok {
+			res.Summary = s.Summary()
 		}
 		results = append(results, res)
 	}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -114,7 +115,7 @@ func TestRun_CapturesDetailsFromDetailerChecks(t *testing.T) {
 	require.Nil(t, report.Results[1].Details)
 }
 
-func TestCheckResult_JSONMarshalMergesDetails(t *testing.T) {
+func TestCheckResult_JSONNestsDetails(t *testing.T) {
 	t.Parallel()
 
 	res := CheckResult{
@@ -124,7 +125,7 @@ func TestCheckResult_JSONMarshalMergesDetails(t *testing.T) {
 
 	data, err := json.Marshal(res)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"name":"schema_extension_compatibility","findings":null,"source_extensions":["hstore","postgis"]}`, string(data))
+	require.JSONEq(t, `{"name":"schema_extension_compatibility","findings":null,"details":{"source_extensions":["hstore","postgis"]}}`, string(data))
 }
 
 func TestReportPrinter_PrettyPrintOmitsDetails(t *testing.T) {
@@ -140,6 +141,85 @@ func TestReportPrinter_PrettyPrintOmitsDetails(t *testing.T) {
 
 	// details are JSON-only; the human report never mentions them
 	require.Equal(t, "✔ clean\nran 1 checks\n", out)
+}
+
+type stubSummarizerCheck struct {
+	stubCheck
+	summary string
+}
+
+func (s *stubSummarizerCheck) Summary() string { return s.summary }
+
+func TestRun_CapturesSummariesFromSummarizerChecks(t *testing.T) {
+	t.Parallel()
+
+	checks := []Check{
+		&stubSummarizerCheck{
+			stubCheck: stubCheck{name: "database_size"},
+			summary:   "12 MB",
+		},
+		&stubCheck{name: "no-summary"},
+	}
+
+	report := Run(context.Background(), checks)
+
+	require.Equal(t, "12 MB", report.Results[0].Summary)
+	require.Empty(t, report.Results[1].Summary)
+}
+
+func TestCheckResult_JSONOmitsSummary(t *testing.T) {
+	t.Parallel()
+
+	res := CheckResult{
+		Name:    "database_size",
+		Summary: "12 MB",
+		Details: map[string]any{"database_size_bytes": int64(12582912)},
+	}
+
+	data, err := json.Marshal(res)
+	require.NoError(t, err)
+	// JSON carries the typed Details, never the rendered summary string
+	require.JSONEq(t, `{"name":"database_size","findings":null,"details":{"database_size_bytes":12582912}}`, string(data))
+}
+
+func TestReportPrinter_PrettyPrintSummaries(t *testing.T) {
+	t.Parallel()
+
+	report := Report{
+		Results: []CheckResult{
+			{Name: "wal_level"},
+			{Name: "postgres_version", Summary: "16.4"},
+			{Name: "database_size", Summary: "12 MB"},
+		},
+	}
+
+	out := ReportPrinter{Report: report}.PrettyPrint()
+
+	require.Equal(t, strings.Join([]string{
+		"✔ wal_level",
+		"✔ postgres_version  16.4",
+		"✔ database_size     12 MB",
+		"ran 3 checks",
+		"",
+	}, "\n"), out)
+}
+
+func TestReportPrinter_PrettyPrintSkipsSummaryOnFailure(t *testing.T) {
+	t.Parallel()
+
+	printer := ReportPrinter{Report: Report{Results: []CheckResult{
+		{
+			Name:     "postgres_version",
+			Summary:  "source 16.4 → target 15.2",
+			Findings: []Finding{{Message: "downgrade"}},
+		},
+		{Name: "database_size", Summary: "never read", Err: errors.New("boom")},
+	}}}
+
+	out := printer.PrettyPrint()
+
+	// the finding is what the reader needs; the summary never reaches a ✘ line
+	require.Equal(t, "✘ postgres_version: downgrade\n✘ database_size: check failed: boom\nran 2 checks\n", out)
 }
 
 func TestReportPrinter_MarshalJSONDelegatesToReport(t *testing.T) {
