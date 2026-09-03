@@ -152,6 +152,13 @@ func (q *Querier) resetConn(ctx context.Context) error {
 }
 
 func (q *Querier) isRetriableError(err error) bool {
+	return IsRetriableError(err)
+}
+
+// IsRetriableError reports whether retrying an operation that failed with err
+// could succeed. Callers retrying at a coarser granularity than a single
+// query use it so their rule cannot drift from this one.
+func IsRetriableError(err error) bool {
 	mappedErr := postgres.MapError(err)
 
 	permissionDenied := &postgres.ErrPermissionDenied{}

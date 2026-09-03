@@ -9,11 +9,13 @@ import (
 	"io"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
 	pglibretrier "github.com/xataio/pgstream/internal/postgres/retrier"
 	synclib "github.com/xataio/pgstream/internal/sync"
+	"github.com/xataio/pgstream/pkg/backoff"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
 	"golang.org/x/sync/errgroup"
@@ -32,11 +34,12 @@ var (
 //
 // It delegates the rows COPY cannot carry.
 type copyPassthroughSnapshotter struct {
-	cfg        *CopyPassthroughConfig
-	logger     loglib.Logger
-	targetConn pglib.Querier
-	budget     synclib.WeightedSemaphore
-	fallback   rangeSnapshotter
+	cfg             *CopyPassthroughConfig
+	logger          loglib.Logger
+	targetConn      pglib.Querier
+	budget          synclib.WeightedSemaphore
+	fallback        rangeSnapshotter
+	backoffProvider backoff.Provider
 }
 
 func newCopyPassthroughSnapshotter(ctx context.Context, cfg *CopyPassthroughConfig, logger loglib.Logger,
@@ -52,17 +55,14 @@ func newCopyPassthroughSnapshotter(ctx context.Context, cfg *CopyPassthroughConf
 		return nil, fmt.Errorf("resolving copy passthrough target connections: %w", err)
 	}
 
-	var targetConn pglib.Querier
-	if cfg.RetryPolicy.DisableRetries {
-		targetConn, err = pglib.NewConnPool(ctx, cfg.TargetURL, poolOpts...)
-	} else {
-		targetConn, err = pglibretrier.NewQuerier(ctx, cfg.RetryPolicy, func(ctx context.Context) (pglib.Querier, error) {
-			return pglib.NewConnPool(ctx, cfg.TargetURL, poolOpts...)
-		}, logger)
-	}
+	// not the retrying querier: it replays the transaction closure, and the
+	// closure reads a pipe the failed attempt already drained. Retrying is
+	// done a page range at a time instead, where the pipe is rebuilt.
+	pool, err := pglib.NewConnPool(ctx, cfg.TargetURL, poolOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to copy passthrough target: %w", err)
 	}
+	targetConn := pglib.Querier(pool)
 
 	if instrumentation.IsEnabled() {
 		targetConn, err = pglibinstrumentation.NewQuerier(targetConn, instrumentation)
@@ -76,11 +76,12 @@ func newCopyPassthroughSnapshotter(ctx context.Context, cfg *CopyPassthroughConf
 	}
 
 	return &copyPassthroughSnapshotter{
-		cfg:        cfg,
-		logger:     logger,
-		targetConn: targetConn,
-		budget:     synclib.NewWeightedSemaphore(synclib.CopyBudgetSize(maxConnections)),
-		fallback:   fallback,
+		cfg:             cfg,
+		logger:          logger,
+		targetConn:      targetConn,
+		budget:          synclib.NewWeightedSemaphore(synclib.CopyBudgetSize(maxConnections)),
+		fallback:        fallback,
+		backoffProvider: backoff.NewProvider(&cfg.RetryPolicy),
 	}, nil
 }
 
@@ -135,17 +136,46 @@ func (s *copyPassthroughSnapshotter) snapshotRange(ctx context.Context, run runI
 	}
 	defer s.budget.Release(1)
 
+	rowCount, err := s.copyRange(ctx, run, table, r)
+	if err == nil || s.cfg.RetryPolicy.DisableRetries || !retriableCopyError(err) {
+		return rowCount, err
+	}
+
+	// a page range is re-runnable: the target transaction rolled back, and the
+	// source is read from the same exported snapshot
+	err = s.backoffProvider(ctx).RetryNotify(func() error {
+		var retryErr error
+		rowCount, retryErr = s.copyRange(ctx, run, table, r)
+		if retryErr != nil && !retriableCopyError(retryErr) {
+			return fmt.Errorf("%w: %w", retryErr, backoff.ErrPermanent)
+		}
+		return retryErr
+	}, func(err error, d time.Duration) {
+		s.logger.Warn(err, "retrying copy passthrough page range", loglib.Fields{
+			"schema": table.schema, "table": table.name,
+			"ctid_start": r.start, "ctid_end": r.end, "retry_delay": d.String(),
+		})
+	})
+	return rowCount, err
+}
+
+// an integrity assertion is not a transient failure
+func retriableCopyError(err error) bool {
+	return !errors.Is(err, backoff.ErrPermanent) && pglibretrier.IsRetriableError(err)
+}
+
+func (s *copyPassthroughSnapshotter) copyRange(ctx context.Context, run runInSnapshotTx, table *table, r pageRange) (int64, error) {
 	var rowCount int64
 	err := run(ctx, func(tx pglib.Tx) error {
 		var err error
-		rowCount, err = s.copyRange(ctx, tx, table, r)
+		rowCount, err = s.copyRangeInTx(ctx, tx, table, r)
 		return err
 	})
 	return rowCount, err
 }
 
 // the pipe bounds memory
-func (s *copyPassthroughSnapshotter) copyRange(ctx context.Context, tx pglib.Tx, table *table, r pageRange) (int64, error) {
+func (s *copyPassthroughSnapshotter) copyRangeInTx(ctx context.Context, tx pglib.Tx, table *table, r pageRange) (int64, error) {
 	copyTable := table.withoutGeneratedColumns()
 	sourceSQL := buildCopyToSQL(copyTable, r)
 	targetSQL := buildCopyFromSQL(copyTable)
@@ -182,7 +212,8 @@ func (s *copyPassthroughSnapshotter) copyRange(ctx context.Context, tx pglib.Tx,
 					table.schema, table.name, r.start, r.end, err)
 			}
 			if out := rowsOut.Load(); rowsIn != out {
-				return fmt.Errorf("%w: copied (%d), expected (%d)", errUnexpectedCopiedRows, rowsIn, out)
+				return fmt.Errorf("%w: copied (%d), expected (%d): %w",
+					errUnexpectedCopiedRows, rowsIn, out, backoff.ErrPermanent)
 			}
 			return nil
 		})

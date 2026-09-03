@@ -8,11 +8,13 @@ import (
 	"io"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/internal/postgres/mocks"
 	synclib "github.com/xataio/pgstream/internal/sync"
+	"github.com/xataio/pgstream/pkg/backoff"
 	loglib "github.com/xataio/pgstream/pkg/log"
 )
 
@@ -162,7 +164,7 @@ func TestCopyPassthroughSnapshotter_copyRange(t *testing.T) {
 			var got string
 			s := newTestCopyPassthrough(newTargetConn(tc.targetRow, tc.targetErr, &got), nil)
 
-			rows, err := s.copyRange(t.Context(), tc.sourceTx, testTable, pageRange{start: 0, end: 10})
+			rows, err := s.copyRangeInTx(t.Context(), tc.sourceTx, testTable, pageRange{start: 0, end: 10})
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				return
@@ -388,4 +390,90 @@ func (s *stubSnapshotter) close(context.Context) error                { return n
 func (s *stubSnapshotter) snapshotRange(context.Context, runInSnapshotTx, *table, pageRange) (int64, error) {
 	s.called = true
 	return 0, nil
+}
+
+// a retry must re-read the source, not resume a drained pipe
+func TestCopyPassthroughSnapshotter_snapshotRange_retries(t *testing.T) {
+	t.Parallel()
+
+	testTable := &table{schema: "public", name: "users", columns: []string{"id"}}
+	errRetriable := errors.New("connection reset by peer")
+
+	tests := []struct {
+		name      string
+		targetErr func(attempt int) error
+		targetRow func(attempt int) int64
+
+		wantAttempts int
+		wantErr      error
+	}{
+		{
+			name:         "a retriable failure copies the range again",
+			targetErr:    func(attempt int) error { return map[bool]error{true: errRetriable, false: nil}[attempt == 1] },
+			targetRow:    func(int) int64 { return 3 },
+			wantAttempts: 2,
+		},
+		{
+			name:         "a row count mismatch is not retried",
+			targetErr:    func(int) error { return nil },
+			targetRow:    func(int) int64 { return 2 },
+			wantAttempts: 1,
+			wantErr:      errUnexpectedCopiedRows,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var attempts int
+			var payloads []string
+			run := func(ctx context.Context, fn func(tx pglib.Tx) error) error {
+				attempts++
+				return fn(&mocks.Tx{
+					CopyToWriterFn: func(_ context.Context, w io.Writer, _ string) (int64, error) {
+						_, err := io.WriteString(w, "1\n2\n3\n")
+						return 3, err
+					},
+				})
+			}
+
+			s := newTestCopyPassthrough(&mocks.Querier{
+				ExecInTxFn: func(ctx context.Context, fn func(tx pglib.Tx) error) error {
+					return fn(&mocks.Tx{
+						ExecFn: func(context.Context, uint, string, ...any) (pglib.CommandTag, error) {
+							return pglib.CommandTag{}, nil
+						},
+						CopyFromReaderFn: func(_ context.Context, r io.Reader, _ string) (int64, error) {
+							b, readErr := io.ReadAll(r)
+							if readErr != nil {
+								return -1, readErr
+							}
+							payloads = append(payloads, string(b))
+							if err := tc.targetErr(attempts); err != nil {
+								return -1, err
+							}
+							return tc.targetRow(attempts), nil
+						},
+					})
+				},
+			}, nil)
+			s.backoffProvider = backoff.NewProvider(&backoff.Config{
+				Constant: &backoff.ConstantConfig{Interval: time.Millisecond, MaxRetries: 3},
+			})
+
+			_, err := s.snapshotRange(t.Context(), run, testTable, pageRange{start: 0, end: 10})
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+
+			require.Equal(t, tc.wantAttempts, attempts)
+			// every attempt read the whole range, never a partial pipe
+			for _, payload := range payloads {
+				require.Equal(t, "1\n2\n3\n", payload)
+			}
+		})
+	}
 }
