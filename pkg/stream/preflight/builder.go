@@ -105,7 +105,6 @@ func (o *sourceOptions) streamConfig(sourceURL string) *stream.Config {
 		},
 	}
 }
-
 // BuildResourcesChecks returns the resource-capacity preflight checks that
 // apply to cfg, plus a cleanup function that closes the shared source
 // connection. The database-size report applies to any configured source. The
