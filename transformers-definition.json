@@ -486,6 +486,65 @@
       ]
     },
     {
+      "name": "lookup_choice",
+      "supported_types": [
+        "string",
+        "citext",
+        "byte_array",
+        "boolean",
+        "integer16",
+        "integer32",
+        "integer64",
+        "float32",
+        "float64",
+        "uint8_array_of_16",
+        "date",
+        "datetime"
+      ],
+      "uniqueness": "lossy",
+      "parameters": [
+        {
+          "name": "lookup_table",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        },
+        {
+          "name": "lookup_column",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        },
+        {
+          "name": "postgres_url",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        },
+        {
+          "name": "generator",
+          "supported_type": "string",
+          "default": "random",
+          "dynamic": false,
+          "required": false,
+          "values": [
+            "random",
+            "deterministic"
+          ]
+        },
+        {
+          "name": "ignore_values",
+          "supported_type": "array",
+          "default": null,
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
       "name": "masking",
       "supported_types": [
         "string",

@@ -40,6 +40,7 @@ func TestTransformers_UniquenessMatchesDefinition(t *testing.T) {
 		transformers.NeosyncFullName:        {},
 		transformers.NeosyncEmail:           {},
 		transformers.PGAnonymizer:           {"anon_function": "anon.fake_email()", "postgres_url": "postgres://user:pass@localhost:5432/db"},
+		transformers.LookupChoice:           {"lookup_table": "public.countries", "lookup_column": "id", "postgres_url": "postgres://user:pass@localhost:5432/db"},
 	}
 
 	for transformerType := range TransformersMap {
