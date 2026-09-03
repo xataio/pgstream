@@ -33,24 +33,25 @@ var Builders = []Builder{
 	{CategoryResources, "resources", BuildResourcesChecks},
 }
 
-// BuildResourcesChecks returns the resource-capacity preflight checks
-// applicable to cfg, plus a cleanup function that closes the shared source
-// connection. The snapshot connection-headroom check only applies when a data
-// snapshot is configured (it sizes snapshot_workers × table_workers against the
-// source's max_connections).
+// BuildResourcesChecks returns the resource-capacity preflight checks that
+// apply to cfg, plus a cleanup function that closes the shared source
+// connection. The database-size report applies to any configured source. The
+// snapshot connection-headroom check is added only when a data snapshot is
+// configured, because it sizes snapshot_workers x table_workers against the
+// source's max_connections.
 func BuildResourcesChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 	url := cfg.SourcePostgresURL()
 	if url == "" {
 		return nil, nil
 	}
-	demand, ok := cfg.SnapshotConnectionDemand()
-	if !ok {
-		return nil, nil
-	}
 	src := postgres.NewLazyConn(url)
-	return []Check{
-		&SnapshotConnectionsCheck{Source: src.Acquire, Demand: demand},
-	}, src.Close
+	checks := []Check{
+		&DatabaseSizeCheck{Source: src.Acquire},
+	}
+	if demand, ok := cfg.SnapshotConnectionDemand(); ok {
+		checks = append(checks, &SnapshotConnectionsCheck{Source: src.Acquire, Demand: demand})
+	}
+	return checks, src.Close
 }
 
 // BuildConnectivityChecks returns the connectivity checks applicable to cfg.

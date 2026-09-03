@@ -401,7 +401,7 @@ func TestSchemaExtensionCompatibilityCheck_Details_EmptyWhenNoExtensions(t *test
 	require.Equal(t, map[string]any{"source_extensions": []string{}}, check.Details())
 	data, err := json.Marshal(CheckResult{Name: "x", Details: check.Details()})
 	require.NoError(t, err)
-	require.JSONEq(t, `{"name":"x","findings":null,"source_extensions":[]}`, string(data))
+	require.JSONEq(t, `{"name":"x","findings":null,"details":{"source_extensions":[]}}`, string(data))
 }
 
 func TestSchemaExtensionCompatibilityCheck_Run_MissingExtensionReturnsFinding(t *testing.T) {

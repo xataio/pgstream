@@ -196,6 +196,17 @@ func TestBulkIngestWriter_ProcessWALEvent(t *testing.T) {
 				batchSenderBuilder: tc.batchSenderBuilder,
 			}
 
+			// Snapshot the senders the test case seeded. The writer builds
+			// further senders into the same map while processing, so reading
+			// it back once processing has started is both racy and
+			// non-deterministic.
+			senders := make(map[string]*batchmocks.BatchSender[*query], len(tc.batchSenderMap))
+			for key, sender := range tc.batchSenderMap {
+				mockSender, ok := sender.(*batchmocks.BatchSender[*query])
+				require.True(t, ok)
+				senders[key] = mockSender
+			}
+
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
@@ -212,12 +223,9 @@ func TestBulkIngestWriter_ProcessWALEvent(t *testing.T) {
 			}()
 
 			eg := errgroup.Group{}
-			for key, sender := range writer.batchSenderMap.GetMap() {
+			for key, sender := range senders {
 				eg.Go(func() error {
-					s, ok := sender.(*batchmocks.BatchSender[*query])
-					require.True(t, ok)
-					msgs := s.GetWALMessages()
-					require.Equal(t, tc.wantMsgs[key], msgs)
+					require.Equal(t, tc.wantMsgs[key], sender.GetWALMessages())
 					return nil
 				})
 			}
