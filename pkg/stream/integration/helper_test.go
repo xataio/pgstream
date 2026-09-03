@@ -292,6 +292,12 @@ func withBulkIngestionEnabled() option {
 	}
 }
 
+func withTransformerRules(rules []transformer.TableRules) option {
+	return func(cfg *stream.ProcessorConfig) {
+		cfg.Transformer = &transformer.Config{TransformerRules: rules}
+	}
+}
+
 func testPostgresListenerCfgWithSnapshotAndFilter(sourceURL, targetURL string, tables []string, includeObjectTypes []string) stream.ListenerConfig {
 	cfg := testPostgresListenerCfgWithSnapshot(sourceURL, targetURL, tables)
 	cfg.Postgres.Snapshot.Schema.DumpRestore.IncludeObjectTypes = includeObjectTypes

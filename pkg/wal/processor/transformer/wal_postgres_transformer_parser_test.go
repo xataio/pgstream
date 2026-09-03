@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
+	"github.com/xataio/pgstream/pkg/transformers"
 	"github.com/xataio/pgstream/pkg/transformers/builder"
 )
 
@@ -600,6 +601,164 @@ func TestPostgresTransformerParser_uniqueIndexValidation(t *testing.T) {
 				require.Contains(t, err.Error(), tc.wantErrMsg)
 			}
 			require.Equal(t, tc.wantWarnings, parser.Warnings())
+		})
+	}
+}
+
+func Test_pgTypeCompatibleWithTransformerType(t *testing.T) {
+	t.Parallel()
+
+	floatCompatible := []transformers.SupportedDataType{
+		transformers.Float32DataType,
+		transformers.Float64DataType,
+	}
+	stringCompatible := []transformers.SupportedDataType{transformers.StringDataType}
+
+	tests := []struct {
+		name            string
+		compatibleTypes []transformers.SupportedDataType
+		oid             uint32
+		typeName        string
+		want            bool
+	}{
+		{
+			name:            "numeric with a float compatible transformer",
+			compatibleTypes: floatCompatible,
+			oid:             pgtype.NumericOID,
+			typeName:        "numeric",
+			want:            true,
+		},
+		{
+			name:            "numeric with a string only transformer",
+			compatibleTypes: stringCompatible,
+			oid:             pgtype.NumericOID,
+			typeName:        "numeric",
+			want:            false,
+		},
+		{
+			name:            "numeric with a transformer supporting all types",
+			compatibleTypes: []transformers.SupportedDataType{transformers.AllDataTypes},
+			oid:             pgtype.NumericOID,
+			typeName:        "numeric",
+			want:            true,
+		},
+		{
+			name:            "float8 with a float compatible transformer",
+			compatibleTypes: floatCompatible,
+			oid:             pgtype.Float8OID,
+			typeName:        "float8",
+			want:            true,
+		},
+		{
+			name:            "numeric array is not covered",
+			compatibleTypes: floatCompatible,
+			oid:             pgtype.NumericArrayOID,
+			typeName:        "_numeric",
+			want:            false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, pgTypeCompatibleWithTransformerType(tc.compatibleTypes, tc.oid, tc.typeName))
+		})
+	}
+}
+
+func Test_validateNumericRange(t *testing.T) {
+	t.Parallel()
+
+	// numeric(9,6): three digits before the point, so magnitudes below 1000
+	constrained := columnType{oid: pgtype.NumericOID, modifier: ((9 << 16) | 6) + 4}
+	unconstrained := columnType{oid: pgtype.NumericOID, modifier: -1}
+	float8 := columnType{oid: pgtype.Float8OID, modifier: -1}
+
+	tests := []struct {
+		name    string
+		cfg     *transformers.Config
+		colType columnType
+		wantErr error
+	}{
+		{
+			name: "range fits the column",
+			cfg: &transformers.Config{Name: transformers.GreenmaskFloat, Parameters: transformers.ParameterValues{
+				"min_value": -90.0, "max_value": 90.0,
+			}},
+			colType: constrained,
+		},
+		{
+			name: "range exceeds the column precision",
+			cfg: &transformers.Config{Name: transformers.GreenmaskFloat, Parameters: transformers.ParameterValues{
+				"min_value": 0.0, "max_value": 100000.0,
+			}},
+			colType: constrained,
+			wantErr: ErrNumericRange,
+		},
+		{
+			name: "negative bound exceeds the column precision",
+			cfg: &transformers.Config{Name: transformers.GreenmaskFloat, Parameters: transformers.ParameterValues{
+				"min_value": -100000.0, "max_value": 0.0,
+			}},
+			colType: constrained,
+			wantErr: ErrNumericRange,
+		},
+		{
+			// the transformer default spans the whole float32 range, which
+			// fits no realistic numeric(p,s)
+			name:    "bounds omitted on a constrained column",
+			cfg:     &transformers.Config{Name: transformers.GreenmaskFloat, Parameters: transformers.ParameterValues{}},
+			colType: constrained,
+			wantErr: ErrNumericRange,
+		},
+		{
+			name: "integer bounds are accepted",
+			cfg: &transformers.Config{Name: transformers.GreenmaskInteger, Parameters: transformers.ParameterValues{
+				"min_value": 0, "max_value": 500,
+			}},
+			colType: constrained,
+		},
+		{
+			name: "integer bounds exceeding the column precision",
+			cfg: &transformers.Config{Name: transformers.GreenmaskInteger, Parameters: transformers.ParameterValues{
+				"min_value": 0, "max_value": 5000,
+			}},
+			colType: constrained,
+			wantErr: ErrNumericRange,
+		},
+		{
+			name: "a non numeric bound is rejected",
+			cfg: &transformers.Config{Name: transformers.GreenmaskFloat, Parameters: transformers.ParameterValues{
+				"min_value": "zero", "max_value": 90.0,
+			}},
+			colType: constrained,
+			wantErr: ErrNumericRange,
+		},
+		{
+			// nothing to check against: any generated value fits
+			name:    "unconstrained numeric is not checked",
+			cfg:     &transformers.Config{Name: transformers.GreenmaskFloat, Parameters: transformers.ParameterValues{}},
+			colType: unconstrained,
+		},
+		{
+			name:    "a non numeric column is not checked",
+			cfg:     &transformers.Config{Name: transformers.GreenmaskFloat, Parameters: transformers.ParameterValues{}},
+			colType: float8,
+		},
+		{
+			// its bounds are timestamps, not numbers
+			name:    "greenmask_unix_timestamp is not checked",
+			cfg:     &transformers.Config{Name: transformers.GreenmaskUnixTimestamp, Parameters: transformers.ParameterValues{}},
+			colType: constrained,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.ErrorIs(t, validateNumericRange(tc.cfg, tc.colType), tc.wantErr)
 		})
 	}
 }
