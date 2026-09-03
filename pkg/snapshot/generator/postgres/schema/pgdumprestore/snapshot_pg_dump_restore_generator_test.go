@@ -9,10 +9,12 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/internal/postgres/mocks"
+	"github.com/xataio/pgstream/pkg/backoff"
 	"github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	"github.com/xataio/pgstream/pkg/snapshot/generator"
@@ -2478,4 +2480,122 @@ func TestWarnOnCaptureDrift(t *testing.T) {
 			require.Equal(t, tc.wantWarn, len(logger.warnings) > 0, "warnings: %v", logger.warnings)
 		})
 	}
+}
+
+func TestSnapshotGenerator_restoreIndicesAndConstraints(t *testing.T) {
+	t.Parallel()
+
+	errTest := errors.New("oh noes")
+	indexDump := []byte("CREATE INDEX a;\n\n")
+	transientErr := func() error {
+		return pglib.NewPGRestoreErrors(&pglib.ErrTransientFailure{
+			Details: "psql: error: connection to server was lost",
+		})
+	}
+
+	tests := []struct {
+		name string
+		// restoreErrs holds the error returned by each restore attempt. Once
+		// the list is exhausted, the last entry is returned again.
+		restoreErrs []error
+
+		wantAttempts int
+		wantErr      error
+	}{
+		{
+			name:         "ok",
+			restoreErrs:  []error{nil},
+			wantAttempts: 1,
+			wantErr:      nil,
+		},
+		{
+			name:         "ok - transient error cleared on retry",
+			restoreErrs:  []error{transientErr(), nil},
+			wantAttempts: 2,
+			wantErr:      nil,
+		},
+		{
+			name:         "ok - ignored errors are not retried",
+			restoreErrs:  []error{pglib.NewPGRestoreErrors(&pglib.ErrRelationAlreadyExists{})},
+			wantAttempts: 1,
+			wantErr:      nil,
+		},
+		{
+			name:         "error - transient error outlasts the retries",
+			restoreErrs:  []error{transientErr()},
+			wantAttempts: 3,
+			wantErr:      transientErr(),
+		},
+		{
+			name:         "error - critical error is not retried",
+			restoreErrs:  []error{pglib.NewPGRestoreErrors(errTest)},
+			wantAttempts: 1,
+			wantErr:      pglib.NewPGRestoreErrors(errTest),
+		},
+		{
+			name:         "error - critical error alongside a transient one is not retried",
+			restoreErrs:  []error{pglib.NewPGRestoreErrors(errTest, &pglib.ErrTransientFailure{})},
+			wantAttempts: 1,
+			wantErr:      pglib.NewPGRestoreErrors(errTest, &pglib.ErrTransientFailure{}),
+		},
+		{
+			name:         "error - unparsed restore error is not retried",
+			restoreErrs:  []error{errTest},
+			wantAttempts: 1,
+			wantErr:      errTest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			attempts := 0
+			sg := SnapshotGenerator{
+				targetURL:       "target-url",
+				logger:          log.NewNoopLogger(),
+				optionGenerator: &optionGenerator{targetURL: "target-url"},
+				pgRestoreFn: func(_ context.Context, _ pglib.PGRestoreOptions, dump []byte) (string, error) {
+					require.Equal(t, string(indexDump), string(dump))
+					attempts++
+					if attempts > len(tc.restoreErrs) {
+						return "", tc.restoreErrs[len(tc.restoreErrs)-1]
+					}
+					return "", tc.restoreErrs[attempts-1]
+				},
+				indexRestoreBackoff: backoff.NewProvider(&backoff.Config{
+					Constant: &backoff.ConstantConfig{
+						Interval:   time.Millisecond,
+						MaxRetries: 2,
+					},
+				}),
+			}
+
+			err := sg.restoreIndicesAndConstraints(context.Background(), indexDump, &snapshot.Snapshot{})
+			if !errors.Is(err, tc.wantErr) {
+				require.Equal(t, tc.wantErr, err)
+			}
+			require.Equal(t, tc.wantAttempts, attempts)
+		})
+	}
+}
+
+func TestSnapshotGenerator_restoreIndicesAndConstraints_noBackoffProvider(t *testing.T) {
+	t.Parallel()
+
+	indexDump := []byte("CREATE INDEX a;\n\n")
+	attempts := 0
+	sg := SnapshotGenerator{
+		targetURL:       "target-url",
+		logger:          log.NewNoopLogger(),
+		optionGenerator: &optionGenerator{targetURL: "target-url"},
+		pgRestoreFn: func(_ context.Context, _ pglib.PGRestoreOptions, _ []byte) (string, error) {
+			attempts++
+			return "", pglib.NewPGRestoreErrors(&pglib.ErrTransientFailure{})
+		},
+	}
+
+	err := sg.restoreIndicesAndConstraints(context.Background(), indexDump, &snapshot.Snapshot{})
+	require.Error(t, err)
+	require.Equal(t, 1, attempts)
 }

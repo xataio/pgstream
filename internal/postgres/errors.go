@@ -65,6 +65,17 @@ func (e *ErrDataException) Error() string {
 	return fmt.Sprintf("data exception: %s", e.Details)
 }
 
+// ErrTransientFailure reports a failure that is not caused by the statement
+// being restored, such as a dropped connection or a lock that could not be
+// acquired in time. The same statement can succeed if it is run again.
+type ErrTransientFailure struct {
+	Details string
+}
+
+func (e *ErrTransientFailure) Error() string {
+	return fmt.Sprintf("transient failure: %s", e.Details)
+}
+
 type ErrRelationAlreadyExists struct {
 	Details string
 }

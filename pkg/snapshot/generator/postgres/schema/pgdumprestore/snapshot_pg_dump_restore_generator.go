@@ -14,9 +14,11 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pglibinstrumentation "github.com/xataio/pgstream/internal/postgres/instrumentation"
+	"github.com/xataio/pgstream/pkg/backoff"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
 	"github.com/xataio/pgstream/pkg/snapshot"
@@ -56,6 +58,12 @@ type SnapshotGenerator struct {
 	// events instead of running a psql/pg_restore session.
 	indexConstraintSessionSettings []string
 	objectTypeFilter               *objectTypeFilter
+	// indexRestoreBackoff provides the retry policy for index and constraint
+	// restores that fail with transient errors, such as a connection dropped by
+	// an intermittent network fault. Rerunning the dump is safe because objects
+	// created by an earlier attempt fail with "already exists", which the
+	// restore ignores.
+	indexRestoreBackoff backoff.Provider
 }
 
 type snapshotProgressTracker interface {
@@ -91,6 +99,11 @@ type Config struct {
 	// Session settings in name=value format applied only while restoring indexes
 	// and constraints. An empty list preserves the existing behavior.
 	IndexConstraintSessionSettings []string
+	// IndexRestoreRetries is the retry policy applied when restoring indexes
+	// and constraints fails with a transient error. If not set, it defaults to
+	// exponential backoff with an initial interval of 1s, a max interval of
+	// 1min and 3 retries.
+	IndexRestoreRetries backoff.Config
 	// IncludeObjectTypes is a list of object type categories to include in the
 	// schema snapshot. Only one of IncludeObjectTypes or ExcludeObjectTypes
 	// can be set.
@@ -110,6 +123,28 @@ type Config struct {
 var sessionSettingRegex = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.]*=\S+$`)
 
 var errInvalidSessionSetting = errors.New("invalid index constraint session setting, must be a whitespace-free name=value pair")
+
+const (
+	defaultIndexRestoreRetryInitialInterval = time.Second
+	defaultIndexRestoreRetryMaxInterval     = time.Minute
+	defaultIndexRestoreMaxRetries           = 3
+)
+
+func (c *Config) indexRestoreBackoffConfig() *backoff.Config {
+	if c.IndexRestoreRetries.DisableRetries {
+		return &backoff.Config{}
+	}
+	if c.IndexRestoreRetries.IsSet() {
+		return &c.IndexRestoreRetries
+	}
+	return &backoff.Config{
+		Exponential: &backoff.ExponentialConfig{
+			InitialInterval: defaultIndexRestoreRetryInitialInterval,
+			MaxInterval:     defaultIndexRestoreRetryMaxInterval,
+			MaxRetries:      defaultIndexRestoreMaxRetries,
+		},
+	}
+}
 
 func validateSessionSettings(settings []string) error {
 	for _, setting := range settings {
@@ -175,6 +210,7 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		refreshMaterializedViews:       c.RefreshMaterializedViews,
 		indexConstraintSessionSettings: c.IndexConstraintSessionSettings,
 		objectTypeFilter:               objTypeFilter,
+		indexRestoreBackoff:            backoff.NewProvider(c.indexRestoreBackoffConfig()),
 	}
 
 	for _, opt := range opts {
@@ -433,10 +469,65 @@ func (s *SnapshotGenerator) restoreIndicesAndConstraints(ctx context.Context, du
 	s.logger.Info("restoring schema indices and constraints", loglib.Fields{"schemaTables": ss.SchemaTables})
 	opts := s.optionGenerator.pgrestoreOptions()
 	opts.SessionSettings = s.indexConstraintSessionSettings
+
+	retries := 0
+	var restoreErr error
+	bo := s.indexRestoreBackoffProvider()(ctx)
+	err := bo.RetryNotify(
+		func() error {
+			restoreErr = s.restoreIndices(ctx, opts, dump)
+			return asRetryError(restoreErr)
+		},
+		func(err error, d time.Duration) {
+			retries++
+			s.logger.Warn(err, "restoring schema indices and constraints failed with a transient error, retrying", loglib.Fields{
+				"retries": retries,
+				"backoff": d,
+			})
+		})
+	if err == nil {
+		return nil
+	}
+	// the backoff wraps the failure in its own retry bookkeeping, so report the
+	// restore failure itself, unless the retries were cut short by the context
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if restoreErr != nil {
+		return restoreErr
+	}
+	return err
+}
+
+// indexRestoreBackoffProvider falls back to a provider that does not retry, so
+// that a generator built without going through NewSnapshotGenerator keeps the
+// single-attempt behaviour instead of panicking on a nil provider.
+func (s *SnapshotGenerator) indexRestoreBackoffProvider() backoff.Provider {
+	if s.indexRestoreBackoff != nil {
+		return s.indexRestoreBackoff
+	}
+	return func(context.Context) backoff.Backoff { return backoff.NewStopBackoff() }
+}
+
+func (s *SnapshotGenerator) restoreIndices(ctx context.Context, opts pglib.PGRestoreOptions, dump []byte) error {
 	if s.snapshotTracker != nil {
 		return s.restoreIndicesWithTracking(ctx, opts, dump)
 	}
 	return s.restoreDumpWithOptions(ctx, opts, dump)
+}
+
+// asRetryError marks any error that rerunning the dump cannot resolve as
+// permanent, so that the backoff gives up immediately instead of repeating a
+// restore that is guaranteed to fail the same way.
+func asRetryError(err error) error {
+	if err == nil {
+		return nil
+	}
+	pgrestoreErr := &pglib.PGRestoreErrors{}
+	if errors.As(err, &pgrestoreErr) && pgrestoreErr.IsRetryable() {
+		return err
+	}
+	return fmt.Errorf("%w: %w", err, backoff.ErrPermanent)
 }
 
 func (s *SnapshotGenerator) Close() error {
