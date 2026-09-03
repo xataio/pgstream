@@ -107,6 +107,7 @@ const (
 	AllDataTypes           SupportedDataType = "all"
 	CitextDataType         SupportedDataType = "citext"
 	HstoreDataType         SupportedDataType = "hstore"
+	EnumDataType           SupportedDataType = "enum"
 )
 
 const (

@@ -92,3 +92,116 @@ func TestMapper_TypeForOID(t *testing.T) {
 		})
 	}
 }
+
+func TestMapper_EnumForOID(t *testing.T) {
+	t.Parallel()
+
+	errTest := errors.New("oh noes")
+
+	// each querier counts its calls, so the cache can be asserted on rather
+	// than only its contents
+	newQuerier := func(name string, labels []string, err error, calls *int) Querier {
+		return &mockQuerier{
+			queryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+				*calls++
+				if err != nil {
+					return err
+				}
+				require.Equal(t, enumTypeQuery, query)
+				require.Len(t, dest, 2)
+				gotName, ok := dest[0].(*string)
+				require.True(t, ok)
+				*gotName = name
+				gotLabels, ok := dest[1].(*[]string)
+				require.True(t, ok)
+				*gotLabels = labels
+				return nil
+			},
+		}
+	}
+
+	tests := []struct {
+		name string
+		// querier is built per case so the call count can be shared with it
+		newQuerier func(calls *int) Querier
+		oid        uint32
+
+		wantEnum  *EnumType
+		wantCache map[uint32]*EnumType
+		wantCalls int
+		wantErr   error
+	}{
+		{
+			name: "built-in type is answered without a query",
+			newQuerier: func(calls *int) Querier {
+				return &mockQuerier{queryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+					*calls++
+					t.Errorf("unexpected query %q for a built-in OID", query)
+					return nil
+				}}
+			},
+			oid: 23, // int4
+
+			wantEnum:  nil,
+			wantCache: map[uint32]*EnumType{},
+			wantCalls: 0,
+		},
+		{
+			name: "enum resolved, then served from the cache",
+			newQuerier: func(calls *int) Querier {
+				return newQuerier("mood", []string{"sad", "ok", "happy"}, nil, calls)
+			},
+			oid: 16385,
+
+			wantEnum: &EnumType{Name: "mood", Labels: []string{"sad", "ok", "happy"}},
+			wantCache: map[uint32]*EnumType{
+				16385: {Name: "mood", Labels: []string{"sad", "ok", "happy"}},
+			},
+			wantCalls: 1,
+		},
+		{
+			name: "a custom type that is no enum caches the negative answer",
+			newQuerier: func(calls *int) Querier {
+				return newQuerier("", nil, ErrNoRows, calls)
+			},
+			oid: 1234,
+
+			wantEnum:  nil,
+			wantCache: map[uint32]*EnumType{1234: nil},
+			wantCalls: 1,
+		},
+		{
+			name: "an error is not cached, so the next call retries",
+			newQuerier: func(calls *int) Querier {
+				return newQuerier("", nil, errTest, calls)
+			},
+			oid: 1234,
+
+			wantEnum:  nil,
+			wantCache: map[uint32]*EnumType{},
+			wantCalls: 2,
+			wantErr:   errTest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			calls := 0
+			m := NewMapper(tc.newQuerier(&calls))
+
+			enum, err := m.EnumForOID(context.Background(), tc.oid)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantEnum, enum)
+
+			// a second lookup must not re-query unless the first failed
+			enumAgain, errAgain := m.EnumForOID(context.Background(), tc.oid)
+			require.ErrorIs(t, errAgain, tc.wantErr)
+			require.Equal(t, tc.wantEnum, enumAgain)
+
+			require.Equal(t, tc.wantCalls, calls)
+			require.Equal(t, tc.wantCache, m.enumOIDMap.GetMap())
+		})
+	}
+}
