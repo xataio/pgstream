@@ -148,7 +148,7 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 			// build the transformer
 			transformer, err := v.builder.New(cfg)
 			if err != nil {
-				return nil, err
+				return nil, columnRuleError(table.Schema, table.Table, colName, err)
 			}
 
 			// get the data type so that we can later validate if it's compatible with the configured transformer
@@ -166,7 +166,7 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 			}
 
 			if err := validateNumericRange(cfg, colType); err != nil {
-				return nil, fmt.Errorf("column '%s' in table %q.%q: %w", colName, table.Schema, table.Table, err)
+				return nil, columnRuleError(table.Schema, table.Table, colName, err)
 			}
 
 			// add the transformer to the map
@@ -309,10 +309,13 @@ func (v *PostgresTransformerParser) getFieldDescriptions(ctx context.Context, sc
 	query := fmt.Sprintf(fieldDescriptionsQuery, pglib.QuoteQualifiedIdentifier(schema, table))
 	rows, err := v.conn.Query(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("querying table rows: %w", err)
+		return nil, fmt.Errorf("querying columns for table %q.%q: %w", schema, table, err)
 	}
 	defer rows.Close()
-	return rows.FieldDescriptions(), rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading columns for table %q.%q: %w", schema, table, err)
+	}
+	return rows.FieldDescriptions(), nil
 }
 
 func (v *PostgresTransformerParser) getAllSchemaTables(ctx context.Context, schema string) ([]string, error) {

@@ -124,6 +124,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 		validator        PostgresTransformerParser
 
 		wantErr                   error
+		wantErrContains           string
 		wantActiveTransformersFor []string
 		wantNoopTransformersFor   []string
 	}{
@@ -414,16 +415,69 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			},
 			wantErr: fmt.Errorf("getting required tables list: wildcard schema must be used with wildcard table, got: \"test\""),
 		},
+		{
+			name: "error - transformer fails to build",
+			transformerRules: []TableRules{
+				{
+					Schema: publicSchema,
+					Table:  "test",
+					ColumnRules: map[string]TransformerRules{
+						"name": {
+							Name:       string(transformers.Template),
+							Parameters: map[string]any{"template": `{{ literal_string "x" }}`},
+						},
+					},
+				},
+			},
+			validator:       testPGValidator,
+			wantErrContains: `column 'name' in table "public"."test": template_transformer: error parsing template`,
+		},
+		{
+			name: "error - unsupported transformer",
+			transformerRules: []TableRules{
+				{
+					Schema: publicSchema,
+					Table:  "test",
+					ColumnRules: map[string]TransformerRules{
+						"name": {Name: "not_a_transformer"},
+					},
+				},
+			},
+			validator:       testPGValidator,
+			wantErr:         transformers.ErrUnsupportedTransformer,
+			wantErrContains: `column 'name' in table "public"."test": unsupported transformer config`,
+		},
+		{
+			name: "error - table columns cannot be queried",
+			transformerRules: []TableRules{
+				{
+					Schema: publicSchema,
+					Table:  "missing",
+					ColumnRules: map[string]TransformerRules{
+						"name": {Name: "string"},
+					},
+				},
+			},
+			validator: PostgresTransformerParser{
+				conn:      testQuerier(),
+				builder:   builder.NewTransformerBuilder(),
+				pgtypeMap: pglib.NewMapper(testQuerier()),
+			},
+			wantErrContains: `querying columns for table "public"."missing"`,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			transformerMap, err := tc.validator.ParseAndValidate(context.Background(), Rules{Transformers: tc.transformerRules, ValidationMode: validationModeStrict})
-			if tc.wantErr != nil {
+			if tc.wantErr != nil || tc.wantErrContains != "" {
 				require.Error(t, err)
-				if !errors.Is(err, tc.wantErr) {
+				if tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
 					require.Equal(t, err.Error(), tc.wantErr.Error())
+				}
+				if tc.wantErrContains != "" {
+					require.ErrorContains(t, err, tc.wantErrContains)
 				}
 				return
 			}

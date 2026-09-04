@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/pkg/transformers"
+	"github.com/xataio/pgstream/pkg/transformers/builder"
 	transformermocks "github.com/xataio/pgstream/pkg/transformers/mocks"
 )
 
@@ -35,6 +36,7 @@ func TestTransformerParser_parse(t *testing.T) {
 
 		wantTransformerMap *TransformerMap
 		wantErr            error
+		wantErrMsg         string
 	}{
 		{
 			name: "ok",
@@ -87,6 +89,7 @@ func TestTransformerParser_parse(t *testing.T) {
 
 			wantTransformerMap: nil,
 			wantErr:            transformers.ErrUnsupportedTransformer,
+			wantErrMsg:         `column 'column_1' in table "test_schema"."test_table": unsupported transformer config`,
 		},
 	}
 
@@ -98,7 +101,33 @@ func TestTransformerParser_parse(t *testing.T) {
 
 			transformerMap, err := tp.parse(context.Background(), Rules{Transformers: tc.rules})
 			require.ErrorIs(t, err, tc.wantErr)
+			if tc.wantErrMsg != "" {
+				require.EqualError(t, err, tc.wantErrMsg)
+			}
 			require.Equal(t, tc.wantTransformerMap, transformerMap)
 		})
 	}
+}
+
+func TestTransformerParser_parse_transformerBuildErrorContext(t *testing.T) {
+	t.Parallel()
+
+	rules := Rules{
+		Transformers: []TableRules{
+			{
+				Schema: "test_schema",
+				Table:  "test_table",
+				ColumnRules: map[string]TransformerRules{
+					"name": {
+						Name:       string(transformers.Template),
+						Parameters: map[string]any{"template": `{{ literal_string "x" }}`},
+					},
+				},
+			},
+		},
+	}
+
+	tp := newTransformerParser(builder.NewTransformerBuilder())
+	_, err := tp.parse(context.Background(), rules)
+	require.ErrorContains(t, err, `column 'name' in table "test_schema"."test_table": template_transformer: error parsing template`)
 }
