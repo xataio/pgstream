@@ -13,6 +13,8 @@ import (
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/internal/testcontainers"
 	"github.com/xataio/pgstream/pkg/stream"
+	"github.com/xataio/pgstream/pkg/transformers"
+	"github.com/xataio/pgstream/pkg/transformers/greenmask"
 	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 )
 
@@ -1068,6 +1070,182 @@ func Test_SnapshotToPostgres_NumericColumnTransformer(t *testing.T) {
 	t.Run("batch writer", func(t *testing.T) {
 		run(t, "batch")
 	})
+}
+
+// Test_SnapshotToPostgres_EnumColumnTransformer verifies that a user-defined
+// enum column can be transformed end to end. An enum's OID is assigned by the
+// database, so it reaches no case of the transformer type compatibility map
+// and every rule on such a column used to be rejected. greenmask_choice picks
+// from the enum's own labels, which default from the catalog when the rule
+// does not list them.
+func Test_SnapshotToPostgres_EnumColumnTransformer(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	// each subtest gets its own context, so a timeout in one cannot cancel
+	// the context the next one still needs
+	run := func(t *testing.T, suffix string, columnRules map[string]transformer.TransformerRules, want []enumRow, opts ...option) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		testTable := fmt.Sprintf("enum_transformer_%s", suffix)
+		// distinct from the enum types Test_SnapshotToPostgres_EnumColumn
+		// creates: the target database is shared by every test in the package,
+		// and a name collision leaves whichever restores second inserting
+		// labels the other test's enum does not have
+		enumType := fmt.Sprintf("choice_mood_%s", suffix)
+
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`CREATE TYPE %s AS ENUM ('sad', 'ok', 'happy')`, enumType))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`CREATE DOMAIN %s_d AS %s`, enumType, enumType))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`CREATE TABLE %s(
+				id      INTEGER PRIMARY KEY,
+				mood    %s NOT NULL,
+				backup  %s_d
+			)`, testTable, enumType, enumType))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`INSERT INTO %s(id, mood, backup) VALUES
+				(1, 'sad', 'happy'),
+				(2, 'ok', NULL),
+				(3, 'happy', 'sad')`,
+			testTable))
+
+		cfg := &stream.Config{
+			Listener: testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
+			Processor: testPostgresProcessorCfg(append(opts, withTransformerRules([]transformer.TableRules{{
+				Schema:      "public",
+				Table:       testTable,
+				ColumnRules: columnRules,
+			}}))...),
+		}
+		initStream(t, ctx, snapshotPGURL)
+		runSnapshot(t, ctx, cfg)
+
+		targetConn, err := pglib.NewConn(ctx, targetPGURL)
+		require.NoError(t, err)
+		defer targetConn.Close(ctx)
+
+		timer := time.NewTimer(20 * time.Second)
+		defer timer.Stop()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		query := fmt.Sprintf("SELECT id, mood::text, backup::text FROM %s ORDER BY id", testTable)
+		fetch := func() ([]enumRow, error) {
+			rows, err := targetConn.Query(ctx, query)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+			out := []enumRow{}
+			for rows.Next() {
+				var r enumRow
+				if err := rows.Scan(&r.id, &r.mood, &r.backup); err != nil {
+					return nil, err
+				}
+				out = append(out, r)
+			}
+			return out, rows.Err()
+		}
+
+		// poll only for arrival, then assert once on the test's own goroutine
+		var got []enumRow
+		for got == nil {
+			select {
+			case <-timer.C:
+				t.Fatal("timeout waiting for postgres snapshot sync of transformed enum columns")
+			case <-ticker.C:
+				rows, err := fetch()
+				if err == nil && len(rows) == 3 {
+					got = rows
+				}
+			}
+		}
+
+		// nullness is asserted per row: a transformer error nulls the column
+		// under the default on_error policy, so a nil backup would otherwise
+		// pass as "not a label"
+		require.Equal(t, want, got)
+	}
+
+	// no choices configured: they default to the enum's labels, for the enum
+	// column and for the domain over it alike. The generator is deterministic
+	// so the mapping is fixed, which is what makes the outcome assertable at
+	// all; a random generator could only be checked for membership.
+	defaultedRules := map[string]transformer.TransformerRules{
+		"mood":   {Name: "greenmask_choice", Parameters: map[string]any{"generator": "deterministic"}},
+		"backup": {Name: "greenmask_choice", Parameters: map[string]any{"generator": "deterministic"}},
+	}
+	// an explicit subset of one: every transformed value has to be that label,
+	// which no untransformed source row would satisfy
+	explicitRules := map[string]transformer.TransformerRules{
+		"mood": {
+			Name:       "greenmask_choice",
+			Parameters: map[string]any{"choices": []any{"ok"}, "generator": "deterministic"},
+		},
+	}
+
+	t.Run("bulk ingest", func(t *testing.T) {
+		run(t, "bulk", defaultedRules, deterministicEnumRows(t), withBulkIngestionEnabled())
+	})
+	t.Run("batch writer", func(t *testing.T) {
+		run(t, "batch", defaultedRules, deterministicEnumRows(t))
+	})
+	t.Run("explicit choices", func(t *testing.T) {
+		// mood is forced to "ok" for every row; backup carries no rule, so it
+		// must survive untouched, which also pins pass-through of an unruled
+		// enum column
+		happy, sad := "happy", "sad"
+		run(t, "explicit", explicitRules, []enumRow{
+			{id: 1, mood: "ok", backup: &happy},
+			{id: 2, mood: "ok", backup: nil},
+			{id: 3, mood: "ok", backup: &sad},
+		})
+	})
+}
+
+type enumRow struct {
+	id     int
+	mood   string
+	backup *string
+}
+
+// deterministicEnumRows computes what the defaulted-choices rules must produce,
+// by running the very transformer the parser builds. Asserting membership in
+// the label set instead would pass even if the transformer were skipped, since
+// the source values are themselves labels.
+func deterministicEnumRows(t *testing.T) []enumRow {
+	t.Helper()
+
+	tr, err := greenmask.NewChoiceTransformer(transformers.ParameterValues{
+		"generator": "deterministic",
+		"choices":   []string{"sad", "ok", "happy"},
+	})
+	require.NoError(t, err)
+
+	transform := func(in string) string {
+		out, err := tr.Transform(context.Background(), transformers.NewValue(in, "mood", nil))
+		require.NoError(t, err)
+		label, ok := out.(string)
+		require.True(t, ok, "expected a string label, got %T", out)
+		return label
+	}
+
+	backup1 := transform("happy")
+	backup3 := transform("sad")
+	return []enumRow{
+		{id: 1, mood: transform("sad"), backup: &backup1},
+		{id: 2, mood: transform("ok"), backup: nil},
+		{id: 3, mood: transform("happy"), backup: &backup3},
+	}
 }
 
 // Test_SnapshotToPostgres_IdentityAndGeneratedColumns verifies that identity

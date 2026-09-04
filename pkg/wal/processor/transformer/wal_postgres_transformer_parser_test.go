@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/transformers"
 	"github.com/xataio/pgstream/pkg/transformers/builder"
 )
@@ -86,6 +87,10 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				}
 			},
 			QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+				if enumTypeQueryMatch(query) {
+					// no column of the mocked table is an enum
+					return pglib.ErrNoRows
+				}
 				switch query {
 				case "SELECT typname FROM pg_type WHERE oid = $1":
 					require.Equal(t, 1, len(args))
@@ -104,6 +109,9 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 
 	testQuerierWithUnknownTypeErr := testQuerier()
 	testQuerierWithUnknownTypeErr.QueryRowFn = func(ctx context.Context, dest []any, query string, args ...any) error {
+		if enumTypeQueryMatch(query) {
+			return pglib.ErrNoRows
+		}
 		require.Equal(t, query, "SELECT typname FROM pg_type WHERE oid = $1")
 		require.Equal(t, 1, len(args))
 		require.Equal(t, citextOID, args[0])
@@ -614,13 +622,56 @@ func Test_pgTypeCompatibleWithTransformerType(t *testing.T) {
 	}
 	stringCompatible := []transformers.SupportedDataType{transformers.StringDataType}
 
+	enumCompatible := []transformers.SupportedDataType{
+		transformers.StringDataType,
+		transformers.EnumDataType,
+	}
+	mood := &pglib.EnumType{Name: "mood", Labels: []string{"sad", "ok", "happy"}}
+
 	tests := []struct {
 		name            string
 		compatibleTypes []transformers.SupportedDataType
 		oid             uint32
 		typeName        string
+		enum            *pglib.EnumType
 		want            bool
 	}{
+		{
+			name:            "enum with an enum compatible transformer",
+			compatibleTypes: enumCompatible,
+			oid:             16385,
+			typeName:        "mood",
+			enum:            mood,
+			want:            true,
+		},
+		{
+			name: "enum with a string transformer that cannot produce a label",
+			// a string transformer would emit a value the enum does not have,
+			// which the target rejects row by row
+			compatibleTypes: []transformers.SupportedDataType{transformers.StringDataType},
+			oid:             16385,
+			typeName:        "mood",
+			enum:            mood,
+			want:            false,
+		},
+		{
+			// an array of an enum resolves to no enum, so it is rejected by
+			// name like any other array
+			name:            "enum array resolves to no enum and is rejected",
+			compatibleTypes: enumCompatible,
+			oid:             16386,
+			typeName:        "_mood",
+			enum:            nil,
+			want:            false,
+		},
+		{
+			name:            "enum with a transformer supporting all types",
+			compatibleTypes: []transformers.SupportedDataType{transformers.AllDataTypes},
+			oid:             16385,
+			typeName:        "mood",
+			enum:            mood,
+			want:            true,
+		},
 		{
 			name:            "numeric with a float compatible transformer",
 			compatibleTypes: floatCompatible,
@@ -662,7 +713,92 @@ func Test_pgTypeCompatibleWithTransformerType(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			require.Equal(t, tc.want, pgTypeCompatibleWithTransformerType(tc.compatibleTypes, tc.oid, tc.typeName))
+			require.Equal(t, tc.want, pgTypeCompatibleWithTransformerType(tc.compatibleTypes, tc.oid, tc.typeName, tc.enum))
+		})
+	}
+}
+
+func Test_applyEnumChoices(t *testing.T) {
+	t.Parallel()
+
+	mood := &pglib.EnumType{Name: "mood", Labels: []string{"sad", "ok", "happy"}}
+
+	tests := []struct {
+		name          string
+		params        transformers.ParameterValues
+		enum          *pglib.EnumType
+		wantChoices   any
+		wantDefaulted bool
+		wantErr       error
+	}{
+		{
+			name:          "choices default to the enum labels",
+			params:        transformers.ParameterValues{},
+			enum:          mood,
+			wantChoices:   []string{"sad", "ok", "happy"},
+			wantDefaulted: true,
+		},
+		{
+			name:          "nil parameters are populated",
+			params:        nil,
+			enum:          mood,
+			wantChoices:   []string{"sad", "ok", "happy"},
+			wantDefaulted: true,
+		},
+		{
+			// most often a template that rendered nothing: left alone so the
+			// builder rejects it, rather than silently widening to every label
+			name:        "an explicitly empty list is not defaulted",
+			params:      transformers.ParameterValues{"choices": []any{}},
+			enum:        mood,
+			wantChoices: []any{},
+		},
+		{
+			name:    "a malformed choices value is rejected",
+			params:  transformers.ParameterValues{"choices": "ok"},
+			enum:    mood,
+			wantErr: transformers.ErrInvalidParameters,
+		},
+		{
+			name:        "a subset of the labels is kept",
+			params:      transformers.ParameterValues{"choices": []any{"ok", "happy"}},
+			enum:        mood,
+			wantChoices: []any{"ok", "happy"},
+		},
+		{
+			name:    "a label the enum does not have is rejected",
+			params:  transformers.ParameterValues{"choices": []any{"ok", "elated"}},
+			enum:    mood,
+			wantErr: ErrInvalidEnumChoice,
+		},
+		{
+			name:        "a non enum column keeps its own choices",
+			params:      transformers.ParameterValues{"choices": []any{"a", "b"}},
+			enum:        nil,
+			wantChoices: []any{"a", "b"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &transformers.Config{Name: transformers.GreenmaskChoice, Parameters: tc.params}
+			parser := &PostgresTransformerParser{logger: loglib.NewNoopLogger()}
+
+			defaulted, err := parser.applyEnumChoices(cfg, tc.enum)
+			require.ErrorIs(t, err, tc.wantErr)
+			if tc.wantErr != nil {
+				return
+			}
+			require.Equal(t, tc.wantDefaulted, defaulted)
+			require.Equal(t, tc.wantChoices, cfg.Parameters["choices"])
+			if tc.wantDefaulted {
+				// cloned, so a later mutation cannot reach the mapper's cache
+				choices, ok := cfg.Parameters["choices"].([]string)
+				require.True(t, ok)
+				require.NotSame(t, &tc.enum.Labels[0], &choices[0])
+			}
 		})
 	}
 }
@@ -759,6 +895,167 @@ func Test_validateNumericRange(t *testing.T) {
 			t.Parallel()
 
 			require.ErrorIs(t, validateNumericRange(tc.cfg, tc.colType), tc.wantErr)
+		})
+	}
+}
+
+// enumTypeQueryMatch reports whether a mocked querier is being asked the enum
+// lookup, without pinning the exact SQL text the mapper uses.
+func enumTypeQueryMatch(query string) bool {
+	return strings.Contains(query, "pg_enum")
+}
+
+// the enum wiring inside ParseAndValidate had no unit coverage: passing a nil
+// enum to either the compatibility check or the choice defaulting, and
+// swallowing the lookup error, all went unnoticed without a live database.
+func TestPostgresTransformerParser_ParseAndValidate_enumColumns(t *testing.T) {
+	t.Parallel()
+
+	const moodOID = uint32(16385)
+	errTest := errors.New("catalog unavailable")
+
+	// a querier whose only enum column is "mood"; enumErr, when set, is what
+	// the enum lookup fails with
+	newQuerier := func(enumErr error) *pgmocks.Querier {
+		return &pgmocks.Querier{
+			QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+				switch query {
+				case "SELECT * FROM \"public\".\"test\" LIMIT 0":
+					return &pgmocks.Rows{
+						FieldDescriptionsFn: func() []pgconn.FieldDescription {
+							return []pgconn.FieldDescription{
+								{Name: "mood", DataTypeOID: moodOID, TypeModifier: -1},
+							}
+						},
+						CloseFn: func() {},
+						ErrFn:   func() error { return nil },
+					}, nil
+				case uniqueIndexQuery:
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return false },
+						ErrFn:   func() error { return nil },
+					}, nil
+				default:
+					return nil, fmt.Errorf("unexpected query: %s", query)
+				}
+			},
+			QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+				if enumTypeQueryMatch(query) {
+					if enumErr != nil {
+						return enumErr
+					}
+					require.Len(t, dest, 2)
+					name, ok := dest[0].(*string)
+					require.True(t, ok)
+					*name = "mood"
+					labels, ok := dest[1].(*[]string)
+					require.True(t, ok)
+					*labels = []string{"sad", "ok", "happy"}
+					return nil
+				}
+				dataTypeName, ok := dest[0].(*string)
+				require.True(t, ok)
+				*dataTypeName = "mood"
+				return nil
+			},
+		}
+	}
+
+	tests := []struct {
+		name        string
+		rules       TransformerRules
+		enumErr     error
+		wantChoices []string
+		wantErr     error
+		wantErrMsg  string
+	}{
+		{
+			name:        "choices default to the enum labels",
+			rules:       TransformerRules{Name: "greenmask_choice"},
+			wantChoices: []string{"sad", "ok", "happy"},
+		},
+		{
+			name: "an explicit subset is kept",
+			rules: TransformerRules{Name: "greenmask_choice", Parameters: map[string]any{
+				"choices": []any{"ok"},
+			}},
+			wantChoices: []string{"ok"},
+		},
+		{
+			name: "a label the enum does not have names the column",
+			rules: TransformerRules{Name: "greenmask_choice", Parameters: map[string]any{
+				"choices": []any{"elated"},
+			}},
+			wantErr:    ErrInvalidEnumChoice,
+			wantErrMsg: `column 'mood' in table "public"."test"`,
+		},
+		{
+			name:       "a transformer that cannot produce a label is rejected",
+			rules:      TransformerRules{Name: "masking", Parameters: map[string]any{"type": "default"}},
+			wantErrMsg: "does not support pg data type: mood",
+		},
+		{
+			name:       "a failing enum lookup names the column",
+			rules:      TransformerRules{Name: "greenmask_choice"},
+			enumErr:    errTest,
+			wantErr:    errTest,
+			wantErrMsg: `column 'mood' in table "public"."test"`,
+		},
+		{
+			// the builder error used to arrive with no column or table
+			name:       "a rule with no choices on a non enum column names the column",
+			rules:      TransformerRules{Name: "greenmask_choice"},
+			enumErr:    pglib.ErrNoRows,
+			wantErrMsg: `column 'mood' in table "public"."test"`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			querier := newQuerier(tc.enumErr)
+			parser := PostgresTransformerParser{
+				conn:      querier,
+				builder:   builder.NewTransformerBuilder(),
+				pgtypeMap: pglib.NewMapper(querier),
+				logger:    loglib.NewNoopLogger(),
+			}
+
+			transformerMap, err := parser.ParseAndValidate(context.Background(), Rules{
+				Transformers: []TableRules{{
+					Schema:      "public",
+					Table:       "test",
+					ColumnRules: map[string]TransformerRules{"mood": tc.rules},
+				}},
+			})
+
+			if tc.wantErr != nil || tc.wantErrMsg != "" {
+				require.Error(t, err)
+				if tc.wantErr != nil {
+					require.ErrorIs(t, err, tc.wantErr)
+				}
+				require.Contains(t, err.Error(), tc.wantErrMsg)
+				return
+			}
+			require.NoError(t, err)
+			defer transformerMap.Close()
+
+			// the built transformer does not expose its choices, so exercise
+			// it until every configured one has come out
+			columnTransformers, found := transformerMap.GetActiveColumnTransformers("public", "test")
+			require.True(t, found)
+			seen := map[string]bool{}
+			for range 200 {
+				got, err := columnTransformers["mood"].Transform(context.Background(), transformers.NewValue("sad", "mood", nil))
+				require.NoError(t, err)
+				label, ok := got.(string)
+				require.True(t, ok, "expected a string label, got %T", got)
+				require.Contains(t, tc.wantChoices, label)
+				seen[label] = true
+			}
+			require.Len(t, seen, len(tc.wantChoices), "expected every choice to be reachable")
 		})
 	}
 }

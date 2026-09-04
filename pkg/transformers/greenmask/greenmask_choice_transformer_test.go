@@ -92,6 +92,15 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name:  "ok - transform an enum label deterministically",
+			input: "sad",
+			params: transformers.ParameterValues{
+				"generator": deterministic,
+				"choices":   []string{"sad", "ok", "happy"},
+			},
+			wantErr: nil,
+		},
+		{
 			name:  "error - invalid input type",
 			input: 1,
 			params: transformers.ParameterValues{
@@ -113,11 +122,23 @@ func TestChoiceTransformer_Transform(t *testing.T) {
 				return
 			}
 
-			// check if the result is in the choices
+			// the chosen label comes back as the same kind of value it went
+			// in as, so an enum column receives a label rather than its hex
+			// encoding
 			require.NotNil(t, got)
-			val, ok := got.([]byte)
-			require.True(t, ok)
-			require.Contains(t, tt.params["choices"], string(val))
+			var val string
+			switch out := got.(type) {
+			case string:
+				require.IsType(t, "", tt.input, "a string input must produce a string")
+				val = out
+			case []byte:
+				_, inputWasString := tt.input.(string)
+				require.False(t, inputWasString, "a non string input must produce bytes")
+				val = string(out)
+			default:
+				t.Fatalf("unexpected transform output type %T", got)
+			}
+			require.Contains(t, tt.params["choices"], val)
 
 			// if deterministic, check if we get the same result again
 			if mustGetGeneratorType(t, tt.params) == deterministic {

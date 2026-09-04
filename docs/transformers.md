@@ -262,14 +262,34 @@ transformations:
 
 **Uniqueness:** `lossy`. Any table with more rows than choices produces duplicates. Cannot be used on a column covered by a unique index. See [Uniqueness and unique indexes](#uniqueness-and-unique-indexes).
 
-| Supported PostgreSQL types          |
-| ----------------------------------- |
-| `text`, `varchar`, `char`, `bpchar` |
+| Supported PostgreSQL types                             |
+| ------------------------------------------------------ |
+| `text`, `varchar`, `char`, `bpchar`, user-defined enum |
 
-| Parameter | Type     | Default | Required | Values               |
-| --------- | -------- | ------- | -------- | -------------------- |
-| generator | string   | random  | No       | random,deterministic |
-| choices   | string[] | N/A     | Yes      | N/A                  |
+`choices` is optional for an enum column. If you do not set it, pgstream uses the labels of the enum. If you set it, pgstream compares each value with those labels. A wrong value stops the run at startup, not at each insert.
+
+A domain over an enum resolves to the enum. An **array** of an enum is not supported. No transformer accepts an array.
+
+`greenmask_choice` is the only type-specific transformer for an enum column. It is the only one that you can limit to the values of the enum. `literal_string` and `pg_anonymizer` accept all types. They also apply to an enum column. For `literal_string`, use a literal that is a valid label.
+
+The default choices have three limits:
+
+- **A source Postgres URL is necessary.** Without it, pgstream does not validate the rules against a catalog. A rule without `choices` then stops the run at startup with the message `greenmask_choice: choices must not be empty`. Set `choices` for a pipeline that has no Postgres source, for example a pipeline with a Kafka source.
+- **pgstream reads the labels one time, at startup.** If you add or rename a label on the source, pgstream uses the new label only after a restart. Before the restart, a replicated `ALTER TYPE ... RENAME VALUE` makes pgstream write a label that the target refuses. At startup, pgstream writes the labels in use to the log for each column with default choices.
+- **The default is the full set of labels.** pgstream does not read a `CHECK` constraint on a domain or on a table. It does not apply such a constraint. Set `choices` for a column with a `CHECK` constraint.
+
+⚠️ The transformer can select the label that the source row already contains. It selects from all the choices and does not remove the source value from the set. With `generator: random`, approximately 1 row in N keeps its source value, where N is the number of choices. With `generator: deterministic`, each label maps to one fixed label, so a label that maps to itself keeps its value in every row. The transformers that select from a fixed dictionary, for example `greenmask_firstname`, operate in the same way.
+
+⚠️ Use `generator: random` for an enum column. The `deterministic` generator maps each label to one fixed label and uses no secret key. The target contains all labels of the enum. A person who reads the target can find the source label of each value. pgstream writes a warning to the log when a rule uses `deterministic` with default enum choices.
+
+ℹ️ The transformer writes the value as a string. This is a change for the Kafka, webhook, Elasticsearch and OpenSearch targets. Before this change, `greenmask_choice` wrote a byte array, and these targets encoded that byte array as base64 in JSON. Update the consumers that decode base64. A search index also contains base64 in the documents from before this change.
+
+| Parameter | Type     | Default                       | Required                   | Values               |
+| --------- | -------- | ----------------------------- | -------------------------- | -------------------- |
+| generator | string   | random                        | No                         | random,deterministic |
+| choices   | string[] | the enum's labels, if an enum | Yes, unless an enum column | N/A                  |
+
+`transformers-definition.json` shows `choices` as always required. This file describes the transformer, not the column that you configure it on.
 
 **Example Configuration:**
 
@@ -284,6 +304,9 @@ transformations:
           parameters:
             generator: random
             choices: ["pending", "shipped", "delivered", "cancelled"]
+        # an enum column does not need choices; pgstream uses the enum labels
+        mood:
+          name: greenmask_choice
 ```
 
 **Input-Output Examples:**
@@ -390,11 +413,12 @@ transformations:
 | Supported PostgreSQL types            |
 | ------------------------------------- |
 | `real`, `double precision`, `numeric` |
-⚠️ On a `numeric` column `min_value` and `max_value` are **required**. Their defaults span the whole `float32` range, which produces the same out-of-range constant for every row .
 
-A `numeric` value is converted to a `float64` before it seeds the generator, and the generated value is a `float64` too, so a `numeric` column is anonymized within float64's range: values beyond it are clamped, and values beyond float64's significand are rounded. Only the seed is affected, since the original is discarded.
+⚠️ Set `min_value` and `max_value` for a `numeric` column. These parameters are required there. The default range covers all `float32` values. With the default range, the transformer writes the same constant value in each row.
 
-On a `numeric(p,s)` column the configured range is checked against the column when the rules are validated, so a range that cannot fit fails the run. An unconstrained `numeric` accepts any value, so nothing is checked there beyond the bounds being set.
+The transformer converts the `numeric` value to a `float64` and uses that `float64` as the seed for the generator. The output is also a `float64`. If the source value has more digits than a `float64` holds, the transformer rounds it. If the source value is outside the `float64` range, the transformer uses the largest `float64` value. These changes apply to the seed only, because the transformer discards the source value.
+
+pgstream compares the range with the column when it validates the rules. If the range does not fit a `numeric(p,s)` column, the run stops. A `numeric` column without a precision holds any value. For such a column, pgstream checks only that you set both bounds.
 
 | Parameter | Type   | Default                                       | Required | Values               |
 | --------- | ------ | --------------------------------------------- | -------- | -------------------- |
