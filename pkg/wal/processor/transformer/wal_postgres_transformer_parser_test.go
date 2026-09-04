@@ -529,7 +529,7 @@ func TestPostgresTransformerParser_uniqueIndexValidation(t *testing.T) {
 			},
 			wantWarnings: []string{
 				`"public"."test": unique index "test_name_email_key" (name, email) is covered by a transformer that maps distinct values to the same output ("name" uses "masking"), ` +
-					`which will cause duplicate key violations. Use a transformer that preserves uniqueness, such as encrypted_aes_siv, or set allow_uniqueness_loss on the column to override`,
+					`which will cause duplicate key violations. Use a transformer that preserves uniqueness, such as encrypted_aes_siv or fpe_ff1, or set allow_uniqueness_loss on the column to override`,
 			},
 		},
 		{
