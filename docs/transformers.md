@@ -23,6 +23,7 @@ Each transformer declares how it behaves with respect to uniqueness:
 | Transformer                | Uniqueness       |
 | -------------------------- | ---------------- |
 | `encrypted_aes_siv`        | `preserved`      |
+| `fpe_ff1`                  | `preserved`      |
 | `email`                    | `not_guaranteed` |
 | `greenmask_date`           | `not_guaranteed` |
 | `greenmask_float`          | `not_guaranteed` |
@@ -71,7 +72,9 @@ column_transformers:
 
 If you need an anonymized column to stay unique, use `encrypted_aes_siv`: it is deterministic, so equality relationships survive across rows, tables and runs, and no two distinct inputs share a token. Its output is a base64 token rather than a value in the original format.
 
-⚠️ `encrypted_aes_siv` is **pseudonymization, not anonymization**. The output is reversible by anyone holding `key_hex`, so it remains personal data, and because tokens are stable they can be correlated across tables and across successive dumps. Treat `key_hex` as a secret: inject it from a secret store rather than committing it in the rules file, use a different key per environment, and set `associated_data` (for example `schema.table.column`) so tokens cannot be correlated between columns.
+Use `fpe_ff1` when the column must also keep its format. For example, a phone number must stay a phone number, and a code must still fit a `varchar(12)` column. `fpe_ff1` encrypts with a format-preserving algorithm. The output has the same length and the same characters as the input. Two different inputs always give two different outputs.
+
+⚠️ `encrypted_aes_siv` and `fpe_ff1` are **pseudonymization, not anonymization**. The output is reversible by anyone holding `key_hex`, so it remains personal data, and because tokens are stable they can be correlated across tables and across successive dumps. Treat `key_hex` as a secret: inject it from a secret store rather than committing it in the rules file, use a different key per environment, and set `associated_data` (for example `schema.table.column`) so tokens cannot be correlated between columns.
 
 ### What the check does not cover
 
@@ -1258,6 +1261,95 @@ transformations:
 | `hello world` | `key_hex: "000102…3e3f"`, `associated_data: "public.orders.file_path"` (example above) | `AsC2hoq-Y9V0iqK6JmNIxq0Fsr3SFPo27QNq` |
 
 Every run with the same key and parameters produces the same output. Tokens can be decrypted with any RFC 5297 AES-SIV implementation, for example Tink's `daead/subtle` package in Go.
+
+</details>
+
+ <details>
+  <summary>fpe_ff1</summary>
+
+**Description:** This transformer encrypts values with FF1 ([NIST SP 800-38G](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-38G.pdf)). FF1 is a format-preserving encryption algorithm. The output contains the same characters as the input, and it has the same length. An encrypted phone number is still a phone number. An encrypted product code still fits a `varchar(n)` column. The transformer copies the characters that are not in the alphabet to the same positions in the output.
+
+**Uniqueness:** `preserved`. FF1 maps each input to one different output. Two different inputs cannot give the same output. Use this transformer when a unique column must keep its format. Use `encrypted_aes_siv` when the format is not important.
+
+| Supported PostgreSQL types      |
+| ------------------------------- |
+| `text`, `varchar`, `char`, `bpchar` |
+
+| Parameter       | Type   | Default  | Required | Values                                       |
+| --------------- | ------ | -------- | -------- | -------------------------------------------- |
+| key_hex         | string | N/A      | Yes      | 32, 48 or 64 hexadecimal characters          |
+| associated_data | string | ""       | No       | Any string                                   |
+| alphabet        | string | digits   | No       | `digits`, `letters`, `alphanumeric`, or a set of characters |
+| passthrough     | string | keep     | No       | `keep`, `error`                              |
+| keep_prefix     | int    | 0        | No       | Number of characters in the alphabet to keep at the start |
+| keep_suffix     | int    | 0        | No       | Number of characters in the alphabet to keep at the end |
+| min_length      | int    | 0        | No       | 0 sets the minimum that FF1 permits for the alphabet |
+| preserve_from   | string | ""       | No       | A delimiter. The transformer keeps the text from its last occurrence. |
+
+`key_hex` is the AES key in hexadecimal. Use 32, 48 or 64 characters for a key of 128, 192 or 256 bits. To make a key, run `openssl rand -hex 32`. The `encrypted_aes_siv` transformer is different, because it needs a key of 64 bytes.
+
+`associated_data` is the FF1 tweak. The tweak is not secret. It makes the output different for each column when you use the same key. Set it to `schema.table.column`.
+
+`alphabet` is the set of characters that the transformer encrypts. There are three named sets: `digits` (`0-9`), `letters` (`a-zA-Z`) and `alphanumeric` (`0-9a-zA-Z`). Any other value is a set of characters that you write out. Such a set must contain two characters or more, and it must not contain a character two times. The transformer does not encrypt the characters that are not in the alphabet.
+
+`passthrough` controls the characters that are not in the alphabet. The value `keep` copies these characters to the output. Characters such as `-`, `+` and the space stay in a phone number. The value `error` rejects the value.
+
+`keep_prefix` and `keep_suffix` keep a number of characters without a change. Use them to keep a country code or a check digit. These parameters count only the characters in the alphabet. Separators do not increase the count, because the transformer does not encrypt them. For example, set `keep_prefix: 4` for a `digits` column. The transformer then keeps the country code and the operator code of `+36301234567`, `+36 30 123 4567` and `+36-30-123-4567`. The three formats give the same digits in the output. The transformer rejects a value that has too few characters. Refer to the first caution below.
+
+`preserve_from` keeps the end of the value without a change. The part that the transformer keeps starts at the **last** occurrence of the delimiter. Use this parameter when a delimiter marks the part to keep. `keep_suffix` keeps a fixed number of characters, but `preserve_from` keeps a variable number. In an email address, `preserve_from: "@"` keeps the full domain. `preserve_from: "."` keeps only the top-level domain, and it encrypts the domain name. If the value does not contain the delimiter, the transformer encrypts the full value. The delimiter must not contain a character from the alphabet. If it does, pgstream rejects the configuration when it starts. The transformer copies only the characters that are not in the alphabet to the same position in the output. This condition is necessary to keep the outputs unique.
+
+**⚠️ The transformer rejects short values.** FF1 does not encrypt a set of possible values that is smaller than 10<sup>6</sup>, because an attacker can try all of them. For `digits`, a value must contain 6 characters or more from the alphabet. For `letters` and `alphanumeric`, it must contain 4 characters or more. Count the characters after you remove the prefix, the suffix, and the characters that are not in the alphabet. The transformer returns an error for a shorter value. It does not send the original value to the target, because this makes the data visible. The error goes to the [`on_error`](#transformation-rules) policy, where you select `fail`, `pass-through` or `null`. Be careful with `pass-through`, because it writes the original value to the target. `min_length` increases the minimum, for example to 9 digits. It cannot decrease the minimum.
+
+**⚠️ The transformer keeps the format, but the output is not realistic.** A phone number stays a possible phone number, and a code stays a valid code. But with `alphabet: letters`, a company name becomes a random text such as `Dmkh VjksJwk`. The output has the shape of a name and it is unique, but it is not a real company name.
+
+**Email addresses.** With `alphabet: alphanumeric` and `passthrough: keep`, the transformer encrypts the local part, the domain and the top-level domain. The address `john.doe@example.com` becomes `FdSQ.v6s@udengIL.0Td`. The top-level domain is not valid, and a mail server cannot deliver to this address. Use `preserve_from` to correct this:
+
+| `preserve_from` | Result                 | What the transformer encrypts             |
+| --------------- | ---------------------- | ----------------------------------------- |
+| unset           | `FdSQ.v6s@udengIL.0Td` | The full address. The top-level domain is not valid. |
+| `"."`           | `lHtC.Mr7@1uH9RP1.com` | The local part and the domain name. The transformer keeps the top-level domain, thus the address has a correct format. |
+| `"@"`           | `69pe.Nzy@example.com` | The local part only. The address is valid, but the target shows the domain. |
+
+Select the option that agrees with your data. Do not use `preserve_from: "@"` when the domain is sensitive, because the target then contains each source domain. All three options keep the outputs unique. Use `neosync_email` with `preserve_domain: true` when a mail server must deliver to the address. That transformer makes a new local part, but its uniqueness is `not_guaranteed`. Two different addresses can give the same output.
+
+**Security note:** The encryption is deterministic. Equal inputs give equal outputs. This shows which values are equal, but it shows no other data. A person who has the key can decrypt the values. Keep the key in a secret manager, and do not store it with the transformed data.
+
+**Example Configuration:**
+
+```yaml
+transformations:
+  table_transformers:
+    - schema: public
+      table: persons
+      column_transformers:
+        phone_number:
+          name: fpe_ff1
+          parameters:
+            # example key only — generate your own and load it from a secret store
+            key_hex: "000102030405060708090a0b0c0d0e0f"
+            associated_data: "public.persons.phone_number"
+            alphabet: digits
+            passthrough: keep
+            # keep 4 digits: the country code and the operator code.
+            # separators do not increase this count.
+            keep_prefix: 4
+```
+
+**Input-Output Examples:**
+
+| Input                  | Configuration Parameters                                                | Output                 |
+| ---------------------- | ----------------------------------------------------------------------- | ---------------------- |
+| `1234567890`           | `key_hex: "000102…0e0f"`, no `associated_data`                            | `5102547240`           |
+| `1234567890`           | `key_hex: "000102…0e0f"`, `associated_data: "public.persons.phone_number"` | `0453276999`           |
+| `+36301234567`         | as the example above (`keep_prefix: 4`)                                   | `+36303497985`         |
+| `+36 30 123 4567`      | as the example above (`keep_prefix: 4`)                                   | `+36 30 349 7985`      |
+| `(301) 555-0123`       | as the example above (`keep_prefix: 4`)                                   | `(301) 545-8564`       |
+| `Acme Trading`         | `key_hex: "000102…0e0f"`, `alphabet: letters`                             | `Dmkh VjksJwk`         |
+| `john.doe@example.com` | `key_hex: "000102…0e0f"`, `alphabet: alphanumeric`                        | `FdSQ.v6s@udengIL.0Td` |
+| `john.doe@example.com` | `key_hex: "000102…0e0f"`, `alphabet: alphanumeric`, `preserve_from: "."`   | `lHtC.Mr7@1uH9RP1.com` |
+| `john.doe@example.com` | `key_hex: "000102…0e0f"`, `alphabet: alphanumeric`, `preserve_from: "@"`   | `69pe.Nzy@example.com` |
+
+Each run gives the same output for the same key and the same parameters. Any NIST FF1 implementation can decrypt the values. It needs the key, the tweak and the alphabet.
 
 </details>
 

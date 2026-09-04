@@ -81,6 +81,7 @@ const (
 	Hstore                 TransformerType = "hstore"
 	PGAnonymizer           TransformerType = "pg_anonymizer"
 	EncryptedAESSIV        TransformerType = "encrypted_aes_siv"
+	FPEFF1                 TransformerType = "fpe_ff1"
 )
 
 type SupportedDataType string
