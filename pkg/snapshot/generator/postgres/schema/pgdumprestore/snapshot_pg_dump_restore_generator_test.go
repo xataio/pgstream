@@ -7,7 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2598,4 +2601,444 @@ func TestSnapshotGenerator_restoreIndicesAndConstraints_noBackoffProvider(t *tes
 	err := sg.restoreIndicesAndConstraints(context.Background(), indexDump, &snapshot.Snapshot{})
 	require.Error(t, err)
 	require.Equal(t, 1, attempts)
+}
+
+func TestPartitionDumpBlocks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		dump              []byte
+		wantConnectBlocks []string
+		wantIndexBlocks   []string
+		wantOtherBlocks   []string
+	}{
+		{
+			name: "empty dump",
+		},
+		{
+			name: "mixed statements",
+			dump: []byte("\\connect testdb\n\n" +
+				"CREATE INDEX idx_a ON public.a USING btree (id);\n\n" +
+				"CREATE UNIQUE INDEX idx_b ON public.b USING btree (id);\n\n" +
+				"ALTER TABLE public.a ADD CONSTRAINT a_pkey PRIMARY KEY USING INDEX idx_a;\n\n" +
+				"COMMENT ON INDEX idx_b IS 'test';\n\n"),
+			wantConnectBlocks: []string{`\connect testdb`},
+			wantIndexBlocks: []string{
+				"CREATE INDEX idx_a ON public.a USING btree (id);",
+				"CREATE UNIQUE INDEX idx_b ON public.b USING btree (id);",
+			},
+			wantOtherBlocks: []string{
+				"ALTER TABLE public.a ADD CONSTRAINT a_pkey PRIMARY KEY USING INDEX idx_a;",
+				"COMMENT ON INDEX idx_b IS 'test';",
+			},
+		},
+		{
+			// ATTACH PARTITION depends on both the parent and the child index
+			// already existing, so it must not be treated as an independent
+			// index statement.
+			name: "attach partition is not an index statement",
+			dump: []byte("CREATE INDEX events_partition_id_idx ON ONLY public.events USING btree (partition_id);\n\n" +
+				"CREATE INDEX events_0_partition_id_idx ON public.events_0 USING btree (partition_id);\n\n" +
+				"ALTER INDEX public.events_partition_id_idx ATTACH PARTITION public.events_0_partition_id_idx;\n\n"),
+			wantIndexBlocks: []string{
+				"CREATE INDEX events_partition_id_idx ON ONLY public.events USING btree (partition_id);",
+				"CREATE INDEX events_0_partition_id_idx ON public.events_0 USING btree (partition_id);",
+			},
+			wantOtherBlocks: []string{
+				"ALTER INDEX public.events_partition_id_idx ATTACH PARTITION public.events_0_partition_id_idx;",
+			},
+		},
+		{
+			// pg_dump splits an ALTER TABLE ONLY constraint over two lines,
+			// which parseDump keeps together in a single block
+			name: "multi line constraint stays one block",
+			dump: []byte("CREATE INDEX idx_a ON public.a USING btree (id);\n\n" +
+				"ALTER TABLE ONLY public.a\n    ADD CONSTRAINT a_fkey FOREIGN KEY (b_id) REFERENCES public.b(id);\n\n"),
+			wantIndexBlocks: []string{"CREATE INDEX idx_a ON public.a USING btree (id);"},
+			wantOtherBlocks: []string{"ALTER TABLE ONLY public.a\n    ADD CONSTRAINT a_fkey FOREIGN KEY (b_id) REFERENCES public.b(id);"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotConnect, gotIndex, gotOther := partitionDumpBlocks(tc.dump, isIndexStatement)
+			require.Equal(t, tc.wantConnectBlocks, gotConnect)
+			require.Equal(t, tc.wantIndexBlocks, gotIndex)
+			require.Equal(t, tc.wantOtherBlocks, gotOther)
+		})
+	}
+}
+
+const (
+	testConnectBlock = `\connect testdb`
+	testIndexA       = "CREATE INDEX idx_a ON public.a USING btree (id);"
+	testIndexB       = "CREATE UNIQUE INDEX idx_b ON public.b USING btree (id);"
+	testDependent1   = "ALTER TABLE public.a ADD CONSTRAINT a_pkey PRIMARY KEY USING INDEX idx_a;"
+	testDependent2   = "COMMENT ON INDEX idx_b IS 'test';"
+)
+
+func testIndexDump(blocks ...string) []byte {
+	return []byte(strings.Join(blocks, "\n\n") + "\n\n")
+}
+
+// restoreRecorder records the dumps a restore was called with, so that the
+// assertions can run on the test goroutine: testify's require calls FailNow,
+// which must not be reached from the restore worker goroutines.
+type restoreRecorder struct {
+	mutex sync.Mutex
+	dumps []string
+}
+
+func (r *restoreRecorder) record(dump []byte) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.dumps = append(r.dumps, string(dump))
+}
+
+func (r *restoreRecorder) recorded() []string {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	return slices.Clone(r.dumps)
+}
+
+func TestSnapshotGenerator_restoreIndexDump(t *testing.T) {
+	t.Parallel()
+
+	dump := testIndexDump(testConnectBlock, testIndexA, testIndexB, testDependent1, testDependent2)
+	indexACall := string(testIndexDump(testConnectBlock, testIndexA))
+	indexBCall := string(testIndexDump(testConnectBlock, testIndexB))
+	dependentsCall := string(testIndexDump(testConnectBlock, testDependent1, testDependent2))
+
+	transientErr := func() error {
+		return pglib.NewPGRestoreErrors(&pglib.ErrTransientFailure{Details: "psql: error: connection to server was lost"})
+	}
+
+	t.Run("no workers configured restores the whole dump in one call", func(t *testing.T) {
+		t.Parallel()
+
+		recorder := &restoreRecorder{}
+		sg := &SnapshotGenerator{
+			logger: log.NewNoopLogger(),
+			pgRestoreFn: func(_ context.Context, _ pglib.PGRestoreOptions, gotDump []byte) (string, error) {
+				recorder.record(gotDump)
+				return "", nil
+			},
+		}
+
+		require.NoError(t, sg.restoreIndexDump(context.Background(), pglib.PGRestoreOptions{}, dump))
+		require.Equal(t, []string{string(dump)}, recorder.recorded())
+	})
+
+	t.Run("a single index statement falls back to one sequential call", func(t *testing.T) {
+		t.Parallel()
+
+		singleIndexDump := testIndexDump(testIndexA, testDependent1)
+		recorder := &restoreRecorder{}
+		sg := &SnapshotGenerator{
+			logger:              log.NewNoopLogger(),
+			indexRestoreWorkers: 4,
+			pgRestoreFn: func(_ context.Context, _ pglib.PGRestoreOptions, gotDump []byte) (string, error) {
+				recorder.record(gotDump)
+				return "", nil
+			},
+		}
+
+		require.NoError(t, sg.restoreIndexDump(context.Background(), pglib.PGRestoreOptions{}, singleIndexDump))
+		require.Equal(t, []string{string(singleIndexDump)}, recorder.recorded())
+	})
+
+	t.Run("each index is restored on its own, and the dependent statements after all of them", func(t *testing.T) {
+		t.Parallel()
+
+		recorder := &restoreRecorder{}
+		sg := &SnapshotGenerator{
+			logger:              log.NewNoopLogger(),
+			indexRestoreWorkers: 2,
+			pgRestoreFn: func(_ context.Context, _ pglib.PGRestoreOptions, gotDump []byte) (string, error) {
+				recorder.record(gotDump)
+				return "", nil
+			},
+		}
+
+		require.NoError(t, sg.restoreIndexDump(context.Background(), pglib.PGRestoreOptions{}, dump))
+
+		recorded := recorder.recorded()
+		require.Len(t, recorded, 3)
+		// the indices are restored one statement per call, in any order,
+		// each carrying the connect statements
+		require.ElementsMatch(t, []string{indexACall, indexBCall}, recorded[:2])
+		// the dependent statements are restored last, in one call, in their
+		// original relative order
+		require.Equal(t, dependentsCall, recorded[2])
+	})
+
+	t.Run("more workers than index statements", func(t *testing.T) {
+		t.Parallel()
+
+		recorder := &restoreRecorder{}
+		sg := &SnapshotGenerator{
+			logger:              log.NewNoopLogger(),
+			indexRestoreWorkers: 8,
+			pgRestoreFn: func(_ context.Context, _ pglib.PGRestoreOptions, gotDump []byte) (string, error) {
+				recorder.record(gotDump)
+				return "", nil
+			},
+		}
+
+		require.NoError(t, sg.restoreIndexDump(context.Background(), pglib.PGRestoreOptions{}, dump))
+
+		recorded := recorder.recorded()
+		require.Len(t, recorded, 3)
+		require.ElementsMatch(t, []string{indexACall, indexBCall}, recorded[:2])
+		require.Equal(t, dependentsCall, recorded[2])
+	})
+
+	t.Run("indices are restored concurrently", func(t *testing.T) {
+		t.Parallel()
+
+		// both index restores block until the other one has started, so the
+		// test times out rather than passing if the restores are serialised
+		started := make(chan struct{}, 2)
+		release := make(chan struct{})
+		sg := &SnapshotGenerator{
+			logger:              log.NewNoopLogger(),
+			indexRestoreWorkers: 2,
+			pgRestoreFn: func(_ context.Context, _ pglib.PGRestoreOptions, gotDump []byte) (string, error) {
+				if !isIndexStatement(strings.TrimPrefix(string(gotDump), testConnectBlock+"\n\n")) {
+					return "", nil
+				}
+				started <- struct{}{}
+				<-release
+				return "", nil
+			},
+		}
+
+		done := make(chan error, 1)
+		go func() { done <- sg.restoreIndexDump(context.Background(), pglib.PGRestoreOptions{}, dump) }()
+
+		for range 2 {
+			select {
+			case <-started:
+			case <-time.After(10 * time.Second):
+				t.Fatal("timed out waiting for both index restores to start: they are not running concurrently")
+			}
+		}
+		close(release)
+
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(10 * time.Second):
+			t.Fatal("timed out waiting for the restore to finish")
+		}
+	})
+
+	t.Run("a failing index does not stop the other indices or the dependent statements", func(t *testing.T) {
+		t.Parallel()
+
+		errTest := errors.New("oh noes")
+		recorder := &restoreRecorder{}
+		sg := &SnapshotGenerator{
+			logger:              log.NewNoopLogger(),
+			indexRestoreWorkers: 2,
+			pgRestoreFn: func(_ context.Context, _ pglib.PGRestoreOptions, gotDump []byte) (string, error) {
+				recorder.record(gotDump)
+				if string(gotDump) == indexACall {
+					return "", errTest
+				}
+				return "", nil
+			},
+		}
+
+		err := sg.restoreIndexDump(context.Background(), pglib.PGRestoreOptions{}, dump)
+		require.ErrorIs(t, err, errTest)
+
+		// cancelling the sibling restores would orphan the index builds they
+		// have already started on the server, and skipping the dependent
+		// statements would leave the target without its constraints
+		recorded := recorder.recorded()
+		require.Len(t, recorded, 3)
+		require.ElementsMatch(t, []string{indexACall, indexBCall}, recorded[:2])
+		require.Equal(t, dependentsCall, recorded[2])
+	})
+
+	t.Run("a wave of transient failures stays retryable", func(t *testing.T) {
+		t.Parallel()
+
+		sg := &SnapshotGenerator{
+			logger:              log.NewNoopLogger(),
+			indexRestoreWorkers: 2,
+			pgRestoreFn: func(_ context.Context, _ pglib.PGRestoreOptions, gotDump []byte) (string, error) {
+				if isIndexStatement(strings.TrimPrefix(string(gotDump), testConnectBlock+"\n\n")) {
+					return "", transientErr()
+				}
+				return "", nil
+			},
+		}
+
+		err := sg.restoreIndexDump(context.Background(), pglib.PGRestoreOptions{}, dump)
+		require.Error(t, err)
+
+		// the merged error decides the retry for the whole wave, rather than
+		// whichever worker's error arrived first
+		restoreErrs := &pglib.PGRestoreErrors{}
+		require.ErrorAs(t, err, &restoreErrs)
+		require.True(t, restoreErrs.IsRetryable())
+		require.Len(t, restoreErrs.GetRetryableErrors(), 2)
+	})
+
+	t.Run("a critical failure alongside a transient one is not retryable", func(t *testing.T) {
+		t.Parallel()
+
+		sg := &SnapshotGenerator{
+			logger:              log.NewNoopLogger(),
+			indexRestoreWorkers: 2,
+			pgRestoreFn: func(_ context.Context, _ pglib.PGRestoreOptions, gotDump []byte) (string, error) {
+				switch string(gotDump) {
+				case indexACall:
+					return "", transientErr()
+				case indexBCall:
+					return "", pglib.NewPGRestoreErrors(errors.New("oh noes"))
+				default:
+					return "", nil
+				}
+			},
+		}
+
+		err := sg.restoreIndexDump(context.Background(), pglib.PGRestoreOptions{}, dump)
+		require.Error(t, err)
+
+		restoreErrs := &pglib.PGRestoreErrors{}
+		require.ErrorAs(t, err, &restoreErrs)
+		require.False(t, restoreErrs.IsRetryable())
+		require.True(t, restoreErrs.HasCriticalErrors())
+	})
+
+	t.Run("a cancelled context stops the restore before the dependent statements", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		recorder := &restoreRecorder{}
+		sg := &SnapshotGenerator{
+			logger:              log.NewNoopLogger(),
+			indexRestoreWorkers: 2,
+			pgRestoreFn: func(_ context.Context, _ pglib.PGRestoreOptions, gotDump []byte) (string, error) {
+				recorder.record(gotDump)
+				return "", nil
+			},
+		}
+
+		err := sg.restoreIndexDump(ctx, pglib.PGRestoreOptions{}, dump)
+		require.ErrorIs(t, err, context.Canceled)
+		require.Empty(t, recorder.recorded())
+	})
+
+	t.Run("the progress tracking path restores every block too", func(t *testing.T) {
+		t.Parallel()
+
+		recorder := &restoreRecorder{}
+		tracked := make(chan struct{})
+		sg := &SnapshotGenerator{
+			logger:              log.NewNoopLogger(),
+			indexRestoreWorkers: 2,
+			snapshotTracker: &mockSnapshotTracker{
+				trackIndexesCreationFn: func(ctx context.Context) {
+					close(tracked)
+					<-ctx.Done()
+				},
+			},
+			pgRestoreFn: func(_ context.Context, _ pglib.PGRestoreOptions, gotDump []byte) (string, error) {
+				recorder.record(gotDump)
+				return "", nil
+			},
+		}
+
+		require.NoError(t, sg.restoreIndices(context.Background(), pglib.PGRestoreOptions{}, dump))
+		<-tracked
+
+		recorded := recorder.recorded()
+		require.Len(t, recorded, 3)
+		require.ElementsMatch(t, []string{indexACall, indexBCall}, recorded[:2])
+		require.Equal(t, dependentsCall, recorded[2])
+	})
+}
+
+func TestConfig_indexRestoreWorkers(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, uint(1), (&Config{}).indexRestoreWorkers())
+	require.Equal(t, uint(3), (&Config{IndexRestoreWorkers: 3}).indexRestoreWorkers())
+}
+
+func TestNewSnapshotGenerator_indexRestoreWorkersValidation(t *testing.T) {
+	t.Parallel()
+
+	// the worker count is validated before any connection is opened, so an
+	// unusable value fails at startup instead of at the index restore, hours
+	// into a snapshot
+	_, err := NewSnapshotGenerator(context.Background(), &Config{
+		SourcePGURL:         "postgres://not-used",
+		IndexRestoreWorkers: maxIndexRestoreWorkers + 1,
+	})
+	require.ErrorIs(t, err, errTooManyIndexRestoreWorkers)
+
+	// a negative value that wrapped around on its way through the config
+	// decoder is caught by the same cap
+	_, err = NewSnapshotGenerator(context.Background(), &Config{
+		SourcePGURL:         "postgres://not-used",
+		IndexRestoreWorkers: ^uint(0),
+	})
+	require.ErrorIs(t, err, errTooManyIndexRestoreWorkers)
+}
+
+// TestSnapshotGenerator_restoreIndicesAndConstraints_parallel covers the
+// interaction between the concurrent index restore and the retry wrapper: a
+// transient failure in any worker has to be classified as retryable for the
+// whole wave, and the rerun has to succeed once the objects the first attempt
+// did create come back as "already exists".
+func TestSnapshotGenerator_restoreIndicesAndConstraints_parallel(t *testing.T) {
+	t.Parallel()
+
+	dump := testIndexDump(testIndexA, testIndexB, testDependent1)
+	indexACall := string(testIndexDump(testIndexA))
+	indexBCall := string(testIndexDump(testIndexB))
+
+	attempts := atomic.Int32{}
+	sg := SnapshotGenerator{
+		targetURL:           "target-url",
+		logger:              log.NewNoopLogger(),
+		optionGenerator:     &optionGenerator{targetURL: "target-url"},
+		indexRestoreWorkers: 2,
+		indexRestoreBackoff: backoff.NewProvider(&backoff.Config{
+			Constant: &backoff.ConstantConfig{
+				Interval:   time.Millisecond,
+				MaxRetries: 2,
+			},
+		}),
+		pgRestoreFn: func(_ context.Context, _ pglib.PGRestoreOptions, gotDump []byte) (string, error) {
+			got := string(gotDump)
+			if got != indexACall && got != indexBCall {
+				return "", nil
+			}
+			// the first attempt loses its connection on both indices, the
+			// second finds idx_a already there from the first one
+			if attempts.Add(1) <= 2 {
+				return "", pglib.NewPGRestoreErrors(&pglib.ErrTransientFailure{
+					Details: "psql: error: connection to server was lost",
+				})
+			}
+			return "", pglib.NewPGRestoreErrors(&pglib.ErrRelationAlreadyExists{
+				Details: `ERROR: relation "idx_a" already exists`,
+			})
+		},
+	}
+
+	require.NoError(t, sg.restoreIndicesAndConstraints(context.Background(), dump, &snapshot.Snapshot{}))
+	// both indices on the first attempt, both again on the retry
+	require.Equal(t, int32(4), attempts.Load())
 }

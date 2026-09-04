@@ -426,20 +426,58 @@ func NewPGRestoreErrors(errs ...error) *PGRestoreErrors {
 	return pgrestoreErrs
 }
 
+// MergePGRestoreErrors combines the errors of several restores into a single
+// PGRestoreErrors that keeps each error in the bucket it was originally
+// classified into, so that HasCriticalErrors and IsRetryable describe the set
+// as a whole. It returns nil when none of the restores failed.
+//
+// Concurrent restores need this: classifying their combined failure by
+// whichever error happened to arrive first would make the retry decision
+// depend on scheduling, and a merged error built with NewPGRestoreErrors would
+// demote every nested restore error to critical, since a PGRestoreErrors
+// matches none of the classifications addError checks for.
+func MergePGRestoreErrors(errs ...error) error {
+	merged := &PGRestoreErrors{}
+	for _, err := range errs {
+		if err == nil {
+			continue
+		}
+		restoreErrs := &PGRestoreErrors{}
+		if errors.As(err, &restoreErrs) {
+			merged.ignoredErrs = append(merged.ignoredErrs, restoreErrs.ignoredErrs...)
+			merged.criticalErrs = append(merged.criticalErrs, restoreErrs.criticalErrs...)
+			merged.retryableErrs = append(merged.retryableErrs, restoreErrs.retryableErrs...)
+			continue
+		}
+		merged.addError(err)
+	}
+
+	if !merged.HasErrors() {
+		return nil
+	}
+	return merged
+}
+
 func (e PGRestoreErrors) Error() string {
 	if !e.HasErrors() {
 		return ""
 	}
-
-	all := make([]error, 0, len(e.criticalErrs)+len(e.retryableErrs)+len(e.ignoredErrs))
-	all = append(all, e.criticalErrs...)
-	all = append(all, e.retryableErrs...)
-	all = append(all, e.ignoredErrs...)
-	return errors.Join(all...).Error()
+	return errors.Join(e.Unwrap()...).Error()
 }
 
 func (e PGRestoreErrors) HasErrors() bool {
 	return len(e.criticalErrs) > 0 || len(e.retryableErrs) > 0 || len(e.ignoredErrs) > 0
+}
+
+// Unwrap exposes the individual restore errors, so that a caller holding the
+// collection can still interrogate it with errors.Is and errors.As rather than
+// by matching on the joined message.
+func (e PGRestoreErrors) Unwrap() []error {
+	all := make([]error, 0, len(e.criticalErrs)+len(e.retryableErrs)+len(e.ignoredErrs))
+	all = append(all, e.criticalErrs...)
+	all = append(all, e.retryableErrs...)
+	all = append(all, e.ignoredErrs...)
+	return all
 }
 
 // HasCriticalErrors reports whether the restore hit an error that must not be

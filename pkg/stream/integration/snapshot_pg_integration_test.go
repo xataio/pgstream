@@ -624,6 +624,113 @@ func Test_SnapshotToPostgres_MaterializedViewRefresh(t *testing.T) {
 	require.Contains(t, indexes, indexName)
 }
 
+// Test_SnapshotToPostgres_ParallelIndexRestore verifies that, when the schema
+// snapshot restores indexes concurrently (IndexRestoreWorkers > 1), every
+// standalone index is still created and everything that depends on an index
+// existing is restored correctly afterwards: a constraint added USING INDEX,
+// a comment on an index, and a partitioned index attached to its parent via
+// ALTER INDEX ... ATTACH PARTITION.
+func Test_SnapshotToPostgres_ParallelIndexRestore(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	suffix := time.Now().UnixNano()
+	testTable := fmt.Sprintf("parallel_idx_%d", suffix)
+	uniqueIndex := fmt.Sprintf("parallel_idx_ui_%d", suffix)
+	otherIndex1 := fmt.Sprintf("parallel_idx_i2_%d", suffix)
+	otherIndex2 := fmt.Sprintf("parallel_idx_i3_%d", suffix)
+	exprIndex := fmt.Sprintf("parallel_idx_expr_%d", suffix)
+	uniqueConstraint := fmt.Sprintf("parallel_idx_uc_%d", suffix)
+	indexComment := "parallel restore test comment"
+
+	partitionedTable := fmt.Sprintf("parallel_part_%d", suffix)
+	partitionedIndex := fmt.Sprintf("parallel_part_idx_%d", suffix)
+
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s(
+			id serial PRIMARY KEY,
+			val text NOT NULL,
+			val2 text NOT NULL,
+			val3 integer NOT NULL
+		)`, testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`INSERT INTO %s(val, val2, val3) VALUES ('a', 'x', 1), ('b', 'y', 2)`, testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE UNIQUE INDEX %s ON %s(val)`, uniqueIndex, testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE INDEX %s ON %s(val2)`, otherIndex1, testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE INDEX %s ON %s(val3)`, otherIndex2, testTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE INDEX %s ON %s(lower(val))`, exprIndex, testTable))
+	// depends on the unique index above already existing. This also renames
+	// the index to the constraint name.
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`ALTER TABLE %s ADD CONSTRAINT %s UNIQUE USING INDEX %s`, testTable, uniqueConstraint, uniqueIndex))
+	// depends on the index above already existing
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`COMMENT ON INDEX %s IS '%s'`, otherIndex1, indexComment))
+
+	// a partitioned index: pg_dump represents it as a parent CREATE INDEX ON
+	// ONLY, one CREATE INDEX per partition, and an ALTER INDEX ... ATTACH
+	// PARTITION per partition that depends on both indexes already existing.
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s(id integer NOT NULL, val text) PARTITION BY RANGE (id)`, partitionedTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s_0 PARTITION OF %s FOR VALUES FROM (0) TO (100)`, partitionedTable, partitionedTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE TABLE %s_1 PARTITION OF %s FOR VALUES FROM (100) TO (200)`, partitionedTable, partitionedTable))
+	execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+		`CREATE INDEX %s ON %s(val)`, partitionedIndex, partitionedTable))
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{"public.*"}),
+		Processor: testPostgresProcessorCfg(),
+	}
+	cfg.Listener.Postgres.Snapshot.Schema.DumpRestore.IndexRestoreWorkers = 4
+	require.NoError(t, stream.Snapshot(ctx, testLogger(), cfg, nil))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	indexes := getTableIndexes(t, ctx, targetConn, "public", testTable)
+	// the unique index was renamed to the constraint name by ADD CONSTRAINT
+	// ... UNIQUE USING INDEX
+	require.Contains(t, indexes, uniqueConstraint)
+	require.Contains(t, indexes, otherIndex1)
+	require.Contains(t, indexes, otherIndex2)
+	require.Contains(t, indexes, exprIndex)
+
+	var constraintType string
+	err = targetConn.QueryRow(ctx, []any{&constraintType}, `
+		SELECT contype FROM pg_constraint WHERE conname = $1
+	`, uniqueConstraint)
+	require.NoError(t, err)
+	require.Equal(t, "u", constraintType)
+
+	var gotComment string
+	err = targetConn.QueryRow(ctx, []any{&gotComment}, fmt.Sprintf(
+		`SELECT obj_description('%s'::regclass, 'pg_class')`, otherIndex1))
+	require.NoError(t, err)
+	require.Equal(t, indexComment, gotComment)
+
+	var attachedPartitions int
+	err = targetConn.QueryRow(ctx, []any{&attachedPartitions}, fmt.Sprintf(
+		`SELECT count(*) FROM pg_inherits WHERE inhparent = '%s'::regclass`, partitionedIndex))
+	require.NoError(t, err)
+	require.Equal(t, 2, attachedPartitions)
+}
+
 // Test_SnapshotToPostgres_SkipsLegacyPLPGSQLHandlers verifies that legacy
 // public PL/pgSQL handler functions from a source dump are not restored as
 // ordinary user functions, while normal user-defined functions are preserved.

@@ -50,6 +50,11 @@ source:
             # - statement_timeout=0
             # - lock_timeout=0
             # - synchronous_commit=off # faster restore, but a target crash right after the restore can lose the final index/constraint commits
+          # Number of standalone CREATE INDEX/CREATE UNIQUE INDEX statements restored concurrently against the target. Statements that depend on an index
+          # (constraints, comments, partition attachments, REPLICA IDENTITY, CLUSTER) always wait for every index to be created first.
+          # Each worker holds one target connection and applies the index_constraint_session_settings above to it, so the target needs this many free
+          # connection slots and up to workers x maintenance_work_mem of memory. Defaults to 1 (sequential), maximum 32.
+          index_restore_workers: 1
           dump_file: pg_dump.sql # name of the file where the contents of the schema pg_dump command and output will be written for debugging purposes.
           # Granular object type filtering for schema snapshots. Only one of include_object_types or exclude_object_types can be set.
           # Available categories: tables, sequences, types, indexes, constraints, functions, views, materialized_views, triggers, event_triggers, policies, rules, comments, extensions, collations, text_search
