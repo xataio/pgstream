@@ -69,7 +69,7 @@ func validateUniqueness(schema, table string, indexes []uniqueIndex, columnTrans
 		case len(lossy) > 0:
 			findings.errors = append(findings.errors, fmt.Sprintf(
 				"%s: %s is covered by a transformer that maps distinct values to the same output (%s), which will cause duplicate key violations. "+
-					"Use a transformer that preserves uniqueness, such as encrypted_aes_siv, or set allow_uniqueness_loss on the column to override",
+					"Use a transformer that preserves uniqueness, such as encrypted_aes_siv or fpe_ff1, or set allow_uniqueness_loss on the column to override",
 				schemaTableKey(schema, table), index.describe(), strings.Join(lossy, ", ")))
 		case len(notGuaranteed) > 0:
 			findings.warnings = append(findings.warnings, fmt.Sprintf(

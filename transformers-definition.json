@@ -57,6 +57,75 @@
       ]
     },
     {
+      "name": "fpe_ff1",
+      "supported_types": [
+        "string"
+      ],
+      "uniqueness": "preserved",
+      "parameters": [
+        {
+          "name": "key_hex",
+          "supported_type": "string",
+          "default": null,
+          "dynamic": false,
+          "required": true
+        },
+        {
+          "name": "associated_data",
+          "supported_type": "string",
+          "default": "",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "alphabet",
+          "supported_type": "string",
+          "default": "digits",
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "passthrough",
+          "supported_type": "string",
+          "default": "keep",
+          "dynamic": false,
+          "required": false,
+          "values": [
+            "keep",
+            "error"
+          ]
+        },
+        {
+          "name": "keep_prefix",
+          "supported_type": "int",
+          "default": 0,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "keep_suffix",
+          "supported_type": "int",
+          "default": 0,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "min_length",
+          "supported_type": "int",
+          "default": 0,
+          "dynamic": false,
+          "required": false
+        },
+        {
+          "name": "preserve_from",
+          "supported_type": "string",
+          "default": "",
+          "dynamic": false,
+          "required": false
+        }
+      ]
+    },
+    {
       "name": "greenmask_boolean",
       "supported_types": [
         "boolean",
