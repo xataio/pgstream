@@ -135,6 +135,19 @@ PGSTREAM_KAFKA_TLS_CLIENT_CERT_FILE="client.cer.pem"
 PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE="client.key.pem"
 ```
 
+The Kafka processor can also use SASL authentication. Give the mechanism, the user and the password. The mechanism must be `plain`, `scram-sha-256` or `scram-sha-512`. `pgstream` does not support GSSAPI or OAUTHBEARER.
+
+```sh
+PGSTREAM_KAFKA_SASL_ENABLED=true
+PGSTREAM_KAFKA_SASL_MECHANISM="scram-sha-512"
+PGSTREAM_KAFKA_SASL_USER="myuser"
+PGSTREAM_KAFKA_SASL_PASSWORD="mypassword"
+```
+
+The `plain` mechanism sends the password in clear text. Enable TLS with it.
+
+These four variables apply to the Kafka reader and to the Kafka writer. Add them to the `Kafka -> PostgreSQL` and `Kafka -> OpenSearch` configuration too, with the same values.
+
 The Kafka processor uses batching under the hood to reduce the number of IO calls to Kafka and improve performance. The batch size and send timeout can both be configured to be able to better fit the different traffic patterns. The indexer will send a batch when the timeout or the batch size is reached, whichever happens first.
 
 ```sh
@@ -678,6 +691,19 @@ Here are some common issues you might encounter while following this tutorial an
     PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE="client.key.pem"
     ```
   - Ensure the certificates are valid and match the Kafka server configuration.
+
+### 8. **Error: `SASL Authentication failed`**
+
+- **Cause:** The Kafka SASL credentials are wrong, or the broker does not offer the mechanism.
+- **Solution:**
+  - Verify the user and the password in the configuration:
+    ```sh
+    PGSTREAM_KAFKA_SASL_MECHANISM="scram-sha-512"
+    PGSTREAM_KAFKA_SASL_USER="myuser"
+    PGSTREAM_KAFKA_SASL_PASSWORD="mypassword"
+    ```
+  - Ensure the broker offers the mechanism. The broker lists the mechanisms it accepts in its `sasl.enabled.mechanisms` setting.
+  - Set the same four variables for every `pgstream` instance. The Kafka reader and the Kafka writer authenticate separately.
 
 If you encounter issues not listed here, consult the [pgstream documentation](https://github.com/xataio/pgstream) or open an issue on the project's GitHub repository.
 

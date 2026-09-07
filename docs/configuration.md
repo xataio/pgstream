@@ -85,6 +85,10 @@ source:
       ca_cert: "/path/to/ca.crt" # path to CA certificate
       client_cert: "/path/to/client.crt" # path to client certificate
       client_key: "/path/to/client.key" # path to client key
+    sasl: # remove this section to disable SASL authentication
+      mechanism: "scram-sha-512" # options are plain, scram-sha-256 or scram-sha-512. Required
+      user: "myuser" # user for the SASL authentication. Required
+      password: "mypassword" # password for the SASL authentication. Required
     backoff:
       disable_retries: false
       exponential:
@@ -141,6 +145,10 @@ target:
       ca_cert: "/path/to/ca.crt" # path to CA certificate
       client_cert: "/path/to/client.crt" # path to client certificate
       client_key: "/path/to/client.key" # path to client key
+    sasl: # remove this section to disable SASL authentication
+      mechanism: "scram-sha-512" # options are plain, scram-sha-256 or scram-sha-512. Required
+      user: "myuser" # user for the SASL authentication. Required
+      password: "mypassword" # password for the SASL authentication. Required
     batch:
       timeout: 1000 # batch timeout in milliseconds. Defaults to 1s
       size: 100 # number of messages in a batch. Defaults to 100
@@ -280,6 +288,10 @@ One of exponential/constant/disable retries retry policies can be provided for t
 | PGSTREAM_KAFKA_TLS_CA_CERT_FILE                    | ""       | When TLS enabled | Path to the CA PEM certificate to use for Kafka TLS authentication.                                    |
 | PGSTREAM_KAFKA_TLS_CLIENT_CERT_FILE                | ""       | No               | Path to the client PEM certificate to use for Kafka TLS client authentication.                         |
 | PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE                 | ""       | No               | Path to the client PEM private key to use for Kafka TLS client authentication.                         |
+| PGSTREAM_KAFKA_SASL_ENABLED                        | False    | No               | Enable SASL authentication to the Kafka servers.                                                       |
+| PGSTREAM_KAFKA_SASL_MECHANISM                      | ""       | When enabled     | SASL mechanism to use, one of `plain`, `scram-sha-256` or `scram-sha-512`.                             |
+| PGSTREAM_KAFKA_SASL_USER                           | ""       | When enabled     | User for the Kafka SASL authentication.                                                                |
+| PGSTREAM_KAFKA_SASL_PASSWORD                       | ""       | When enabled     | Password for the Kafka SASL authentication.                                                            |
 | PGSTREAM_KAFKA_COMMIT_EXP_BACKOFF_INITIAL_INTERVAL | 0        | No               | Initial interval for the exponential backoff policy to be applied to the Kafka commit retries.         |
 | PGSTREAM_KAFKA_COMMIT_EXP_BACKOFF_MAX_INTERVAL     | 0        | No               | Max interval for the exponential backoff policy to be applied to the Kafka commit retries.             |
 | PGSTREAM_KAFKA_COMMIT_EXP_BACKOFF_MAX_RETRIES      | 0        | No               | Max retries for the exponential backoff policy to be applied to the Kafka commit retries.              |
@@ -308,6 +320,10 @@ One of exponential/constant backoff policies can be provided for the Kafka commi
 | PGSTREAM_KAFKA_TLS_CA_CERT_FILE                | ""      | When TLS enabled | Path to the CA PEM certificate to use for Kafka TLS authentication.                                 |
 | PGSTREAM_KAFKA_TLS_CLIENT_CERT_FILE            | ""      | No               | Path to the client PEM certificate to use for Kafka TLS client authentication.                      |
 | PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE             | ""      | No               | Path to the client PEM private key to use for Kafka TLS client authentication.                      |
+| PGSTREAM_KAFKA_SASL_ENABLED                    | False   | No               | Enable SASL authentication to the Kafka servers.                                                    |
+| PGSTREAM_KAFKA_SASL_MECHANISM                  | ""      | When enabled     | SASL mechanism to use, one of `plain`, `scram-sha-256` or `scram-sha-512`.                          |
+| PGSTREAM_KAFKA_SASL_USER                       | ""      | When enabled     | User for the Kafka SASL authentication.                                                             |
+| PGSTREAM_KAFKA_SASL_PASSWORD                   | ""      | When enabled     | Password for the Kafka SASL authentication.                                                         |
 | PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT            | 1s      | No               | Max time interval at which the batch sending to Kafka is triggered.                                 |
 | PGSTREAM_KAFKA_WRITER_BATCH_BYTES              | 1572864 | No               | Max size in bytes for a given batch. When this size is reached, the batch is sent to Kafka.         |
 | PGSTREAM_KAFKA_WRITER_BATCH_SIZE               | 100     | No               | Max number of messages to be sent per batch. When this size is reached, the batch is sent to Kafka. |
