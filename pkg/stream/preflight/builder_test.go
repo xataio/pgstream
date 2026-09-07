@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
 	pgdumprestore "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
 	"github.com/xataio/pgstream/pkg/stream"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
@@ -435,5 +436,200 @@ func TestBuilders_OneEntryPerCategory(t *testing.T) {
 		require.False(t, flags[b.Flag], "duplicate flag %q", b.Flag)
 		seen[b.Category] = true
 		flags[b.Flag] = true
+	}
+}
+
+// snapshotSizedChecks returns the two checks BuildSourceChecks sizes from the
+// snapshot connection demand.
+func snapshotSizedChecks(t *testing.T, checks []Check) (*SnapshotConnectionsCheck, *SourceSnapshotInstanceCheck) {
+	t.Helper()
+
+	var (
+		headroom *SnapshotConnectionsCheck
+		instance *SourceSnapshotInstanceCheck
+	)
+	for _, c := range checks {
+		switch tc := c.(type) {
+		case *SnapshotConnectionsCheck:
+			headroom = tc
+		case *SourceSnapshotInstanceCheck:
+			instance = tc
+		}
+	}
+	require.NotNil(t, headroom, "snapshot_connection_headroom must be built")
+	require.NotNil(t, instance, "source_snapshot_single_instance must be built")
+	return headroom, instance
+}
+
+func TestBuildSourceChecks_WithSnapshotData(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		opts       []SourceOption
+		wantDemand uint
+		wantProbes int
+	}{
+		{
+			name:       "omitted option keeps the generator defaults",
+			wantDemand: 4,
+			wantProbes: 4,
+		},
+		{
+			name:       "empty config matches the omitted option",
+			opts:       []SourceOption{WithSnapshotData(&pgsnapshotgenerator.Config{})},
+			wantDemand: 4,
+			wantProbes: 4,
+		},
+		{
+			name: "supplied worker counts size the demand",
+			opts: []SourceOption{WithSnapshotData(&pgsnapshotgenerator.Config{
+				SnapshotWorkers: 2,
+				TableWorkers:    4,
+			})},
+			wantDemand: 8,
+			wantProbes: 8,
+		},
+		{
+			name: "partial config applies the default for the unset worker count",
+			opts: []SourceOption{WithSnapshotData(&pgsnapshotgenerator.Config{
+				SnapshotWorkers: 3,
+			})},
+			wantDemand: 12,
+			wantProbes: 12,
+		},
+		{
+			name: "probe count stays capped above the demand",
+			opts: []SourceOption{WithSnapshotData(&pgsnapshotgenerator.Config{
+				SnapshotWorkers: 8,
+				TableWorkers:    8,
+			})},
+			wantDemand: 64,
+			wantProbes: 16,
+		},
+		{
+			name: "last option wins",
+			opts: []SourceOption{
+				WithSnapshotData(&pgsnapshotgenerator.Config{SnapshotWorkers: 2, TableWorkers: 2}),
+				WithSnapshotData(&pgsnapshotgenerator.Config{SnapshotWorkers: 3, TableWorkers: 2}),
+			},
+			wantDemand: 6,
+			wantProbes: 6,
+		},
+		{
+			name: "a configuration after a nil one is used",
+			opts: []SourceOption{
+				WithSnapshotData(nil),
+				WithSnapshotData(&pgsnapshotgenerator.Config{SnapshotWorkers: 2, TableWorkers: 2}),
+			},
+			wantDemand: 4,
+			wantProbes: 4,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			checks, cleanup, err := BuildSourceChecks(testSourceURL, tc.opts...)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, cleanup(context.Background())) })
+
+			headroom, instance := snapshotSizedChecks(t, checks)
+			require.Equal(t, tc.wantDemand, headroom.Demand)
+			require.Equal(t, tc.wantProbes, instance.Probes)
+		})
+	}
+}
+
+// TestBuildSourceChecks_SnapshotDataChangesHeadroomFinding runs the built
+// headroom check against a source whose available connections sit between the
+// default demand and the supplied one, so the finding depends on the option
+// alone.
+func TestBuildSourceChecks_SnapshotDataChangesHeadroomFinding(t *testing.T) {
+	t.Parallel()
+
+	// max_connections=20, superuser_reserved_connections=3, 7 in use leaves 10
+	// available: above the default demand of 4, below the supplied 32.
+	tests := []struct {
+		name        string
+		opts        []SourceOption
+		wantFinding bool
+		wantSubs    []string
+	}{
+		{
+			name: "default demand fits the available connections",
+		},
+		{
+			name: "supplied demand exceeds them",
+			opts: []SourceOption{WithSnapshotData(&pgsnapshotgenerator.Config{
+				SnapshotWorkers: 4,
+				TableWorkers:    8,
+			})},
+			wantFinding: true,
+			wantSubs:    []string{"32 concurrent connections", "only 10 available"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			checks, cleanup, err := BuildSourceChecks(testSourceURL, tc.opts...)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, cleanup(context.Background())) })
+
+			headroom, _ := snapshotSizedChecks(t, checks)
+			headroom.Source = sourceWithConnLimits(t, 20, 3, 7)
+
+			findings, err := headroom.Run(context.Background())
+			require.NoError(t, err)
+			if !tc.wantFinding {
+				require.Empty(t, findings)
+				return
+			}
+			require.Len(t, findings, 1)
+			for _, sub := range tc.wantSubs {
+				require.Contains(t, findings[0].Message, sub)
+			}
+		})
+	}
+}
+
+func TestBuildSourceChecks_NilSnapshotData(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		opts []SourceOption
+	}{
+		{
+			name: "nil configuration",
+			opts: []SourceOption{WithSnapshotData(nil)},
+		},
+		{
+			name: "nil configuration after a valid one",
+			opts: []SourceOption{
+				WithSnapshotData(&pgsnapshotgenerator.Config{SnapshotWorkers: 2, TableWorkers: 2}),
+				WithSnapshotData(nil),
+			},
+		},
+		{
+			name: "nil configuration with a category filter",
+			opts: []SourceOption{WithSnapshotData(nil), WithSourceCategories(CategoryResources)},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			checks, cleanup, err := BuildSourceChecks(testSourceURL, tc.opts...)
+
+			require.ErrorIs(t, err, ErrNilSnapshotData)
+			require.Empty(t, checks, "a nil snapshot config must not silently drop the snapshot checks")
+			require.NotNil(t, cleanup, "cleanup must be safe to defer on error")
+			require.NoError(t, cleanup(context.Background()))
+		})
 	}
 }
