@@ -19,10 +19,12 @@ import (
 	synclib "github.com/xataio/pgstream/internal/sync"
 )
 
+const testPID = 4242
+
 func TestSnapshotTracker_trackIndexesCreation(t *testing.T) {
 	t.Parallel()
 
-	testRows := func(retTuplesDone, retTuplesTotal int64, tableName ...string) *pglibmocks.Rows {
+	testRowsForPID := func(pidValue int, retTuplesDone, retTuplesTotal int64, tableName ...string) *pglibmocks.Rows {
 		testTable := "test_table"
 		if len(tableName) > 0 {
 			testTable = tableName[0]
@@ -31,20 +33,23 @@ func TestSnapshotTracker_trackIndexesCreation(t *testing.T) {
 		return &pglibmocks.Rows{
 			NextFn: func(i uint) bool { return i == 1 },
 			ScanFn: func(i uint, dest ...any) error {
-				require.Len(t, dest, 6)
-				table, ok := dest[0].(*string)
+				require.Len(t, dest, 7)
+				pid, ok := dest[0].(*int)
 				require.True(t, ok)
-				index, ok := dest[1].(*string)
+				table, ok := dest[1].(*string)
 				require.True(t, ok)
-				phase, ok := dest[2].(*string)
+				index, ok := dest[2].(*string)
 				require.True(t, ok)
-				tuplesDone, ok := dest[3].(*int64)
+				phase, ok := dest[3].(*string)
 				require.True(t, ok)
-				tuplesTotal, ok := dest[4].(*int64)
+				tuplesDone, ok := dest[4].(*int64)
 				require.True(t, ok)
-				command, ok := dest[5].(*string)
+				tuplesTotal, ok := dest[5].(*int64)
+				require.True(t, ok)
+				command, ok := dest[6].(*string)
 				require.True(t, ok)
 
+				*pid = pidValue
 				*table = testTable
 				*index = "test_index"
 				*phase = "index creation"
@@ -57,6 +62,10 @@ func TestSnapshotTracker_trackIndexesCreation(t *testing.T) {
 			CloseFn: func() {},
 			ErrFn:   func() error { return nil },
 		}
+	}
+
+	testRows := func(retTuplesDone, retTuplesTotal int64, tableName ...string) *pglibmocks.Rows {
+		return testRowsForPID(testPID, retTuplesDone, retTuplesTotal, tableName...)
 	}
 
 	tests := []struct {
@@ -247,7 +256,7 @@ func TestSnapshotTracker_trackIndexesCreation(t *testing.T) {
 			wantMarkCompletedCalls: 2,
 		},
 		{
-			name: "ok - create a new bar for a different table, completing previous one",
+			name: "ok - create a new bar for a different backend, completing previous one",
 			querier: func(_ chan struct{}) pglib.Querier {
 				return &pglibmocks.Querier{
 					QueryFn: func(ctx context.Context, i uint, sql string, args ...any) (pglib.Rows, error) {
@@ -255,7 +264,7 @@ func TestSnapshotTracker_trackIndexesCreation(t *testing.T) {
 						case 1:
 							return testRows(100, 100), nil
 						case 2:
-							return testRows(100, 100, "another_table"), nil
+							return testRowsForPID(testPID+1, 100, 100, "another_table"), nil
 						default:
 							t.Fatalf("unexpected Query call %d", i)
 							return nil, nil
@@ -320,7 +329,7 @@ func TestSnapshotTracker_trackIndexesCreation(t *testing.T) {
 
 			st := snapshotTracker{
 				conn:         tc.querier(doneChan),
-				progressBars: synclib.NewMap[string, progress.Bar](),
+				progressBars: synclib.NewMap[int, progress.Bar](),
 				barBuilder:   barBuilder,
 				clock:        fakeClock,
 			}
