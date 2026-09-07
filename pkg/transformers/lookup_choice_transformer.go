@@ -36,6 +36,10 @@ const (
 	// deadline rather than blocking startup indefinitely on a locked or
 	// unreachable lookup table
 	lookupChoiceLoadTimeout = 30 * time.Second
+	// the whole column is held in memory for the lifetime of the process, so
+	// the load refuses a table larger than this rather than growing until the
+	// kernel intervenes
+	lookupChoiceDefaultMaxValues = 100000
 
 	randomGenerator        = "random"
 	deterministicGenerator = "deterministic"
@@ -93,6 +97,13 @@ var (
 			Values:        []any{randomGenerator, deterministicGenerator},
 		},
 		{
+			Name:          "max_values",
+			SupportedType: "integer",
+			Default:       lookupChoiceDefaultMaxValues,
+			Dynamic:       false,
+			Required:      false,
+		},
+		{
 			Name:          "ignore_values",
 			SupportedType: "array",
 			Default:       nil,
@@ -137,6 +148,14 @@ func NewLookupChoiceTransformer(params ParameterValues) (*LookupChoiceTransforme
 		return nil, fmt.Errorf("lookup_choice: ignore_values must be an array: %w", err)
 	}
 
+	maxValues, err := FindParameterWithDefault(params, "max_values", lookupChoiceDefaultMaxValues)
+	if err != nil {
+		return nil, fmt.Errorf("lookup_choice: max_values must be an integer: %w", err)
+	}
+	if maxValues <= 0 {
+		return nil, fmt.Errorf("lookup_choice: max_values must be greater than zero: %w", ErrInvalidParameters)
+	}
+
 	generatorType, err := FindParameterWithDefault(params, "generator", randomGenerator)
 	if err != nil {
 		return nil, fmt.Errorf("lookup_choice: generator must be a string: %w", err)
@@ -147,7 +166,7 @@ func NewLookupChoiceTransformer(params ParameterValues) (*LookupChoiceTransforme
 		return nil, fmt.Errorf("lookup_choice: generator must be one of 'random' or 'deterministic': %w", ErrInvalidParameters)
 	}
 
-	values, columnOID, err := loadLookupValues(url, table, column)
+	values, columnOID, err := loadLookupValues(url, table, column, maxValues)
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +274,7 @@ func LookupChoiceTransformerDefinition() *Definition {
 
 // loadLookupValues reads the lookup column, returning its values and the pg
 // type OID Postgres reported for it.
-func loadLookupValues(url, table, column string) ([]any, uint32, error) {
+func loadLookupValues(url, table, column string, maxValues int) ([]any, uint32, error) {
 	qualifiedName, err := pglib.NewQualifiedName(table)
 	if err != nil {
 		return nil, 0, fmt.Errorf("lookup_choice: invalid lookup_table %q: %w", table, err)
@@ -280,9 +299,11 @@ func loadLookupValues(url, table, column string) ([]any, uint32, error) {
 	// the order is explicit because the deterministic generator picks an index
 	// into this slice, and an unordered scan can return the rows differently on
 	// every run
+	// one row past the cap is enough to tell that the table is too large,
+	// without reading the rest of it
 	quotedColumn := pglib.QuoteIdentifier(column)
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s IS NOT NULL ORDER BY %s",
-		quotedColumn, pglib.QuoteQualifiedIdentifier(schema, qualifiedName.Name()), quotedColumn, quotedColumn)
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s IS NOT NULL ORDER BY %s LIMIT %d",
+		quotedColumn, pglib.QuoteQualifiedIdentifier(schema, qualifiedName.Name()), quotedColumn, quotedColumn, maxValues+1)
 
 	rows, err := querier.Query(ctx, query)
 	if err != nil {
@@ -308,6 +329,12 @@ func loadLookupValues(url, table, column string) ([]any, uint32, error) {
 	}
 	if len(values) == 0 {
 		return nil, 0, fmt.Errorf("lookup_choice: no values found in column %s of table %s", column, table)
+	}
+	// truncating would silently change which value every row is mapped to, so
+	// the load fails and leaves the choice to the operator
+	if len(values) > maxValues {
+		return nil, 0, fmt.Errorf("lookup_choice: column %s of table %s holds more than the %d values max_values allows: %w",
+			column, table, maxValues, ErrInvalidParameters)
 	}
 
 	return values, columnOID, nil

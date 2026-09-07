@@ -125,6 +125,35 @@ func TestNewLookupChoiceTransformer(t *testing.T) {
 			wantErr: errors.New("lookup_choice: every value in column id of table reference.countries is excluded by ignore_values"),
 		},
 		{
+			name:       "ok - max_values raises the cap",
+			params:     withParam("max_values", 3),
+			oid:        pgtype.Int8OID,
+			values:     []any{int64(1), int64(2), int64(3)},
+			wantValues: []any{int64(1), int64(2), int64(3)},
+			wantTypes:  []SupportedDataType{Integer64DataType},
+		},
+		{
+			name:    "error - more values than max_values allows",
+			params:  withParam("max_values", 2),
+			oid:     pgtype.Int8OID,
+			values:  []any{int64(1), int64(2), int64(3)},
+			wantErr: ErrInvalidParameters,
+		},
+		{
+			name:    "error - max_values is not positive",
+			params:  withParam("max_values", 0),
+			oid:     pgtype.Int8OID,
+			values:  []any{int64(1)},
+			wantErr: ErrInvalidParameters,
+		},
+		{
+			name:    "error - max_values is not an integer",
+			params:  withParam("max_values", "lots"),
+			oid:     pgtype.Int8OID,
+			values:  []any{int64(1)},
+			wantErr: ErrInvalidParameters,
+		},
+		{
 			name:    "error - unsupported lookup column type",
 			params:  validParams(),
 			oid:     pgtype.NumericOID,
@@ -286,7 +315,7 @@ func TestNewLookupChoiceTransformer_query(t *testing.T) {
 		"postgres_url":  "postgres://user:pass@localhost:5432/db",
 	})
 	require.NoError(t, err)
-	require.Equal(t, `SELECT "id" FROM "reference"."countries" WHERE "id" IS NOT NULL ORDER BY "id"`, gotQuery)
+	require.Equal(t, `SELECT "id" FROM "reference"."countries" WHERE "id" IS NOT NULL ORDER BY "id" LIMIT 100001`, gotQuery)
 
 	// an unqualified table name defaults to the public schema
 	_, err = NewLookupChoiceTransformer(ParameterValues{
@@ -295,7 +324,7 @@ func TestNewLookupChoiceTransformer_query(t *testing.T) {
 		"postgres_url":  "postgres://user:pass@localhost:5432/db",
 	})
 	require.NoError(t, err)
-	require.Equal(t, `SELECT "id" FROM "public"."countries" WHERE "id" IS NOT NULL ORDER BY "id"`, gotQuery)
+	require.Equal(t, `SELECT "id" FROM "public"."countries" WHERE "id" IS NOT NULL ORDER BY "id" LIMIT 100001`, gotQuery)
 }
 
 func TestLookupChoiceTransformer_Transform(t *testing.T) {

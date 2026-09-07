@@ -1283,12 +1283,15 @@ The type comes from the **lookup column**: the transformer asks PostgreSQL what 
 | lookup_table  | string   | N/A     | Yes      | N/A                   |
 | lookup_column | string   | N/A     | Yes      | N/A                   |
 | generator     | string   | random  | No       | random, deterministic |
+| max_values    | integer  | 100000  | No       | N/A                   |
 | ignore_values | any[]    | []      | No       | N/A                   |
 | postgres_url  | string   | N/A     | Yes      | N/A                   |
 
 `lookup_table` is schema qualified, e.g. `public.countries`; an unqualified name is read from the `public` schema. Both names are quoted as written, so `Public.Countries` looks for a case-sensitive `"Countries"`.
 
 `postgres_url` is required, but the PostgreSQL parser fills it in with the URL of the source database being read, so it only has to be written out when the source is not PostgreSQL.
+
+`max_values` caps how many values are read. The load fails if the lookup column holds more, rather than truncating the list, because a truncated list would silently change which value every row is mapped to. Raise it if the table really is that large and the memory cost is acceptable.
 
 `ignore_values` removes values from the list after it is read, for placeholder rows such as an "unknown" id. An entry that matches nothing is an error, so a typo or a value written in a form the column never produces is reported rather than quietly leaving the row in the choice set. If it excludes every value, or the lookup column is empty, the pipeline fails to start rather than writing the same value into every row.
 
@@ -1300,7 +1303,7 @@ The type comes from the **lookup column**: the transformer asks PostgreSQL what 
 
 ⚠️ **The mapping only holds while the lookup column does.** The value is chosen by position in the loaded list, so inserting or deleting a single row in the lookup table — or editing `ignore_values` — remaps almost every input the next time the pipeline starts. Deterministic mode is reproducible across restarts for a **fixed** lookup set; it is not stable across changes to it. New rows in the lookup table are not picked up until a restart.
 
-⚠️ **The whole column is loaded into memory, once per rule.** There is no limit on how many values are read, and no paging, and each column rule runs its own query: three columns reading the same lookup table load it three times. Point this at a lookup table, not at a large one. The read is given 30 seconds, so a locked or unreachable lookup table fails startup instead of hanging it.
+⚠️ **The whole column is loaded into memory, once per rule.** There is no paging, and each column rule runs its own query: three columns reading the same lookup table load it three times. `max_values` caps each of those loads at 100000 values by default, so a rule pointed at a large table fails on startup instead of growing until the kernel intervenes. The read is given 30 seconds, so a locked or unreachable lookup table fails startup instead of hanging it.
 
 **Example Configuration:**
 

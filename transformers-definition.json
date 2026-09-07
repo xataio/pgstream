@@ -605,6 +605,13 @@
           ]
         },
         {
+          "name": "max_values",
+          "supported_type": "integer",
+          "default": 100000,
+          "dynamic": false,
+          "required": false
+        },
+        {
           "name": "ignore_values",
           "supported_type": "array",
           "default": null,
