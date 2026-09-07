@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -129,4 +130,33 @@ func TestLazyConn_NoOptions(t *testing.T) {
 
 	lazy := NewLazyConn(testConnURL)
 	require.Empty(t, lazy.opts)
+}
+
+// TestLazyConn_AcquireIsSafeForConcurrentUse covers the preflight engine
+// bounding a check with a per-check timeout: the abandoned check keeps using
+// the shared conn while the next check acquires it.
+func TestLazyConn_AcquireIsSafeForConcurrentUse(t *testing.T) {
+	t.Parallel()
+
+	// an unparseable URL fails before anything is dialled, so the test needs
+	// no database to exercise the memoisation the callers race on
+	lazy := NewLazyConn("://not-a-postgres-url")
+
+	const callers = 8
+	errs := make([]error, callers)
+	var wg sync.WaitGroup
+	wg.Add(callers)
+	for i := range callers {
+		go func() {
+			defer wg.Done()
+			_, errs[i] = lazy.Acquire(context.Background())
+		}()
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		require.Error(t, err, "caller %d", i)
+		require.Equal(t, errs[0].Error(), err.Error(), "every caller sees the memoised dial error")
+	}
+	require.NoError(t, lazy.Close(context.Background()))
 }

@@ -2,7 +2,10 @@
 
 package postgres
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 // AcquireFunc lazily yields a Postgres connection. Useful when a set of
 // related callers want to share a single TCP connection without each one
@@ -11,11 +14,12 @@ type AcquireFunc func(ctx context.Context) (Querier, error)
 
 // LazyConn memoises a single *Conn (or its dial error) for a URL. Cheap to
 // construct: nothing is opened until Acquire is called for the first time.
-// Not safe for concurrent use — designed for the sequential case (e.g. a
-// preflight check engine that runs checks one after another).
+// Safe for concurrent use: a caller that a deadline cut off can still be
+// running when the next caller acquires the connection.
 type LazyConn struct {
 	url  string
 	opts []ConnOption
+	mu   sync.Mutex
 	conn *Conn
 	err  error
 }
@@ -29,17 +33,32 @@ func NewLazyConn(url string, opts ...ConnOption) *LazyConn {
 
 // Acquire returns the cached conn, opening it on the first call. A dial
 // failure is cached too — subsequent calls return the same error without
-// retrying.
+// retrying. A cached conn that has since been closed is replaced: pgx tears a
+// connection down when a query on it is interrupted, so a caller that was cut
+// off mid-query can otherwise leave the memoised conn dead for everyone after
+// it.
 func (l *LazyConn) Acquire(ctx context.Context) (Querier, error) {
-	if l.conn != nil || l.err != nil {
-		return l.conn, l.err
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.err != nil {
+		return nil, l.err
 	}
-	l.conn, l.err = NewConn(ctx, l.url, l.opts...)
-	return l.conn, l.err
+	if l.conn != nil && !l.conn.IsClosed() {
+		return l.conn, nil
+	}
+	conn, err := NewConn(ctx, l.url, l.opts...)
+	if err != nil {
+		l.conn, l.err = nil, err
+		return nil, err
+	}
+	l.conn = conn
+	return conn, nil
 }
 
 // Close releases the underlying connection if one was opened.
 func (l *LazyConn) Close(ctx context.Context) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.conn == nil {
 		return nil
 	}

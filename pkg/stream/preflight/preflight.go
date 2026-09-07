@@ -5,6 +5,8 @@ package preflight
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"time"
 )
 
 // Category groups checks of the same concern so callers can opt in by
@@ -18,6 +20,29 @@ const (
 	CategoryAccess       Category = "access"
 	CategorySchema       Category = "schema"
 	CategoryResources    Category = "resources"
+)
+
+// CheckStatus is the outcome the engine derived for a check. The engine always
+// derives it; a check never sets its own status.
+type CheckStatus string
+
+const (
+	StatusOK       CheckStatus = "ok"       // ran, found nothing wrong
+	StatusFindings CheckStatus = "findings" // ran, reported at least one finding
+	StatusError    CheckStatus = "error"    // ran, could not complete
+	StatusNotRun   CheckStatus = "not_run"  // never started, or cut off before it produced a result
+)
+
+// StatusReason is a short machine-readable explanation of a status other than
+// StatusOK.
+type StatusReason string
+
+const (
+	ReasonFindingsReported      StatusReason = "findings_reported"       // accompanies StatusFindings
+	ReasonCheckError            StatusReason = "check_error"             // accompanies StatusError; the message is in Err
+	ReasonCheckDeadlineExceeded StatusReason = "check_deadline_exceeded" // exceeded the bound set with WithCheckTimeout
+	ReasonRunDeadlineExceeded   StatusReason = "run_deadline_exceeded"   // the caller's context expired
+	ReasonRunCanceled           StatusReason = "run_canceled"            // the caller cancelled the context
 )
 
 // Finding describes a single issue detected by a Check. Every finding is an
@@ -59,13 +84,41 @@ type Summarizer interface {
 	Summary() string
 }
 
-// CheckResult bundles a check's name with whatever it produced.
+// CheckResult bundles a check's name with whatever it produced. Status and
+// Reason are derived by the engine: Status says which of the four outcomes the
+// check reached, and Reason explains every status other than StatusOK.
 type CheckResult struct {
 	Name     string         `json:"name"`
+	Status   CheckStatus    `json:"-"`
+	Reason   StatusReason   `json:"-"`
 	Findings []Finding      `json:"findings"`
 	Err      error          `json:"-"`
 	Details  map[string]any `json:"-"`
 	Summary  string         `json:"-"`
+}
+
+// resolve returns the result's status and reason. A result built outside the
+// engine carries no status, so it is derived from the findings and the error
+// and renders like one the engine produced.
+func (r CheckResult) resolve() (CheckStatus, StatusReason) {
+	if r.Status != "" {
+		return r.Status, r.Reason
+	}
+	return deriveStatus(r.Findings, r.Err)
+}
+
+// deriveStatus classifies a check that returned. An error outranks findings,
+// because a check that could not complete may have stopped part way through
+// the work that produces them.
+func deriveStatus(findings []Finding, err error) (CheckStatus, StatusReason) {
+	switch {
+	case err != nil:
+		return StatusError, ReasonCheckError
+	case len(findings) > 0:
+		return StatusFindings, ReasonFindingsReported
+	default:
+		return StatusOK, ""
+	}
 }
 
 // checkResultJSON is the wire shape of a CheckResult. Nesting Details lets a
@@ -74,6 +127,8 @@ type CheckResult struct {
 // not.
 type checkResultJSON struct {
 	Name     string         `json:"name"`
+	Status   CheckStatus    `json:"status"`
+	Reason   StatusReason   `json:"reason,omitempty"`
 	Findings []Finding      `json:"findings"`
 	Error    string         `json:"error,omitempty"`
 	Details  map[string]any `json:"details,omitempty"`
@@ -82,8 +137,11 @@ type checkResultJSON struct {
 // MarshalJSON renders Err as a string so the report is consumable from a
 // non-Go process (the default error marshaling drops the message).
 func (r CheckResult) MarshalJSON() ([]byte, error) {
+	status, reason := r.resolve()
 	out := checkResultJSON{
 		Name:     r.Name,
+		Status:   status,
+		Reason:   reason,
 		Findings: r.Findings,
 		Details:  r.Details,
 	}
@@ -98,14 +156,16 @@ type Report struct {
 	Results []CheckResult `json:"results"`
 }
 
-// ProgressFunc is invoked just before each check runs. idx is 1-based.
+// ProgressFunc is invoked just before each check runs. idx is 1-based. A check
+// the engine does not start reports no progress.
 type ProgressFunc func(idx, total int, name string)
 
 // RunOption configures Run.
 type RunOption func(*runOptions)
 
 type runOptions struct {
-	progress ProgressFunc
+	progress     ProgressFunc
+	checkTimeout time.Duration
 }
 
 // WithProgress installs a callback invoked before each check runs. Useful for
@@ -114,9 +174,23 @@ func WithProgress(fn ProgressFunc) RunOption {
 	return func(o *runOptions) { o.progress = fn }
 }
 
+// WithCheckTimeout bounds how long the engine waits for each check. A check
+// that exceeds the bound is reported as StatusNotRun, because a caller-imposed
+// bound is not a defect in the check, and the run continues with the next
+// check. The default is no bound, which runs every check to completion.
+//
+// The engine cannot stop a check: one that exceeds the bound is abandoned and
+// keeps running, holding whatever it holds. Anything a check shares with the
+// checks after it must therefore tolerate concurrent use — postgres.LazyConn,
+// shared between the checks of a category, does.
+func WithCheckTimeout(d time.Duration) RunOption {
+	return func(o *runOptions) { o.checkTimeout = d }
+}
+
 // Run executes every check in order. A check returning an error does not stop
 // the run; subsequent checks still execute and the error is captured in the
-// report alongside the findings.
+// report alongside the findings. When the caller's context is done, Run starts
+// no further checks and records each remaining one as StatusNotRun.
 func Run(ctx context.Context, checks []Check, opts ...RunOption) Report {
 	var ro runOptions
 	for _, opt := range opts {
@@ -126,30 +200,131 @@ func Run(ctx context.Context, checks []Check, opts ...RunOption) Report {
 	results := make([]CheckResult, 0, len(checks))
 	total := len(checks)
 	for i, c := range checks {
+		if err := ctx.Err(); err != nil {
+			results = append(results, notRunResult(c.Name(), contextReason(err)))
+			continue
+		}
 		if ro.progress != nil {
 			ro.progress(i+1, total, c.Name())
 		}
-		findings, err := c.Run(ctx)
-		res := CheckResult{
-			Name:     c.Name(),
-			Findings: findings,
-			Err:      err,
-		}
-		if d, ok := c.(Detailer); ok {
-			res.Details = d.Details()
-		}
-		if s, ok := c.(Summarizer); ok {
-			res.Summary = s.Summary()
-		}
-		results = append(results, res)
+		results = append(results, ro.runCheck(ctx, c))
 	}
 	return Report{Results: results}
 }
 
-// HasErrors reports whether any check produced findings or failed to complete.
+// runCheck executes one check and classifies what it produced. Without a
+// per-check timeout the check runs inline, exactly as an unbounded run always
+// has. With one it runs in its own goroutine, so a check that ignores its
+// context cannot hold the run past the bound. That goroutine is abandoned, not
+// killed: the engine reads no state from the check afterwards, but the check
+// keeps running — see WithCheckTimeout.
+func (o runOptions) runCheck(ctx context.Context, c Check) CheckResult {
+	if o.checkTimeout <= 0 {
+		findings, err := c.Run(ctx)
+		return collectResult(ctx, ctx, c, findings, err)
+	}
+
+	// read before the goroutine starts, so the engine touches an abandoned
+	// check only through the channel it sends on
+	name := c.Name()
+
+	checkCtx, cancel := context.WithTimeout(ctx, o.checkTimeout)
+	defer cancel()
+
+	type outcome struct {
+		findings []Finding
+		err      error
+	}
+	// buffered, so an abandoned check never blocks on a send nobody reads
+	done := make(chan outcome, 1)
+	go func() {
+		findings, err := c.Run(checkCtx)
+		done <- outcome{findings: findings, err: err}
+	}()
+
+	select {
+	case out := <-done:
+		return collectResult(ctx, checkCtx, c, out.findings, out.err)
+	case <-checkCtx.Done():
+		select {
+		case out := <-done:
+			// the check returned as the bound expired; it is classified like
+			// any other check that returned, which means an error it produced
+			// on the way out reads as a cutoff
+			return collectResult(ctx, checkCtx, c, out.findings, out.err)
+		default:
+			return notRunResult(name, cutoffReason(ctx, checkCtx))
+		}
+	}
+}
+
+// collectResult builds the result of a check that returned, and reads its
+// optional Details and Summary. A check whose context ended before it could
+// produce a result did not run, whatever error it returned on the way out.
+//
+// That error is dropped rather than kept. Whether a cut-off check delivers its
+// result before the engine stops waiting is a scheduling race, so keeping the
+// error would make the same check under the same bound report differently from
+// run to run. The reason says what stopped it, which is always knowable.
+func collectResult(runCtx, checkCtx context.Context, c Check, findings []Finding, err error) CheckResult {
+	if err != nil {
+		if reason := cutoffReason(runCtx, checkCtx); reason != "" {
+			return notRunResult(c.Name(), reason)
+		}
+	}
+
+	status, reason := deriveStatus(findings, err)
+	res := CheckResult{
+		Name:     c.Name(),
+		Status:   status,
+		Reason:   reason,
+		Findings: findings,
+		Err:      err,
+	}
+	if d, ok := c.(Detailer); ok {
+		res.Details = d.Details()
+	}
+	if s, ok := c.(Summarizer); ok {
+		res.Summary = s.Summary()
+	}
+	return res
+}
+
+// cutoffReason reports why a check could not produce a result, or "" when
+// neither context ended. It reads the run context first, so a run that ended
+// is never reported as a per-check deadline.
+func cutoffReason(runCtx, checkCtx context.Context) StatusReason {
+	if err := runCtx.Err(); err != nil {
+		return contextReason(err)
+	}
+	if checkCtx.Err() != nil {
+		return ReasonCheckDeadlineExceeded
+	}
+	return ""
+}
+
+// contextReason distinguishes a run that ran out of time from one the caller
+// cancelled.
+func contextReason(err error) StatusReason {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ReasonRunDeadlineExceeded
+	}
+	return ReasonRunCanceled
+}
+
+func notRunResult(name string, reason StatusReason) CheckResult {
+	return CheckResult{Name: name, Status: StatusNotRun, Reason: reason}
+}
+
+// HasErrors reports whether the run was anything other than clean: a check
+// produced findings, a check failed to complete, or a check did not run. A
+// check that did not run counts, because a report with missing checks is no
+// evidence that the system is ready, and the CLI exit code must not claim it
+// is. Callers that want only the checks which looked and objected must read
+// the statuses in the report.
 func (r Report) HasErrors() bool {
 	for _, res := range r.Results {
-		if res.Err != nil || len(res.Findings) > 0 {
+		if status, _ := res.resolve(); status != StatusOK {
 			return true
 		}
 	}
