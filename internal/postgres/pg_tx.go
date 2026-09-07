@@ -17,6 +17,10 @@ type Tx interface {
 	Query(ctx context.Context, query string, args ...any) (Rows, error)
 	QueryRow(ctx context.Context, dest []any, query string, args ...any) error
 	Exec(ctx context.Context, query string, args ...any) (CommandTag, error)
+	// ExecBatch runs the queries as one pipelined exchange. It does not use one
+	// round trip for each query. It returns the index of the first query that
+	// failed. If all queries are successful, it returns the number of queries.
+	ExecBatch(ctx context.Context, queries []BatchQuery) (int, error)
 	CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
 	CopyFromText(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
 	CopyToWriter(ctx context.Context, w io.Writer, sql string) (int64, error)
@@ -61,6 +65,38 @@ func (t *Txn) Query(ctx context.Context, query string, args ...any) (Rows, error
 func (t *Txn) Exec(ctx context.Context, query string, args ...any) (CommandTag, error) {
 	tag, err := t.Tx.Exec(ctx, query, args...)
 	return CommandTag{tag}, MapError(err)
+}
+
+// BatchQuery is one query for ExecBatch.
+type BatchQuery struct {
+	SQL  string
+	Args []any
+}
+
+// ExecBatch sends all queries together and then reads the results. This
+// removes one network round trip for each query. The saving is large when the
+// database is far from the client.
+//
+// The results come back in the same sequence as the queries. Thus the first
+// error identifies the query that failed. Postgres stops the transaction at
+// that query, so all later queries also fail. For this reason ExecBatch stops
+// at the first error.
+func (t *Txn) ExecBatch(ctx context.Context, queries []BatchQuery) (int, error) {
+	batch := &pgx.Batch{}
+	for _, q := range queries {
+		batch.Queue(q.SQL, q.Args...)
+	}
+
+	results := t.Tx.SendBatch(ctx, batch)
+	for i := range queries {
+		if _, err := results.Exec(); err != nil {
+			// Close reports the same failure again. The error from the query is
+			// the useful one, because it has the index.
+			_ = results.Close()
+			return i, MapError(err)
+		}
+	}
+	return len(queries), MapError(results.Close())
 }
 
 // CopyFrom uses pgx's binary-format COPY, which is the fast path for any

@@ -319,18 +319,25 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 			return err
 		}
 
-		for i, q := range queries {
-			if _, err := tx.Exec(ctx, q.sql, q.args...); err != nil {
-				w.logger.Error(err, "executing sql query", loglib.Fields{
-					"sql":  q.sql,
-					"args": q.args,
-				})
-				// if a query returns an error, it will abort the tx. Remove it
-				// from the list of queries to be retried.
-				droppedQuery = q
-				retryQueries = removeIndex(queries, i)
-				return err
-			}
+		// Send the queries as one pipeline. One round trip for the batch
+		// replaces one round trip for each query. The behaviour does not
+		// change: ExecBatch returns the index of the query that failed, which
+		// is the same index the loop found before.
+		batchQueries := make([]pglib.BatchQuery, 0, len(queries))
+		for _, q := range queries {
+			batchQueries = append(batchQueries, pglib.BatchQuery{SQL: q.sql, Args: q.args})
+		}
+
+		if i, err := tx.ExecBatch(ctx, batchQueries); err != nil {
+			w.logger.Error(err, "executing sql query", loglib.Fields{
+				"sql":  queries[i].sql,
+				"args": queries[i].args,
+			})
+			// if a query returns an error, it will abort the tx. Remove it
+			// from the list of queries to be retried.
+			droppedQuery = queries[i]
+			retryQueries = removeIndex(queries, i)
+			return err
 		}
 
 		return w.resetReplicationRole(ctx, tx)

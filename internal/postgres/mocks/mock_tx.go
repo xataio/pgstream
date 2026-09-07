@@ -13,6 +13,7 @@ type Tx struct {
 	QueryRowFn       func(ctx context.Context, dest []any, query string, args ...any) error
 	QueryFn          func(ctx context.Context, query string, args ...any) (postgres.Rows, error)
 	ExecFn           func(ctx context.Context, i uint, query string, args ...any) (postgres.CommandTag, error)
+	ExecBatchFn      func(ctx context.Context, queries []postgres.BatchQuery) (int, error)
 	CopyFromFn       func(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
 	CopyFromTextFn   func(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
 	CopyToWriterFn   func(ctx context.Context, w io.Writer, sql string) (int64, error)
@@ -31,6 +32,21 @@ func (m *Tx) Query(ctx context.Context, query string, args ...any) (postgres.Row
 func (m *Tx) Exec(ctx context.Context, query string, args ...any) (postgres.CommandTag, error) {
 	m.execCallCount++
 	return m.ExecFn(ctx, m.execCallCount, query, args...)
+}
+
+// ExecBatch uses ExecFn when the test does not set ExecBatchFn. Thus a test
+// that counts calls to Exec sees the same number of calls as before.
+func (m *Tx) ExecBatch(ctx context.Context, queries []postgres.BatchQuery) (int, error) {
+	if m.ExecBatchFn != nil {
+		return m.ExecBatchFn(ctx, queries)
+	}
+	for i, q := range queries {
+		m.execCallCount++
+		if _, err := m.ExecFn(ctx, m.execCallCount, q.SQL, q.Args...); err != nil {
+			return i, err
+		}
+	}
+	return len(queries), nil
 }
 
 func (m *Tx) CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (rowCount int64, err error) {

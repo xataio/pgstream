@@ -8,6 +8,7 @@ import (
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -46,6 +47,15 @@ func (i *Tx) Exec(ctx context.Context, query string, args ...any) (tag pglib.Com
 	ctx, span := otel.StartSpan(ctx, i.tracer, "tx.Exec", trace.WithAttributes(queryAttrs...))
 	defer otel.CloseSpan(span, err)
 	return i.inner.Exec(ctx, query, args...)
+}
+
+func (i *Tx) ExecBatch(ctx context.Context, queries []pglib.BatchQuery) (n int, err error) {
+	// One span for the batch. The queries go in one exchange, so a span for
+	// each query would show the same start and end time for all of them.
+	ctx, span := otel.StartSpan(ctx, i.tracer, "tx.ExecBatch",
+		trace.WithAttributes(attribute.Int("batch.size", len(queries))))
+	defer otel.CloseSpan(span, err)
+	return i.inner.ExecBatch(ctx, queries)
 }
 
 func (i *Tx) CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (rowCount int64, err error) {
