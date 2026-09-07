@@ -87,7 +87,7 @@ func (t *Txn) ExecBatch(ctx context.Context, queries []BatchQuery) (int, error) 
 		batch.Queue(q.SQL, q.Args...)
 	}
 
-	results := t.Tx.SendBatch(ctx, batch)
+	results := t.SendBatch(ctx, batch)
 	for i := range queries {
 		if _, err := results.Exec(); err != nil {
 			// Close reports the same failure again. The error from the query is
