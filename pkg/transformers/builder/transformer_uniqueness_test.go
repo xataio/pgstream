@@ -24,6 +24,7 @@ func TestTransformers_UniquenessMatchesDefinition(t *testing.T) {
 		transformers.LiteralString:          {"literal": "fixed"},
 		transformers.String:                 {},
 		transformers.EncryptedAESSIV:        {"key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"},
+		transformers.FPEFF1:                 {"key_hex": "000102030405060708090a0b0c0d0e0f"},
 		transformers.GreenmaskString:        {"min_length": 2, "max_length": 12},
 		transformers.GreenmaskFirstName:     {},
 		transformers.GreenmaskInteger:       {"min_value": 0, "max_value": 1000},

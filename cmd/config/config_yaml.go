@@ -138,6 +138,7 @@ type PgDumpPgRestoreConfig struct {
 	ExcludedSecurityLabels         []string `mapstructure:"excluded_security_labels" yaml:"excluded_security_labels"`
 	RefreshMaterializedViews       bool     `mapstructure:"refresh_materialized_views" yaml:"refresh_materialized_views"`
 	IndexConstraintSessionSettings []string `mapstructure:"index_constraint_session_settings" yaml:"index_constraint_session_settings"`
+	IndexRestoreWorkers            uint     `mapstructure:"index_restore_workers" yaml:"index_restore_workers"`
 	IncludeObjectTypes             []string `mapstructure:"include_object_types" yaml:"include_object_types"`
 	ExcludeObjectTypes             []string `mapstructure:"exclude_object_types" yaml:"exclude_object_types"`
 }
@@ -657,6 +658,7 @@ func (c *YAMLConfig) parseSchemaSnapshotConfig() (*snapshotbuilder.SchemaSnapsho
 		streamSchemaCfg.DumpRestore.ExcludedSecurityLabels = schemaSnapshotCfg.PgDumpPgRestore.ExcludedSecurityLabels
 		streamSchemaCfg.DumpRestore.RefreshMaterializedViews = schemaSnapshotCfg.PgDumpPgRestore.RefreshMaterializedViews
 		streamSchemaCfg.DumpRestore.IndexConstraintSessionSettings = schemaSnapshotCfg.PgDumpPgRestore.IndexConstraintSessionSettings
+		streamSchemaCfg.DumpRestore.IndexRestoreWorkers = schemaSnapshotCfg.PgDumpPgRestore.IndexRestoreWorkers
 		streamSchemaCfg.DumpRestore.IncludeObjectTypes = schemaSnapshotCfg.PgDumpPgRestore.IncludeObjectTypes
 		streamSchemaCfg.DumpRestore.ExcludeObjectTypes = schemaSnapshotCfg.PgDumpPgRestore.ExcludeObjectTypes
 

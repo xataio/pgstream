@@ -6,6 +6,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/spf13/viper"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -53,6 +55,7 @@ func Test_EnvVarsToStreamConfig(t *testing.T) {
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_NO_OWNER", "true")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_MODE", "full")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_INDEX_CONSTRAINT_SESSION_SETTINGS", "maintenance_work_mem=4GB max_parallel_maintenance_workers=4 synchronous_commit=off statement_timeout=0 lock_timeout=0")
+	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_INDEX_RESTORE_WORKERS", "4")
 	os.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_DISABLE_PROGRESS_TRACKING", "true")
 
 	os.Setenv("PGSTREAM_KAFKA_READER_SERVERS", "localhost:9092")
@@ -129,4 +132,30 @@ func Test_EnvVarsToOtelConfig(t *testing.T) {
 	assert.NotNil(t, otelConfig)
 
 	validateTestOtelConfig(t, otelConfig)
+}
+
+// Test_EnvVarsToSchemaSnapshotConfig_IndexRestoreWorkers resolves the setting
+// from the process environment on a viper with nothing else in it. The
+// surrounding tests share viper's global config map with the ones that load
+// test_config.env, so a variable that is never bound with BindEnv still
+// resolves there, out of the file, and a missing binding goes unnoticed.
+func Test_EnvVarsToSchemaSnapshotConfig_IndexRestoreWorkers(t *testing.T) {
+	reset := func() {
+		viper.Reset()
+		bindEnvVars()
+	}
+	reset()
+	t.Cleanup(reset)
+
+	t.Setenv("PGSTREAM_POSTGRES_SNAPSHOT_INDEX_RESTORE_WORKERS", "4")
+	cfg, err := parseSchemaSnapshotConfig("postgresql://user:password@localhost:5432/mydatabase")
+	require.NoError(t, err)
+	require.Equal(t, uint(4), cfg.DumpRestore.IndexRestoreWorkers)
+
+	// unset, the generator applies its own default
+	os.Unsetenv("PGSTREAM_POSTGRES_SNAPSHOT_INDEX_RESTORE_WORKERS")
+	reset()
+	cfg, err = parseSchemaSnapshotConfig("postgresql://user:password@localhost:5432/mydatabase")
+	require.NoError(t, err)
+	require.Equal(t, uint(0), cfg.DumpRestore.IndexRestoreWorkers)
 }

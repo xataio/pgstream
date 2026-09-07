@@ -102,6 +102,18 @@ func TestTransformers_ConcurrentTransform(t *testing.T) {
 				require.Equal(t, "Hc5d96xIxu2ute1RbFuenEftGxw-P__m1Vv_", got)
 			},
 		},
+		transformers.FPEFF1: {
+			params: transformers.ParameterValues{
+				// bytes 0x00..0x0f — a fixed, obviously-test 128 bit key
+				"key_hex": "000102030405060708090a0b0c0d0e0f",
+			},
+			input: "1234567890",
+			validate: func(t *testing.T, got any) {
+				// FF1 is deterministic, and the pooled ciphers keep mutable
+				// scratch state: a torn one would not produce this token
+				require.Equal(t, "5102547240", got)
+			},
+		},
 		transformers.GreenmaskString: {
 			params:             transformers.ParameterValues{"min_length": 2, "max_length": 12},
 			input:              "hello world",

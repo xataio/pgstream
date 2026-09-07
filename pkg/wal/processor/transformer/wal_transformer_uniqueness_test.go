@@ -55,7 +55,7 @@ func TestValidateUniqueness(t *testing.T) {
 			columnTransformers: ColumnTransformers{"email": newUniquenessMock(transformers.UniquenessLossy)},
 			wantErrors: []string{
 				`"public"."users": unique index "users_email_key" (email) is covered by a transformer that maps distinct values to the same output ("email" uses "mock"), ` +
-					`which will cause duplicate key violations. Use a transformer that preserves uniqueness, such as encrypted_aes_siv, ` +
+					`which will cause duplicate key violations. Use a transformer that preserves uniqueness, such as encrypted_aes_siv or fpe_ff1, ` +
 					`or set allow_uniqueness_loss on the column to override`,
 			},
 		},
@@ -65,7 +65,7 @@ func TestValidateUniqueness(t *testing.T) {
 			columnTransformers: ColumnTransformers{"pms_patient_id": newUniquenessMock(transformers.UniquenessLossy)},
 			wantErrors: []string{
 				`"public"."users": unique index "patients_pms_idx" (pms_patient_id, pms_type) is covered by a transformer that maps distinct values to the same output ` +
-					`("pms_patient_id" uses "mock"), which will cause duplicate key violations. Use a transformer that preserves uniqueness, such as encrypted_aes_siv, ` +
+					`("pms_patient_id" uses "mock"), which will cause duplicate key violations. Use a transformer that preserves uniqueness, such as encrypted_aes_siv or fpe_ff1, ` +
 					`or set allow_uniqueness_loss on the column to override`,
 			},
 		},
@@ -75,7 +75,7 @@ func TestValidateUniqueness(t *testing.T) {
 			columnTransformers: ColumnTransformers{"id": newUniquenessMock(transformers.UniquenessLossy)},
 			wantErrors: []string{
 				`"public"."users": primary key "users_pkey" (id) is covered by a transformer that maps distinct values to the same output ("id" uses "mock"), ` +
-					`which will cause duplicate key violations. Use a transformer that preserves uniqueness, such as encrypted_aes_siv, ` +
+					`which will cause duplicate key violations. Use a transformer that preserves uniqueness, such as encrypted_aes_siv or fpe_ff1, ` +
 					`or set allow_uniqueness_loss on the column to override`,
 			},
 		},
@@ -97,7 +97,7 @@ func TestValidateUniqueness(t *testing.T) {
 			},
 			wantErrors: []string{
 				`"public"."users": unique index "users_idx" (email, name) is covered by a transformer that maps distinct values to the same output ("name" uses "mock"), ` +
-					`which will cause duplicate key violations. Use a transformer that preserves uniqueness, such as encrypted_aes_siv, ` +
+					`which will cause duplicate key violations. Use a transformer that preserves uniqueness, such as encrypted_aes_siv or fpe_ff1, ` +
 					`or set allow_uniqueness_loss on the column to override`,
 			},
 		},
@@ -119,10 +119,10 @@ func TestValidateUniqueness(t *testing.T) {
 			},
 			wantErrors: []string{
 				`"public"."users": unique index "users_a_key" (a) is covered by a transformer that maps distinct values to the same output ("a" uses "mock"), ` +
-					`which will cause duplicate key violations. Use a transformer that preserves uniqueness, such as encrypted_aes_siv, ` +
+					`which will cause duplicate key violations. Use a transformer that preserves uniqueness, such as encrypted_aes_siv or fpe_ff1, ` +
 					`or set allow_uniqueness_loss on the column to override`,
 				`"public"."users": unique index "users_z_key" (z) is covered by a transformer that maps distinct values to the same output ("z" uses "mock"), ` +
-					`which will cause duplicate key violations. Use a transformer that preserves uniqueness, such as encrypted_aes_siv, ` +
+					`which will cause duplicate key violations. Use a transformer that preserves uniqueness, such as encrypted_aes_siv or fpe_ff1, ` +
 					`or set allow_uniqueness_loss on the column to override`,
 			},
 		},

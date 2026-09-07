@@ -22,3 +22,12 @@ transformations:
             lookup_column: id
             generator: deterministic
             ignore_values: [0, -1]
+        phone_number:
+          name: fpe_ff1
+          parameters:
+            # example key only. make your own with `openssl rand -hex 32`.
+            key_hex: "000102030405060708090a0b0c0d0e0f"
+            associated_data: "public.test.phone_number"
+            alphabet: digits
+            passthrough: keep
+            keep_prefix: 4

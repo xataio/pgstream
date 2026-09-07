@@ -82,6 +82,7 @@ const (
 	PGAnonymizer           TransformerType = "pg_anonymizer"
 	EncryptedAESSIV        TransformerType = "encrypted_aes_siv"
 	LookupChoice           TransformerType = "lookup_choice"
+	FPEFF1                 TransformerType = "fpe_ff1"
 )
 
 type SupportedDataType string
