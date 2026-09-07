@@ -245,8 +245,13 @@ func TestReport_JSONMarshal(t *testing.T) {
 	report := Report{
 		Results: []CheckResult{
 			{
-				Name:     "a",
-				Findings: []Finding{{Message: "broken"}},
+				Name: "a",
+				Findings: []Finding{{
+					ID:      "wal_level_not_logical",
+					Title:   "The source wal_level is not logical",
+					Detail:  "The source runs with wal_level=\"replica\".",
+					Message: "broken",
+				}},
 			},
 			{
 				Name: "b",
@@ -259,7 +264,11 @@ func TestReport_JSONMarshal(t *testing.T) {
 	require.NoError(t, err)
 
 	expected := `{"results":[` +
-		`{"name":"a","findings":[{"message":"broken"}]},` +
+		`{"name":"a","findings":[{` +
+		`"id":"wal_level_not_logical",` +
+		`"title":"The source wal_level is not logical",` +
+		`"detail":"The source runs with wal_level=\"replica\".",` +
+		`"message":"broken"}]},` +
 		`{"name":"b","findings":null,"error":"boom"}` +
 		`]}`
 	require.JSONEq(t, expected, string(data))
