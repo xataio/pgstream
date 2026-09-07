@@ -158,6 +158,7 @@ type KafkaConfig struct {
 	Topic         TopicConfig         `mapstructure:"topic" yaml:"topic"`
 	ConsumerGroup ConsumerGroupConfig `mapstructure:"consumer_group" yaml:"consumer_group"`
 	TLS           *TLSConfig          `mapstructure:"tls" yaml:"tls"`
+	SASL          *SASLConfig         `mapstructure:"sasl" yaml:"sasl"`
 	Backoff       *BackoffConfig      `mapstructure:"backoff" yaml:"backoff"`
 }
 
@@ -177,6 +178,13 @@ type TLSConfig struct {
 	CACert     string `mapstructure:"ca_cert" yaml:"ca_cert"`
 	ClientCert string `mapstructure:"client_cert" yaml:"client_cert"`
 	ClientKey  string `mapstructure:"client_key" yaml:"client_key"`
+}
+
+// SASLConfig holds the SASL authentication settings for the Kafka connection.
+type SASLConfig struct {
+	Mechanism string `mapstructure:"mechanism" yaml:"mechanism"`
+	User      string `mapstructure:"user" yaml:"user"`
+	Password  string `mapstructure:"password" yaml:"password"`
 }
 
 type BackoffConfig struct {
@@ -215,6 +223,7 @@ type KafkaTargetConfig struct {
 	Servers []string         `mapstructure:"servers" yaml:"servers"`
 	Topic   KafkaTopicConfig `mapstructure:"topic" yaml:"topic"`
 	TLS     *TLSConfig       `mapstructure:"tls" yaml:"tls"`
+	SASL    *SASLConfig      `mapstructure:"sasl" yaml:"sasl"`
 	Batch   *BatchConfig     `mapstructure:"batch" yaml:"batch"`
 }
 
@@ -703,7 +712,8 @@ func (c *YAMLConfig) parseKafkaProcessorConfig() *stream.KafkaProcessorConfig {
 					ReplicationFactor: c.Target.Kafka.Topic.ReplicationFactor,
 					AutoCreate:        c.Target.Kafka.Topic.AutoCreate,
 				},
-				TLS: c.Target.Kafka.TLS.parseTLSConfig(),
+				TLS:  c.Target.Kafka.TLS.parseTLSConfig(),
+				SASL: c.Target.Kafka.SASL.parseSASLConfig(),
 			},
 			Batch:        c.Target.Kafka.Batch.parseBatchConfig(),
 			PartitionKey: kafkaprocessor.PartitionKey(c.Target.Kafka.Topic.PartitionKey),
@@ -957,7 +967,8 @@ func (c *KafkaConfig) parseKafkaReaderConfig() kafka.ReaderConfig {
 				ReplicationFactor: c.Topic.ReplicationFactor,
 				AutoCreate:        c.Topic.AutoCreate,
 			},
-			TLS: c.TLS.parseTLSConfig(),
+			TLS:  c.TLS.parseTLSConfig(),
+			SASL: c.SASL.parseSASLConfig(),
 		},
 		ConsumerGroupID:          c.ConsumerGroup.ID,
 		ConsumerGroupStartOffset: c.ConsumerGroup.StartOffset,
@@ -973,6 +984,20 @@ func (t *TLSConfig) parseTLSConfig() tls.Config {
 		CaCertFile:     t.CACert,
 		ClientCertFile: t.ClientCert,
 		ClientKeyFile:  t.ClientKey,
+	}
+}
+
+// parseSASLConfig maps the YAML SASL settings to the Kafka connection
+// configuration. SASL is enabled when the sasl section is present.
+func (s *SASLConfig) parseSASLConfig() kafka.SASLConfig {
+	if s == nil {
+		return kafka.SASLConfig{Enabled: false}
+	}
+	return kafka.SASLConfig{
+		Enabled:   true,
+		Mechanism: s.Mechanism,
+		Username:  s.User,
+		Password:  s.Password,
 	}
 }
 

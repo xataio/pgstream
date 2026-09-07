@@ -113,6 +113,12 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 							ClientCertFile: "/path/to/client.crt",
 							ClientKeyFile:  "/path/to/client.key",
 						},
+						SASL: kafka.SASLConfig{
+							Enabled:   true,
+							Mechanism: "scram-sha-512",
+							Username:  "myuser",
+							Password:  "mypassword",
+						},
 					},
 					ConsumerGroupID:          "mygroup",
 					ConsumerGroupStartOffset: "earliest",
@@ -178,6 +184,12 @@ func validateTestStreamConfig(t *testing.T, streamConfig *stream.Config) {
 							CaCertFile:     "/path/to/ca.crt",
 							ClientCertFile: "/path/to/client.crt",
 							ClientKeyFile:  "/path/to/client.key",
+						},
+						SASL: kafka.SASLConfig{
+							Enabled:   true,
+							Mechanism: "scram-sha-512",
+							Username:  "myuser",
+							Password:  "mypassword",
 						},
 					},
 					Batch: batch.Config{
