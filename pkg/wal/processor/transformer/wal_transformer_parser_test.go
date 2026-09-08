@@ -89,7 +89,43 @@ func TestTransformerParser_parse(t *testing.T) {
 
 			wantTransformerMap: nil,
 			wantErr:            transformers.ErrUnsupportedTransformer,
-			wantErrMsg:         `column 'column_1' in table "test_schema"."test_table": unsupported transformer config`,
+			wantErrMsg:         `table_transformers[0]: column 'column_1' in table "test_schema"."test_table": unsupported transformer config`,
+		},
+		{
+			name: "error - invalid transformer rules in a later table entry",
+			rules: []TableRules{
+				{
+					Schema: testSchema,
+					Table:  testTable,
+					ColumnRules: map[string]TransformerRules{
+						"column_1": {
+							Name: "string",
+						},
+					},
+				},
+				{
+					Schema: testSchema,
+					Table:  "other_table",
+					ColumnRules: map[string]TransformerRules{
+						"column_1": {
+							Name: "string",
+						},
+					},
+				},
+				{
+					Schema: testSchema,
+					Table:  "broken_table",
+					ColumnRules: map[string]TransformerRules{
+						"column_1": {
+							Name: "invalid",
+						},
+					},
+				},
+			},
+
+			wantTransformerMap: nil,
+			wantErr:            transformers.ErrUnsupportedTransformer,
+			wantErrMsg:         `table_transformers[2]: column 'column_1' in table "test_schema"."broken_table": unsupported transformer config`,
 		},
 	}
 

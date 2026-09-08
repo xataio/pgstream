@@ -284,7 +284,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			},
 			validator: testPGValidator,
 
-			wantErr: fmt.Errorf("column id of table %s has no transformer configured", testSchemaTable),
+			wantErr: fmt.Errorf("table_transformers[0]: column id of table %s has no transformer configured", testSchemaTable),
 		},
 		{
 			name: "error - invalid column type",
@@ -304,7 +304,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				},
 			},
 			validator: testPGValidator,
-			wantErr:   errors.New("transformer 'string' specified for column 'id' in table \"public\".\"test\" does not support pg data type: int8 with OID: 20"),
+			wantErr:   errors.New("table_transformers[0]: transformer 'string' specified for column 'id' in table \"public\".\"test\" does not support pg data type: int8 with OID: 20"),
 		},
 		{
 			name: "error - unknown custom column type",
@@ -326,7 +326,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				pgtypeMap:      pglib.NewMapper(testQuerierWithUnknownTypeErr),
 				requiredTables: []string{"public.test"},
 			},
-			wantErr: errors.New("transformer 'neosync_email' specified for column 'email' in table \"public\".\"test\" does not support pg data type: unknown with OID: 1234"),
+			wantErr: errors.New("table_transformers[0]: transformer 'neosync_email' specified for column 'email' in table \"public\".\"test\" does not support pg data type: unknown with OID: 1234"),
 		},
 		{
 			name: "error - column not found in table",
@@ -346,7 +346,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				},
 			},
 			validator: testPGValidator,
-			wantErr:   fmt.Errorf("column %s not found in table %s", "unknown_column", testSchemaTable),
+			wantErr:   fmt.Errorf("table_transformers[0]: column %s not found in table %s", "unknown_column", testSchemaTable),
 		},
 		{
 			name: "error - required table not present in rules",
@@ -474,7 +474,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			if tc.wantErr != nil || tc.wantErrContains != "" {
 				require.Error(t, err)
 				if tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
-					require.Equal(t, err.Error(), tc.wantErr.Error())
+					require.Equal(t, tc.wantErr.Error(), err.Error())
 				}
 				if tc.wantErrContains != "" {
 					require.ErrorContains(t, err, tc.wantErrContains)
