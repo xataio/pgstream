@@ -30,14 +30,12 @@ func (c *SourceSnapshotInstanceCheck) Name() string {
 func (c *SourceSnapshotInstanceCheck) Run(ctx context.Context) ([]Finding, error) {
 	missing, err := c.Probe(ctx, c.Probes)
 	if missing > 0 {
-		return []Finding{{Message: fmt.Sprintf(
-			"source appears to be load-balanced across multiple Postgres instances: an exported "+
-				"snapshot was not visible on %d of %d probe connections. Parallel data snapshotting "+
-				"requires every connection to reach the same instance — point the source at a "+
-				"single-instance / writer endpoint (Aurora/RDS reader endpoints and instance-spanning "+
-				"poolers are unsupported for snapshots).",
-			missing, c.Probes,
-		)}}, nil
+		return []Finding{{
+			ID:      FindingIDSourceMultipleInstances,
+			Title:   "The source is load-balanced across multiple Postgres instances",
+			Detail:  fmt.Sprintf("An exported snapshot is not visible on %d of %d probe connections. "+"Parallel data snapshotting requires every connection to reach the same instance. "+"Point the source at a single-instance or writer endpoint. "+"Snapshots do not support Aurora/RDS reader endpoints or instance-spanning poolers.", missing, c.Probes),
+			Message: fmt.Sprintf("source appears to be load-balanced across multiple Postgres instances: an exported "+"snapshot was not visible on %d of %d probe connections. Parallel data snapshotting "+"requires every connection to reach the same instance — point the source at a "+"single-instance / writer endpoint (Aurora/RDS reader endpoints and instance-spanning "+"poolers are unsupported for snapshots).", missing, c.Probes),
+		}}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("running snapshot instance probe: %w", err)

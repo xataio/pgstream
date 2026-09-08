@@ -22,7 +22,16 @@ const (
 
 // Finding describes a single issue detected by a Check. Every finding is an
 // error — a check that finds nothing wrong returns no findings at all.
+//
+// ID and Title identify the kind of problem, not the instance of it. Neither
+// carries data read from the database under test, so a consumer can count
+// findings by ID and show Title as a heading for a kind it has never seen.
+// Detail carries the specifics: the tables, the version, the setting value.
+// Message is the single line the CLI prints.
 type Finding struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Detail  string `json:"detail"`
 	Message string `json:"message"`
 }
 
