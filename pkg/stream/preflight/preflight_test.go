@@ -290,16 +290,15 @@ func (c *countingCheck) Run(_ context.Context) ([]Finding, error) {
 	return nil, nil
 }
 
-// blockingCheck ignores its context and only returns when the test releases
-// it. It records whether the engine asked it for a summary, so a test can
-// assert that the engine read nothing from a check it abandoned.
+// blockingCheck waits until the test releases it or its context ends,
+// whichever comes first. The engine runs each check inline, so a check that
+// never returned would hold the run open — a real check honours its context,
+// and so does this one.
 type blockingCheck struct {
-	name         string
-	started      chan struct{}
-	release      chan struct{}
-	done         chan struct{}
-	summary      string
-	summaryAsked atomic.Bool
+	name    string
+	started chan struct{}
+	release chan struct{}
+	summary string
 }
 
 func newBlockingCheck(name string) *blockingCheck {
@@ -307,54 +306,56 @@ func newBlockingCheck(name string) *blockingCheck {
 		name:    name,
 		started: make(chan struct{}),
 		release: make(chan struct{}),
-		done:    make(chan struct{}),
 	}
 }
 
 func (b *blockingCheck) Name() string { return b.name }
 
-func (b *blockingCheck) Run(_ context.Context) ([]Finding, error) {
+func (b *blockingCheck) Run(ctx context.Context) ([]Finding, error) {
 	close(b.started)
-	defer close(b.done)
-	<-b.release
-	b.summary = "written after the deadline"
+	select {
+	case <-b.release:
+		b.summary = "ran to completion"
+		return nil, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("querying source: %w", ctx.Err())
+	}
+}
+
+func (b *blockingCheck) Summary() string { return b.summary }
+
+func (b *blockingCheck) unblock() { close(b.release) }
+
+// inattentiveCheck ignores the context it is given, which is the case the
+// bound cannot cover.
+type inattentiveCheck struct {
+	name string
+	work time.Duration
+}
+
+func (i *inattentiveCheck) Name() string { return i.name }
+
+func (i *inattentiveCheck) Run(_ context.Context) ([]Finding, error) {
+	time.Sleep(i.work)
 	return nil, nil
 }
 
-func (b *blockingCheck) Summary() string {
-	b.summaryAsked.Store(true)
-	return b.summary
-}
-
-// releaseAndWait unblocks the check and waits for it, so the goroutine the
-// engine abandoned is finished before the test ends.
-func (b *blockingCheck) releaseAndWait() {
-	close(b.release)
-	<-b.done
-}
-
-func TestRun_CheckTimeoutReportsBlockedCheckAsNotRun(t *testing.T) {
+// TestRun_CheckTimeoutBoundsTheContextNotTheCall pins the limit of the bound:
+// it is the deadline the check is given, and a check that ignores its context
+// runs past it and reports whatever it produced. Every check in this package
+// passes its context to the driver, which honours it.
+func TestRun_CheckTimeoutBoundsTheContextNotTheCall(t *testing.T) {
 	t.Parallel()
 
-	blocked := newBlockingCheck("blocked")
-	defer blocked.releaseAndWait()
+	inattentive := &inattentiveCheck{name: "inattentive", work: 20 * time.Millisecond}
 	next := &countingCheck{name: "next"}
 
-	report := Run(context.Background(), []Check{blocked, next}, WithCheckTimeout(50*time.Millisecond))
+	report := Run(context.Background(), []Check{inattentive, next}, WithCheckTimeout(time.Millisecond))
 
-	require.Len(t, report.Results, 2)
-	require.Equal(t, "blocked", report.Results[0].Name)
-	require.Equal(t, StatusNotRun, report.Results[0].Status)
-	require.Equal(t, ReasonCheckDeadlineExceeded, report.Results[0].Reason)
-	require.NoError(t, report.Results[0].Err)
-	require.False(t, blocked.summaryAsked.Load(), "an abandoned check must not be read for its summary")
-	require.Empty(t, report.Results[0].Summary)
-
-	require.Equal(t, "next", report.Results[1].Name)
+	require.Equal(t, StatusOK, report.Results[0].Status, "a check that ignores its context still returns its own result")
 	require.Equal(t, StatusOK, report.Results[1].Status)
-	require.Equal(t, int64(1), next.calls.Load(), "the check after the bounded one should still run")
-
-	require.True(t, report.HasErrors())
+	require.Equal(t, int64(1), next.calls.Load())
+	require.False(t, report.HasErrors())
 }
 
 // deadlineAwareCheck honours its context and reports the context error, which
@@ -373,13 +374,19 @@ func (d *deadlineAwareCheck) Run(ctx context.Context) ([]Finding, error) {
 func TestRun_CheckTimeoutReportsContextAwareCheckAsNotRun(t *testing.T) {
 	t.Parallel()
 
-	checks := []Check{&deadlineAwareCheck{name: "slow"}, &countingCheck{name: "next"}}
+	next := &countingCheck{name: "next"}
+	checks := []Check{&deadlineAwareCheck{name: "slow"}, next}
 
 	report := Run(context.Background(), checks, WithCheckTimeout(10*time.Millisecond))
 
 	require.Equal(t, StatusNotRun, report.Results[0].Status)
 	require.Equal(t, ReasonCheckDeadlineExceeded, report.Results[0].Reason)
+	require.NoError(t, report.Results[0].Err)
+	require.Empty(t, report.Results[0].Summary)
+
 	require.Equal(t, StatusOK, report.Results[1].Status)
+	require.Equal(t, int64(1), next.calls.Load(), "the check after the bounded one still runs")
+	require.True(t, report.HasErrors())
 }
 
 // partialCheck reports what it found before its context ended, which is how a
@@ -463,7 +470,6 @@ func TestRun_RunDeadlineDuringBoundedCheckOutranksItsBound(t *testing.T) {
 	defer cancel()
 
 	blocked := newBlockingCheck("blocked")
-	defer blocked.releaseAndWait()
 	next := &countingCheck{name: "next"}
 
 	report := Run(ctx, []Check{blocked, next}, WithCheckTimeout(time.Minute))
@@ -483,7 +489,6 @@ func TestRun_CancellationDuringBoundedCheckIsDistinguishableFromItsBound(t *test
 	defer cancel()
 
 	blocked := newBlockingCheck("blocked")
-	defer blocked.releaseAndWait()
 	next := &countingCheck{name: "next"}
 
 	go func() {
@@ -576,15 +581,15 @@ func TestRun_WithoutCheckTimeoutLeavesChecksUnbounded(t *testing.T) {
 	reporting := &contextReportingCheck{name: "reporting"}
 	blocked := newBlockingCheck("slow")
 	go func() {
-		time.Sleep(10 * time.Millisecond)
-		blocked.releaseAndWait()
+		<-blocked.started
+		blocked.unblock()
 	}()
 
 	report := Run(context.Background(), []Check{reporting, blocked})
 
 	require.False(t, reporting.hasDeadline, "an unbounded run passes the caller's context untouched")
 	require.Equal(t, StatusOK, report.Results[1].Status, "an unbounded check runs to completion")
-	require.Equal(t, "written after the deadline", report.Results[1].Summary)
+	require.Equal(t, "ran to completion", report.Results[1].Summary)
 	require.False(t, report.HasErrors())
 }
 

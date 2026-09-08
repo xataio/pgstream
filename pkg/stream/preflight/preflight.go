@@ -174,15 +174,18 @@ func WithProgress(fn ProgressFunc) RunOption {
 	return func(o *runOptions) { o.progress = fn }
 }
 
-// WithCheckTimeout bounds how long the engine waits for each check. A check
-// that exceeds the bound is reported as StatusNotRun, because a caller-imposed
-// bound is not a defect in the check, and the run continues with the next
-// check. The default is no bound, which runs every check to completion.
+// WithCheckTimeout bounds each check with a context deadline, so one slow
+// check cannot consume the whole of the caller's budget. A check that exceeds
+// the bound is reported as StatusNotRun, because a caller-imposed bound is not
+// a defect in the check, and the run continues with the next check. The
+// default is no bound, which runs every check to completion.
 //
-// The engine cannot stop a check: one that exceeds the bound is abandoned and
-// keeps running, holding whatever it holds. Anything a check shares with the
-// checks after it must therefore tolerate concurrent use — postgres.LazyConn,
-// shared between the checks of a category, does.
+// The bound is the deadline the check is given, not a limit the engine
+// enforces on its own: the engine runs each check to completion, one at a
+// time. A check honours the bound by passing the context it is given to the
+// work it does — every check in this package passes it to the driver, which is
+// context-aware. A check that ignores its context still runs past the bound,
+// and blocks the run while it does.
 func WithCheckTimeout(d time.Duration) RunOption {
 	return func(o *runOptions) { o.checkTimeout = d }
 }
@@ -212,60 +215,29 @@ func Run(ctx context.Context, checks []Check, opts ...RunOption) Report {
 	return Report{Results: results}
 }
 
-// runCheck executes one check and classifies what it produced. Without a
-// per-check timeout the check runs inline, exactly as an unbounded run always
-// has. With one it runs in its own goroutine, so a check that ignores its
-// context cannot hold the run past the bound. That goroutine is abandoned, not
-// killed: the engine reads no state from the check afterwards, but the check
-// keeps running — see WithCheckTimeout.
+// runCheck executes one check under its own deadline and classifies what it
+// produced. The check runs inline, so nothing of it outlives the call and the
+// engine holds one check at a time — see WithCheckTimeout for what the bound
+// does and does not promise.
 func (o runOptions) runCheck(ctx context.Context, c Check) CheckResult {
-	if o.checkTimeout <= 0 {
-		findings, err := c.Run(ctx)
-		return collectResult(ctx, ctx, c, findings, err)
+	checkCtx := ctx
+	if o.checkTimeout > 0 {
+		var cancel context.CancelFunc
+		checkCtx, cancel = context.WithTimeout(ctx, o.checkTimeout)
+		defer cancel()
 	}
 
-	// read before the goroutine starts, so the engine touches an abandoned
-	// check only through the channel it sends on
-	name := c.Name()
-
-	checkCtx, cancel := context.WithTimeout(ctx, o.checkTimeout)
-	defer cancel()
-
-	type outcome struct {
-		findings []Finding
-		err      error
-	}
-	// buffered, so an abandoned check never blocks on a send nobody reads
-	done := make(chan outcome, 1)
-	go func() {
-		findings, err := c.Run(checkCtx)
-		done <- outcome{findings: findings, err: err}
-	}()
-
-	select {
-	case out := <-done:
-		return collectResult(ctx, checkCtx, c, out.findings, out.err)
-	case <-checkCtx.Done():
-		select {
-		case out := <-done:
-			// the check returned as the bound expired; it is classified like
-			// any other check that returned, which means an error it produced
-			// on the way out reads as a cutoff
-			return collectResult(ctx, checkCtx, c, out.findings, out.err)
-		default:
-			return notRunResult(name, cutoffReason(ctx, checkCtx))
-		}
-	}
+	findings, err := c.Run(checkCtx)
+	return collectResult(ctx, checkCtx, c, findings, err)
 }
 
 // collectResult builds the result of a check that returned, and reads its
 // optional Details and Summary. A check whose context ended before it could
 // produce a result did not run, whatever error it returned on the way out.
 //
-// That error is dropped rather than kept. Whether a cut-off check delivers its
-// result before the engine stops waiting is a scheduling race, so keeping the
-// error would make the same check under the same bound report differently from
-// run to run. The reason says what stopped it, which is always knowable.
+// That error is dropped rather than kept, because a check that noticed its
+// context and one that failed on a dead connection report differently for the
+// same cause. The reason says what stopped it, which is always knowable.
 func collectResult(runCtx, checkCtx context.Context, c Check, findings []Finding, err error) CheckResult {
 	if err != nil {
 		if reason := cutoffReason(runCtx, checkCtx); reason != "" {

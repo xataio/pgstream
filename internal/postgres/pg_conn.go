@@ -145,10 +145,3 @@ func (c *Conn) Ping(ctx context.Context) error {
 func (c *Conn) Close(ctx context.Context) error {
 	return MapError(c.conn.Close(ctx))
 }
-
-// IsClosed reports whether the underlying connection is closed. pgx closes a
-// connection when a query on it is interrupted, so a connection can go dead
-// without whoever opened it having closed it.
-func (c *Conn) IsClosed() bool {
-	return c.conn.IsClosed()
-}
