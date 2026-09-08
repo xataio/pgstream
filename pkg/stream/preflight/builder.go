@@ -101,10 +101,23 @@ func WithConnOptions(opts ...ConnOption) SourceOption {
 	return func(o *sourceOptions) { o.conn = opts }
 }
 
+// ErrNilSnapshotData is returned by BuildSourceChecks when WithSnapshotData is
+// given a nil configuration.
+var ErrNilSnapshotData = errors.New("snapshot data configuration must not be nil")
+
 // WithSourceCategories restricts the run to the given categories, in the order
 // they are registered in Builders. Omitting it runs every category.
 func WithSourceCategories(categories ...Category) SourceOption {
 	return func(o *sourceOptions) { o.categories = categories }
+}
+
+// WithSnapshotData sets the data snapshot configuration that the snapshot-gated
+// checks size themselves against: snapshot_connection_headroom compares
+// snapshot_workers x table_workers against the source's max_connections, and
+// source_snapshot_single_instance derives its probe count from the same
+// product.
+func WithSnapshotData(cfg *pgsnapshotgenerator.Config) SourceOption {
+	return func(o *sourceOptions) { o.snapshotData = cfg }
 }
 
 // BuildSourceChecks returns every preflight check that only needs a connection
@@ -130,6 +143,9 @@ func BuildSourceChecks(sourceURL string, opts ...SourceOption) ([]Check, Cleanup
 	}
 	for _, opt := range opts {
 		opt(&o)
+	}
+	if o.snapshotData == nil {
+		return nil, joinCleanups(nil), ErrNilSnapshotData
 	}
 
 	checks, cleanup := BuildChecks(o.streamConfig(sourceURL), o.categories, o.conn...)
