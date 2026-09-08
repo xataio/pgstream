@@ -4,12 +4,27 @@ package preflight
 
 import (
 	"context"
+	"errors"
+	"net"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	pgdumprestore "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/schema/pgdumprestore"
+	"github.com/xataio/pgstream/pkg/stream"
+	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
+	pgprocessor "github.com/xataio/pgstream/pkg/wal/processor/postgres"
 )
 
-const testSourceURL = "postgres://user:pass@localhost:5432/mydb"
+const (
+	testSourceURL = "postgres://user:pass@localhost:5432/mydb"
+
+	// hook tests dial these, so they name hosts that resolve nowhere: the hook
+	// under test answers the lookup itself and refuses the dial.
+	testHookSourceURL = "postgres://user:pass@source.invalid:5432/mydb"
+	testHookTargetURL = "postgres://user:pass@target.invalid:5432/targetdb"
+)
 
 func checkNames(checks []Check) []string {
 	names := make([]string, 0, len(checks))
@@ -149,4 +164,276 @@ func TestBuildSourceChecks_MissingURL(t *testing.T) {
 	require.Empty(t, checks)
 	require.NotNil(t, cleanup, "cleanup must be safe to defer on error")
 	require.NoError(t, cleanup(context.Background()))
+}
+
+// errHookRefused is the sentinel the refusing dialler returns. A check that
+// reports it went through the hook; a check that escaped the hook reaches the
+// real resolver and fails with something else.
+const errHookRefused = "dialling refused by test"
+
+// countingRefusingConn makes every dial fail without touching the network: the
+// lookup answers from memory and the dialler refuses. It counts both, so a
+// connection that escaped the options is visible as a missing count as well as
+// through the error it fails with.
+type countingRefusingConn struct {
+	mu      sync.Mutex
+	lookups int
+	dials   int
+}
+
+func (c *countingRefusingConn) options() []ConnOption {
+	return []ConnOption{
+		WithLookupFunc(func(context.Context, string) ([]string, error) {
+			c.mu.Lock()
+			c.lookups++
+			c.mu.Unlock()
+			return []string{"192.0.2.1"}, nil
+		}),
+		WithDialFunc(func(context.Context, string, string) (net.Conn, error) {
+			c.mu.Lock()
+			c.dials++
+			c.mu.Unlock()
+			return nil, errors.New(errHookRefused)
+		}),
+	}
+}
+
+func (c *countingRefusingConn) counts() (lookups, dials int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lookups, c.dials
+}
+
+// lookupsPerConnection measures how many times one connection resolves its
+// host. The driver expands a URL into one connection target per fallback (the
+// default sslmode=prefer produces one), and resolves each, so the count is a
+// property of the URL rather than a number worth hard-coding.
+func lookupsPerConnection(t *testing.T) int {
+	t.Helper()
+
+	c := &countingRefusingConn{}
+	_, err := probeDialer(testHookSourceURL, c.options()...)(context.Background())
+	require.ErrorContains(t, err, errHookRefused)
+
+	lookups, _ := c.counts()
+	require.Positive(t, lookups)
+	return lookups
+}
+
+// requireRefusedByHook asserts every check failed through the dialler the
+// options installed. A connection that escaped them would resolve the host
+// itself and fail with a different error, so this, and not the bare "the check
+// did not pass", is what proves the options decided which address was reached.
+func requireRefusedByHook(t *testing.T, report Report) {
+	t.Helper()
+
+	require.NotEmpty(t, report.Results)
+	for _, res := range report.Results {
+		msg := ""
+		if res.Err != nil {
+			msg = res.Err.Error()
+		}
+		for _, f := range res.Findings {
+			msg += " " + f.Message
+		}
+		require.Contains(t, msg, errHookRefused,
+			"check %q did not fail through the supplied dialler", res.Name)
+	}
+}
+
+// TestBuildSourceChecks_ConnOptions pins that the options reach every
+// connection a full source run opens — each category's shared connection, the
+// connectivity check's own connection and the exported snapshot probe's — and
+// that the supplied dialler decides which address is reached, so every check
+// reports a connection failure instead of connecting.
+func TestBuildSourceChecks_ConnOptions(t *testing.T) {
+	t.Parallel()
+
+	// One per category shared connection (replication, access, schema,
+	// resources), one for the connectivity check and one for the exported
+	// snapshot probe's exporting connection. The dialler refuses that
+	// exporting dial, so the probe never reaches its parallel probe
+	// connections; those are covered by TestProbeDialer_ConnOptions.
+	const wantConnectionsBeforeFirstRefusal = 6
+
+	perConn := lookupsPerConnection(t)
+
+	c := &countingRefusingConn{}
+	checks, cleanup, err := BuildSourceChecks(testHookSourceURL, WithConnOptions(c.options()...))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, cleanup(context.Background())) })
+
+	report := Run(context.Background(), checks)
+	require.Len(t, report.Results, len(checks))
+	requireRefusedByHook(t, report)
+
+	lookups, dials := c.counts()
+	require.Equal(t, wantConnectionsBeforeFirstRefusal*perConn, lookups,
+		"every connection must resolve through the supplied resolver")
+	require.GreaterOrEqual(t, dials, wantConnectionsBeforeFirstRefusal,
+		"the supplied dialler must be the one used")
+}
+
+// TestProbeDialer_ConnOptions pins the half of the coverage the source run
+// cannot reach: the exported snapshot probe opens one connection per probe,
+// and every one of them carries the options. The probe dials in parallel, so
+// this also exercises the concurrency the options must tolerate.
+func TestProbeDialer_ConnOptions(t *testing.T) {
+	t.Parallel()
+
+	const probes = 8
+
+	perConn := lookupsPerConnection(t)
+
+	c := &countingRefusingConn{}
+	dial := probeDialer(testHookSourceURL, c.options()...)
+
+	errs := make([]error, probes)
+	var wg sync.WaitGroup
+	for i := 0; i < probes; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = dial(context.Background())
+		}(i)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
+		require.ErrorContains(t, err, errHookRefused)
+	}
+
+	lookups, dials := c.counts()
+	require.Equal(t, probes*perConn, lookups, "every probe connection must carry the options")
+	require.GreaterOrEqual(t, dials, probes)
+}
+
+// TestBuildSourceChecks_NoConnOptions pins that the connections are configured
+// exactly as before when no option is supplied.
+func TestBuildSourceChecks_NoConnOptions(t *testing.T) {
+	t.Parallel()
+
+	checks, cleanup, err := BuildSourceChecks(testHookSourceURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, cleanup(context.Background())) })
+
+	for _, c := range checks {
+		if cc, ok := c.(*ConnectivityCheck); ok {
+			require.Empty(t, cc.ConnOptions)
+		}
+	}
+	require.Nil(t, postgresConnOptions(nil))
+}
+
+func TestPostgresConnOptions(t *testing.T) {
+	t.Parallel()
+
+	dial := func(context.Context, string, string) (net.Conn, error) { return nil, errors.New("refused") }
+	lookup := func(context.Context, string) ([]string, error) { return nil, errors.New("unresolved") }
+
+	tests := []struct {
+		name string
+		opts []ConnOption
+		want int
+	}{
+		{name: "none", opts: nil, want: 0},
+		{name: "dial only", opts: []ConnOption{WithDialFunc(dial)}, want: 1},
+		{name: "lookup only", opts: []ConnOption{WithLookupFunc(lookup)}, want: 1},
+		{name: "both", opts: []ConnOption{WithDialFunc(dial), WithLookupFunc(lookup)}, want: 2},
+		{name: "nil funcs", opts: []ConnOption{WithDialFunc(nil), WithLookupFunc(nil)}, want: 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Len(t, postgresConnOptions(tc.opts), tc.want)
+		})
+	}
+}
+
+// TestBuildAccessChecks_ConnOptions pins that the options reach the target
+// connection the access builder opens as well as the source one.
+func TestBuildAccessChecks_ConnOptions(t *testing.T) {
+	t.Parallel()
+
+	perConn := lookupsPerConnection(t)
+	c := &countingRefusingConn{}
+	cfg := &stream.Config{
+		Listener: stream.ListenerConfig{
+			Postgres: &stream.PostgresListenerConfig{
+				URL: testHookSourceURL,
+				Snapshot: &snapshotbuilder.SnapshotListenerConfig{
+					Schema: &snapshotbuilder.SchemaSnapshotConfig{
+						DumpRestore: &pgdumprestore.Config{
+							TargetPGURL:    testHookTargetURL,
+							CreateTargetDB: true,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	checks, cleanup := BuildAccessChecks(cfg, c.options()...)
+	require.NotNil(t, cleanup)
+	t.Cleanup(func() { require.NoError(t, cleanup(context.Background())) })
+
+	requireRefusedByHook(t, Run(context.Background(), checks))
+
+	lookups, _ := c.counts()
+	require.Equal(t, 2*perConn, lookups, "the source and target connections must both carry the options")
+}
+
+// TestBuildSchemaChecks_ConnOptions pins that the target connection the schema
+// builder opens carries the options too. The checks only reach the target once
+// the source answers, so the test acquires both connections directly.
+func TestBuildSchemaChecks_ConnOptions(t *testing.T) {
+	t.Parallel()
+
+	perConn := lookupsPerConnection(t)
+	c := &countingRefusingConn{}
+	cfg := &stream.Config{
+		Listener: stream.ListenerConfig{
+			Postgres: &stream.PostgresListenerConfig{URL: testHookSourceURL},
+		},
+		Processor: stream.ProcessorConfig{
+			Postgres: &stream.PostgresProcessorConfig{
+				BatchWriter: pgprocessor.Config{URL: testHookTargetURL},
+			},
+		},
+	}
+
+	checks, cleanup := BuildSchemaChecks(cfg, c.options()...)
+	require.NotNil(t, cleanup)
+	t.Cleanup(func() { require.NoError(t, cleanup(context.Background())) })
+
+	versionCheck, ok := checks[0].(*PostgresVersionCheck)
+	require.True(t, ok)
+	require.NotNil(t, versionCheck.Target)
+
+	_, err := versionCheck.Source(context.Background())
+	require.Error(t, err)
+	_, err = versionCheck.Target(context.Background())
+	require.Error(t, err)
+
+	lookups, _ := c.counts()
+	require.Equal(t, 2*perConn, lookups)
+}
+
+// TestBuilders_OneEntryPerCategory pins the registry contract: a category is
+// one Builders entry, and every entry is complete.
+func TestBuilders_OneEntryPerCategory(t *testing.T) {
+	t.Parallel()
+
+	seen := map[Category]bool{}
+	flags := map[string]bool{}
+	for _, b := range Builders {
+		require.NotEmpty(t, b.Category)
+		require.NotEmpty(t, b.Flag)
+		require.NotNil(t, b.Build)
+		require.False(t, seen[b.Category], "duplicate category %q", b.Category)
+		require.False(t, flags[b.Flag], "duplicate flag %q", b.Flag)
+		seen[b.Category] = true
+		flags[b.Flag] = true
+	}
 }
