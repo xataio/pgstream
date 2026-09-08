@@ -137,8 +137,8 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 			case "", "noop":
 				transformerMap.AddNoopTransformer(table.Schema, table.Table, colName)
 				continue
-			case transformers.PGAnonymizer:
-				// pg_anonymizer transformer requires a connection pool, set
+			case transformers.PGAnonymizer, transformers.LookupChoice:
+				// these transformers require a connection pool, set
 				// the source PG URL if not provided
 				if cfg.Parameters["postgres_url"] == nil {
 					cfg.Parameters["postgres_url"] = v.connURL

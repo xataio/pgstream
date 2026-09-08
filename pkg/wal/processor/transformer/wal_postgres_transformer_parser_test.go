@@ -16,6 +16,7 @@ import (
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 	"github.com/xataio/pgstream/pkg/transformers"
 	"github.com/xataio/pgstream/pkg/transformers/builder"
+	transformermocks "github.com/xataio/pgstream/pkg/transformers/mocks"
 )
 
 func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
@@ -759,6 +760,111 @@ func Test_validateNumericRange(t *testing.T) {
 			t.Parallel()
 
 			require.ErrorIs(t, validateNumericRange(tc.cfg, tc.colType), tc.wantErr)
+		})
+	}
+}
+
+// transformers that read from the database are given the source URL when the
+// rules do not name one; without it the documented configuration, which omits
+// postgres_url, fails to start
+func TestPostgresTransformerParser_connectionInjection(t *testing.T) {
+	t.Parallel()
+
+	const sourceURL = "postgres://user:pass@source:5432/db"
+
+	querier := func() *pgmocks.Querier {
+		return &pgmocks.Querier{
+			QueryFn: func(_ context.Context, _ uint, query string, _ ...any) (pglib.Rows, error) {
+				switch query {
+				case "SELECT * FROM \"public\".\"test\" LIMIT 0":
+					return &pgmocks.Rows{
+						FieldDescriptionsFn: func() []pgconn.FieldDescription {
+							return []pgconn.FieldDescription{{Name: "id", DataTypeOID: pgtype.Int8OID}}
+						},
+						CloseFn: func() {},
+						ErrFn:   func() error { return nil },
+					}, nil
+				case uniqueIndexQuery:
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(uint) bool { return false },
+						ErrFn:   func() error { return nil },
+					}, nil
+				default:
+					return nil, fmt.Errorf("unexpected query: %s", query)
+				}
+			},
+		}
+	}
+
+	tests := []struct {
+		name            string
+		transformer     string
+		parameters      map[string]any
+		wantPostgresURL any
+	}{
+		{
+			name:            "lookup_choice without a url",
+			transformer:     "lookup_choice",
+			parameters:      map[string]any{"lookup_table": "public.countries", "lookup_column": "id"},
+			wantPostgresURL: sourceURL,
+		},
+		{
+			name:            "lookup_choice with its own url",
+			transformer:     "lookup_choice",
+			parameters:      map[string]any{"lookup_table": "public.countries", "lookup_column": "id", "postgres_url": "postgres://elsewhere"},
+			wantPostgresURL: "postgres://elsewhere",
+		},
+		{
+			name:            "pg_anonymizer without a url",
+			transformer:     "pg_anonymizer",
+			parameters:      map[string]any{"anon_function": "anon.fake_email()"},
+			wantPostgresURL: sourceURL,
+		},
+		{
+			name:            "a transformer that needs no connection is left alone",
+			transformer:     "string",
+			parameters:      nil,
+			wantPostgresURL: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var gotURL any
+			parser := PostgresTransformerParser{
+				conn:    querier(),
+				connURL: sourceURL,
+				builder: &transformermocks.TransformerBuilder{
+					NewFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
+						gotURL = cfg.Parameters["postgres_url"]
+						return &transformermocks.Transformer{
+							CompatibleTypesFn: func() []transformers.SupportedDataType {
+								return []transformers.SupportedDataType{transformers.AllDataTypes}
+							},
+						}, nil
+					},
+				},
+				pgtypeMap:      pglib.NewMapper(querier()),
+				requiredTables: []string{"public.test"},
+			}
+
+			_, err := parser.ParseAndValidate(context.Background(), Rules{
+				ValidationMode: "relaxed",
+				Transformers: []TableRules{
+					{
+						Schema: "public",
+						Table:  "test",
+						ColumnRules: map[string]TransformerRules{
+							"id": {Name: tc.transformer, Parameters: tc.parameters},
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
+			require.Equal(t, tc.wantPostgresURL, gotURL)
 		})
 	}
 }
