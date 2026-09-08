@@ -6,7 +6,7 @@ Guidance for Claude Code when working inside `pkg/stream/preflight`. The planned
 
 - `preflight.go` — `Check` interface (`Name()` + `Run(ctx) ([]Finding, error)`), the optional `Detailer` / `Summarizer` interfaces described under [Reporting what a check observed](#reporting-what-a-check-observed), `Finding`, `CheckResult`, `Report`, `Run(ctx, []Check, ...RunOption)` engine. The engine calls each optional interface after `Run`, so a check populates them from state it gathered while running.
 - `printer.go` — `ReportPrinter{Report}` is the only thing that formats reports, rendering each result's `Summary` beside its name. The `Report` struct itself stays pure data.
-- `builder.go` — `Builder` struct (returns `[]Check` + optional cleanup), `Builders` registry slice, per-category builder functions (`BuildConnectivityChecks`, …), `BuildChecks(cfg, selected)`.
+- `builder.go` — `Builder` struct (returns `[]Check` + optional cleanup), `Builders` registry slice, per-category builder functions (`BuildConnectivityChecks`, …), `BuildChecks(cfg, selected, opts...)`. A builder takes `(*stream.Config, ...ConnOption)`: the config says which checks apply, the options configure every connection those checks open. `ConnOption` is driver-neutral — `WithDialFunc` and `WithLookupFunc` take stdlib types, and `postgresConnOptions` renders them for `internal/postgres`, so pgx stays out of the package's public API.
 - One file per category of concrete checks (`connectivity.go`, `replication.go`, …).
 
 The shared-conn primitive lives one floor down at `internal/postgres.LazyConn` so other callers can reuse it.
@@ -17,14 +17,15 @@ Adding a check is meant to be a small, mechanical edit. Keep it that way.
 
 1. **Pick a category.** Categories group checks of the same concern (`connectivity`, `replication`, `access`, `schema`, `resources`).
    - Joining an existing category: skip to step 2.
-   - Creating a new one: add a `Category` constant in `preflight.go`, a builder func + `Builders` entry in `builder.go`, and a boolean flag on `checkCmd` in `cmd/root_cmd.go`. The flag string must match `Builder.Flag`.
+   - Creating a new one: add a `Category` constant in `preflight.go`, a builder func (`func(*stream.Config, ...ConnOption) ([]Check, CleanupFunc)`) + `Builders` entry in `builder.go`, and a boolean flag on `checkCmd` in `cmd/root_cmd.go`. The flag string must match `Builder.Flag`.
 2. **Implement the check.** New struct in `<thing>.go`, satisfying the `Check` interface.
    - **Every `Finding` is blocking.** A check that finds nothing wrong returns a `nil` slice.
    - **Return `error` only when the check itself couldn't run** (timeout, internal bug, malformed input). A detected problem is a `Finding`, not an error.
    - **Put remediation in `Finding.Message`** — the user should be able to act on it without reading source.
 3. **Report what it observed**, if it observed anything worth reporting — see [Reporting what a check observed](#reporting-what-a-check-observed). Most checks need none of this: a check that only passes or fails implements no optional interface.
 4. **Materialise instances in the category builder** (e.g. `BuildConnectivityChecks`). The builder is the applicability gate: it reads `*stream.Config` and decides which instances are relevant. Inapplicable checks are silently omitted today; an explicit "skipped: <reason>" mechanism is deferred (see `docs/migration_preflight_issue.md` "Architecture decisions" #6).
-   - **If checks in the category share a Postgres connection**, call `postgres.NewLazyConn(url)` in the builder, hand `src.Acquire` (a `postgres.AcquireFunc`) to every check, and return `src.Close` as the cleanup. See `BuildReplicationChecks` for the pattern. The engine runs sequentially, so the first check to call `Source(ctx)` opens the conn and the rest reuse it. A failed dial is memoised too — only one connection attempt happens, even if every check reports its own check error.
+   - **If checks in the category share a Postgres connection**, call `postgres.NewLazyConn(url, postgresConnOptions(opts)...)` in the builder, hand `src.Acquire` (a `postgres.AcquireFunc`) to every check, and return `src.Close` as the cleanup. See `BuildReplicationChecks` for the pattern. The engine runs sequentially, so the first check to call `Source(ctx)` opens the conn and the rest reuse it. A failed dial is memoised too — only one connection attempt happens, even if every check reports its own check error.
+   - **Every connection must carry the connection options.** Forwarding them is what lets a library caller decide which address a check reaches, and the guarantee only holds while every builder does it. A check that opens its own connection instead of sharing one takes a `ConnOptions []ConnOption` field, set from the builder's `opts`, and passes `postgresConnOptions(c.ConnOptions)...` to `postgres.NewConn` — see `ConnectivityCheck`. `TestBuildSourceChecks_ConnOptions` fails when a connection escapes the options, so add the new category's URLs to the configuration it builds.
 5. **Tests.** Unit-test the check directly against mocked dependencies (`internal/postgres/mocks` has the postgres conn mock). For new categories, exercise the builder selection path through the cmd layer too.
 
 ## Reporting what a check observed
