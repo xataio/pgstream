@@ -111,7 +111,7 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 	}
 	var uniquenessErrs []string
 	transformerMap := NewTransformerMap()
-	for _, table := range rules.Transformers {
+	for tableIdx, table := range rules.Transformers {
 		fieldDescriptions, err := v.getFieldDescriptions(context.Background(), table.Schema, table.Table)
 		if err != nil {
 			return nil, err
@@ -123,7 +123,7 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 			if _, found := table.ColumnRules[string(desc.Name)]; !found {
 				// column is not configured in rules, error out if strict validation mode is enabled
 				if table.ValidationMode == validationModeStrict {
-					return nil, fmt.Errorf("column %s of table %q.%q has no transformer configured", desc.Name, table.Schema, table.Table)
+					return nil, fmt.Errorf("%s: column %s of table %q.%q has no transformer configured", tableRulePosition(tableIdx), desc.Name, table.Schema, table.Table)
 				}
 				continue
 			}
@@ -148,25 +148,25 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 			// build the transformer
 			transformer, err := v.builder.New(cfg)
 			if err != nil {
-				return nil, err
+				return nil, columnRuleError(tableIdx, table.Schema, table.Table, colName, err)
 			}
 
 			// get the data type so that we can later validate if it's compatible with the configured transformer
 			colType, found := mappedColumnTypes[colName]
 			if !found {
 				// validate that the column in the rules is present in the table
-				return nil, fmt.Errorf("column %s not found in table %q.%q", colName, table.Schema, table.Table)
+				return nil, fmt.Errorf("%s: column %s not found in table %q.%q", tableRulePosition(tableIdx), colName, table.Schema, table.Table)
 			}
 
 			dataTypeName, err := v.pgtypeMap.TypeForOID(ctx, colType.oid)
 
 			// validate that the transformer is compatible with the column type
 			if err != nil || !pgTypeCompatibleWithTransformerType(transformer.CompatibleTypes(), colType.oid, dataTypeName) {
-				return nil, fmt.Errorf("transformer '%s' specified for column '%s' in table %q.%q does not support pg data type: %s with OID: %d", transformer.Type(), colName, table.Schema, table.Table, dataTypeName, colType.oid)
+				return nil, fmt.Errorf("%s: transformer '%s' specified for column '%s' in table %q.%q does not support pg data type: %s with OID: %d", tableRulePosition(tableIdx), transformer.Type(), colName, table.Schema, table.Table, dataTypeName, colType.oid)
 			}
 
 			if err := validateNumericRange(cfg, colType); err != nil {
-				return nil, fmt.Errorf("column '%s' in table %q.%q: %w", colName, table.Schema, table.Table, err)
+				return nil, columnRuleError(tableIdx, table.Schema, table.Table, colName, err)
 			}
 
 			// add the transformer to the map
@@ -309,10 +309,13 @@ func (v *PostgresTransformerParser) getFieldDescriptions(ctx context.Context, sc
 	query := fmt.Sprintf(fieldDescriptionsQuery, pglib.QuoteQualifiedIdentifier(schema, table))
 	rows, err := v.conn.Query(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("querying table rows: %w", err)
+		return nil, fmt.Errorf("querying columns for table %q.%q: %w", schema, table, err)
 	}
 	defer rows.Close()
-	return rows.FieldDescriptions(), rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading columns for table %q.%q: %w", schema, table, err)
+	}
+	return rows.FieldDescriptions(), nil
 }
 
 func (v *PostgresTransformerParser) getAllSchemaTables(ctx context.Context, schema string) ([]string, error) {
