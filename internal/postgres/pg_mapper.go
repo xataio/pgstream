@@ -131,9 +131,14 @@ func (m *Mapper) queryElementType(ctx context.Context, oid uint32) (*ElementType
 // enumTypeQuery resolves an OID to the enum it names, together with the enum's
 // labels in their declared order. It returns no row for anything else.
 //
-// Postgres reports a domain column's base type in the row description, so a
-// domain over an enum arrives here as the enum itself. An array of an enum has
-// its own OID, whose typtype is 'b', so callers resolve the element type first.
+// Filtering on typtype = 'e' alone is enough for a domain over an enum, because
+// postgres reports the domain's base type in the row description rather than
+// the domain's own OID. TestMapper_EnumForOID_Integration pins that on every
+// supported major, since the rest of this package resolves typbasetype from the
+// catalog explicitly and the difference is easy to miss.
+//
+// An array of an enum has its own OID, whose typtype is 'b', so it names no
+// enum here and a caller resolves the element type first.
 const enumTypeQuery = `SELECT t.typname, array_agg(e.enumlabel ORDER BY e.enumsortorder)
 	FROM pg_type t
 	JOIN pg_enum e ON e.enumtypid = t.oid
