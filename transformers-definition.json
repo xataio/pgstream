@@ -1078,8 +1078,7 @@
     {
       "name": "template",
       "supported_types": [
-        "string",
-        "byte_array"
+        "all"
       ],
       "uniqueness": "not_guaranteed",
       "parameters": [

@@ -98,6 +98,15 @@ func TestTemplateTransformer_Transform(t *testing.T) {
 			wantErr:    nil,
 		},
 		{
+			name:  "ok - integer value",
+			value: int32(42),
+			params: ParameterValues{
+				"template": "{{ .GetValue }}",
+			},
+			wantOutput: "42",
+			wantErr:    nil,
+		},
+		{
 			name:  "incompatible types for comparison",
 			value: 1,
 			params: ParameterValues{
