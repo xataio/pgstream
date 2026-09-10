@@ -57,6 +57,10 @@ source:
       ca_cert: "/path/to/ca.crt" # path to CA certificate
       client_cert: "/path/to/client.crt" # path to client certificate
       client_key: "/path/to/client.key" # path to client key
+    sasl:
+      mechanism: "scram-sha-512" # options are plain, scram-sha-256 or scram-sha-512
+      user: "myuser"
+      password: "mypassword"
     backoff:
       disable_retries: true
       exponential:
@@ -103,6 +107,10 @@ target:
       ca_cert: "/path/to/ca.crt" # path to CA certificate
       client_cert: "/path/to/client.crt" # path to client certificate
       client_key: "/path/to/client.key" # path to client key
+    sasl:
+      mechanism: "scram-sha-512" # options are plain, scram-sha-256 or scram-sha-512
+      user: "myuser"
+      password: "mypassword"
     batch:
       timeout: 1000 # batch timeout in milliseconds
       size: 100 # number of messages in a batch
