@@ -61,6 +61,10 @@ const (
 	publicSchema        = "public"
 	wildcard            = "*"
 	numericTypmodOffset = 4
+	// extension types the compatibility switch resolves by name, since their
+	// OIDs are assigned per database
+	citextTypeName = "citext"
+	hstoreTypeName = "hstore"
 )
 
 var (
@@ -76,6 +80,14 @@ var (
 type columnType struct {
 	oid      uint32
 	modifier int32
+}
+
+// resolvedType is the scalar type a column's values carry: the column's own
+// type, or, when the column is an array, the type its elements carry.
+type resolvedType struct {
+	columnType
+	name    string
+	isArray bool
 }
 
 func NewPostgresTransformerParser(ctx context.Context, pgURL string, builder transformerBuilder, requiredTables []string, opts ...ParserOption) (*PostgresTransformerParser, error) {
@@ -158,14 +170,23 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 				return nil, fmt.Errorf("%s: column %s not found in table %q.%q", tableRulePosition(tableIdx), colName, table.Schema, table.Table)
 			}
 
-			dataTypeName, err := v.pgtypeMap.TypeForOID(ctx, colType.oid)
+			dataTypeName, nameErr := v.pgtypeMap.TypeForOID(ctx, colType.oid)
+			resolved, err := v.resolveColumnType(ctx, colType)
 
 			// validate that the transformer is compatible with the column type
-			if err != nil || !pgTypeCompatibleWithTransformerType(transformer.CompatibleTypes(), colType.oid, dataTypeName) {
+			if nameErr != nil || err != nil || !pgTypeCompatibleWithTransformerType(transformer.CompatibleTypes(), resolved.oid, resolved.name) {
 				return nil, fmt.Errorf("%s: transformer '%s' specified for column '%s' in table %q.%q does not support pg data type: %s with OID: %d", tableRulePosition(tableIdx), transformer.Type(), colName, table.Schema, table.Table, dataTypeName, colType.oid)
 			}
 
-			if err := validateNumericRange(cfg, colType); err != nil {
+			if err := validateNumericRange(cfg, resolved.columnType); err != nil {
+				return nil, columnRuleError(tableIdx, table.Schema, table.Table, colName, err)
+			}
+
+			// an array column holds the wrapper rather than the transformer
+			// the rule names, so that uniqueness validation and the transform
+			// itself both see the whole array transform
+			transformer, err = wrapArrayTransformer(transformer, transformerRules.ArrayOptions, colName, colType.oid, resolved)
+			if err != nil {
 				return nil, columnRuleError(tableIdx, table.Schema, table.Table, colName, err)
 			}
 
@@ -193,6 +214,43 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 	}
 
 	return transformerMap, nil
+}
+
+func (v *PostgresTransformerParser) resolveColumnType(ctx context.Context, colType columnType) (resolvedType, error) {
+	name, err := v.pgtypeMap.TypeForOID(ctx, colType.oid)
+	if err != nil {
+		return resolvedType{columnType: colType, name: name}, err
+	}
+
+	element, err := v.pgtypeMap.ElementTypeForOID(ctx, colType.oid)
+	if err != nil || element == nil {
+		return resolvedType{columnType: colType, name: name}, err
+	}
+
+	// postgres records the precision of a numeric(10,2)[] column where it
+	// records a numeric(10,2) column's, so the modifier follows the element
+	resolved, err := v.resolveColumnType(ctx, columnType{oid: element.OID, modifier: colType.modifier})
+	resolved.isArray = true
+	return resolved, err
+}
+
+func wrapArrayTransformer(t transformers.Transformer, opts *ArrayOptions, colName string, arrayOID uint32, resolved resolvedType) (transformers.Transformer, error) {
+	if !resolved.isArray {
+		if opts != nil {
+			return nil, errArrayOptionsOnScalarColumn
+		}
+		return t, nil
+	}
+
+	cfg, err := opts.toArrayConfig()
+	if err != nil {
+		return nil, err
+	}
+	cfg.ElementTransformer = t
+	cfg.ArrayOID = arrayOID
+	cfg.ElementTypeName = resolved.name
+	cfg.Column = colName
+	return transformers.NewArrayTransformer(cfg)
 }
 
 func allowUniquenessLossColumns(table TableRules) map[string]bool {
@@ -409,9 +467,9 @@ func pgTypeCompatibleWithTransformerType(compatibleTypes []transformers.Supporte
 	default:
 		// handle extension/custom supported types
 		switch pgTypeName {
-		case "citext":
+		case citextTypeName:
 			return slices.Contains(compatibleTypes, transformers.CitextDataType)
-		case "hstore":
+		case hstoreTypeName:
 			return slices.Contains(compatibleTypes, transformers.HstoreDataType)
 		default:
 			return false

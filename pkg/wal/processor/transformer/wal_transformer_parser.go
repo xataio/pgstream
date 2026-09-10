@@ -27,6 +27,12 @@ func (p *transformerParser) parse(_ context.Context, rules Rules) (*TransformerM
 		}
 
 		for colName, transformerRules := range table.ColumnRules {
+			// without a connection there are no OIDs, so this parser cannot
+			// know whether a column is an array
+			if transformerRules.ArrayOptions != nil {
+				return nil, columnRuleError(tableIdx, table.Schema, table.Table, colName, errArrayOptionsRequirePostgres)
+			}
+
 			cfg := transformerRulesToConfig(transformerRules)
 			if cfg.Name == "" || cfg.Name == "noop" {
 				transformerMap.AddNoopTransformer(table.Schema, table.Table, colName)

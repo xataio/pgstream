@@ -23,7 +23,6 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 	t.Parallel()
 
 	citextOID := uint32(1234)
-	citextTypeName := "citext"
 	testSchemaTable := "\"public\".\"test\""
 	testQuerier := func() *pgmocks.Querier {
 		return &pgmocks.Querier{
@@ -87,6 +86,11 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				}
 			},
 			QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+				// the element type query only matches a true array type, and
+				// the fake OIDs in this test are all scalar
+				if strings.Contains(query, "a.typcategory = 'A'") {
+					return pglib.ErrNoRows
+				}
 				switch query {
 				case "SELECT typname FROM pg_type WHERE oid = $1":
 					require.Equal(t, 1, len(args))
@@ -919,6 +923,258 @@ func TestPostgresTransformerParser_connectionInjection(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.Equal(t, tc.wantPostgresURL, gotURL)
+		})
+	}
+}
+
+func TestPostgresTransformerParser_ParseAndValidate_arrayColumns(t *testing.T) {
+	t.Parallel()
+
+	const (
+		citextOID      = uint32(1234)
+		citextArrayOID = uint32(2345)
+		fpeKeyHex      = "000102030405060708090a0b0c0d0e0f"
+	)
+
+	testQuerier := func(indexRows []string) *pgmocks.Querier {
+		return &pgmocks.Querier{
+			QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+				switch query {
+				case "SELECT * FROM \"public\".\"test\" LIMIT 0":
+					return &pgmocks.Rows{
+						FieldDescriptionsFn: func() []pgconn.FieldDescription {
+							return []pgconn.FieldDescription{
+								{Name: "name", DataTypeOID: pgtype.TextOID},
+								{Name: "emails", DataTypeOID: pgtype.TextArrayOID},
+								{Name: "tags", DataTypeOID: citextArrayOID},
+								{Name: "scores", DataTypeOID: pgtype.Int4ArrayOID},
+							}
+						},
+						CloseFn: func() {},
+						ErrFn:   func() error { return nil },
+					}, nil
+				case uniqueIndexQuery:
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return int(i) <= len(indexRows) },
+						ScanFn: func(i uint, dest ...any) error {
+							require.Len(t, dest, 3)
+							indexName, ok := dest[0].(*string)
+							require.True(t, ok)
+							primary, ok := dest[1].(*bool)
+							require.True(t, ok)
+							columnName, ok := dest[2].(**string)
+							require.True(t, ok)
+							column := indexRows[i-1]
+							*indexName, *primary, *columnName = "test_emails_key", false, &column
+							return nil
+						},
+						ErrFn: func() error { return nil },
+					}, nil
+				default:
+					return nil, fmt.Errorf("unexpected query: %s", query)
+				}
+			},
+			QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+				if strings.Contains(query, "a.typcategory = 'A'") {
+					if args[0] != citextArrayOID {
+						return pglib.ErrNoRows
+					}
+					require.Len(t, dest, 2)
+					elementOID, ok := dest[0].(*uint32)
+					require.True(t, ok)
+					elementName, ok := dest[1].(*string)
+					require.True(t, ok)
+					*elementOID, *elementName = citextOID, citextTypeName
+					return nil
+				}
+
+				require.Len(t, dest, 1)
+				typeName, ok := dest[0].(*string)
+				require.True(t, ok)
+				switch args[0] {
+				case citextOID:
+					*typeName = citextTypeName
+				case citextArrayOID:
+					*typeName = "_" + citextTypeName
+				default:
+					return fmt.Errorf("unexpected OID: %v", args[0])
+				}
+				return nil
+			},
+		}
+	}
+
+	intPtr := func(i int) *int { return &i }
+
+	tests := []struct {
+		name        string
+		columnRules map[string]TransformerRules
+		indexRows   []string
+		enforce     bool
+
+		wantUniqueness map[string]transformers.Uniqueness
+		wantErr        error
+		wantErrMsg     string
+	}{
+		{
+			name: "ok - a rule without array options maps over the elements",
+			columnRules: map[string]TransformerRules{
+				"emails": {Name: "fpe_ff1", Parameters: map[string]any{"key_hex": fpeKeyHex}},
+			},
+			// the map generator inherits the element transformer's guarantee
+			wantUniqueness: map[string]transformers.Uniqueness{"emails": transformers.UniquenessPreserved},
+		},
+		{
+			name: "ok - the random generator is lossy whatever it wraps",
+			columnRules: map[string]TransformerRules{
+				"emails": {
+					Name:         "fpe_ff1",
+					Parameters:   map[string]any{"key_hex": fpeKeyHex},
+					ArrayOptions: &ArrayOptions{Generator: "random", MinCount: intPtr(0), MaxCount: intPtr(12)},
+				},
+			},
+			wantUniqueness: map[string]transformers.Uniqueness{"emails": transformers.UniquenessLossy},
+		},
+		{
+			name: "ok - compatibility recurses into the element type",
+			columnRules: map[string]TransformerRules{
+				// email accepts citext, so it accepts citext[]
+				"tags": {Name: "email"},
+				// greenmask_integer accepts int4, so it accepts int4[]
+				"scores": {Name: "greenmask_integer", Parameters: map[string]any{"min_value": 1, "max_value": 100}},
+			},
+		},
+		{
+			name: "error - the element type is not compatible",
+			columnRules: map[string]TransformerRules{
+				"scores": {Name: "email"},
+			},
+			wantErrMsg: "transformer 'email' specified for column 'scores' in table \"public\".\"test\" does not support pg data type: _int4 with OID: 1007",
+		},
+		{
+			name: "error - array options on a scalar column",
+			columnRules: map[string]TransformerRules{
+				"name": {Name: "string", ArrayOptions: &ArrayOptions{Generator: "map"}},
+			},
+			wantErr: errArrayOptionsOnScalarColumn,
+		},
+		{
+			name: "error - counts under the map generator",
+			columnRules: map[string]TransformerRules{
+				"emails": {Name: "string", ArrayOptions: &ArrayOptions{MinCount: intPtr(1), MaxCount: intPtr(2)}},
+			},
+			wantErr: errArrayCountsNotAllowed,
+		},
+		{
+			name: "error - counts missing under the random generator",
+			columnRules: map[string]TransformerRules{
+				"emails": {Name: "string", ArrayOptions: &ArrayOptions{Generator: "random", MinCount: intPtr(1)}},
+			},
+			wantErr: errArrayCountsRequired,
+		},
+		{
+			name: "error - min count greater than max count",
+			columnRules: map[string]TransformerRules{
+				"emails": {Name: "string", ArrayOptions: &ArrayOptions{Generator: "random", MinCount: intPtr(4), MaxCount: intPtr(2)}},
+			},
+			wantErr:    transformers.ErrInvalidArrayOptions,
+			wantErrMsg: "column 'emails' in table \"public\".\"test\"",
+		},
+		{
+			name: "error - negative count",
+			columnRules: map[string]TransformerRules{
+				"emails": {Name: "string", ArrayOptions: &ArrayOptions{Generator: "random", MinCount: intPtr(-1), MaxCount: intPtr(2)}},
+			},
+			wantErr: transformers.ErrInvalidArrayOptions,
+		},
+		{
+			name: "error - unknown generator",
+			columnRules: map[string]TransformerRules{
+				"emails": {Name: "string", ArrayOptions: &ArrayOptions{Generator: "shuffle"}},
+			},
+			wantErr: transformers.ErrInvalidArrayOptions,
+		},
+		{
+			name: "ok - a mapped uniqueness preserving rule clears a unique index",
+			columnRules: map[string]TransformerRules{
+				"emails": {Name: "fpe_ff1", Parameters: map[string]any{"key_hex": fpeKeyHex}},
+			},
+			indexRows: []string{"emails"},
+			enforce:   true,
+		},
+		{
+			name: "error - a resampled rule breaks a unique index",
+			columnRules: map[string]TransformerRules{
+				"emails": {
+					Name:         "fpe_ff1",
+					Parameters:   map[string]any{"key_hex": fpeKeyHex},
+					ArrayOptions: &ArrayOptions{Generator: "random", MinCount: intPtr(0), MaxCount: intPtr(2)},
+				},
+			},
+			indexRows:  []string{"emails"},
+			enforce:    true,
+			wantErr:    ErrUniquenessNotPreserved,
+			wantErrMsg: `unique index "test_emails_key" (emails) is covered by a transformer that maps distinct values to the same output ("emails" uses "fpe_ff1")`,
+		},
+		{
+			name: "ok - allow_uniqueness_loss silences the resampled rule",
+			columnRules: map[string]TransformerRules{
+				"emails": {
+					Name:                "fpe_ff1",
+					Parameters:          map[string]any{"key_hex": fpeKeyHex},
+					AllowUniquenessLoss: true,
+					ArrayOptions:        &ArrayOptions{Generator: "random", MinCount: intPtr(0), MaxCount: intPtr(2)},
+				},
+			},
+			indexRows: []string{"emails"},
+			enforce:   true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			parser := PostgresTransformerParser{
+				conn:              testQuerier(tc.indexRows),
+				builder:           builder.NewTransformerBuilder(),
+				pgtypeMap:         pglib.NewMapper(testQuerier(tc.indexRows)),
+				enforceUniqueness: tc.enforce,
+			}
+
+			transformerMap, err := parser.ParseAndValidate(context.Background(), Rules{
+				ValidationMode: validationModeRelaxed,
+				Transformers: []TableRules{
+					{
+						Schema:         "public",
+						Table:          "test",
+						ValidationMode: validationModeRelaxed,
+						ColumnRules:    tc.columnRules,
+					},
+				},
+			})
+
+			if tc.wantErr != nil || tc.wantErrMsg != "" {
+				require.Error(t, err)
+				if tc.wantErr != nil {
+					require.ErrorIs(t, err, tc.wantErr)
+				}
+				if tc.wantErrMsg != "" {
+					require.Contains(t, err.Error(), tc.wantErrMsg)
+				}
+				return
+			}
+			require.NoError(t, err)
+
+			columnTransformers, found := transformerMap.GetActiveColumnTransformers("public", "test")
+			require.True(t, found)
+			for column, wantUniqueness := range tc.wantUniqueness {
+				// the map must hold the wrapper, not the element transformer,
+				// so that validation classifies the whole array transform
+				require.IsType(t, &transformers.ArrayTransformer{}, columnTransformers[column])
+				require.Equal(t, wantUniqueness, transformers.UniquenessOf(columnTransformers[column]))
+			}
 		})
 	}
 }
