@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/transformers"
 	"golang.org/x/exp/slices"
 )
@@ -27,6 +28,7 @@ type PostgresTransformerParser struct {
 	// only a postgres target actually enforces a unique index; elsewhere the
 	// same findings are reported but must not block the pipeline
 	enforceUniqueness bool
+	logger            loglib.Logger
 }
 
 type ParserOption func(*PostgresTransformerParser)
@@ -37,6 +39,16 @@ type ParserOption func(*PostgresTransformerParser)
 func WithUniquenessEnforcement() ParserOption {
 	return func(v *PostgresTransformerParser) {
 		v.enforceUniqueness = true
+	}
+}
+
+// WithParserLogger sets the logger rules validation reports through. It is
+// named apart from WithLogger, which configures the transformer processor.
+func WithParserLogger(l loglib.Logger) ParserOption {
+	return func(v *PostgresTransformerParser) {
+		v.logger = loglib.NewLogger(l).WithFields(loglib.Fields{
+			loglib.ModuleField: "postgres_transformer_parser",
+		})
 	}
 }
 
@@ -73,6 +85,7 @@ const (
 	// OIDs are assigned per database
 	citextTypeName = "citext"
 	hstoreTypeName = "hstore"
+	choicesParam   = "choices"
 )
 
 var (
@@ -80,6 +93,9 @@ var (
 	// ErrNumericRange is returned when a transformer configured on a numeric
 	// column can generate values the column cannot store.
 	ErrNumericRange = errors.New("transformer range does not fit the numeric column")
+	// ErrInvalidEnumChoice is returned when a greenmask_choice rule on an enum
+	// column lists a value the enum does not have.
+	ErrInvalidEnumChoice = errors.New("choice is not a valid enum label")
 )
 
 // columnType is what rules validation needs to know about a column's type: the
@@ -96,6 +112,9 @@ type resolvedType struct {
 	columnType
 	name    string
 	isArray bool
+	// enum is set when the resolved type names a user-defined enum, which an
+	// array column inherits from its element type.
+	enum *pglib.EnumType
 }
 
 func NewPostgresTransformerParser(ctx context.Context, pgURL string, builder transformerBuilder, requiredTables []string, opts ...ParserOption) (*PostgresTransformerParser, error) {
@@ -109,6 +128,7 @@ func NewPostgresTransformerParser(ctx context.Context, pgURL string, builder tra
 		builder:        builder,
 		pgtypeMap:      pglib.NewMapper(pool),
 		requiredTables: requiredTables,
+		logger:         loglib.NewNoopLogger(),
 	}
 	for _, opt := range opts {
 		opt(parser)
@@ -158,10 +178,12 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 		for colName, transformerRules := range table.ColumnRules {
 			cfg := transformerRulesToConfig(transformerRules)
 
-			switch cfg.Name {
-			case "", "noop":
+			if cfg.Name == "" || cfg.Name == "noop" {
 				transformerMap.AddNoopTransformer(table.Schema, table.Table, colName)
 				continue
+			}
+
+			switch cfg.Name {
 			case transformers.PGAnonymizer, transformers.LookupChoice:
 				// these transformers require a connection pool, set
 				// the source PG URL if not provided
@@ -174,12 +196,6 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 				return nil, fmt.Errorf("%s: column '%s' in table %q.%q: %w", tableRulePosition(tableIdx), colName, table.Schema, table.Table, transformers.ErrMultiDimensionalArray)
 			}
 
-			// build the transformer
-			transformer, err := v.builder.New(cfg)
-			if err != nil {
-				return nil, columnRuleError(tableIdx, table.Schema, table.Table, colName, err)
-			}
-
 			// get the data type so that we can later validate if it's compatible with the configured transformer
 			colType, found := mappedColumnTypes[colName]
 			if !found {
@@ -188,10 +204,37 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 			}
 
 			dataTypeName, nameErr := v.pgtypeMap.TypeForOID(ctx, colType.oid)
-			resolved, err := v.resolveColumnType(ctx, colType)
+			resolved, resolveErr := v.resolveColumnType(ctx, colType)
+			if nameErr == nil && resolveErr == nil {
+				// the element type for an array column, so an array of an enum
+				// reaches its labels the same way a scalar enum column does
+				enum, enumErr := v.pgtypeMap.EnumForOID(ctx, resolved.oid)
+				if enumErr != nil {
+					return nil, columnRuleError(tableIdx, table.Schema, table.Table, colName, fmt.Errorf("resolving enum type: %w", enumErr))
+				}
+				resolved.enum = enum
+			}
+
+			// an enum column supplies the choices its transformer is built
+			// with, so this has to happen before the builder runs
+			if cfg.Name == transformers.GreenmaskChoice {
+				defaulted, err := v.applyEnumChoices(cfg, resolved.enum)
+				if err != nil {
+					return nil, columnRuleError(tableIdx, table.Schema, table.Table, colName, err)
+				}
+				if defaulted {
+					v.reportDefaultedChoices(table.Schema, table.Table, colName, cfg, resolved.enum)
+				}
+			}
+
+			// build the transformer
+			transformer, err := v.builder.New(cfg)
+			if err != nil {
+				return nil, columnRuleError(tableIdx, table.Schema, table.Table, colName, err)
+			}
 
 			// validate that the transformer is compatible with the column type
-			if nameErr != nil || err != nil || !pgTypeCompatibleWithTransformerType(transformer.CompatibleTypes(), resolved.oid, resolved.name) {
+			if nameErr != nil || resolveErr != nil || !pgTypeCompatibleWithTransformerType(transformer.CompatibleTypes(), resolved.oid, resolved.name, resolved.enum) {
 				return nil, fmt.Errorf("%s: transformer '%s' specified for column '%s' in table %q.%q does not support pg data type: %s with OID: %d", tableRulePosition(tableIdx), transformer.Type(), colName, table.Schema, table.Table, dataTypeName, colType.oid)
 			}
 
@@ -459,9 +502,16 @@ func parseTableName(qualifiedTableName string) (string, string, error) {
 	}
 }
 
-func pgTypeCompatibleWithTransformerType(compatibleTypes []transformers.SupportedDataType, pgTypeOID uint32, pgTypeName string) bool {
+func pgTypeCompatibleWithTransformerType(compatibleTypes []transformers.SupportedDataType, pgTypeOID uint32, pgTypeName string, enum *pglib.EnumType) bool {
 	if slices.Contains(compatibleTypes, transformers.AllDataTypes) {
 		return true
+	}
+	// an enum accepts only a transformer that can be constrained to its
+	// labels, and never through the OID switch below, since its OID is
+	// assigned by the database rather than fixed. An array column resolves to
+	// its element type, so an array of an enum arrives here as the enum
+	if enum != nil {
+		return slices.Contains(compatibleTypes, transformers.EnumDataType)
 	}
 	switch pgTypeOID {
 	case pgtype.TextOID, pgtype.VarcharOID, pgtype.BPCharOID:
@@ -600,4 +650,64 @@ func arrayColumnWarnings(tableIdx int, schema, table, column, dataTypeName strin
 			position, transformer.Type()))
 	}
 	return warnings
+}
+
+// applyEnumChoices reconciles a greenmask_choice rule with the column it is
+// configured on. On an enum column the labels are the natural choices, so a
+// rule that omits them gets them, and a rule that lists them is checked
+// against the enum now rather than failing per row against the target. It
+// reports whether the choices were defaulted.
+//
+// The labels are read once, here, so a label renamed on the source afterwards
+// is only picked up on restart. Constraints narrowing the column further, such
+// as a CHECK on a domain over the enum, are not visible in the row description
+// this resolves from and are not honoured; list the choices explicitly there.
+func (v *PostgresTransformerParser) applyEnumChoices(cfg *transformers.Config, enum *pglib.EnumType) (bool, error) {
+	if enum == nil {
+		return false, nil
+	}
+
+	choices, found, err := transformers.FindParameterArray[string](cfg.Parameters, choicesParam)
+	if err != nil {
+		return false, fmt.Errorf("%s must be an array of strings: %w", choicesParam, err)
+	}
+	if !found {
+		if cfg.Parameters == nil {
+			cfg.Parameters = transformers.ParameterValues{}
+		}
+		// cloned: the labels belong to the mapper's cache, which every column
+		// of this enum shares
+		cfg.Parameters[choicesParam] = slices.Clone(enum.Labels)
+		return true, nil
+	}
+
+	// an explicitly empty list is a mistake, most often a template that
+	// rendered nothing, so let the builder reject it rather than silently
+	// widening it to every label
+	for _, choice := range choices {
+		if !slices.Contains(enum.Labels, choice) {
+			return false, fmt.Errorf("%w: %q is not a label of enum %q (%s)",
+				ErrInvalidEnumChoice, choice, enum.Name, strings.Join(enum.Labels, ", "))
+		}
+	}
+	return false, nil
+}
+
+// reportDefaultedChoices records a choice set the operator never wrote. It is
+// the only trace of it: the labels live in memory, and a value the target
+// later rejects cannot otherwise be traced back to a rule.
+func (v *PostgresTransformerParser) reportDefaultedChoices(schema, table, column string, cfg *transformers.Config, enum *pglib.EnumType) {
+	v.logger.Info("defaulting greenmask_choice choices to the enum's labels", loglib.Fields{
+		"schema": schema, "table": table, "column": column,
+		"enum": enum.Name, "choices": enum.Labels,
+	})
+
+	// the deterministic generator maps each label to a fixed other label with
+	// no secret involved, and an enum publishes its whole label set to anyone
+	// who can read the target, so the mapping is trivially invertible
+	if generator, _ := cfg.Parameters["generator"].(string); generator == "deterministic" {
+		v.warnings = append(v.warnings, fmt.Sprintf(
+			"%s: column %q uses greenmask_choice with the deterministic generator over enum %q's own labels, which is reversible by anyone who can read the target; use generator: random to break the correspondence",
+			schemaTableKey(schema, table), column, enum.Name))
+	}
 }
