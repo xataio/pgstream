@@ -50,6 +50,8 @@ Each transformer declares how it behaves with respect to uniqueness:
 | `neosync_fullname`         | `lossy`          |
 | `neosync_lastname`         | `lossy`          |
 
+On an array column the classification describes the whole array transform, which depends on the configured generator. See [Array columns](#array-columns).
+
 When a source Postgres URL is configured, pgstream reads the unique indexes, unique constraints and primary keys of every table in the transformation rules and checks them against the configured transformers. Columns with no rule, or with a `noop` rule, keep their original value and are never flagged. Run the check on its own with:
 
 ```sh
@@ -85,6 +87,65 @@ Use `fpe_ff1` when the column must also keep its format. For example, a phone nu
 - **Exclusion constraints** with equality semantics (`EXCLUDE (email WITH =)`) are not treated as unique indexes.
 
 If a load fails with `duplicate key value violates unique constraint` on a transformed column, run `pgstream validate rules` against the source to see which rules the check flags.
+
+## Array columns
+
+A transformation rule on a one-dimensional array column applies the transformer to each element. The rule reads like a rule on a scalar column:
+
+```yaml
+column_transformers:
+  emails: # emails is varchar(500)[]
+    name: email
+    parameters:
+      replacement_domain: "@example.com.invalid"
+```
+
+pgstream decodes the array before it applies the transformer, so each element reaches the transformer as the value of the element type. An `int4[]` element reaches the transformer as an integer, not as text. The same rules apply to `text` and to `text[]`: a transformer accepts an array column if it accepts the element type. This covers extension types, so a transformer that accepts `citext` also accepts `citext[]`.
+
+Array columns need a source PostgreSQL connection, because pgstream reads the column type from the source catalog.
+
+### Generators
+
+The optional `array_options` block selects how the elements of the new array are produced:
+
+```yaml
+column_transformers:
+  emails:
+    name: email
+    array_options:
+      generator: random
+      min_count: 0
+      max_count: 12
+```
+
+| Generator | Behavior                                                                                                                                |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `map`     | Applies the transformer to each source element, in order. The array keeps its length. This is the default.                               |
+| `random`  | Emits between `min_count` and `max_count` elements. Each element is the transform of a source element selected at random, with repeats.  |
+
+`min_count` and `max_count` are required with the `random` generator. They must be non-negative, and `min_count` must not be greater than `max_count`. They are not valid with the `map` generator. pgstream rejects the rules at startup if these conditions are not met, and names the schema, table and column.
+
+The `random` generator never invents a value. Each new element is the transform of a value that is in the row. An empty source array stays empty.
+
+### NULL values and errors
+
+- A NULL array stays NULL. pgstream does not call the transformer.
+- A NULL element stays NULL. pgstream does not call the transformer for that element.
+- A transformer that returns no value produces a NULL element in the same position. The array keeps its length.
+- The first element that fails makes the whole column fail. The `on_error` policy then applies to the whole column: `fail` stops the run, `null` sets the whole column to NULL, and `pass-through` restores the whole original array.
+
+### Limitations
+
+- **Multi-dimensional arrays are not supported.** PostgreSQL does not record the number of dimensions in the column type, so pgstream cannot reject these rules at startup. On the replication path a multi-dimensional value is a per-row error, which the `on_error` policy handles.
+- **`literal_string` writes into each element.** On an array column, `literal_string` writes its literal into every element instead of into the column as a whole.
+- **Dynamic parameters are not paired element by element.** A `dynamic_parameters` sibling that is itself an array falls back to the parameter default.
+
+### Uniqueness
+
+The uniqueness check reads the classification of the whole array transform, not of the transformer the rule names:
+
+- With `map`, the array keeps the classification of the transformer. `fpe_ff1` on a `text[]` column stays `preserved`, because mapping a transformer that preserves uniqueness over an array of the same length also preserves uniqueness.
+- With `random`, the array is always `lossy`, whatever the transformer guarantees. Two different source arrays that share an element can produce the same output, and `min_count: 0` lets any row produce an empty array. On a PostgreSQL target this is an error. Set `allow_uniqueness_loss` on the column to override it.
 
 ## Supported transformers
 
@@ -1443,6 +1504,10 @@ transformations:
           allow_uniqueness_loss: false # Whether to allow a transformer that can produce duplicates on a column covered by a unique index. Defaults to false. See "Uniqueness and unique indexes"
           parameters: # Transformer parameters as defined in the supported transformers documentation
             <transformer_parameter>: <transformer_parameter_value>
+          array_options: # Only valid on an array column. If omitted, the transformer is applied to each element in order. See "Array columns"
+            generator: <map|random> # How the elements of the new array are produced. Defaults to map
+            min_count: <min_count> # Smallest number of elements to emit. Required with the random generator
+            max_count: <max_count> # Largest number of elements to emit. Required with the random generator
 ```
 
 When the `infer_from_security_labels` option is enabled, the table transformers will be parsed from the source Postgres [`SECURITY LABELS`](https://www.postgresql.org/docs/current/sql-security-label.html) for the [`anon` extension](https://postgresql-anonymizer.readthedocs.io/en/stable/declare_masking_rules/). If the option is not enabled, the table transformers need to be explicitly provided.
