@@ -349,10 +349,20 @@ type TableTransformersConfig struct {
 }
 
 type ColumnTransformersConfig struct {
-	Name                string         `mapstructure:"name" yaml:"name"`
-	Parameters          map[string]any `mapstructure:"parameters" yaml:"parameters"`
-	DynamicParameters   map[string]any `mapstructure:"dynamic_parameters" yaml:"dynamic_parameters"`
-	AllowUniquenessLoss bool           `mapstructure:"allow_uniqueness_loss" yaml:"allow_uniqueness_loss"`
+	Name                string              `mapstructure:"name" yaml:"name"`
+	Parameters          map[string]any      `mapstructure:"parameters" yaml:"parameters"`
+	DynamicParameters   map[string]any      `mapstructure:"dynamic_parameters" yaml:"dynamic_parameters"`
+	AllowUniquenessLoss bool                `mapstructure:"allow_uniqueness_loss" yaml:"allow_uniqueness_loss"`
+	ArrayOptions        *ArrayOptionsConfig `mapstructure:"array_options" yaml:"array_options"`
+}
+
+// ArrayOptionsConfig configures how an array column's elements are produced.
+// The counts are pointers so that a count set to zero is distinguishable from
+// a count left out, which the transformation rules validate differently.
+type ArrayOptionsConfig struct {
+	Generator string `mapstructure:"generator" yaml:"generator"`
+	MinCount  *int   `mapstructure:"min_count" yaml:"min_count"`
+	MaxCount  *int   `mapstructure:"max_count" yaml:"max_count"`
 }
 
 // postgres source modes
@@ -926,6 +936,7 @@ func (c TransformationsConfig) parseTransformationConfig() (*transformer.Config,
 				Parameters:          cr.Parameters,
 				DynamicParameters:   cr.DynamicParameters,
 				AllowUniquenessLoss: cr.AllowUniquenessLoss,
+				ArrayOptions:        cr.ArrayOptions.toTransformerRules(),
 			}
 		}
 		rules = append(rules, transformer.TableRules{
@@ -1056,4 +1067,15 @@ func (bc *BatchConfig) parseBatchConfig() batch.Config {
 	}
 
 	return cfg
+}
+
+func (c *ArrayOptionsConfig) toTransformerRules() *transformer.ArrayOptions {
+	if c == nil {
+		return nil
+	}
+	return &transformer.ArrayOptions{
+		Generator: c.Generator,
+		MinCount:  c.MinCount,
+		MaxCount:  c.MaxCount,
+	}
 }
