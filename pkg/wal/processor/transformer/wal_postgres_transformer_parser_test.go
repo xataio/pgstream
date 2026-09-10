@@ -291,6 +291,26 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			wantErr: fmt.Errorf("table_transformers[0]: column id of table %s has no transformer configured", testSchemaTable),
 		},
 		{
+			name: "ok - template on a non string column",
+			transformerRules: []TableRules{
+				{
+					Schema:         "public",
+					Table:          "test",
+					ValidationMode: "relaxed",
+					ColumnRules: map[string]TransformerRules{
+						"id": {
+							Name:       string(transformers.Template),
+							Parameters: map[string]any{"template": "{{ .GetValue }}"},
+						},
+					},
+				},
+			},
+			validator: testPGValidator,
+
+			wantActiveTransformersFor: []string{"id"},
+			wantErr:                   nil,
+		},
+		{
 			name: "error - invalid column type",
 			transformerRules: []TableRules{
 				{
