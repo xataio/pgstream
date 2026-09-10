@@ -150,7 +150,8 @@
       "name": "greenmask_choice",
       "supported_types": [
         "string",
-        "byte_array"
+        "byte_array",
+        "enum"
       ],
       "uniqueness": "lossy",
       "parameters": [
