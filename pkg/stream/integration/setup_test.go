@@ -115,6 +115,13 @@ var (
 	kafkaContainer = &lazyContainer{start: func(ctx context.Context) (func() error, error) {
 		return testcontainers.SetupKafkaContainer(ctx, &kafkaBrokers)
 	}}
+	// a second broker rather than SASL on the shared one: the tests that do not
+	// authenticate would have to be rewritten to, and a broker that rejects
+	// them would no longer prove that the SASL configuration is what makes the
+	// difference.
+	kafkaSASLContainer = &lazyContainer{start: func(ctx context.Context) (func() error, error) {
+		return testcontainers.SetupKafkaSASLContainer(ctx, &kafkaSASLBrokers, kafkaSASLUser)
+	}}
 	opensearchContainer = &lazyContainer{start: func(ctx context.Context) (func() error, error) {
 		return testcontainers.SetupOpenSearchContainer(ctx, &opensearchURL)
 	}}

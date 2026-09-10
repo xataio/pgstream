@@ -5,6 +5,7 @@ package preflight
 import (
 	"context"
 	"errors"
+	"net"
 
 	"github.com/xataio/pgstream/internal/postgres"
 	pgsnapshotgenerator "github.com/xataio/pgstream/pkg/snapshot/generator/postgres/data"
@@ -17,14 +18,60 @@ import (
 // connection). Builders return nil when there's nothing to clean up.
 type CleanupFunc func(context.Context) error
 
+// DialFunc opens a connection to an address that is already resolved.
+type DialFunc func(ctx context.Context, network, address string) (net.Conn, error)
+
+// LookupFunc resolves a host name to the addresses to try.
+type LookupFunc func(ctx context.Context, host string) ([]string, error)
+
+// ConnOption configures every connection the checks a builder returns open,
+// including the connections the exported snapshot probe opens. Supplying no
+// option leaves the connections exactly as pgstream configures them.
+type ConnOption func(*connOptions)
+
+type connOptions struct {
+	dial   DialFunc
+	lookup LookupFunc
+}
+
+func WithDialFunc(dial DialFunc) ConnOption {
+	return func(o *connOptions) { o.dial = dial }
+}
+
+func WithLookupFunc(lookup LookupFunc) ConnOption {
+	return func(o *connOptions) { o.lookup = lookup }
+}
+
+// postgresConnOptions renders the options as the connection options
+// internal/postgres takes. No option means no connection option, so
+// connections are configured exactly as they are without one.
+func postgresConnOptions(opts []ConnOption) []postgres.ConnOption {
+	var o connOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	pgOpts := []postgres.ConnOption{}
+	if o.dial != nil {
+		pgOpts = append(pgOpts, postgres.WithDialFunc(postgres.DialFunc(o.dial)))
+	}
+	if o.lookup != nil {
+		pgOpts = append(pgOpts, postgres.WithLookupFunc(postgres.LookupFunc(o.lookup)))
+	}
+	if len(pgOpts) == 0 {
+		return nil
+	}
+	return pgOpts
+}
+
 // Builder turns a stream.Config into the concrete checks for a category, plus
-// an optional cleanup function that releases resources the checks share (e.g.
-// a Postgres connection). Each new category adds an entry to Builders and a
-// matching CLI flag in cmd/root_cmd.go.
+// an optional cleanup function that releases resources the checks share (e.g. a
+// Postgres connection). The connection options apply to every connection those
+// checks open. Each new category adds an entry to Builders and a matching CLI
+// flag in cmd/root_cmd.go.
 type Builder struct {
 	Category Category
 	Flag     string
-	Build    func(*stream.Config) ([]Check, CleanupFunc)
+	Build    func(*stream.Config, ...ConnOption) ([]Check, CleanupFunc)
 }
 
 // Builders is the registry of category builders. Adding a new category = one
@@ -47,12 +94,30 @@ type sourceOptions struct {
 	replicationSlot string
 	snapshotData    *pgsnapshotgenerator.Config
 	categories      []Category
+	conn            []ConnOption
 }
+
+func WithConnOptions(opts ...ConnOption) SourceOption {
+	return func(o *sourceOptions) { o.conn = opts }
+}
+
+// ErrNilSnapshotData is returned by BuildSourceChecks when WithSnapshotData is
+// given a nil configuration.
+var ErrNilSnapshotData = errors.New("snapshot data configuration must not be nil")
 
 // WithSourceCategories restricts the run to the given categories, in the order
 // they are registered in Builders. Omitting it runs every category.
 func WithSourceCategories(categories ...Category) SourceOption {
 	return func(o *sourceOptions) { o.categories = categories }
+}
+
+// WithSnapshotData sets the data snapshot configuration that the snapshot-gated
+// checks size themselves against: snapshot_connection_headroom compares
+// snapshot_workers x table_workers against the source's max_connections, and
+// source_snapshot_single_instance derives its probe count from the same
+// product.
+func WithSnapshotData(cfg *pgsnapshotgenerator.Config) SourceOption {
+	return func(o *sourceOptions) { o.snapshotData = cfg }
 }
 
 // BuildSourceChecks returns every preflight check that only needs a connection
@@ -79,8 +144,11 @@ func BuildSourceChecks(sourceURL string, opts ...SourceOption) ([]Check, Cleanup
 	for _, opt := range opts {
 		opt(&o)
 	}
+	if o.snapshotData == nil {
+		return nil, joinCleanups(nil), ErrNilSnapshotData
+	}
 
-	checks, cleanup := BuildChecks(o.streamConfig(sourceURL), o.categories)
+	checks, cleanup := BuildChecks(o.streamConfig(sourceURL), o.categories, o.conn...)
 	return checks, cleanup, nil
 }
 
@@ -112,12 +180,12 @@ func (o *sourceOptions) streamConfig(sourceURL string) *stream.Config {
 // snapshot connection-headroom check is added only when a data snapshot is
 // configured, because it sizes snapshot_workers x table_workers against the
 // source's max_connections.
-func BuildResourcesChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
+func BuildResourcesChecks(cfg *stream.Config, opts ...ConnOption) ([]Check, CleanupFunc) {
 	url := cfg.SourcePostgresURL()
 	if url == "" {
 		return nil, nil
 	}
-	src := postgres.NewLazyConn(url)
+	src := postgres.NewLazyConn(url, postgresConnOptions(opts)...)
 	checks := []Check{
 		&DatabaseSizeCheck{Source: src.Acquire},
 	}
@@ -131,16 +199,15 @@ func BuildResourcesChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 // A source check is added when a source postgres URL is configured; a target
 // check is added when a postgres target is configured. Each check opens its
 // own conn (to its own URL), so no shared cleanup is needed.
-func BuildConnectivityChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
+func BuildConnectivityChecks(cfg *stream.Config, opts ...ConnOption) ([]Check, CleanupFunc) {
 	checks := []Check{}
 	if url := cfg.SourcePostgresURL(); url != "" {
-		checks = append(checks, &ConnectivityCheck{Label: "source", URL: url})
+		checks = append(checks, &ConnectivityCheck{Label: "source", URL: url, ConnOptions: opts})
 		if demand, ok := cfg.SnapshotConnectionDemand(); ok {
+			dial := probeDialer(url, opts...)
 			checks = append(checks, &SourceSnapshotInstanceCheck{
 				Probe: func(ctx context.Context, probes int) (int, error) {
-					return postgres.ProbeExportedSnapshotVisibility(ctx, func(ctx context.Context) (postgres.Querier, error) {
-						return postgres.NewConn(ctx, url)
-					}, probes)
+					return postgres.ProbeExportedSnapshotVisibility(ctx, dial, probes)
 				},
 				Probes: snapshotInstanceProbes(demand),
 			})
@@ -148,10 +215,21 @@ func BuildConnectivityChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 	}
 	if cfg.Processor.Postgres != nil {
 		if url := cfg.Processor.Postgres.BatchWriter.URL; url != "" {
-			checks = append(checks, &ConnectivityCheck{Label: "target", URL: url})
+			checks = append(checks, &ConnectivityCheck{Label: "target", URL: url, ConnOptions: opts})
 		}
 	}
 	return checks, nil
+}
+
+// probeDialer returns the dial function the exported snapshot probe calls once
+// per connection it opens, so every one of those connections carries the
+// connection options. The probe dials its probe connections in parallel, so
+// the dialler and the resolver the options carry run concurrently.
+func probeDialer(url string, opts ...ConnOption) func(context.Context) (postgres.Querier, error) {
+	connOpts := postgresConnOptions(opts)
+	return func(ctx context.Context) (postgres.Querier, error) {
+		return postgres.NewConn(ctx, url, connOpts...)
+	}
 }
 
 func snapshotInstanceProbes(demand uint) int {
@@ -170,7 +248,7 @@ func snapshotInstanceProbes(demand uint) int {
 // to cfg, plus a cleanup function that closes the shared source connection.
 // Replication checks only apply when the source is configured with a
 // replication slot.
-func BuildReplicationChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
+func BuildReplicationChecks(cfg *stream.Config, opts ...ConnOption) ([]Check, CleanupFunc) {
 	if cfg.PostgresReplicationSlot() == "" {
 		return nil, nil
 	}
@@ -178,7 +256,7 @@ func BuildReplicationChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 	if url == "" {
 		return nil, nil
 	}
-	src := postgres.NewLazyConn(url)
+	src := postgres.NewLazyConn(url, postgresConnOptions(opts)...)
 	return []Check{
 		&WALLevelCheck{Source: src.Acquire},
 		&WAL2JSONCheck{Source: src.Acquire},
@@ -190,12 +268,12 @@ func BuildReplicationChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 
 // BuildAccessChecks returns the access-preflight checks applicable to cfg,
 // plus a cleanup function that closes the shared source connection.
-func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
+func BuildAccessChecks(cfg *stream.Config, opts ...ConnOption) ([]Check, CleanupFunc) {
 	sourceURL := cfg.SourcePostgresURL()
 	if sourceURL == "" {
 		return nil, nil
 	}
-	src := postgres.NewLazyConn(sourceURL)
+	src := postgres.NewLazyConn(sourceURL, postgresConnOptions(opts)...)
 	selection := cfg.AccessTableSelection()
 	checks := []Check{
 		&SourceTableSelectPrivilegesCheck{
@@ -217,7 +295,7 @@ func BuildAccessChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 		checkURL, err := targetPrivilegeCheckURL(targetURL, createDB)
 		acquire := func(context.Context) (postgres.Querier, error) { return nil, err }
 		if err == nil {
-			target := postgres.NewLazyConn(checkURL)
+			target := postgres.NewLazyConn(checkURL, postgresConnOptions(opts)...)
 			acquire = target.Acquire
 			cleanups = append(cleanups, target.Close)
 		}
@@ -253,12 +331,12 @@ func targetPrivilegeCheckURL(targetURL string, createTargetDB bool) (string, err
 // against the target when a Postgres target URL is configured. The range-type
 // check is added when the target is Postgres; the extension check additionally
 // needs the target URL to query the target.
-func BuildSchemaChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
+func BuildSchemaChecks(cfg *stream.Config, opts ...ConnOption) ([]Check, CleanupFunc) {
 	url := cfg.SourcePostgresURL()
 	if url == "" {
 		return nil, nil
 	}
-	src := postgres.NewLazyConn(url)
+	src := postgres.NewLazyConn(url, postgresConnOptions(opts)...)
 	selection := cfg.AccessTableSelection()
 	versionCheck := &PostgresVersionCheck{Source: src.Acquire}
 	checks := []Check{
@@ -275,7 +353,7 @@ func BuildSchemaChecks(cfg *stream.Config) ([]Check, CleanupFunc) {
 			Selection: selection,
 		})
 		if targetURL := cfg.Processor.Postgres.BatchWriter.URL; targetURL != "" {
-			tgt := postgres.NewLazyConn(targetURL)
+			tgt := postgres.NewLazyConn(targetURL, postgresConnOptions(opts)...)
 			cleanups = append(cleanups, tgt.Close)
 			versionCheck.Target = tgt.Acquire
 			checks = append(checks, &SchemaExtensionCompatibilityCheck{
@@ -305,8 +383,9 @@ func joinCleanups(cleanups []CleanupFunc) CleanupFunc {
 // preserving the registration order in Builders, plus a single cleanup
 // function that releases every category's resources. The returned cleanup is
 // always non-nil; callers can defer it unconditionally. An empty selection
-// runs every registered category.
-func BuildChecks(cfg *stream.Config, selected []Category) ([]Check, CleanupFunc) {
+// runs every registered category. The connection options apply to every
+// connection the resulting checks open.
+func BuildChecks(cfg *stream.Config, selected []Category, opts ...ConnOption) ([]Check, CleanupFunc) {
 	want := make(map[Category]bool, len(selected))
 	for _, c := range selected {
 		want[c] = true
@@ -315,7 +394,7 @@ func BuildChecks(cfg *stream.Config, selected []Category) ([]Check, CleanupFunc)
 	cleanups := []CleanupFunc{}
 	for _, b := range Builders {
 		if len(want) == 0 || want[b.Category] {
-			cs, cleanup := b.Build(cfg)
+			cs, cleanup := b.Build(cfg, opts...)
 			checks = append(checks, cs...)
 			if cleanup != nil {
 				cleanups = append(cleanups, cleanup)

@@ -280,16 +280,16 @@ func TestTypeKindLabel(t *testing.T) {
 	require.Equal(t, "", typeKindLabel("b"))
 }
 
-func TestUnsupportedColumnTypeMessage_BaseTypeOmitsKindNoun(t *testing.T) {
+func TestUnsupportedColumnTypeFinding_BaseTypeOmitsKindNoun(t *testing.T) {
 	t.Parallel()
 
 	// A built-in system type pgx doesn't register (typtype 'b') should read as a
 	// bare type name, not be mislabelled as a "user-defined type".
-	msg := unsupportedColumnTypeMessage(schemaColumnRow{
+	finding := unsupportedColumnTypeFinding(schemaColumnRow{
 		Schema: "public", Table: "t", Column: "relid", TypeName: "regclass", TypeKind: "b",
 	})
-	require.Contains(t, msg, `"public"."t"."relid": type "regclass"`)
-	require.NotContains(t, msg, "user-defined type")
+	require.Contains(t, finding.Message, `"public"."t"."relid": type "regclass"`)
+	require.NotContains(t, finding.Message, "user-defined type")
 }
 
 func TestPostgresRangeTypeCheck_Run_SupportedRangesPass(t *testing.T) {
@@ -359,17 +359,28 @@ func TestPostgresRangeTypeCheck_Name(t *testing.T) {
 	require.Equal(t, "postgres_range_type_support", (&PostgresRangeTypeCheck{}).Name())
 }
 
-func TestUnsupportedRangeTypeMessage(t *testing.T) {
+func TestUnsupportedRangeTypeFinding(t *testing.T) {
 	t.Parallel()
 
 	// non-range types and supported ranges produce nothing
-	require.Empty(t, unsupportedRangeTypeMessage(schemaColumnRow{TypeName: "text", TypeKind: "b"}))
-	require.Empty(t, unsupportedRangeTypeMessage(schemaColumnRow{TypeName: "int4range", TypeKind: "r"}))
-	require.Empty(t, unsupportedRangeTypeMessage(schemaColumnRow{TypeName: "tstzrange", TypeKind: "r"}))
+	for _, row := range []schemaColumnRow{
+		{TypeName: "text", TypeKind: "b"},
+		{TypeName: "int4range", TypeKind: "r"},
+		{TypeName: "tstzrange", TypeKind: "r"},
+	} {
+		_, found := unsupportedRangeTypeFinding(row)
+		require.False(t, found)
+	}
 
 	// unsupported range/multirange types produce a finding
-	require.NotEmpty(t, unsupportedRangeTypeMessage(schemaColumnRow{TypeName: "numrange", TypeKind: "r"}))
-	require.NotEmpty(t, unsupportedRangeTypeMessage(schemaColumnRow{TypeName: "tstzmultirange", TypeKind: "m"}))
+	for _, row := range []schemaColumnRow{
+		{TypeName: "numrange", TypeKind: "r"},
+		{TypeName: "tstzmultirange", TypeKind: "m"},
+	} {
+		finding, found := unsupportedRangeTypeFinding(row)
+		require.True(t, found)
+		require.NotEmpty(t, finding.Message)
+	}
 }
 
 func TestSchemaExtensionCompatibilityCheck_Run_AllPresentOnTarget(t *testing.T) {
@@ -401,7 +412,7 @@ func TestSchemaExtensionCompatibilityCheck_Details_EmptyWhenNoExtensions(t *test
 	require.Equal(t, map[string]any{"source_extensions": []string{}}, check.Details())
 	data, err := json.Marshal(CheckResult{Name: "x", Details: check.Details()})
 	require.NoError(t, err)
-	require.JSONEq(t, `{"name":"x","findings":null,"details":{"source_extensions":[]}}`, string(data))
+	require.JSONEq(t, `{"name":"x","status":"ok","findings":null,"details":{"source_extensions":[]}}`, string(data))
 }
 
 func TestSchemaExtensionCompatibilityCheck_Run_MissingExtensionReturnsFinding(t *testing.T) {

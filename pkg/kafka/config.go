@@ -8,6 +8,24 @@ type ConnConfig struct {
 	Servers []string
 	Topic   TopicConfig
 	TLS     tlslib.Config
+	SASL    SASLConfig
+}
+
+// SASLConfig configures the SASL authentication used to connect to the Kafka
+// servers.
+type SASLConfig struct {
+	// Enabled defines if the connection uses SASL authentication. Defaults to
+	// false.
+	Enabled bool
+	// Mechanism is the SASL mechanism to use. It must be one of "plain",
+	// "scram-sha-256" or "scram-sha-512". It is required when SASL is enabled.
+	Mechanism string
+	// Username is the user for the SASL authentication. It is required when
+	// SASL is enabled.
+	Username string
+	// Password is the password for the SASL authentication. It is required when
+	// SASL is enabled.
+	Password string
 }
 
 type TopicConfig struct {
