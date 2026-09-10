@@ -5,8 +5,11 @@ package transformers
 import (
 	"context"
 	"errors"
+	"math/big"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 )
 
@@ -63,6 +66,7 @@ func TestTemplateTransformer_Transform(t *testing.T) {
 	tests := []struct {
 		name   string
 		value  any
+		pgType string
 		params ParameterValues
 
 		wantOutput string
@@ -107,6 +111,154 @@ func TestTemplateTransformer_Transform(t *testing.T) {
 			wantErr:    nil,
 		},
 		{
+			name:  "ok - numeric value renders as decimal text",
+			value: pgtype.Numeric{Int: big.NewInt(12345678), Exp: -4, Valid: true},
+			params: ParameterValues{
+				"template": "{{ .GetValue }}",
+			},
+			wantOutput: "1234.5678",
+			wantErr:    nil,
+		},
+		{
+			name:  "ok - uuid value renders as canonical text",
+			value: [16]byte{0xa0, 0xee, 0xbc, 0x99, 0x9c, 0x0b, 0x4e, 0xf8, 0xbb, 0x6d, 0x6b, 0xb9, 0xbd, 0x38, 0x0a, 0x11},
+			params: ParameterValues{
+				"template": "{{ .GetValue }}",
+			},
+			wantOutput: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+			wantErr:    nil,
+		},
+		{
+			name:   "ok - date value renders as postgres text",
+			value:  time.Date(2024, 2, 29, 0, 0, 0, 0, time.UTC),
+			pgType: "date",
+			params: ParameterValues{
+				"template": "{{ .GetValue }}",
+			},
+			wantOutput: "2024-02-29",
+			wantErr:    nil,
+		},
+		{
+			name:   "ok - timestamp value renders as postgres text",
+			value:  time.Date(2024, 2, 29, 12, 34, 56, 789000000, time.UTC),
+			pgType: "timestamp",
+			params: ParameterValues{
+				"template": "{{ .GetValue }}",
+			},
+			wantOutput: "2024-02-29 12:34:56.789",
+			wantErr:    nil,
+		},
+		{
+			name:   "ok - timestamptz value renders as postgres text",
+			value:  time.Date(2024, 2, 29, 11, 34, 56, 0, time.FixedZone("CET", 3600)),
+			pgType: "timestamptz",
+			params: ParameterValues{
+				"template": "{{ .GetValue }}",
+			},
+			wantOutput: "2024-02-29 10:34:56Z",
+			wantErr:    nil,
+		},
+		{
+			name:   "ok - time value renders as postgres text",
+			value:  pgtype.Time{Microseconds: 45296000000, Valid: true},
+			pgType: "time",
+			params: ParameterValues{
+				"template": "{{ .GetValue }}",
+			},
+			wantOutput: "12:34:56.000000",
+			wantErr:    nil,
+		},
+		{
+			name:   "ok - interval value renders as postgres text",
+			value:  pgtype.Interval{Days: 1, Microseconds: 7384000000, Valid: true},
+			pgType: "interval",
+			params: ParameterValues{
+				"template": "{{ .GetValue }}",
+			},
+			wantOutput: "1 day 02:03:04",
+			wantErr:    nil,
+		},
+		{
+			name:   "ok - bytea value renders as postgres hex text",
+			value:  []byte{0xde, 0xad, 0xbe, 0xef},
+			pgType: "bytea",
+			params: ParameterValues{
+				"template": "{{ .GetValue }}",
+			},
+			wantOutput: `\xdeadbeef`,
+			wantErr:    nil,
+		},
+		{
+			name:   "ok - array value renders as postgres text",
+			value:  []any{"a", "b,c"},
+			pgType: "_text",
+			params: ParameterValues{
+				"template": "{{ .GetValue }}",
+			},
+			wantOutput: `{a,"b,c"}`,
+			wantErr:    nil,
+		},
+		{
+			name:   "ok - hstore value renders as postgres text",
+			value:  map[string]string{"k": "v"},
+			pgType: "hstore",
+			params: ParameterValues{
+				"template": "{{ .GetValue }}",
+			},
+			wantOutput: `"k"=>"v"`,
+			wantErr:    nil,
+		},
+		{
+			name:   "ok - int4range value renders as postgres text",
+			value:  pgtype.Range[any]{Lower: int32(1), Upper: int32(10), LowerType: pgtype.Inclusive, UpperType: pgtype.Exclusive, Valid: true},
+			pgType: "int4range",
+			params: ParameterValues{
+				"template": "{{ .GetValue }}",
+			},
+			wantOutput: "[1,10)",
+			wantErr:    nil,
+		},
+		{
+			name:   "ok - daterange value renders as postgres text",
+			value:  pgtype.Range[any]{Lower: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Upper: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC), LowerType: pgtype.Inclusive, UpperType: pgtype.Exclusive, Valid: true},
+			pgType: "daterange",
+			params: ParameterValues{
+				"template": "{{ .GetValue }}",
+			},
+			wantOutput: "[2024-01-01,2024-02-01)",
+			wantErr:    nil,
+		},
+		{
+			name:   "ok - unbounded numrange value renders as postgres text",
+			value:  pgtype.Range[any]{Lower: pgtype.Numeric{Int: big.NewInt(15), Exp: -1, Valid: true}, LowerType: pgtype.Exclusive, UpperType: pgtype.Unbounded, Valid: true},
+			pgType: "numrange",
+			params: ParameterValues{
+				"template": "{{ .GetValue }}",
+			},
+			wantOutput: "(1.5,)",
+			wantErr:    nil,
+		},
+		{
+			name:   "ok - empty range value renders as postgres text",
+			value:  pgtype.Range[any]{LowerType: pgtype.Empty, UpperType: pgtype.Empty, Valid: true},
+			pgType: "int4range",
+			params: ParameterValues{
+				"template": "{{ .GetValue }}",
+			},
+			wantOutput: "empty",
+			wantErr:    nil,
+		},
+		{
+			name:   "ok - replicated text is passed through",
+			value:  "12:34:56",
+			pgType: "time",
+			params: ParameterValues{
+				"template": "{{ .GetValue }}",
+			},
+			wantOutput: "12:34:56",
+			wantErr:    nil,
+		},
+		{
 			name:  "incompatible types for comparison",
 			value: 1,
 			params: ParameterValues{
@@ -123,7 +275,7 @@ func TestTemplateTransformer_Transform(t *testing.T) {
 
 			tt, err := NewTemplateTransformer(tc.params)
 			require.NoError(t, err)
-			got, err := tt.Transform(context.Background(), Value{TransformValue: tc.value})
+			got, err := tt.Transform(context.Background(), Value{TransformValue: tc.value, TransformType: tc.pgType})
 
 			if tc.wantErr != nil {
 				require.Error(t, err)
@@ -173,6 +325,42 @@ func TestTemplateTransformer_Transform_WithDynamicValues(t *testing.T) {
 				"template": "{{- if eq .GetValue \"hello\" -}} {{.GetDynamicValue \"value1\" }} {{- else -}} {{.GetDynamicValue \"value2\" }} {{- end -}}",
 			},
 			wantOutput: "second",
+			wantErr:    nil,
+		},
+		{
+			name:  "ok - numeric dynamic value renders as decimal text",
+			value: "hello",
+			dynamicValues: map[string]any{
+				"amount": pgtype.Numeric{Int: big.NewInt(-5), Exp: 2, Valid: true},
+			},
+			params: ParameterValues{
+				"template": "{{ .GetDynamicValue \"amount\" }}",
+			},
+			wantOutput: "-500",
+			wantErr:    nil,
+		},
+		{
+			name:  "ok - uuid dynamic value renders as canonical text",
+			value: "hello",
+			dynamicValues: map[string]any{
+				"uid": [16]byte{0xa0, 0xee, 0xbc, 0x99, 0x9c, 0x0b, 0x4e, 0xf8, 0xbb, 0x6d, 0x6b, 0xb9, 0xbd, 0x38, 0x0a, 0x11},
+			},
+			params: ParameterValues{
+				"template": "{{ .GetDynamicValue \"uid\" }}",
+			},
+			wantOutput: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+			wantErr:    nil,
+		},
+		{
+			name:  "ok - time dynamic value keeps its go type",
+			value: "hello",
+			dynamicValues: map[string]any{
+				"born": time.Date(2024, 2, 29, 0, 0, 0, 0, time.UTC),
+			},
+			params: ParameterValues{
+				"template": "{{ date \"02/01/2006\" (.GetDynamicValue \"born\") }}",
+			},
+			wantOutput: "29/02/2024",
 			wantErr:    nil,
 		},
 		{
