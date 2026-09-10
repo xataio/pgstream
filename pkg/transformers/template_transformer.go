@@ -18,8 +18,7 @@ type TemplateTransformer struct {
 var (
 	errTemplateMustBeProvided = errors.New("template_transformer: template parameter must be provided")
 	templateCompatibleTypes   = []SupportedDataType{
-		StringDataType,
-		ByteArrayDataType,
+		AllDataTypes,
 	}
 	templateParams = []Parameter{
 		{
