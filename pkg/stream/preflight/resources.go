@@ -82,6 +82,9 @@ func (c *SnapshotConnectionsCheck) Run(ctx context.Context) ([]Finding, error) {
 	}
 	if int(c.Demand) > available {
 		return []Finding{{
+			ID:     FindingIDSnapshotConnectionHeadroomInsufficient,
+			Title:  "The source does not have enough free connections for the snapshot",
+			Detail: fmt.Sprintf("The snapshot needs %d concurrent connections (snapshot_workers × table_workers). The source has %d available (max_connections=%d, superuser_reserved_connections=%d, %d in use). Lower snapshot_workers or table_workers, raise max_connections (requires a restart), or close existing connections.", c.Demand, available, maxConns, reserved, used),
 			Message: fmt.Sprintf(
 				"snapshot needs %d concurrent connections (snapshot_workers × table_workers) but source has only %d available (max_connections=%d, superuser_reserved_connections=%d, %d in use); lower snapshot_workers/table_workers, raise max_connections (requires restart), or reduce existing connections",
 				c.Demand, available, maxConns, reserved, used,

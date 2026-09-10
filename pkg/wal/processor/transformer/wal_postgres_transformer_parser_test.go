@@ -16,6 +16,7 @@ import (
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
 	"github.com/xataio/pgstream/pkg/transformers"
 	"github.com/xataio/pgstream/pkg/transformers/builder"
+	transformermocks "github.com/xataio/pgstream/pkg/transformers/mocks"
 )
 
 func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
@@ -123,6 +124,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 		validator        PostgresTransformerParser
 
 		wantErr                   error
+		wantErrContains           string
 		wantActiveTransformersFor []string
 		wantNoopTransformersFor   []string
 	}{
@@ -282,7 +284,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			},
 			validator: testPGValidator,
 
-			wantErr: fmt.Errorf("column id of table %s has no transformer configured", testSchemaTable),
+			wantErr: fmt.Errorf("table_transformers[0]: column id of table %s has no transformer configured", testSchemaTable),
 		},
 		{
 			name: "error - invalid column type",
@@ -302,7 +304,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				},
 			},
 			validator: testPGValidator,
-			wantErr:   errors.New("transformer 'string' specified for column 'id' in table \"public\".\"test\" does not support pg data type: int8 with OID: 20"),
+			wantErr:   errors.New("table_transformers[0]: transformer 'string' specified for column 'id' in table \"public\".\"test\" does not support pg data type: int8 with OID: 20"),
 		},
 		{
 			name: "error - unknown custom column type",
@@ -324,7 +326,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				pgtypeMap:      pglib.NewMapper(testQuerierWithUnknownTypeErr),
 				requiredTables: []string{"public.test"},
 			},
-			wantErr: errors.New("transformer 'neosync_email' specified for column 'email' in table \"public\".\"test\" does not support pg data type: unknown with OID: 1234"),
+			wantErr: errors.New("table_transformers[0]: transformer 'neosync_email' specified for column 'email' in table \"public\".\"test\" does not support pg data type: unknown with OID: 1234"),
 		},
 		{
 			name: "error - column not found in table",
@@ -344,7 +346,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				},
 			},
 			validator: testPGValidator,
-			wantErr:   fmt.Errorf("column %s not found in table %s", "unknown_column", testSchemaTable),
+			wantErr:   fmt.Errorf("table_transformers[0]: column %s not found in table %s", "unknown_column", testSchemaTable),
 		},
 		{
 			name: "error - required table not present in rules",
@@ -413,16 +415,69 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			},
 			wantErr: fmt.Errorf("getting required tables list: wildcard schema must be used with wildcard table, got: \"test\""),
 		},
+		{
+			name: "error - transformer fails to build",
+			transformerRules: []TableRules{
+				{
+					Schema: publicSchema,
+					Table:  "test",
+					ColumnRules: map[string]TransformerRules{
+						"name": {
+							Name:       string(transformers.Template),
+							Parameters: map[string]any{"template": `{{ literal_string "x" }}`},
+						},
+					},
+				},
+			},
+			validator:       testPGValidator,
+			wantErrContains: `column 'name' in table "public"."test": template_transformer: error parsing template`,
+		},
+		{
+			name: "error - unsupported transformer",
+			transformerRules: []TableRules{
+				{
+					Schema: publicSchema,
+					Table:  "test",
+					ColumnRules: map[string]TransformerRules{
+						"name": {Name: "not_a_transformer"},
+					},
+				},
+			},
+			validator:       testPGValidator,
+			wantErr:         transformers.ErrUnsupportedTransformer,
+			wantErrContains: `column 'name' in table "public"."test": unsupported transformer config`,
+		},
+		{
+			name: "error - table columns cannot be queried",
+			transformerRules: []TableRules{
+				{
+					Schema: publicSchema,
+					Table:  "missing",
+					ColumnRules: map[string]TransformerRules{
+						"name": {Name: "string"},
+					},
+				},
+			},
+			validator: PostgresTransformerParser{
+				conn:      testQuerier(),
+				builder:   builder.NewTransformerBuilder(),
+				pgtypeMap: pglib.NewMapper(testQuerier()),
+			},
+			wantErrContains: `querying columns for table "public"."missing"`,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			transformerMap, err := tc.validator.ParseAndValidate(context.Background(), Rules{Transformers: tc.transformerRules, ValidationMode: validationModeStrict})
-			if tc.wantErr != nil {
+			if tc.wantErr != nil || tc.wantErrContains != "" {
 				require.Error(t, err)
-				if !errors.Is(err, tc.wantErr) {
-					require.Equal(t, err.Error(), tc.wantErr.Error())
+				if tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
+					require.Equal(t, tc.wantErr.Error(), err.Error())
+				}
+				if tc.wantErrContains != "" {
+					require.ErrorContains(t, err, tc.wantErrContains)
 				}
 				return
 			}
@@ -759,6 +814,111 @@ func Test_validateNumericRange(t *testing.T) {
 			t.Parallel()
 
 			require.ErrorIs(t, validateNumericRange(tc.cfg, tc.colType), tc.wantErr)
+		})
+	}
+}
+
+// transformers that read from the database are given the source URL when the
+// rules do not name one; without it the documented configuration, which omits
+// postgres_url, fails to start
+func TestPostgresTransformerParser_connectionInjection(t *testing.T) {
+	t.Parallel()
+
+	const sourceURL = "postgres://user:pass@source:5432/db"
+
+	querier := func() *pgmocks.Querier {
+		return &pgmocks.Querier{
+			QueryFn: func(_ context.Context, _ uint, query string, _ ...any) (pglib.Rows, error) {
+				switch query {
+				case "SELECT * FROM \"public\".\"test\" LIMIT 0":
+					return &pgmocks.Rows{
+						FieldDescriptionsFn: func() []pgconn.FieldDescription {
+							return []pgconn.FieldDescription{{Name: "id", DataTypeOID: pgtype.Int8OID}}
+						},
+						CloseFn: func() {},
+						ErrFn:   func() error { return nil },
+					}, nil
+				case uniqueIndexQuery:
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(uint) bool { return false },
+						ErrFn:   func() error { return nil },
+					}, nil
+				default:
+					return nil, fmt.Errorf("unexpected query: %s", query)
+				}
+			},
+		}
+	}
+
+	tests := []struct {
+		name            string
+		transformer     string
+		parameters      map[string]any
+		wantPostgresURL any
+	}{
+		{
+			name:            "lookup_choice without a url",
+			transformer:     "lookup_choice",
+			parameters:      map[string]any{"lookup_table": "public.countries", "lookup_column": "id"},
+			wantPostgresURL: sourceURL,
+		},
+		{
+			name:            "lookup_choice with its own url",
+			transformer:     "lookup_choice",
+			parameters:      map[string]any{"lookup_table": "public.countries", "lookup_column": "id", "postgres_url": "postgres://elsewhere"},
+			wantPostgresURL: "postgres://elsewhere",
+		},
+		{
+			name:            "pg_anonymizer without a url",
+			transformer:     "pg_anonymizer",
+			parameters:      map[string]any{"anon_function": "anon.fake_email()"},
+			wantPostgresURL: sourceURL,
+		},
+		{
+			name:            "a transformer that needs no connection is left alone",
+			transformer:     "string",
+			parameters:      nil,
+			wantPostgresURL: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var gotURL any
+			parser := PostgresTransformerParser{
+				conn:    querier(),
+				connURL: sourceURL,
+				builder: &transformermocks.TransformerBuilder{
+					NewFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
+						gotURL = cfg.Parameters["postgres_url"]
+						return &transformermocks.Transformer{
+							CompatibleTypesFn: func() []transformers.SupportedDataType {
+								return []transformers.SupportedDataType{transformers.AllDataTypes}
+							},
+						}, nil
+					},
+				},
+				pgtypeMap:      pglib.NewMapper(querier()),
+				requiredTables: []string{"public.test"},
+			}
+
+			_, err := parser.ParseAndValidate(context.Background(), Rules{
+				ValidationMode: "relaxed",
+				Transformers: []TableRules{
+					{
+						Schema: "public",
+						Table:  "test",
+						ColumnRules: map[string]TransformerRules{
+							"id": {Name: tc.transformer, Parameters: tc.parameters},
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
+			require.Equal(t, tc.wantPostgresURL, gotURL)
 		})
 	}
 }

@@ -500,16 +500,8 @@ func configureTCPKeepalive(cfg *pgx.ConnConfig) {
 
 	cfg.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		d := &net.Dialer{
-			Timeout: 90 * time.Second, // Timeout for establishing connection (allows for branch wake-up)
-			// KeepAliveConfig uses Go defaults:
-			// - Idle: 15s, Interval: 15s, Count: 9
-			// This gives ~150s detection time for broken connections
-			KeepAliveConfig: net.KeepAliveConfig{
-				Enable:   true,
-				Idle:     15 * time.Second,
-				Interval: 15 * time.Second,
-				Count:    9,
-			},
+			Timeout:         dialTimeout, // Timeout for establishing connection (allows for branch wake-up)
+			KeepAliveConfig: keepAliveConfig(),
 		}
 
 		conn, err := d.DialContext(ctx, network, addr)
@@ -519,4 +511,31 @@ func configureTCPKeepalive(cfg *pgx.ConnConfig) {
 
 		return conn, nil
 	}
+}
+
+// dialTimeout bounds a single TCP dial.
+const dialTimeout = 90 * time.Second
+
+// keepAliveConfig returns the TCP keepalive settings every pgstream connection
+// uses. KeepAliveConfig uses Go defaults: Idle 15s, Interval 15s, Count 9,
+// which gives ~150s detection time for broken connections.
+func keepAliveConfig() net.KeepAliveConfig {
+	return net.KeepAliveConfig{
+		Enable:   true,
+		Idle:     15 * time.Second,
+		Interval: 15 * time.Second,
+		Count:    9,
+	}
+}
+
+// applyTCPKeepalive puts pgstream's keepalive settings on an already open
+// connection, so a connection opened by a caller-supplied dialler is detected
+// as broken on the same timescale as one pgstream dialled itself. A connection
+// that is not TCP carries no keepalive settings and is left alone.
+func applyTCPKeepalive(conn net.Conn) error {
+	tcp, ok := conn.(*net.TCPConn)
+	if !ok {
+		return nil
+	}
+	return tcp.SetKeepAliveConfig(keepAliveConfig())
 }

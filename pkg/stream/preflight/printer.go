@@ -21,14 +21,20 @@ type ReportPrinter struct {
 func (p ReportPrinter) PrettyPrint() string {
 	var sb strings.Builder
 	width := p.summaryColumn()
+	notRun := 0
 	for _, res := range p.Report.Results {
-		if res.Err == nil && len(res.Findings) == 0 {
+		status, reason := res.resolve()
+		switch status {
+		case StatusOK:
 			writePassed(&sb, res, width)
-			continue
+		case StatusNotRun:
+			notRun++
+			writeNotRun(&sb, res, reason)
+		default:
+			writeFailed(&sb, res)
 		}
-		writeFailed(&sb, res)
 	}
-	fmt.Fprintf(&sb, "ran %d checks\n", len(p.Report.Results))
+	writeTally(&sb, len(p.Report.Results), notRun)
 	return sb.String()
 }
 
@@ -54,13 +60,40 @@ func writeFailed(sb *strings.Builder, res CheckResult) {
 	}
 }
 
+// writeNotRun renders a check the engine could not get a result from. The
+// reason tells the reader whether a bound or a cancellation stopped it.
+func writeNotRun(sb *strings.Builder, res CheckResult, reason StatusReason) {
+	fmt.Fprintf(sb, "⊘ %s: did not run (%s)\n", res.Name, readableReason(reason))
+}
+
+// readableReason renders a machine-readable reason as words. Rendering the
+// constant keeps the two reports from drifting apart.
+func readableReason(reason StatusReason) string {
+	if reason == "" {
+		return "reason unknown"
+	}
+	return strings.ReplaceAll(string(reason), "_", " ")
+}
+
+// writeTally closes the report with the number of checks that ran. A run with
+// checks that did not run says so, so a partial report cannot read as a clean
+// one.
+func writeTally(sb *strings.Builder, total, notRun int) {
+	if notRun == 0 {
+		fmt.Fprintf(sb, "ran %d checks\n", total)
+		return
+	}
+	fmt.Fprintf(sb, "ran %d of %d checks, %d did not run\n", total-notRun, total, notRun)
+}
+
 // summaryColumn returns the column that the summaries line up in. The longest
 // name that has a summary sets the width. Checks without a summary do not
 // widen it.
 func (p ReportPrinter) summaryColumn() int {
 	width := 0
 	for _, res := range p.Report.Results {
-		if res.Summary == "" || res.Err != nil || len(res.Findings) > 0 {
+		status, _ := res.resolve()
+		if res.Summary == "" || status != StatusOK {
 			continue
 		}
 		if n := utf8.RuneCountInString(res.Name); n > width {
