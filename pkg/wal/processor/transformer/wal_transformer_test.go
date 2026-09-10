@@ -5,10 +5,12 @@ package transformer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/transformers"
@@ -1214,6 +1216,114 @@ func TestTransformer_validateTableDDL(t *testing.T) {
 
 			err := transformer.validateTableDDL(tc.schema, tc.table, tc.ddl, tc.columns)
 			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
+// TestTransformer_applyTransformations_arrayColumn covers what the array
+// transformer's own tests cannot: that a failing element is handled as a
+// failure of the whole column, so each on_error policy acts on the whole
+// array rather than on the elements that failed.
+func TestTransformer_applyTransformations_arrayColumn(t *testing.T) {
+	t.Parallel()
+
+	errTest := errors.New("oh noes")
+	const sourceArray = `{a,b,c}`
+
+	newArrayTransformer := func(t *testing.T, elementFn func(transformers.Value) (any, error)) transformers.Transformer {
+		t.Helper()
+		arrayTransformer, err := transformers.NewArrayTransformer(transformers.ArrayConfig{
+			ElementTransformer: &transformermocks.Transformer{TransformFn: elementFn},
+			ArrayOID:           pgtype.TextArrayOID,
+			ElementTypeName:    "text",
+			Column:             "column_1",
+			Generator:          transformers.ArrayGeneratorMap,
+		})
+		require.NoError(t, err)
+		return arrayTransformer
+	}
+
+	failingOnB := func(value transformers.Value) (any, error) {
+		if value.TransformValue == "b" {
+			return nil, errTest
+		}
+		return value.TransformValue, nil
+	}
+
+	tests := []struct {
+		name      string
+		onError   string
+		elementFn func(transformers.Value) (any, error)
+		value     any
+
+		wantValue any
+		wantErr   error
+	}{
+		{
+			name: "ok - every element is transformed in order",
+			elementFn: func(value transformers.Value) (any, error) {
+				return fmt.Sprintf("%v!", value.TransformValue), nil
+			},
+			value:     sourceArray,
+			wantValue: `{a!,b!,c!}`,
+		},
+		{
+			name:      "ok - a NULL array is not transformed",
+			elementFn: func(transformers.Value) (any, error) { return nil, errTest },
+			value:     nil,
+			wantValue: nil,
+		},
+		{
+			name:      "error - fail policy aborts on the first element error",
+			onError:   OnErrorFail,
+			elementFn: failingOnB,
+			value:     sourceArray,
+			// the column keeps its original value, since the pipeline stops
+			wantValue: sourceArray,
+			wantErr:   errTest,
+		},
+		{
+			name:      "error - null policy nulls the whole column",
+			onError:   OnErrorNull,
+			elementFn: failingOnB,
+			value:     sourceArray,
+			wantValue: nil,
+		},
+		{
+			name:      "error - pass-through policy restores the whole array",
+			onError:   OnErrorPassThrough,
+			elementFn: failingOnB,
+			value:     sourceArray,
+			wantValue: sourceArray,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			event := &wal.Event{
+				Data: &wal.Data{
+					Action:  "I",
+					Schema:  "test_schema",
+					Table:   "test_table",
+					Columns: []wal.Column{{Name: "column_1", Type: "text[]", Value: tc.value}},
+				},
+			}
+
+			transformer := &Transformer{
+				logger:  log.NewNoopLogger(),
+				onError: tc.onError,
+				transformerMap: &TransformerMap{
+					activeTransformerMap: map[string]ColumnTransformers{
+						`"test_schema"."test_table"`: {"column_1": newArrayTransformer(t, tc.elementFn)},
+					},
+				},
+			}
+
+			err := transformer.applyTransformations(context.Background(), event)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantValue, event.Data.Columns[0].Value)
 		})
 	}
 }
