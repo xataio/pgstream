@@ -992,6 +992,36 @@ func Test_updateValueForCopy_enumArray(t *testing.T) {
 	require.Equal(t, "{happy,sad}", a.updateValueForCopy("{happy,sad}", "mood[]", true))
 }
 
+func Test_updateValueForCopy_rangeLiteral(t *testing.T) {
+	t.Parallel()
+
+	a := newTestDMLAdapterForCopy(t)
+
+	// a range literal produced by a transformer is parsed into the typed
+	// range pgx's binary COPY encoder can handle
+	require.Equal(t,
+		pgtype.Range[int32]{Lower: 1, Upper: 10, LowerType: pgtype.Inclusive, UpperType: pgtype.Exclusive, Valid: true},
+		a.updateValueForCopy("[1,10)", "int4range", false))
+	require.Equal(t,
+		pgtype.Range[int64]{Lower: 5, LowerType: pgtype.Exclusive, UpperType: pgtype.Unbounded, Valid: true},
+		a.updateValueForCopy("(5,)", "int8range", false))
+	require.Equal(t,
+		pgtype.Range[pgtype.Date]{
+			Lower:     pgtype.Date{Time: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+			Upper:     pgtype.Date{Time: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+			LowerType: pgtype.Inclusive, UpperType: pgtype.Exclusive, Valid: true,
+		},
+		a.updateValueForCopy("[2024-01-01,2024-02-01)", "daterange", false))
+	require.Equal(t,
+		pgtype.Range[int32]{LowerType: pgtype.Empty, UpperType: pgtype.Empty, Valid: true},
+		a.updateValueForCopy("empty", "int4range", false))
+
+	// a literal that does not parse is left for pgx to report
+	require.Equal(t, "not a range", a.updateValueForCopy("not a range", "int4range", false))
+	// a text column is never touched
+	require.Equal(t, "[1,10)", a.updateValueForCopy("[1,10)", "text", false))
+}
+
 func Test_newDMLAdapter(t *testing.T) {
 	t.Parallel()
 

@@ -25,6 +25,12 @@ const (
 	onConflictDoNothing
 )
 
+const (
+	int4rangeType = "int4range"
+	int8rangeType = "int8range"
+	tstzrangeType = "tstzrange"
+)
+
 var (
 	errUnsupportedOnConflictAction = errors.New("unsupported on conflict action")
 	errUnableToBuildQuery          = errors.New("unable to build query, no primary keys of previous values available")
@@ -318,10 +324,20 @@ func (a *dmlAdapter) filterRowColumnsForAction(cols []wal.Column, schemaInfo sch
 func (a *dmlAdapter) updateValueForCopy(value any, colType string, isEnum bool) any {
 	// For COPY, we might need to update the value for some data types,
 	// so that it will be able to be encoded into binary format correctly.
+
+	// A transformer can turn a range into its postgres literal. pgx has no
+	// binary encode plan from a string to a range, so parse it back into a
+	// typed range first.
+	if strVal, ok := value.(string); ok {
+		if typed, ok := a.parseRangeLiteral(colType, strVal); ok {
+			return typed
+		}
+	}
+
 	switch colType {
 	case "date", "timestamp", "timestamptz":
 		return getInfinityValueForDateTime(value, colType)
-	case "tstzrange":
+	case tstzrangeType:
 		return getTypedTSTZRange(value)
 	case "tsvector":
 		if b, ok := value.([]byte); ok {
@@ -355,6 +371,36 @@ func (a *dmlAdapter) updateValueForCopy(value any, colType string, isEnum bool) 
 	}
 
 	return value
+}
+
+// parseRangeLiteral scans a postgres range literal into the typed range pgx
+// can encode in binary format for the column type. It reports false for a
+// column that is not a range, or a literal that does not parse.
+func (a *dmlAdapter) parseRangeLiteral(colType, literal string) (any, bool) {
+	switch colType {
+	case int4rangeType:
+		return scanRangeLiteral[int32](a.pgTypeMap, pgtype.Int4rangeOID, literal)
+	case int8rangeType:
+		return scanRangeLiteral[int64](a.pgTypeMap, pgtype.Int8rangeOID, literal)
+	case "numrange":
+		return scanRangeLiteral[pgtype.Numeric](a.pgTypeMap, pgtype.NumrangeOID, literal)
+	case "daterange":
+		return scanRangeLiteral[pgtype.Date](a.pgTypeMap, pgtype.DaterangeOID, literal)
+	case "tsrange":
+		return scanRangeLiteral[pgtype.Timestamp](a.pgTypeMap, pgtype.TsrangeOID, literal)
+	case tstzrangeType:
+		return scanRangeLiteral[time.Time](a.pgTypeMap, pgtype.TstzrangeOID, literal)
+	default:
+		return nil, false
+	}
+}
+
+func scanRangeLiteral[T any](typeMap *pgtype.Map, oid uint32, literal string) (any, bool) {
+	var r pgtype.Range[T]
+	if err := typeMap.Scan(oid, pgtype.TextFormatCode, []byte(literal), &r); err != nil {
+		return nil, false
+	}
+	return r, true
 }
 
 func quotedTableName(schemaName, tableName string) string {
@@ -419,11 +465,11 @@ func getTypedTSTZRange(value any) any {
 
 func getTypedRangeValue(colType string, value any) any {
 	switch colType {
-	case "int4range":
+	case int4rangeType:
 		return getTypedInt4Range(value)
-	case "int8range":
+	case int8rangeType:
 		return getTypedInt8Range(value)
-	case "tstzrange":
+	case tstzrangeType:
 		return getTypedTSTZRange(value)
 	default:
 		return value
