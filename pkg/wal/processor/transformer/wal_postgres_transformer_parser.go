@@ -248,6 +248,7 @@ func wrapArrayTransformer(t transformers.Transformer, opts *ArrayOptions, colNam
 	}
 	cfg.ElementTransformer = t
 	cfg.ArrayOID = arrayOID
+	cfg.ElementOID = resolved.oid
 	cfg.ElementTypeName = resolved.name
 	cfg.Column = colName
 	return transformers.NewArrayTransformer(cfg)
