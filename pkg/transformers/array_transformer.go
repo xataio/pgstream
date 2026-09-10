@@ -9,7 +9,16 @@ import (
 	"math/rand/v2"
 
 	"github.com/jackc/pgx/v5/pgtype"
+
+	pglib "github.com/xataio/pgstream/internal/postgres"
+	"github.com/xataio/pgstream/pkg/transformers/internal/pool"
 )
+
+// maxArrayElementCount bounds the output length of the random generator. It
+// guards against a mistyped max_count, which would otherwise allocate and
+// transform that many elements for every row, once per element for a
+// transformer that queries the source.
+const maxArrayElementCount = 10_000
 
 // ArrayGenerator selects how the elements of the transformed array are drawn
 // from the elements of the source array.
@@ -45,6 +54,7 @@ var (
 type ArrayConfig struct {
 	ElementTransformer Transformer
 	ArrayOID           uint32
+	ElementOID         uint32
 	ElementTypeName    string
 	Column             string
 	Generator          ArrayGenerator
@@ -62,7 +72,10 @@ type ArrayTransformer struct {
 	generator       ArrayGenerator
 	minCount        int
 	maxCount        int
-	pgMap           *pgtype.Map
+	// pgtype.Map memoizes its encode plans without synchronisation, and one
+	// transformer is shared by every snapshot worker, so each concurrent
+	// caller takes its own instance rather than sharing one.
+	pgMapPool *pool.Pool[*pgtype.Map]
 	// injected by the tests, which cannot assert on a random draw
 	randIntN func(n int) int
 }
@@ -84,8 +97,22 @@ func NewArrayTransformer(cfg ArrayConfig) (*ArrayTransformer, error) {
 		if cfg.MinCount > cfg.MaxCount {
 			return nil, fmt.Errorf("%w: min_count %d is greater than max_count %d", ErrInvalidArrayOptions, cfg.MinCount, cfg.MaxCount)
 		}
+		if cfg.MaxCount > maxArrayElementCount {
+			return nil, fmt.Errorf("%w: max_count %d is above the limit of %d", ErrInvalidArrayOptions, cfg.MaxCount, maxArrayElementCount)
+		}
 	default:
 		return nil, fmt.Errorf("%w: unknown generator %q, expected %q or %q", ErrInvalidArrayOptions, cfg.Generator, ArrayGeneratorMap, ArrayGeneratorRandom)
+	}
+
+	// the parser accepts a rule on a user-defined array type on the strength
+	// of a catalog lookup, so the transformer has to be able to decode that
+	// type too. Building the map here means an unusable rule fails while it is
+	// built rather than on every row.
+	pgMapPool, err := pool.New(func() (*pgtype.Map, error) {
+		return pglib.NewArrayTypeMap(cfg.ArrayOID, cfg.ElementOID, cfg.ElementTypeName)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: column %q: %w", ErrInvalidArrayOptions, cfg.Column, err)
 	}
 
 	return &ArrayTransformer{
@@ -96,7 +123,7 @@ func NewArrayTransformer(cfg ArrayConfig) (*ArrayTransformer, error) {
 		generator:       cfg.Generator,
 		minCount:        cfg.MinCount,
 		maxCount:        cfg.MaxCount,
-		pgMap:           pgtype.NewMap(),
+		pgMapPool:       pgMapPool,
 		randIntN:        rand.IntN,
 	}, nil
 }
@@ -135,8 +162,14 @@ func (t *ArrayTransformer) decode(value any) ([]any, arrayShape, error) {
 // flattens a nested literal into a single dimension and reports no error, so
 // the shape would be lost before the element wise transform sees it.
 func (t *ArrayTransformer) decodeLiteral(literal []byte) ([]any, error) {
+	pgMap, err := t.pgMapPool.Acquire()
+	if err != nil {
+		return nil, fmt.Errorf("column %q: acquiring a type map: %w", t.column, err)
+	}
+	defer t.pgMapPool.Release(pgMap)
+
 	var array pgtype.Array[any]
-	if err := t.pgMap.PlanScan(t.arrayOID, pgtype.TextFormatCode, &array).Scan(literal, &array); err != nil {
+	if err := pgMap.PlanScan(t.arrayOID, pgtype.TextFormatCode, &array).Scan(literal, &array); err != nil {
 		return nil, fmt.Errorf("column %q: decoding array literal: %w", t.column, err)
 	}
 	if len(array.Dims) > 1 {
@@ -150,7 +183,13 @@ func (t *ArrayTransformer) encode(elements []any, shape arrayShape) (any, error)
 		return elements, nil
 	}
 
-	literal, err := t.pgMap.Encode(t.arrayOID, pgtype.TextFormatCode, elements, nil)
+	pgMap, err := t.pgMapPool.Acquire()
+	if err != nil {
+		return nil, fmt.Errorf("column %q: acquiring a type map: %w", t.column, err)
+	}
+	defer t.pgMapPool.Release(pgMap)
+
+	literal, err := pgMap.Encode(t.arrayOID, pgtype.TextFormatCode, elements, nil)
 	if err != nil {
 		return nil, fmt.Errorf("column %q: encoding array literal: %w", t.column, err)
 	}

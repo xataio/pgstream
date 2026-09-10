@@ -290,7 +290,10 @@ func (rawJSONTextCodec) FormatSupported(format int16) bool {
 // the connection's type map to rawJSONTextCodec, so their values decode to raw
 // text (string). See WithRawJSONDecoding.
 func registerRawJSONDecoding(conn *pgx.Conn) {
-	typeMap := conn.TypeMap()
+	registerRawJSONDecodingOnMap(conn.TypeMap())
+}
+
+func registerRawJSONDecodingOnMap(typeMap *pgtype.Map) {
 	jsonType := &pgtype.Type{Name: "json", OID: pgtype.JSONOID, Codec: rawJSONTextCodec{}}
 	jsonbType := &pgtype.Type{Name: "jsonb", OID: pgtype.JSONBOID, Codec: rawJSONTextCodec{}}
 	typeMap.RegisterType(jsonType)
@@ -538,4 +541,43 @@ func applyTCPKeepalive(conn net.Conn) error {
 		return nil
 	}
 	return tcp.SetKeepAliveConfig(keepAliveConfig())
+}
+
+// NewArrayTypeMap returns a type map that can decode and encode values of
+// arrayOID in the text format.
+//
+// A transformer that runs on array elements cannot use a bare pgtype.Map: that
+// map only knows the built-in OIDs, so a user-defined array type - an enum
+// array, citext[], hstore[], a domain over an array - fails to scan at run
+// time even though the rule validated. Such an element type is registered with
+// the text codec, which is what the server sends in the text format anyway,
+// and the array type is registered around it.
+//
+// json and jsonb keep the raw text decoding that connections use, so an
+// element reaches the transformer as raw text on both the replication and the
+// snapshot path, and a JSON null stays distinguishable from SQL NULL.
+//
+// It returns an error when the array type still cannot be resolved, so that an
+// unusable rule fails when it is built rather than on every row.
+func NewArrayTypeMap(arrayOID, elementOID uint32, elementTypeName string) (*pgtype.Map, error) {
+	typeMap := pgtype.NewMap()
+	registerRawJSONDecodingOnMap(typeMap)
+
+	if _, found := typeMap.TypeForOID(arrayOID); !found {
+		elementType, found := typeMap.TypeForOID(elementOID)
+		if !found {
+			elementType = &pgtype.Type{Name: elementTypeName, OID: elementOID, Codec: pgtype.TextCodec{}}
+			typeMap.RegisterType(elementType)
+		}
+		typeMap.RegisterType(&pgtype.Type{
+			Name:  "_" + elementTypeName,
+			OID:   arrayOID,
+			Codec: &pgtype.ArrayCodec{ElementType: elementType},
+		})
+	}
+
+	if _, found := typeMap.TypeForOID(arrayOID); !found {
+		return nil, fmt.Errorf("no codec for array type OID %d with element %s (OID %d)", arrayOID, elementTypeName, elementOID)
+	}
+	return typeMap, nil
 }

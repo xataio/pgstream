@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -95,6 +97,11 @@ func TestNewArrayTransformer(t *testing.T) {
 		{
 			name:    "error - unknown generator",
 			cfg:     ArrayConfig{ElementTransformer: upperTransformer(), Generator: ArrayGenerator("shuffle")},
+			wantErr: ErrInvalidArrayOptions,
+		},
+		{
+			name:    "error - max_count above the limit",
+			cfg:     ArrayConfig{ElementTransformer: upperTransformer(), Generator: ArrayGeneratorRandom, MinCount: 1, MaxCount: maxArrayElementCount + 1},
 			wantErr: ErrInvalidArrayOptions,
 		},
 		{
@@ -371,4 +378,102 @@ func TestArrayTransformer_sharesDynamicValuesWithEveryElement(t *testing.T) {
 	_, err := transformer.Transform(context.Background(), NewValue(`{a,b}`, "text[]", dynamicValues))
 	require.NoError(t, err)
 	require.Equal(t, []map[string]any{dynamicValues, dynamicValues}, seen)
+}
+
+// statelessUpperTransformer records nothing, so a concurrent test measures the
+// array transformer rather than the recording stub.
+type statelessUpperTransformer struct{ stubTransformer }
+
+func (s *statelessUpperTransformer) Transform(_ context.Context, value Value) (any, error) {
+	str, ok := value.TransformValue.(string)
+	if !ok {
+		return nil, fmt.Errorf("%w: got %T", ErrUnsupportedValueType, value.TransformValue)
+	}
+	return strings.ToUpper(str), nil
+}
+
+// The parser accepts a rule on a user-defined array type on the strength of a
+// catalog lookup. A type map that only knows the built-in OIDs cannot decode
+// one, so such a rule used to validate and then fail on every row.
+func TestArrayTransformer_userDefinedElementType(t *testing.T) {
+	t.Parallel()
+
+	const moodArrayOID, moodOID = 60001, 60000
+
+	transformer, err := NewArrayTransformer(ArrayConfig{
+		ElementTransformer: upperTransformer(),
+		ArrayOID:           moodArrayOID,
+		ElementOID:         moodOID,
+		ElementTypeName:    "mood",
+		Generator:          ArrayGeneratorMap,
+		Column:             "moods",
+	})
+	require.NoError(t, err)
+
+	got, err := transformer.Transform(context.Background(), NewValue("{happy,sad}", "mood[]", nil))
+	require.NoError(t, err)
+	require.Equal(t, "{HAPPY,SAD}", got)
+}
+
+// json and jsonb reach the element transformer as raw text, in the same way
+// they do on a pgstream connection, so a large integer keeps its digits and a
+// JSON null stays distinct from SQL NULL.
+func TestArrayTransformer_jsonElementsStayRawText(t *testing.T) {
+	t.Parallel()
+
+	inner := upperTransformer()
+	var seen []any
+	inner.transformFn = func(value Value) (any, error) {
+		seen = append(seen, value.TransformValue)
+		return value.TransformValue, nil
+	}
+
+	transformer, err := NewArrayTransformer(ArrayConfig{
+		ElementTransformer: inner,
+		ArrayOID:           pgtype.JSONBArrayOID,
+		ElementOID:         pgtype.JSONBOID,
+		ElementTypeName:    "jsonb",
+		Generator:          ArrayGeneratorMap,
+		Column:             "payloads",
+	})
+	require.NoError(t, err)
+
+	const literal = `{"{\"a\": 12345678901234567890}","null"}`
+	got, err := transformer.Transform(context.Background(), NewValue(literal, "jsonb[]", nil))
+	require.NoError(t, err)
+
+	// raw text, not a map[string]any that re-marshalling would round to
+	// 12345678901234567000, and the JSON null is still an element
+	require.Equal(t, []any{`{"a": 12345678901234567890}`, "null"}, seen)
+	require.Equal(t, literal, got)
+}
+
+// One transformer instance is shared by every snapshot worker, and pgtype.Map
+// memoizes its encode plans without synchronisation.
+func TestArrayTransformer_concurrentTransform(t *testing.T) {
+	t.Parallel()
+
+	transformer, err := NewArrayTransformer(ArrayConfig{
+		ElementTransformer: &statelessUpperTransformer{},
+		ArrayOID:           pgtype.TextArrayOID,
+		ElementOID:         pgtype.TextOID,
+		ElementTypeName:    "text",
+		Generator:          ArrayGeneratorMap,
+		Column:             "tags",
+	})
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 50 {
+				got, err := transformer.Transform(context.Background(), NewValue("{alice,bob}", "text[]", nil))
+				assert.NoError(t, err)
+				assert.Equal(t, "{ALICE,BOB}", got)
+			}
+		}()
+	}
+	wg.Wait()
 }

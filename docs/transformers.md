@@ -123,7 +123,7 @@ column_transformers:
 | `map`     | Applies the transformer to each source element, in order. The array keeps its length. This is the default.                               |
 | `random`  | Emits between `min_count` and `max_count` elements. Each element is the transform of a source element selected at random, with repeats.  |
 
-`min_count` and `max_count` are required with the `random` generator. They must be non-negative, and `min_count` must not be greater than `max_count`. They are not valid with the `map` generator. pgstream rejects the rules at startup if these conditions are not met, and names the schema, table and column.
+`min_count` and `max_count` are required with the `random` generator. They must be non-negative, `min_count` must not be greater than `max_count`, and `max_count` must not be greater than 10000. The limit protects against a mistyped value, which pgstream would otherwise apply to every row. These parameters are not valid with the `map` generator. pgstream rejects the rules at startup if these conditions are not met, and names the schema, table and column.
 
 The `random` generator never invents a value. Each new element is the transform of a value that is in the row. An empty source array stays empty.
 
