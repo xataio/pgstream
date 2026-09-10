@@ -42,7 +42,15 @@ func WithUniquenessEnforcement() ParserOption {
 
 const (
 	fieldDescriptionsQuery = "SELECT * FROM %s LIMIT 0"
-	schemaTablesQuery      = "SELECT tablename FROM pg_tables WHERE schemaname=$1"
+	// attndims records the dimensions a column was declared with. Postgres
+	// does not enforce it, so this catches a text[][] declaration and not a
+	// multi-dimensional value stored in a text[] column, which the transformer
+	// still rejects per row on the replication path.
+	multiDimensionalColumnsQuery = `SELECT a.attname FROM pg_attribute a
+	JOIN pg_class c ON c.oid = a.attrelid
+	JOIN pg_namespace n ON n.oid = c.relnamespace
+	WHERE n.nspname = $1 AND c.relname = $2 AND a.attnum > 0 AND NOT a.attisdropped AND a.attndims > 1`
+	schemaTablesQuery = "SELECT tablename FROM pg_tables WHERE schemaname=$1"
 	// expression columns have attnum 0 and no pg_attribute row, so the LEFT
 	// JOIN yields a NULL attname rather than dropping the index entirely.
 	// indkey also carries INCLUDE columns, which do not enforce uniqueness;
@@ -129,6 +137,11 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 			return nil, err
 		}
 
+		multiDimensionalColumns, err := v.getMultiDimensionalColumns(ctx, table.Schema, table.Table)
+		if err != nil {
+			return nil, err
+		}
+
 		// map column names to their pg type OID and modifier
 		mappedColumnTypes := make(map[string]columnType, len(fieldDescriptions))
 		for _, desc := range fieldDescriptions {
@@ -155,6 +168,10 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 				if cfg.Parameters["postgres_url"] == nil {
 					cfg.Parameters["postgres_url"] = v.connURL
 				}
+			}
+
+			if _, multiDimensional := multiDimensionalColumns[colName]; multiDimensional {
+				return nil, fmt.Errorf("%s: column '%s' in table %q.%q: %w", tableRulePosition(tableIdx), colName, table.Schema, table.Table, transformers.ErrMultiDimensionalArray)
 			}
 
 			// build the transformer
@@ -185,6 +202,10 @@ func (v *PostgresTransformerParser) ParseAndValidate(ctx context.Context, rules 
 			// an array column holds the wrapper rather than the transformer
 			// the rule names, so that uniqueness validation and the transform
 			// itself both see the whole array transform
+			if resolved.isArray {
+				v.warnings = append(v.warnings, arrayColumnWarnings(tableIdx, table.Schema, table.Table, colName, dataTypeName, transformer)...)
+			}
+
 			transformer, err = wrapArrayTransformer(transformer, transformerRules.ArrayOptions, colName, colType.oid, resolved)
 			if err != nil {
 				return nil, columnRuleError(tableIdx, table.Schema, table.Table, colName, err)
@@ -374,7 +395,9 @@ func (v *PostgresTransformerParser) getFieldDescriptions(ctx context.Context, sc
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("reading columns for table %q.%q: %w", schema, table, err)
 	}
-	return rows.FieldDescriptions(), nil
+	// the descriptions belong to the connection and are overwritten by the
+	// next query on it, so the caller gets a copy it can keep
+	return slices.Clone(rows.FieldDescriptions()), nil
 }
 
 func (v *PostgresTransformerParser) getAllSchemaTables(ctx context.Context, schema string) ([]string, error) {
@@ -531,4 +554,50 @@ func numericParamMagnitude(value any) (float64, error) {
 	default:
 		return 0, fmt.Errorf("got %T, want a number", value)
 	}
+}
+
+// getMultiDimensionalColumns returns the columns of a table that were declared
+// with more than one dimension. Only one dimensional arrays are transformed
+// per element, and rejecting these keeps the run from starting rather than
+// failing row by row.
+func (v *PostgresTransformerParser) getMultiDimensionalColumns(ctx context.Context, schema, table string) (map[string]struct{}, error) {
+	rows, err := v.conn.Query(ctx, multiDimensionalColumnsQuery, schema, table)
+	if err != nil {
+		return nil, fmt.Errorf("querying column dimensions for table %q.%q: %w", schema, table, err)
+	}
+	defer rows.Close()
+
+	columns := map[string]struct{}{}
+	for rows.Next() {
+		var columnName string
+		if err := rows.Scan(&columnName); err != nil {
+			return nil, fmt.Errorf("scanning column dimensions for table %q.%q: %w", schema, table, err)
+		}
+		columns[columnName] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading column dimensions for table %q.%q: %w", schema, table, err)
+	}
+	return columns, nil
+}
+
+// arrayColumnWarnings reports the two ways a rule on an array column behaves
+// differently from what its configuration suggests, both of which are silent
+// otherwise.
+func arrayColumnWarnings(tableIdx int, schema, table, column, dataTypeName string, transformer transformers.Transformer) []string {
+	position := fmt.Sprintf("%s: column '%s' in table %q.%q (%s)", tableRulePosition(tableIdx), column, schema, table, dataTypeName)
+
+	var warnings []string
+	if slices.Contains(transformer.CompatibleTypes(), transformers.AllDataTypes) {
+		warnings = append(warnings, fmt.Sprintf(
+			"%s: transformer %q applies to each element of the array, not to the column value as a whole",
+			position, transformer.Type()))
+	}
+
+	if transformer.Type() == transformers.PGAnonymizer {
+		warnings = append(warnings, fmt.Sprintf(
+			"%s: transformer %q queries the source database once for each element, so a wide array multiplies the queries for the row",
+			position, transformer.Type()))
+	}
+	return warnings
 }

@@ -28,6 +28,12 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 		return &pgmocks.Querier{
 			QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 				switch query {
+				case multiDimensionalColumnsQuery:
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return false },
+						ErrFn:   func() error { return nil },
+					}, nil
 				case "SELECT * FROM \"public\".\"test\" LIMIT 0":
 					return &pgmocks.Rows{
 						FieldDescriptionsFn: func() []pgconn.FieldDescription {
@@ -544,6 +550,12 @@ func TestPostgresTransformerParser_uniqueIndexValidation(t *testing.T) {
 		return &pgmocks.Querier{
 			QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 				switch query {
+				case multiDimensionalColumnsQuery:
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return false },
+						ErrFn:   func() error { return nil },
+					}, nil
 				case "SELECT * FROM \"public\".\"test\" LIMIT 0":
 					return &pgmocks.Rows{
 						FieldDescriptionsFn: func() []pgconn.FieldDescription {
@@ -854,6 +866,12 @@ func TestPostgresTransformerParser_connectionInjection(t *testing.T) {
 		return &pgmocks.Querier{
 			QueryFn: func(_ context.Context, _ uint, query string, _ ...any) (pglib.Rows, error) {
 				switch query {
+				case multiDimensionalColumnsQuery:
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return false },
+						ErrFn:   func() error { return nil },
+					}, nil
 				case "SELECT * FROM \"public\".\"test\" LIMIT 0":
 					return &pgmocks.Rows{
 						FieldDescriptionsFn: func() []pgconn.FieldDescription {
@@ -960,6 +978,12 @@ func TestPostgresTransformerParser_ParseAndValidate_arrayColumns(t *testing.T) {
 		return &pgmocks.Querier{
 			QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 				switch query {
+				case multiDimensionalColumnsQuery:
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return false },
+						ErrFn:   func() error { return nil },
+					}, nil
 				case "SELECT * FROM \"public\".\"test\" LIMIT 0":
 					return &pgmocks.Rows{
 						FieldDescriptionsFn: func() []pgconn.FieldDescription {
@@ -1194,6 +1218,120 @@ func TestPostgresTransformerParser_ParseAndValidate_arrayColumns(t *testing.T) {
 				// so that validation classifies the whole array transform
 				require.IsType(t, &transformers.ArrayTransformer{}, columnTransformers[column])
 				require.Equal(t, wantUniqueness, transformers.UniquenessOf(columnTransformers[column]))
+			}
+		})
+	}
+}
+
+// a column declared with more than one dimension cannot be transformed per
+// element, so the run must not start rather than fail on every row
+func TestPostgresTransformerParser_multiDimensionalColumnRejected(t *testing.T) {
+	t.Parallel()
+
+	querier := &pgmocks.Querier{
+		QueryFn: func(_ context.Context, _ uint, query string, _ ...any) (pglib.Rows, error) {
+			switch query {
+			case multiDimensionalColumnsQuery:
+				return &pgmocks.Rows{
+					CloseFn: func() {},
+					NextFn:  func(i uint) bool { return i == 1 },
+					ScanFn: func(i uint, dest ...any) error {
+						require.Len(t, dest, 1)
+						columnName, ok := dest[0].(*string)
+						require.True(t, ok)
+						*columnName = "grid"
+						return nil
+					},
+					ErrFn: func() error { return nil },
+				}, nil
+			case "SELECT * FROM \"public\".\"test\" LIMIT 0":
+				return &pgmocks.Rows{
+					FieldDescriptionsFn: func() []pgconn.FieldDescription {
+						return []pgconn.FieldDescription{{Name: "grid", DataTypeOID: pgtype.TextArrayOID}}
+					},
+					CloseFn: func() {},
+					ErrFn:   func() error { return nil },
+				}, nil
+			case uniqueIndexQuery:
+				return &pgmocks.Rows{
+					CloseFn: func() {},
+					NextFn:  func(i uint) bool { return false },
+					ErrFn:   func() error { return nil },
+				}, nil
+			default:
+				return nil, fmt.Errorf("unexpected query: %s", query)
+			}
+		},
+	}
+
+	parser := PostgresTransformerParser{
+		conn:           querier,
+		builder:        builder.NewTransformerBuilder(),
+		pgtypeMap:      pglib.NewMapper(querier),
+		requiredTables: []string{"public.test"},
+	}
+
+	_, err := parser.ParseAndValidate(context.Background(), Rules{
+		ValidationMode: "relaxed",
+		Transformers: []TableRules{
+			{
+				Schema:      "public",
+				Table:       "test",
+				ColumnRules: map[string]TransformerRules{"grid": {Name: "email"}},
+			},
+		},
+	})
+	require.ErrorIs(t, err, transformers.ErrMultiDimensionalArray)
+	require.ErrorContains(t, err, "table_transformers[0]")
+}
+
+// the two behaviours of an array column rule that its configuration does not
+// show
+func Test_arrayColumnWarnings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		transformerType  transformers.TransformerType
+		compatibleTypes  []transformers.SupportedDataType
+		wantWarningCount int
+		wantContains     []string
+	}{
+		{
+			name:             "an all types transformer applies per element",
+			transformerType:  transformers.LiteralString,
+			compatibleTypes:  []transformers.SupportedDataType{transformers.AllDataTypes},
+			wantWarningCount: 1,
+			wantContains:     []string{"each element", "table_transformers[3]", "'emails'"},
+		},
+		{
+			name:             "pg_anonymizer queries once per element",
+			transformerType:  transformers.PGAnonymizer,
+			compatibleTypes:  []transformers.SupportedDataType{transformers.AllDataTypes},
+			wantWarningCount: 2,
+			wantContains:     []string{"each element", "once for each element"},
+		},
+		{
+			name:             "a typed transformer warns about nothing",
+			transformerType:  transformers.TransformerType("email"),
+			compatibleTypes:  []transformers.SupportedDataType{transformers.StringDataType},
+			wantWarningCount: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			transformer := &transformermocks.Transformer{
+				TypeFn:            func() transformers.TransformerType { return tc.transformerType },
+				CompatibleTypesFn: func() []transformers.SupportedDataType { return tc.compatibleTypes },
+			}
+
+			warnings := arrayColumnWarnings(3, "public", "test", "emails", "_text", transformer)
+			require.Len(t, warnings, tc.wantWarningCount)
+			for _, want := range tc.wantContains {
+				require.Contains(t, strings.Join(warnings, "\n"), want)
 			}
 		})
 	}

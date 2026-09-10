@@ -136,8 +136,9 @@ The `random` generator never invents a value. Each new element is the transform 
 
 ### Limitations
 
-- **Multi-dimensional arrays are not supported.** PostgreSQL does not record the number of dimensions in the column type, so pgstream cannot reject these rules at startup. On the replication path a multi-dimensional value is a per-row error, which the `on_error` policy handles.
-- **`literal_string` writes into each element.** On an array column, `literal_string` writes its literal into every element instead of into the column as a whole.
+- **Multi-dimensional arrays are not supported.** pgstream rejects a rule at startup when the column is declared with more than one dimension. PostgreSQL does not enforce the declared number of dimensions, so a column declared as one-dimensional can still hold a multi-dimensional value. On the replication path this value is a per-row error, which the `on_error` policy handles. On the snapshot path pgstream cannot detect it, because the source driver returns the elements already flattened, and it writes a one-dimensional array to the target.
+- **`literal_string` and `pg_anonymizer` write into each element.** On an array column these transformers write into every element instead of into the column as a whole. This is different from the behaviour before pgstream supported array columns. `pgstream validate rules` reports a warning for each of these rules.
+- **`pg_anonymizer` sends one query for each element.** A wide array multiplies the queries that pgstream sends to the source database for the row. `pgstream validate rules` reports a warning for each rule that uses this transformer on an array column.
 - **Dynamic parameters are not paired element by element.** A `dynamic_parameters` sibling that is itself an array falls back to the parameter default.
 
 ### Uniqueness
