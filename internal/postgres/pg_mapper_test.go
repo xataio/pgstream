@@ -92,3 +92,117 @@ func TestMapper_TypeForOID(t *testing.T) {
 		})
 	}
 }
+
+func TestMapper_ElementTypeForOID(t *testing.T) {
+	t.Parallel()
+
+	errTest := errors.New("oh noes")
+
+	const (
+		int4OID        = 23
+		int4ArrayOID   = 1007
+		citextArrayOID = 20000
+		citextOID      = 20001
+	)
+
+	tests := []struct {
+		name       string
+		querier    Querier
+		elementMap map[uint32]*ElementType
+		oid        uint32
+
+		wantElementType *ElementType
+		wantMap         map[uint32]*ElementType
+		wantErr         error
+	}{
+		{
+			name:    "ok - built in array resolved from pgtype.Map",
+			querier: &mockQuerier{},
+			oid:     int4ArrayOID,
+
+			wantElementType: &ElementType{OID: int4OID, Name: "int4"},
+			wantMap:         map[uint32]*ElementType{},
+			wantErr:         nil,
+		},
+		{
+			name:    "ok - built in scalar is not an array",
+			querier: &mockQuerier{},
+			oid:     int4OID,
+
+			wantElementType: nil,
+			wantMap:         map[uint32]*ElementType{},
+			wantErr:         nil,
+		},
+		{
+			name: "ok - user defined array queried from db",
+			querier: &mockQuerier{
+				queryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+					oid, ok := dest[0].(*uint32)
+					require.True(t, ok)
+					name, ok := dest[1].(*string)
+					require.True(t, ok)
+					*oid, *name = citextOID, "citext"
+					return nil
+				},
+			},
+			oid: citextArrayOID,
+
+			wantElementType: &ElementType{OID: citextOID, Name: "citext"},
+			wantMap:         map[uint32]*ElementType{citextArrayOID: {OID: citextOID, Name: "citext"}},
+			wantErr:         nil,
+		},
+		{
+			name: "ok - user defined array found in cache",
+			oid:  citextArrayOID,
+			elementMap: map[uint32]*ElementType{
+				citextArrayOID: {OID: citextOID, Name: "citext"},
+			},
+
+			wantElementType: &ElementType{OID: citextOID, Name: "citext"},
+			wantMap:         map[uint32]*ElementType{citextArrayOID: {OID: citextOID, Name: "citext"}},
+			wantErr:         nil,
+		},
+		{
+			name: "ok - user defined scalar caches the negative answer",
+			querier: &mockQuerier{
+				queryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+					return ErrNoRows
+				},
+			},
+			oid: citextOID,
+
+			wantElementType: nil,
+			wantMap:         map[uint32]*ElementType{citextOID: nil},
+			wantErr:         nil,
+		},
+		{
+			name: "error - querying the element type",
+			querier: &mockQuerier{
+				queryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+					return errTest
+				},
+			},
+			oid: citextArrayOID,
+
+			wantElementType: nil,
+			wantMap:         map[uint32]*ElementType{},
+			wantErr:         errTest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := NewMapper(tc.querier)
+
+			if tc.elementMap != nil {
+				m.elementOIDMap = synclib.NewMapFromMap(tc.elementMap)
+			}
+
+			elementType, err := m.ElementTypeForOID(context.Background(), tc.oid)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantElementType, elementType)
+			require.Equal(t, tc.wantMap, m.elementOIDMap.GetMap())
+		})
+	}
+}

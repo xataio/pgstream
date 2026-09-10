@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	synclib "github.com/xataio/pgstream/internal/sync"
@@ -24,6 +25,16 @@ type Mapper struct {
 	// that are queried from pg_type. This prevents repeated database queries
 	// for the same custom types.
 	customOIDMap *synclib.Map[uint32, string]
+	// elementOIDMap is a thread-safe cache for the element type of array OIDs
+	// the pgx map does not know. A nil value caches the answer that the OID
+	// does not name an array, so a scalar user defined type is queried once.
+	elementOIDMap *synclib.Map[uint32, *ElementType]
+}
+
+// ElementType identifies the element type of a postgres array type.
+type ElementType struct {
+	OID  uint32
+	Name string
 }
 
 // NewMapper creates a new Mapper instance with the given database querier.
@@ -31,9 +42,10 @@ type Mapper struct {
 // custom type cache.
 func NewMapper(conn Querier) *Mapper {
 	return &Mapper{
-		querier:      conn,
-		pgMap:        pgtype.NewMap(),
-		customOIDMap: synclib.NewMap[uint32, string](),
+		querier:       conn,
+		pgMap:         pgtype.NewMap(),
+		customOIDMap:  synclib.NewMap[uint32, string](),
+		elementOIDMap: synclib.NewMap[uint32, *ElementType](),
 	}
 }
 
@@ -61,4 +73,42 @@ func (m *Mapper) queryType(ctx context.Context, oid uint32) (string, error) {
 
 	m.customOIDMap.Set(oid, dataType)
 	return dataType, nil
+}
+
+const elementTypeQuery = `SELECT e.oid, e.typname
+	FROM pg_type a JOIN pg_type e ON e.oid = a.typelem
+	WHERE a.oid = $1 AND a.typcategory = 'A'`
+
+// ElementTypeForOID returns the element type of the array type named by oid,
+// or nil if the OID does not name an array.
+func (m *Mapper) ElementTypeForOID(ctx context.Context, oid uint32) (*ElementType, error) {
+	if dataType, found := m.pgMap.TypeForOID(oid); found {
+		arrayCodec, isArray := dataType.Codec.(*pgtype.ArrayCodec)
+		if !isArray {
+			return nil, nil
+		}
+		return &ElementType{OID: arrayCodec.ElementType.OID, Name: arrayCodec.ElementType.Name}, nil
+	}
+	return m.queryElementType(ctx, oid)
+}
+
+func (m *Mapper) queryElementType(ctx context.Context, oid uint32) (*ElementType, error) {
+	if elementType, found := m.elementOIDMap.Get(oid); found {
+		return elementType, nil
+	}
+
+	var elementOID uint32
+	var elementName string
+	if err := m.querier.QueryRow(ctx, []any{&elementOID, &elementName}, elementTypeQuery, oid); err != nil {
+		if !errors.Is(err, ErrNoRows) {
+			return nil, fmt.Errorf("selecting element type for OID %d: %w", oid, err)
+		}
+		// not an array; cache the negative so the catalog is queried once
+		m.elementOIDMap.Set(oid, nil)
+		return nil, nil
+	}
+
+	elementType := &ElementType{OID: elementOID, Name: elementName}
+	m.elementOIDMap.Set(oid, elementType)
+	return elementType, nil
 }
