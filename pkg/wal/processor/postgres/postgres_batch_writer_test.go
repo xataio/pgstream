@@ -986,3 +986,83 @@ func mustNewDMLAdapter(t *testing.T) *dmlAdapter {
 	require.NoError(t, err)
 	return a
 }
+
+func TestBatchWriter_execQueries_pipelined(t *testing.T) {
+	t.Parallel()
+
+	newQuery := func(name string) *query {
+		return &query{sql: "INSERT INTO test(name) VALUES($1)", args: []any{name}}
+	}
+	queries := []*query{newQuery("alice"), newQuery("bob"), newQuery("carol")}
+	// A constraint violation is a query error, not an internal one. execQueries
+	// drops it and retries the rest, which is the behaviour under test.
+	errFailed := &pglib.ErrConstraintViolation{}
+
+	tests := []struct {
+		name      string
+		failAt    int // index of the query that fails, -1 for none
+		wantSent  int
+		wantRetry []any
+		wantDrops uint64
+	}{
+		{
+			name:      "ok - one exchange for all queries",
+			failAt:    -1,
+			wantSent:  3,
+			wantRetry: nil,
+		},
+		{
+			name:      "one query fails - it is dropped and the rest are retried",
+			failAt:    1,
+			wantSent:  3,
+			wantRetry: []any{"alice", "carol"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sent := 0
+			w := &BatchWriter{
+				Writer: &Writer{
+					logger: loglib.NewNoopLogger(),
+					pgConn: &pgmocks.Querier{
+						ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+							mockTx := pgmocks.Tx{
+								// The whole batch arrives in one call. That is the
+								// point of the change: one round trip, not one for
+								// each query.
+								ExecBatchFn: func(ctx context.Context, qs []pglib.BatchQuery) (int, error) {
+									sent = len(qs)
+									if tc.failAt >= 0 {
+										return tc.failAt, errFailed
+									}
+									return len(qs), nil
+								},
+								ExecFn: func(ctx context.Context, i uint, q string, args ...any) (pglib.CommandTag, error) {
+									return pglib.CommandTag{}, nil
+								},
+							}
+							return f(&mockTx)
+						},
+					},
+				},
+			}
+
+			retry, err := w.execQueries(context.Background(), queries)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantSent, sent)
+
+			gotRetry := []any{}
+			for _, q := range retry {
+				gotRetry = append(gotRetry, q.args[0])
+			}
+			if tc.wantRetry == nil {
+				require.Empty(t, gotRetry)
+			} else {
+				require.Equal(t, tc.wantRetry, gotRetry)
+			}
+		})
+	}
+}
