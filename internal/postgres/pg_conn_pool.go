@@ -17,7 +17,7 @@ type Pool struct {
 // ResetStatementCache closes the connections of the pool, so that the next one
 // prepares its statements again. See postgres.ResetStatementCache for why.
 func (c *Pool) ResetStatementCache() {
-	c.Pool.Reset()
+	c.Reset()
 }
 
 type PoolOption func(*pgxpool.Config)
