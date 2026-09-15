@@ -1072,6 +1072,7 @@ func TestBatchWriter_execQueries_pipelined(t *testing.T) {
 			if tc.wantErr {
 				require.Error(t, err)
 				require.Empty(t, retry)
+				require.Equal(t, tc.wantDrops, w.DroppedQueries())
 				return
 			}
 			require.NoError(t, err)

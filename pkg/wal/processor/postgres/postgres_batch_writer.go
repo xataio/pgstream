@@ -330,7 +330,7 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 
 		if err := tx.ExecBatch(ctx, batchQueries); err != nil {
 			var queryErr *pglib.BatchQueryError
-			if !errors.As(err, &queryErr) {
+			if !errors.As(err, &queryErr) || queryErr.Index < 0 || queryErr.Index >= len(queries) {
 				// The failure belongs to the batch rather than to one of its
 				// queries: it never reached the server, or it broke once every
 				// query had answered. Dropping a query here would name one
@@ -357,6 +357,21 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 		return nil, err
 	}
 
+	if err != nil && droppedQuery == nil && !w.isInternalError(err) {
+		// The batch failed with no query to blame. That happens when the
+		// failure belongs to a step pgx runs over the whole batch before it
+		// executes any of it, so a second pass runs the queries one at a time
+		// and lets the server name the one at fault.
+		if index := w.isolateFailingQuery(ctx, queries); index >= 0 {
+			w.logger.Error(err, "executing sql query", loglib.Fields{
+				"sql":  queries[index].sql,
+				"args": queries[index].args,
+			})
+			droppedQuery = queries[index]
+			retryQueries = removeIndex(queries, index)
+		}
+	}
+
 	if err != nil && droppedQuery == nil {
 		// The transaction failed with no query to blame. Returning the queries
 		// that were not dropped would return none of them, which loses the
@@ -375,6 +390,41 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 	// queries to retry (none if the tx was successful)
 	return retryQueries, nil
 }
+
+// isolateFailingQuery returns the position of the first query the server
+// rejects, or -1 when every one of them is accepted.
+//
+// The queries run one at a time rather than as a batch, because a batch tells
+// us only that something in it is wrong. Nothing is kept: the pass ends by
+// rolling the transaction back, so it answers the question without applying
+// anything. The caller drops the query it names and repeats the rest.
+func (w *BatchWriter) isolateFailingQuery(ctx context.Context, queries []*query) int {
+	failing := -1
+	err := w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
+		if err := w.setReplicationRoleToReplica(ctx, tx); err != nil {
+			return err
+		}
+		for i, q := range queries {
+			if _, err := tx.Exec(ctx, q.sql, q.args...); err != nil {
+				if w.isInternalError(err) {
+					return err
+				}
+				failing = i
+				break
+			}
+		}
+		// Nothing this pass did is wanted, only what it learned.
+		return errIsolationDone
+	})
+	if err != nil && !errors.Is(err, errIsolationDone) {
+		w.logger.Warn(err, "isolating the failing query of a batch")
+		return -1
+	}
+	return failing
+}
+
+// errIsolationDone rolls back the isolation pass. It never reaches a caller.
+var errIsolationDone = errors.New("isolation pass complete")
 
 func (w *BatchWriter) isInternalError(err error) bool {
 	var errRelationDoesNotExist *pglib.ErrRelationDoesNotExist

@@ -119,17 +119,66 @@ func (t *Txn) ExecBatch(ctx context.Context, queries []BatchQuery) error {
 			// Close reports the same failure again. The error from the read is
 			// the useful one, because it says which query the server answered.
 			_ = results.Close()
-
-			// Only the server can say that a query failed. Anything else is
-			// the batch failing around it.
-			var pgErr *pgconn.PgError
-			if !errors.As(err, &pgErr) {
-				return MapError(err)
-			}
-			return &BatchQueryError{Index: i, Err: MapError(err)}
+			return batchError(queries, i, err)
 		}
 	}
 	return MapError(results.Close())
+}
+
+// batchError names the query that failed, when the failure can be named.
+//
+// The index of the result being read is not the answer on its own. pgx
+// prepares every statement of the batch, and encodes every argument, before it
+// executes any of them. A failure of either step therefore surfaces on the
+// first read, whichever statement owns it. Reading that index as the culprit
+// drops a statement that did nothing wrong, and the real one runs again in the
+// retry, which is the silent loss this type exists to prevent.
+//
+// A preprocessing failure carries the SQL of the statement it belongs to, so
+// it can be matched back. When two queries of the batch share that SQL the
+// match is not unique, and the failure stays with the batch.
+//
+// Anything else that is not a server error for the statement just read is a
+// failure of the batch. The caller isolates those by running the queries one
+// at a time.
+func batchError(queries []BatchQuery, index int, err error) error {
+	// A failure that names its own statement can be given to it. pgx reports
+	// a preprocessing failure as pgx.ErrPreprocessingBatch, which carries the
+	// SQL, and that is the only error on this path that names one.
+	var named interface{ SQL() string }
+	if errors.As(err, &named) {
+		if at := uniqueSQLIndex(queries, named.SQL()); at >= 0 {
+			return &BatchQueryError{Index: at, Err: MapError(err)}
+		}
+		return MapError(err)
+	}
+
+	// Only the server can say that this query failed. Anything else is the
+	// batch failing around it.
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return MapError(err)
+	}
+	if index < 0 || index >= len(queries) {
+		return MapError(err)
+	}
+	return &BatchQueryError{Index: index, Err: MapError(err)}
+}
+
+// uniqueSQLIndex returns the position of the only query with this SQL, or -1
+// when there is none or more than one.
+func uniqueSQLIndex(queries []BatchQuery, sql string) int {
+	found := -1
+	for i := range queries {
+		if queries[i].SQL != sql {
+			continue
+		}
+		if found >= 0 {
+			return -1
+		}
+		found = i
+	}
+	return found
 }
 
 // CopyFrom uses pgx's binary-format COPY, which is the fast path for any
