@@ -72,10 +72,7 @@ func (t *Txn) CopyFrom(ctx context.Context, tableName string, columnNames []stri
 	if err != nil {
 		return -1, err
 	}
-	for i, c := range columnNames {
-		columnNames[i] = removeQuotes(c)
-	}
-	return t.Tx.CopyFrom(ctx, identifier, columnNames, pgx.CopyFromRows(srcRows))
+	return t.Tx.CopyFrom(ctx, identifier, unquoteIdentifiers(columnNames), pgx.CopyFromRows(srcRows))
 }
 
 // CopyFromText runs the postgres COPY protocol in text format, rather than
@@ -88,9 +85,7 @@ func (t *Txn) CopyFromText(ctx context.Context, tableName string, columnNames []
 		return 0, nil
 	}
 
-	for i, c := range columnNames {
-		columnNames[i] = removeQuotes(c)
-	}
+	columnNames = unquoteIdentifiers(columnNames)
 
 	identifier, err := newIdentifier(tableName)
 	if err != nil {
