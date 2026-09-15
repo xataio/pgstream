@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	pglib "github.com/xataio/pgstream/internal/postgres"
@@ -406,6 +407,74 @@ func TestHandler_ReceiveMessage(t *testing.T) {
 			require.Equal(t, tc.wantMessage, msg)
 		})
 	}
+}
+
+func TestNormalizeReceiveTimeout(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   time.Duration
+		want time.Duration
+	}{
+		{name: "unset takes the default", in: 0, want: defaultReceiveTimeout},
+		{name: "a value is kept", in: 5 * time.Second, want: 5 * time.Second},
+		{name: "a negative value removes the bound", in: -1, want: 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, normalizeReceiveTimeout(tc.in))
+		})
+	}
+}
+
+// A read that never returns holds the caller's retry loop inside it, so the
+// loop cannot reconnect and the process streams nothing while looking healthy.
+// The bound turns the silence into ErrConnTimeout, which is retriable.
+func TestHandler_ReceiveMessage_Timeout(t *testing.T) {
+	t.Parallel()
+
+	received := make(chan struct{})
+	h := Handler{
+		logger:         log.NewNoopLogger(),
+		receiveTimeout: 50 * time.Millisecond,
+		pgReplicationConn: &pgmocks.ReplicationConn{
+			ReceiveMessageFn: func(ctx context.Context) (*pglib.ReplicationMessage, error) {
+				close(received)
+				<-ctx.Done()
+				return nil, ctx.Err()
+			},
+		},
+	}
+
+	msg, err := h.ReceiveMessage(context.Background())
+	require.ErrorIs(t, err, replication.ErrConnTimeout)
+	require.Nil(t, msg)
+	<-received
+}
+
+// Without a bound the read waits for the context it was given, which is the
+// behaviour every caller had before the bound existed.
+func TestHandler_ReceiveMessage_NoTimeout(t *testing.T) {
+	t.Parallel()
+
+	h := Handler{
+		logger:         log.NewNoopLogger(),
+		receiveTimeout: 0,
+		pgReplicationConn: &pgmocks.ReplicationConn{
+			ReceiveMessageFn: func(ctx context.Context) (*pglib.ReplicationMessage, error) {
+				_, hasDeadline := ctx.Deadline()
+				require.False(t, hasDeadline)
+				return &pglib.ReplicationMessage{LSN: testLSN, ServerTime: now}, nil
+			},
+		},
+	}
+
+	msg, err := h.ReceiveMessage(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, replication.LSN(testLSN), msg.LSN)
 }
 
 func TestHandler_GetReplicationLag(t *testing.T) {
