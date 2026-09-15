@@ -320,23 +320,32 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 		}
 
 		// Send the queries as one pipeline. One round trip for the batch
-		// replaces one round trip for each query. The behaviour does not
-		// change: ExecBatch returns the index of the query that failed, which
-		// is the same index the loop found before.
+		// replaces one round trip for each query. A query the server rejects
+		// is reported with its index, which is the same index the loop found
+		// before.
 		batchQueries := make([]pglib.BatchQuery, 0, len(queries))
 		for _, q := range queries {
 			batchQueries = append(batchQueries, pglib.BatchQuery{SQL: q.sql, Args: q.args})
 		}
 
-		if i, err := tx.ExecBatch(ctx, batchQueries); err != nil {
+		if err := tx.ExecBatch(ctx, batchQueries); err != nil {
+			var queryErr *pglib.BatchQueryError
+			if !errors.As(err, &queryErr) {
+				// The failure belongs to the batch rather than to one of its
+				// queries: it never reached the server, or it broke once every
+				// query had answered. Dropping a query here would name one
+				// that did nothing wrong.
+				return err
+			}
+
 			w.logger.Error(err, "executing sql query", loglib.Fields{
-				"sql":  queries[i].sql,
-				"args": queries[i].args,
+				"sql":  queries[queryErr.Index].sql,
+				"args": queries[queryErr.Index].args,
 			})
 			// if a query returns an error, it will abort the tx. Remove it
 			// from the list of queries to be retried.
-			droppedQuery = queries[i]
-			retryQueries = removeIndex(queries, i)
+			droppedQuery = queries[queryErr.Index]
+			retryQueries = removeIndex(queries, queryErr.Index)
 			return err
 		}
 
@@ -345,6 +354,13 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 	if err != nil && w.isInternalError(err) {
 		// if there was an internal error in the tx, there's no point in
 		// retrying, return error and stop processing.
+		return nil, err
+	}
+
+	if err != nil && droppedQuery == nil {
+		// The transaction failed with no query to blame. Returning the queries
+		// that were not dropped would return none of them, which loses the
+		// batch without a word, so the failure travels up instead.
 		return nil, err
 	}
 

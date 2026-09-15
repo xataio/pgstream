@@ -5,11 +5,13 @@ package postgres
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -18,9 +20,9 @@ type Tx interface {
 	QueryRow(ctx context.Context, dest []any, query string, args ...any) error
 	Exec(ctx context.Context, query string, args ...any) (CommandTag, error)
 	// ExecBatch runs the queries as one pipelined exchange. It does not use one
-	// round trip for each query. It returns the index of the first query that
-	// failed. If all queries are successful, it returns the number of queries.
-	ExecBatch(ctx context.Context, queries []BatchQuery) (int, error)
+	// round trip for each query. A query that fails comes back as a
+	// BatchQueryError carrying its index; any other error belongs to the batch.
+	ExecBatch(ctx context.Context, queries []BatchQuery) error
 	CopyFrom(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
 	CopyFromText(ctx context.Context, tableName string, columnNames []string, srcRows [][]any) (int64, error)
 	CopyToWriter(ctx context.Context, w io.Writer, sql string) (int64, error)
@@ -67,6 +69,24 @@ func (t *Txn) Exec(ctx context.Context, query string, args ...any) (CommandTag, 
 	return CommandTag{tag}, MapError(err)
 }
 
+// BatchQueryError is the failure of one query inside a batch, and carries the
+// index of the query the server rejected.
+//
+// An error from ExecBatch that is not a BatchQueryError belongs to the batch
+// as a whole: the queries never reached the server, or the exchange failed
+// after every one of them had answered. No single query can be blamed for
+// that, and a caller must not treat one as the culprit.
+type BatchQueryError struct {
+	Index int
+	Err   error
+}
+
+func (e *BatchQueryError) Error() string {
+	return fmt.Sprintf("batch query %d: %s", e.Index, e.Err)
+}
+
+func (e *BatchQueryError) Unwrap() error { return e.Err }
+
 // BatchQuery is one query for ExecBatch.
 type BatchQuery struct {
 	SQL  string
@@ -77,11 +97,17 @@ type BatchQuery struct {
 // removes one network round trip for each query. The saving is large when the
 // database is far from the client.
 //
-// The results come back in the same sequence as the queries. Thus the first
-// error identifies the query that failed. Postgres stops the transaction at
-// that query, so all later queries also fail. For this reason ExecBatch stops
-// at the first error.
-func (t *Txn) ExecBatch(ctx context.Context, queries []BatchQuery) (int, error) {
+// The results come back in the same sequence as the queries, so the first
+// error the server reports identifies the query that failed, and it comes back
+// as a BatchQueryError. Postgres stops the transaction at that query, so all
+// later queries also fail, and ExecBatch stops at the first error.
+//
+// Two failures carry no index and come back as plain errors. The batch may
+// never reach the server, in which case the first read fails with a transport
+// error rather than an answer about a query. The exchange may also fail while
+// its results are closed, after every query has answered. Reporting either as
+// the failure of a query would name one that did nothing wrong.
+func (t *Txn) ExecBatch(ctx context.Context, queries []BatchQuery) error {
 	batch := &pgx.Batch{}
 	for _, q := range queries {
 		batch.Queue(q.SQL, q.Args...)
@@ -90,13 +116,20 @@ func (t *Txn) ExecBatch(ctx context.Context, queries []BatchQuery) (int, error) 
 	results := t.SendBatch(ctx, batch)
 	for i := range queries {
 		if _, err := results.Exec(); err != nil {
-			// Close reports the same failure again. The error from the query is
-			// the useful one, because it has the index.
+			// Close reports the same failure again. The error from the read is
+			// the useful one, because it says which query the server answered.
 			_ = results.Close()
-			return i, MapError(err)
+
+			// Only the server can say that a query failed. Anything else is
+			// the batch failing around it.
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) {
+				return MapError(err)
+			}
+			return &BatchQueryError{Index: i, Err: MapError(err)}
 		}
 	}
-	return len(queries), MapError(results.Close())
+	return MapError(results.Close())
 }
 
 // CopyFrom uses pgx's binary-format COPY, which is the fast path for any

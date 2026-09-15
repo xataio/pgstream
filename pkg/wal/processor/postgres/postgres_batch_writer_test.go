@@ -1000,10 +1000,12 @@ func TestBatchWriter_execQueries_pipelined(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		failAt    int // index of the query that fails, -1 for none
+		failAt    int   // index of the query the server rejects, -1 for none
+		batchErr  error // a failure of the batch itself, with no query to blame
 		wantSent  int
 		wantRetry []any
 		wantDrops uint64
+		wantErr   bool
 	}{
 		{
 			name:      "ok - one exchange for all queries",
@@ -1016,6 +1018,17 @@ func TestBatchWriter_execQueries_pipelined(t *testing.T) {
 			failAt:    1,
 			wantSent:  3,
 			wantRetry: []any{"alice", "carol"},
+		},
+		{
+			// The batch never reached the server, or it broke once every query
+			// had answered. Blaming a query here would drop one that did
+			// nothing wrong, and returning the rest would lose the batch in
+			// silence, so the failure has to travel up.
+			name:     "the batch fails with no query to blame - nothing is dropped",
+			failAt:   -1,
+			batchErr: errFailed,
+			wantSent: 3,
+			wantErr:  true,
 		},
 	}
 
@@ -1033,12 +1046,16 @@ func TestBatchWriter_execQueries_pipelined(t *testing.T) {
 								// The whole batch arrives in one call. That is the
 								// point of the change: one round trip, not one for
 								// each query.
-								ExecBatchFn: func(ctx context.Context, qs []pglib.BatchQuery) (int, error) {
+								ExecBatchFn: func(ctx context.Context, qs []pglib.BatchQuery) error {
 									sent = len(qs)
-									if tc.failAt >= 0 {
-										return tc.failAt, errFailed
+									switch {
+									case tc.batchErr != nil:
+										return tc.batchErr
+									case tc.failAt >= 0:
+										return &pglib.BatchQueryError{Index: tc.failAt, Err: errFailed}
+									default:
+										return nil
 									}
-									return len(qs), nil
 								},
 								ExecFn: func(ctx context.Context, i uint, q string, args ...any) (pglib.CommandTag, error) {
 									return pglib.CommandTag{}, nil
@@ -1051,8 +1068,13 @@ func TestBatchWriter_execQueries_pipelined(t *testing.T) {
 			}
 
 			retry, err := w.execQueries(context.Background(), queries)
-			require.NoError(t, err)
 			require.Equal(t, tc.wantSent, sent)
+			if tc.wantErr {
+				require.Error(t, err)
+				require.Empty(t, retry)
+				return
+			}
+			require.NoError(t, err)
 
 			gotRetry := []any{}
 			for _, q := range retry {

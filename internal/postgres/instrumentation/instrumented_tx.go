@@ -49,7 +49,7 @@ func (i *Tx) Exec(ctx context.Context, query string, args ...any) (tag pglib.Com
 	return i.inner.Exec(ctx, query, args...)
 }
 
-func (i *Tx) ExecBatch(ctx context.Context, queries []pglib.BatchQuery) (n int, err error) {
+func (i *Tx) ExecBatch(ctx context.Context, queries []pglib.BatchQuery) (err error) {
 	// One span for the batch. The queries go in one exchange, so a span for
 	// each query would show the same start and end time for all of them.
 	ctx, span := otel.StartSpan(ctx, i.tracer, "tx.ExecBatch",
