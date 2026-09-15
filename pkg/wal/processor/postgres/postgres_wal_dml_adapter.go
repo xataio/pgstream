@@ -361,10 +361,19 @@ func (a *dmlAdapter) updateValueForCopy(value any, colType string, isEnum bool) 
 		// If the value is a string (PostgreSQL array literal like "{val1,val2}"),
 		// we need to parse it into a Go slice for binary COPY format
 		if strVal, ok := value.(string); ok {
-			// Use pgtype to parse the array string into a slice
-			var arr pgtype.FlatArray[string]
+			// pgtype.Array keeps the dimensions, pgtype.FlatArray does not.
+			// With a flat array, {{1,2},{3,4}} reaches the target as
+			// {1,2,3,4}: the shape is lost, no error is raised, and nothing
+			// counts it.
+			//
+			// The pgx value stays inside this sink. What arrives here is the
+			// postgres array literal, which is what every other target sees.
+			var arr pgtype.Array[string]
 			if err := a.pgTypeMap.SQLScanner(&arr).Scan(strVal); err == nil {
-				return []string(arr)
+				if len(arr.Dims) > 1 {
+					return arr
+				}
+				return arr.Elements
 			}
 			// If parsing fails, return the original value and let pgx handle it
 		}

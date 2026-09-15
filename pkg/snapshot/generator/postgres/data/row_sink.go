@@ -76,8 +76,16 @@ func (s rowSink) emit(ctx context.Context, table *table, rows pglib.Rows) (uint,
 // stay at zero.
 //
 // The dimensions are in the wire data, so a decode into pgtype.Array keeps
-// them, and pgx writes them back unchanged. Nested Go slices are not a way out,
-// because pgx flattens those as well.
+// them. The value then goes on as the postgres array literal, which is a plain
+// string.
+//
+// A string rather than the pgx value, because the value travels. A pgtype.Array
+// has no JSON form, so a Kafka target would write an object of Elements, Dims
+// and Valid, and the reader would hand the postgres adapter a map it cannot
+// turn back into an array: a row that used to arrive flattened would not arrive
+// at all. The literal is what the replication path already carries for every
+// array, it survives JSON, and the postgres sink parses it back into a shape
+// pgx can encode.
 //
 // Only an array of more than one dimension is replaced. Everything else keeps
 // the type rows.Values() gives it, so a value that already arrives correctly
@@ -112,9 +120,14 @@ func rowValues(rows pglib.Rows) ([]any, error) {
 			// better than a load that stops.
 			continue
 		}
-		if len(array.Dims) > 1 {
-			values[i] = array
+		if len(array.Dims) <= 1 {
+			continue
 		}
+		literal, err := typeMap.Encode(field.DataTypeOID, pgtype.TextFormatCode, array, nil)
+		if err != nil {
+			continue
+		}
+		values[i] = string(literal)
 	}
 	return values, nil
 }
