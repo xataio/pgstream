@@ -44,6 +44,11 @@ func init() {
 func bindEnvVars() {
 	viper.BindEnv("PGSTREAM_METRICS_ENDPOINT")
 	viper.BindEnv("PGSTREAM_METRICS_COLLECTION_INTERVAL")
+	// Without these two, viper answers false and "" however the environment is
+	// set, so the documented Prometheus endpoint cannot be turned on at all and
+	// /metrics answers 404 for good.
+	viper.BindEnv("PGSTREAM_METRICS_PROMETHEUS_ENABLED")
+	viper.BindEnv("PGSTREAM_METRICS_PROMETHEUS_ENDPOINT")
 	viper.BindEnv("PGSTREAM_TRACES_ENDPOINT")
 	viper.BindEnv("PGSTREAM_TRACES_SAMPLE_RATIO")
 	viper.BindEnv("PGSTREAM_METRICS_PROMETHEUS_ENABLED")
