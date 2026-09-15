@@ -56,8 +56,10 @@ type WriterConfig struct {
 // If the topic auto create setting is enabled in the config, it will create it.
 func NewWriter(config WriterConfig, logger loglib.Logger) (*Writer, error) {
 	logger.Info("creating kafka writer", loglib.Fields{
-		"kafka_servers": config.Conn.Servers,
-		"tls_enabled":   config.Conn.TLS.Enabled,
+		"kafka_servers":  config.Conn.Servers,
+		"tls_enabled":    config.Conn.TLS.Enabled,
+		"sasl_enabled":   config.Conn.SASL.Enabled,
+		"sasl_mechanism": config.Conn.SASL.Mechanism,
 	})
 
 	if config.Conn.Topic.AutoCreate {
@@ -66,7 +68,7 @@ func NewWriter(config WriterConfig, logger loglib.Logger) (*Writer, error) {
 		}
 	}
 
-	transport, err := buildTransport(&config.Conn.TLS)
+	transport, err := buildTransport(&config.Conn)
 	if err != nil {
 		return nil, err
 	}
@@ -118,18 +120,26 @@ func createTopic(cfg *ConnConfig) error {
 	})
 }
 
-func buildTransport(cfg *tlslib.Config) (kafka.RoundTripper, error) {
+func buildTransport(cfg *ConnConfig) (kafka.RoundTripper, error) {
 	// use a dedicated transport per writer instead of the shared
 	// kafka.DefaultTransport, since its cluster metadata cache is scoped to the
 	// transport, and a shared stale cache can make writes fail with unknown
 	// topic errors for recently created topics
-	if cfg.Enabled {
-		tlsConfig, err := tlslib.NewConfig(cfg)
+	transport := &kafka.Transport{}
+
+	if cfg.TLS.Enabled {
+		tlsConfig, err := tlslib.NewConfig(&cfg.TLS)
 		if err != nil {
 			return nil, fmt.Errorf("building TLS config: %w", err)
 		}
-		return &kafka.Transport{TLS: tlsConfig}, nil
+		transport.TLS = tlsConfig
 	}
 
-	return &kafka.Transport{}, nil
+	saslMechanism, err := cfg.SASL.mechanism()
+	if err != nil {
+		return nil, fmt.Errorf("building SASL config: %w", err)
+	}
+	transport.SASL = saslMechanism
+
+	return transport, nil
 }

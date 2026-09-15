@@ -5,6 +5,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"net"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -13,13 +14,71 @@ type Conn struct {
 	conn *pgx.Conn
 }
 
-func NewConn(ctx context.Context, url string) (*Conn, error) {
+// ConnOption customises the driver connection configuration before the
+// connection is opened. It runs after the URL is parsed and after pgstream has
+// applied its own settings, so its mutations are the last word.
+//
+// The option may run concurrently, because callers open connections in
+// parallel, so it must be safe for concurrent use.
+type ConnOption func(*pgx.ConnConfig)
+
+// DialFunc opens a connection to an address that is already resolved.
+type DialFunc func(ctx context.Context, network, address string) (net.Conn, error)
+
+// LookupFunc resolves a host name to the addresses to try.
+type LookupFunc func(ctx context.Context, host string) ([]string, error)
+
+// WithDialFunc dials through dial instead of through pgstream's own dialler.
+// The address dial receives is the resolved address the connection will use,
+// for every connection target including the fallbacks the driver derives from
+// a multi-host URL or from sslmode=prefer, so it is the placement that decides
+// which address is reached.
+//
+// A nil dial leaves the dialler unchanged.
+func WithDialFunc(dial DialFunc) ConnOption {
+	return func(cfg *pgx.ConnConfig) {
+		if dial == nil {
+			return
+		}
+		cfg.DialFunc = func(ctx context.Context, network, address string) (net.Conn, error) {
+			conn, err := dial(ctx, network, address)
+			if err != nil {
+				return nil, err
+			}
+			if err := applyTCPKeepalive(conn); err != nil {
+				conn.Close()
+				return nil, fmt.Errorf("failed configuring keepalive on the dialled connection: %w", err)
+			}
+			return conn, nil
+		}
+	}
+}
+
+// WithLookupFunc resolves host names through lookup instead of through the
+// system resolver. It applies to every connection target, fallbacks included.
+//
+// A nil lookup leaves the resolver unchanged.
+func WithLookupFunc(lookup LookupFunc) ConnOption {
+	return func(cfg *pgx.ConnConfig) {
+		if lookup == nil {
+			return
+		}
+		cfg.LookupFunc = func(ctx context.Context, host string) ([]string, error) {
+			return lookup(ctx, host)
+		}
+	}
+}
+
+func NewConn(ctx context.Context, url string, opts ...ConnOption) (*Conn, error) {
 	pgCfg, err := ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed parsing postgres connection string: %w", MapError(err))
 	}
 
 	configureTCPKeepalive(pgCfg)
+	for _, opt := range opts {
+		opt(pgCfg)
+	}
 
 	conn, err := pgx.ConnectConfig(ctx, pgCfg)
 	if err != nil {

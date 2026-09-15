@@ -148,7 +148,7 @@ func (c *SourceTableSelectPrivilegesCheck) Run(ctx context.Context) ([]Finding, 
 			continue
 		}
 		if !row.HasSelect {
-			findings = append(findings, Finding{Message: sourceTableSelectPrivilegeMessage(row)})
+			findings = append(findings, sourceTableSelectPrivilegeFinding(row))
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -184,7 +184,7 @@ func (c *SourceSequenceSelectPrivilegesCheck) Run(ctx context.Context) ([]Findin
 			continue
 		}
 		if !row.HasSelect {
-			findings = append(findings, Finding{Message: sourceSequenceSelectPrivilegeMessage(row)})
+			findings = append(findings, sourceSequenceSelectPrivilegeFinding(row))
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -208,9 +208,7 @@ func (c *TargetCreateDBPrivilegeCheck) Run(ctx context.Context) ([]Finding, erro
 	if hasCreateDB {
 		return nil, nil
 	}
-	return []Finding{
-		{Message: targetCreateDBPrivilegeMessage(role)},
-	}, nil
+	return []Finding{targetCreateDBPrivilegeFinding(role)}, nil
 }
 
 func (c *TargetCreateRolePrivilegeCheck) Run(ctx context.Context) ([]Finding, error) {
@@ -231,9 +229,7 @@ func (c *TargetCreateRolePrivilegeCheck) Run(ctx context.Context) ([]Finding, er
 	if hasCreateRole {
 		return nil, nil
 	}
-	return []Finding{{
-		Message: targetCreateRolePrivilegeMessage(role),
-	}}, nil
+	return []Finding{targetCreateRolePrivilegeFinding(role)}, nil
 }
 
 type sourceTableSelectPrivilegeRow struct {
@@ -298,35 +294,44 @@ func schemaHasWildcard(tables postgres.SchemaTableMap, schema string) bool {
 	return found
 }
 
-func sourceTableSelectPrivilegeMessage(row sourceTableSelectPrivilegeRow) string {
+func sourceTableSelectPrivilegeFinding(row sourceTableSelectPrivilegeRow) Finding {
 	quotedTable := postgres.QuoteIdentifier(row.Schema) + "." + postgres.QuoteIdentifier(row.Table)
 	quotedRole := postgres.QuoteIdentifier(row.Role)
-	return fmt.Sprintf(
-		"source role %q lacks SELECT on %s.%s; run GRANT SELECT ON TABLE %s TO %s",
-		row.Role, row.Schema, row.Table, quotedTable, quotedRole,
-	)
+	return Finding{
+		ID:      FindingIDSourceTableSelectPrivilegeMissing,
+		Title:   "The source role cannot read a table",
+		Detail:  fmt.Sprintf("The source role %q does not have SELECT on the table %s.%s. Run GRANT SELECT ON TABLE %s TO %s.", row.Role, row.Schema, row.Table, quotedTable, quotedRole),
+		Message: fmt.Sprintf("source role %q lacks SELECT on %s.%s; run GRANT SELECT ON TABLE %s TO %s", row.Role, row.Schema, row.Table, quotedTable, quotedRole),
+	}
 }
 
-func sourceSequenceSelectPrivilegeMessage(row sourceSequenceSelectPrivilegeRow) string {
+func sourceSequenceSelectPrivilegeFinding(row sourceSequenceSelectPrivilegeRow) Finding {
 	quotedSequence := postgres.QuoteIdentifier(row.SequenceSchema) + "." + postgres.QuoteIdentifier(row.Sequence)
 	quotedRole := postgres.QuoteIdentifier(row.Role)
-	return fmt.Sprintf(
-		"source role %q lacks SELECT on sequence %s.%s; run GRANT SELECT ON SEQUENCE %s TO %s",
-		row.Role, row.SequenceSchema, row.Sequence, quotedSequence, quotedRole,
-	)
+	return Finding{
+		ID:      FindingIDSourceSequenceSelectPrivilegeMissing,
+		Title:   "The source role cannot read a sequence",
+		Detail:  fmt.Sprintf("The source role %q does not have SELECT on the sequence %s.%s. Run GRANT SELECT ON SEQUENCE %s TO %s.", row.Role, row.SequenceSchema, row.Sequence, quotedSequence, quotedRole),
+		Message: fmt.Sprintf("source role %q lacks SELECT on sequence %s.%s; run GRANT SELECT ON SEQUENCE %s TO %s", row.Role, row.SequenceSchema, row.Sequence, quotedSequence, quotedRole),
+	}
 }
 
-func targetCreateDBPrivilegeMessage(role string) string {
+func targetCreateDBPrivilegeFinding(role string) Finding {
 	quotedRole := postgres.QuoteIdentifier(role)
-	return fmt.Sprintf(
-		"target role %q lacks CREATEDB; run ALTER ROLE %s CREATEDB",
-		role, quotedRole,
-	)
+	return Finding{
+		ID:      FindingIDTargetCreateDBPrivilegeMissing,
+		Title:   "The target role does not have the CREATEDB privilege",
+		Detail:  fmt.Sprintf("The target role %q does not have CREATEDB. Run ALTER ROLE %s CREATEDB.", role, quotedRole),
+		Message: fmt.Sprintf("target role %q lacks CREATEDB; run ALTER ROLE %s CREATEDB", role, quotedRole),
+	}
 }
 
-func targetCreateRolePrivilegeMessage(role string) string {
+func targetCreateRolePrivilegeFinding(role string) Finding {
 	quotedRole := postgres.QuoteIdentifier(role)
-	return fmt.Sprintf(
-		"target role %q lacks CREATEROLE; run ALTER ROLE %s CREATEROLE", role, quotedRole,
-	)
+	return Finding{
+		ID:      FindingIDTargetCreateRolePrivilegeMissing,
+		Title:   "The target role does not have the CREATEROLE privilege",
+		Detail:  fmt.Sprintf("The target role %q does not have CREATEROLE. Run ALTER ROLE %s CREATEROLE.", role, quotedRole),
+		Message: fmt.Sprintf("target role %q lacks CREATEROLE; run ALTER ROLE %s CREATEROLE", role, quotedRole),
+	}
 }

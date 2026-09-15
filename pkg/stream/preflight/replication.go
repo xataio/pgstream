@@ -36,6 +36,9 @@ func (c *WALLevelCheck) Run(ctx context.Context) ([]Finding, error) {
 	}
 	if level != "logical" {
 		return []Finding{{
+			ID:      FindingIDWALLevelNotLogical,
+			Title:   "The source wal_level is not logical",
+			Detail:  fmt.Sprintf("The source runs with wal_level=%q. Logical replication requires wal_level=logical. Set it in postgresql.conf and restart the server.", level),
 			Message: fmt.Sprintf("wal_level=%q on source; set wal_level=logical in postgresql.conf and restart for logical replication", level),
 		}}, nil
 	}
@@ -95,6 +98,11 @@ func (c *WAL2JSONCheck) Run(ctx context.Context) ([]Finding, error) {
 	switch {
 	case isWAL2JSONMissing(probeErr), isWAL2JSONNotAllowed(probeErr):
 		return []Finding{{
+			ID:    FindingIDWAL2JSONUnavailable,
+			Title: "The wal2json output plugin is not available on the source",
+			Detail: "Install the wal2json package. On postgres 17.11+, also add wal2json to output_plugin_libraries " +
+				"(it defaults to \"pgoutput, test_decoding\") and reload the server. The server reads that allowlist " +
+				"before it loads the library, so it refuses an installed wal2json while the allowlist omits it.",
 			Message: "wal2json output plugin not available on source; install the wal2json package, and on postgres 17.11+ add wal2json to output_plugin_libraries (it defaults to \"pgoutput, test_decoding\") and reload the server — that allowlist is checked before the library is loaded, so an installed wal2json is still refused while it is missing from it",
 		}}, nil
 	case isProbePreconditionUnmet(probeErr):
@@ -197,6 +205,9 @@ func (c *ReplicationSlotHeadroomCheck) Run(ctx context.Context) ([]Finding, erro
 	}
 	if usedSlots >= maxSlots {
 		return []Finding{{
+			ID:      FindingIDReplicationSlotHeadroomExhausted,
+			Title:   "The source has no free replication slot",
+			Detail:  fmt.Sprintf("The source uses %d of %d replication slots. Raise max_replication_slots (requires a restart) or drop unused slots.", usedSlots, maxSlots),
 			Message: fmt.Sprintf("no replication slot headroom: %d/%d slots in use; raise max_replication_slots (requires restart) or drop unused slots", usedSlots, maxSlots),
 		}}, nil
 	}
@@ -224,6 +235,9 @@ func (c *ReplicationRoleAttrCheck) Run(ctx context.Context) ([]Finding, error) {
 	}
 	if !hasReplication {
 		return []Finding{{
+			ID:      FindingIDReplicationRoleAttributeMissing,
+			Title:   "The source role does not have the REPLICATION attribute",
+			Detail:  fmt.Sprintf("The source role %q does not have the REPLICATION attribute, which a logical replication slot requires. Run ALTER ROLE %s REPLICATION as a superuser.", roleName, roleName),
 			Message: fmt.Sprintf("source role %q lacks the REPLICATION attribute; run ALTER ROLE %s REPLICATION as a superuser", roleName, roleName),
 		}}, nil
 	}

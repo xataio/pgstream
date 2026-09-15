@@ -564,6 +564,24 @@ func TestQuerier_isRetriableError(t *testing.T) {
 			wantIsRetriable: false,
 		},
 		{
+			// a value the target column cannot store fails the same way every
+			// time it is replayed. The default policy has no attempt or
+			// elapsed-time bound, so retrying here loops until the process is
+			// killed instead of reporting which column rejected the value.
+			name: "string too long for the target column",
+			err: &pgconn.PgError{
+				Code:    "22001",
+				Message: "value too long for type character varying(50)",
+				Where:   "COPY ledger_line, line 1, column code",
+			},
+			wantIsRetriable: false,
+		},
+		{
+			name:            "wrapped data exception",
+			err:             fmt.Errorf("copy from: %w", &postgres.ErrDataException{}),
+			wantIsRetriable: false,
+		},
+		{
 			// isRetriableError maps through MapError, so a raw pgx encoding
 			// failure must be recognized even before anything types it. The
 			// default policy has no attempt or elapsed-time bound, so treating

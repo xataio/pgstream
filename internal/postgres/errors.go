@@ -225,7 +225,7 @@ func MapError(err error) error {
 		// Class 22 — Data Exception
 		if strings.HasPrefix(pgErr.Code, "22") {
 			return &ErrDataException{
-				Details: pgErr.Message,
+				Details: withErrorContext(pgErr),
 			}
 		}
 		// Class 23 — Integrity Constraint Violation
@@ -254,6 +254,13 @@ func MapError(err error) error {
 	}
 
 	return err
+}
+
+func withErrorContext(pgErr *pgconn.PgError) string {
+	if pgErr.Where == "" {
+		return pgErr.Message
+	}
+	return fmt.Sprintf("%s (%s)", pgErr.Message, pgErr.Where)
 }
 
 func encodingErrDetails(msg string) string {

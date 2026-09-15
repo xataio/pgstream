@@ -75,6 +75,10 @@ source:
       ca_cert: "/path/to/ca.crt" # path to CA certificate
       client_cert: "/path/to/client.crt" # path to client certificate
       client_key: "/path/to/client.key" # path to client key
+    sasl: # remove this section to disable SASL authentication
+      mechanism: "scram-sha-512" # options are plain, scram-sha-256 or scram-sha-512. Required
+      user: "myuser" # user for the SASL authentication. Required
+      password: "mypassword" # password for the SASL authentication. Required
     backoff: # one of exponential or constant
       exponential:
         max_retries: 5 # maximum number of retries
@@ -122,6 +126,10 @@ target:
       ca_cert: "/path/to/ca.crt" # path to CA certificate
       client_cert: "/path/to/client.crt" # path to client certificate
       client_key: "/path/to/client.key" # path to client key
+    sasl: # remove this section to disable SASL authentication
+      mechanism: "scram-sha-512" # options are plain, scram-sha-256 or scram-sha-512. Required
+      user: "myuser" # user for the SASL authentication. Required
+      password: "mypassword" # password for the SASL authentication. Required
     batch:
       timeout: 1000 # batch timeout in milliseconds. Defaults to 1s
       size: 100 # number of messages in a batch. Defaults to 100

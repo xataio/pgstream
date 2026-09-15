@@ -14,20 +14,27 @@ import (
 	"github.com/stretchr/testify/require"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
+	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/transformers"
 	"github.com/xataio/pgstream/pkg/transformers/builder"
+	transformermocks "github.com/xataio/pgstream/pkg/transformers/mocks"
 )
 
 func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 	t.Parallel()
 
 	citextOID := uint32(1234)
-	citextTypeName := "citext"
 	testSchemaTable := "\"public\".\"test\""
 	testQuerier := func() *pgmocks.Querier {
 		return &pgmocks.Querier{
 			QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 				switch query {
+				case multiDimensionalColumnsQuery:
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return false },
+						ErrFn:   func() error { return nil },
+					}, nil
 				case "SELECT * FROM \"public\".\"test\" LIMIT 0":
 					return &pgmocks.Rows{
 						FieldDescriptionsFn: func() []pgconn.FieldDescription {
@@ -86,6 +93,12 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				}
 			},
 			QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+				// the element type query only matches a true array type, and
+				// the fake OIDs in this test are all scalar. No column of the
+				// mocked table is an enum either
+				if strings.Contains(query, "a.typcategory = 'A'") || enumTypeQueryMatch(query) {
+					return pglib.ErrNoRows
+				}
 				switch query {
 				case "SELECT typname FROM pg_type WHERE oid = $1":
 					require.Equal(t, 1, len(args))
@@ -104,6 +117,9 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 
 	testQuerierWithUnknownTypeErr := testQuerier()
 	testQuerierWithUnknownTypeErr.QueryRowFn = func(ctx context.Context, dest []any, query string, args ...any) error {
+		if enumTypeQueryMatch(query) {
+			return pglib.ErrNoRows
+		}
 		require.Equal(t, query, "SELECT typname FROM pg_type WHERE oid = $1")
 		require.Equal(t, 1, len(args))
 		require.Equal(t, citextOID, args[0])
@@ -123,6 +139,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 		validator        PostgresTransformerParser
 
 		wantErr                   error
+		wantErrContains           string
 		wantActiveTransformersFor []string
 		wantNoopTransformersFor   []string
 	}{
@@ -282,7 +299,27 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			},
 			validator: testPGValidator,
 
-			wantErr: fmt.Errorf("column id of table %s has no transformer configured", testSchemaTable),
+			wantErr: fmt.Errorf("table_transformers[0]: column id of table %s has no transformer configured", testSchemaTable),
+		},
+		{
+			name: "ok - template on a non string column",
+			transformerRules: []TableRules{
+				{
+					Schema:         "public",
+					Table:          "test",
+					ValidationMode: "relaxed",
+					ColumnRules: map[string]TransformerRules{
+						"id": {
+							Name:       string(transformers.Template),
+							Parameters: map[string]any{"template": "{{ .GetValue }}"},
+						},
+					},
+				},
+			},
+			validator: testPGValidator,
+
+			wantActiveTransformersFor: []string{"id"},
+			wantErr:                   nil,
 		},
 		{
 			name: "error - invalid column type",
@@ -302,7 +339,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				},
 			},
 			validator: testPGValidator,
-			wantErr:   errors.New("transformer 'string' specified for column 'id' in table \"public\".\"test\" does not support pg data type: int8 with OID: 20"),
+			wantErr:   errors.New("table_transformers[0]: transformer 'string' specified for column 'id' in table \"public\".\"test\" does not support pg data type: int8 with OID: 20"),
 		},
 		{
 			name: "error - unknown custom column type",
@@ -324,7 +361,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				pgtypeMap:      pglib.NewMapper(testQuerierWithUnknownTypeErr),
 				requiredTables: []string{"public.test"},
 			},
-			wantErr: errors.New("transformer 'neosync_email' specified for column 'email' in table \"public\".\"test\" does not support pg data type: unknown with OID: 1234"),
+			wantErr: errors.New("table_transformers[0]: transformer 'neosync_email' specified for column 'email' in table \"public\".\"test\" does not support pg data type: unknown with OID: 1234"),
 		},
 		{
 			name: "error - column not found in table",
@@ -344,7 +381,7 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 				},
 			},
 			validator: testPGValidator,
-			wantErr:   fmt.Errorf("column %s not found in table %s", "unknown_column", testSchemaTable),
+			wantErr:   fmt.Errorf("table_transformers[0]: column %s not found in table %s", "unknown_column", testSchemaTable),
 		},
 		{
 			name: "error - required table not present in rules",
@@ -413,16 +450,69 @@ func TestPostgresTransformerParser_ParseAndValidate(t *testing.T) {
 			},
 			wantErr: fmt.Errorf("getting required tables list: wildcard schema must be used with wildcard table, got: \"test\""),
 		},
+		{
+			name: "error - transformer fails to build",
+			transformerRules: []TableRules{
+				{
+					Schema: publicSchema,
+					Table:  "test",
+					ColumnRules: map[string]TransformerRules{
+						"name": {
+							Name:       string(transformers.Template),
+							Parameters: map[string]any{"template": `{{ literal_string "x" }}`},
+						},
+					},
+				},
+			},
+			validator:       testPGValidator,
+			wantErrContains: `column 'name' in table "public"."test": template_transformer: error parsing template`,
+		},
+		{
+			name: "error - unsupported transformer",
+			transformerRules: []TableRules{
+				{
+					Schema: publicSchema,
+					Table:  "test",
+					ColumnRules: map[string]TransformerRules{
+						"name": {Name: "not_a_transformer"},
+					},
+				},
+			},
+			validator:       testPGValidator,
+			wantErr:         transformers.ErrUnsupportedTransformer,
+			wantErrContains: `column 'name' in table "public"."test": unsupported transformer config`,
+		},
+		{
+			name: "error - table columns cannot be queried",
+			transformerRules: []TableRules{
+				{
+					Schema: publicSchema,
+					Table:  "missing",
+					ColumnRules: map[string]TransformerRules{
+						"name": {Name: "string"},
+					},
+				},
+			},
+			validator: PostgresTransformerParser{
+				conn:      testQuerier(),
+				builder:   builder.NewTransformerBuilder(),
+				pgtypeMap: pglib.NewMapper(testQuerier()),
+			},
+			wantErrContains: `querying columns for table "public"."missing"`,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			transformerMap, err := tc.validator.ParseAndValidate(context.Background(), Rules{Transformers: tc.transformerRules, ValidationMode: validationModeStrict})
-			if tc.wantErr != nil {
+			if tc.wantErr != nil || tc.wantErrContains != "" {
 				require.Error(t, err)
-				if !errors.Is(err, tc.wantErr) {
-					require.Equal(t, err.Error(), tc.wantErr.Error())
+				if tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
+					require.Equal(t, tc.wantErr.Error(), err.Error())
+				}
+				if tc.wantErrContains != "" {
+					require.ErrorContains(t, err, tc.wantErrContains)
 				}
 				return
 			}
@@ -465,6 +555,12 @@ func TestPostgresTransformerParser_uniqueIndexValidation(t *testing.T) {
 		return &pgmocks.Querier{
 			QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
 				switch query {
+				case multiDimensionalColumnsQuery:
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return false },
+						ErrFn:   func() error { return nil },
+					}, nil
 				case "SELECT * FROM \"public\".\"test\" LIMIT 0":
 					return &pgmocks.Rows{
 						FieldDescriptionsFn: func() []pgconn.FieldDescription {
@@ -614,13 +710,56 @@ func Test_pgTypeCompatibleWithTransformerType(t *testing.T) {
 	}
 	stringCompatible := []transformers.SupportedDataType{transformers.StringDataType}
 
+	enumCompatible := []transformers.SupportedDataType{
+		transformers.StringDataType,
+		transformers.EnumDataType,
+	}
+	mood := &pglib.EnumType{Name: "mood", Labels: []string{"sad", "ok", "happy"}}
+
 	tests := []struct {
 		name            string
 		compatibleTypes []transformers.SupportedDataType
 		oid             uint32
 		typeName        string
+		enum            *pglib.EnumType
 		want            bool
 	}{
+		{
+			name:            "enum with an enum compatible transformer",
+			compatibleTypes: enumCompatible,
+			oid:             16385,
+			typeName:        "mood",
+			enum:            mood,
+			want:            true,
+		},
+		{
+			name: "enum with a string transformer that cannot produce a label",
+			// a string transformer would emit a value the enum does not have,
+			// which the target rejects row by row
+			compatibleTypes: []transformers.SupportedDataType{transformers.StringDataType},
+			oid:             16385,
+			typeName:        "mood",
+			enum:            mood,
+			want:            false,
+		},
+		{
+			// an array of an enum resolves to no enum, so it is rejected by
+			// name like any other array
+			name:            "enum array resolves to no enum and is rejected",
+			compatibleTypes: enumCompatible,
+			oid:             16386,
+			typeName:        "_mood",
+			enum:            nil,
+			want:            false,
+		},
+		{
+			name:            "enum with a transformer supporting all types",
+			compatibleTypes: []transformers.SupportedDataType{transformers.AllDataTypes},
+			oid:             16385,
+			typeName:        "mood",
+			enum:            mood,
+			want:            true,
+		},
 		{
 			name:            "numeric with a float compatible transformer",
 			compatibleTypes: floatCompatible,
@@ -662,7 +801,92 @@ func Test_pgTypeCompatibleWithTransformerType(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			require.Equal(t, tc.want, pgTypeCompatibleWithTransformerType(tc.compatibleTypes, tc.oid, tc.typeName))
+			require.Equal(t, tc.want, pgTypeCompatibleWithTransformerType(tc.compatibleTypes, tc.oid, tc.typeName, tc.enum))
+		})
+	}
+}
+
+func Test_applyEnumChoices(t *testing.T) {
+	t.Parallel()
+
+	mood := &pglib.EnumType{Name: "mood", Labels: []string{"sad", "ok", "happy"}}
+
+	tests := []struct {
+		name          string
+		params        transformers.ParameterValues
+		enum          *pglib.EnumType
+		wantChoices   any
+		wantDefaulted bool
+		wantErr       error
+	}{
+		{
+			name:          "choices default to the enum labels",
+			params:        transformers.ParameterValues{},
+			enum:          mood,
+			wantChoices:   []string{"sad", "ok", "happy"},
+			wantDefaulted: true,
+		},
+		{
+			name:          "nil parameters are populated",
+			params:        nil,
+			enum:          mood,
+			wantChoices:   []string{"sad", "ok", "happy"},
+			wantDefaulted: true,
+		},
+		{
+			// most often a template that rendered nothing: left alone so the
+			// builder rejects it, rather than silently widening to every label
+			name:        "an explicitly empty list is not defaulted",
+			params:      transformers.ParameterValues{"choices": []any{}},
+			enum:        mood,
+			wantChoices: []any{},
+		},
+		{
+			name:    "a malformed choices value is rejected",
+			params:  transformers.ParameterValues{"choices": "ok"},
+			enum:    mood,
+			wantErr: transformers.ErrInvalidParameters,
+		},
+		{
+			name:        "a subset of the labels is kept",
+			params:      transformers.ParameterValues{"choices": []any{"ok", "happy"}},
+			enum:        mood,
+			wantChoices: []any{"ok", "happy"},
+		},
+		{
+			name:    "a label the enum does not have is rejected",
+			params:  transformers.ParameterValues{"choices": []any{"ok", "elated"}},
+			enum:    mood,
+			wantErr: ErrInvalidEnumChoice,
+		},
+		{
+			name:        "a non enum column keeps its own choices",
+			params:      transformers.ParameterValues{"choices": []any{"a", "b"}},
+			enum:        nil,
+			wantChoices: []any{"a", "b"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &transformers.Config{Name: transformers.GreenmaskChoice, Parameters: tc.params}
+			parser := &PostgresTransformerParser{logger: loglib.NewNoopLogger()}
+
+			defaulted, err := parser.applyEnumChoices(cfg, tc.enum)
+			require.ErrorIs(t, err, tc.wantErr)
+			if tc.wantErr != nil {
+				return
+			}
+			require.Equal(t, tc.wantDefaulted, defaulted)
+			require.Equal(t, tc.wantChoices, cfg.Parameters["choices"])
+			if tc.wantDefaulted {
+				// cloned, so a later mutation cannot reach the mapper's cache
+				choices, ok := cfg.Parameters["choices"].([]string)
+				require.True(t, ok)
+				require.NotSame(t, &tc.enum.Labels[0], &choices[0])
+			}
 		})
 	}
 }
@@ -759,6 +983,660 @@ func Test_validateNumericRange(t *testing.T) {
 			t.Parallel()
 
 			require.ErrorIs(t, validateNumericRange(tc.cfg, tc.colType), tc.wantErr)
+		})
+	}
+}
+
+// transformers that read from the database are given the source URL when the
+// rules do not name one; without it the documented configuration, which omits
+// postgres_url, fails to start
+func TestPostgresTransformerParser_connectionInjection(t *testing.T) {
+	t.Parallel()
+
+	const sourceURL = "postgres://user:pass@source:5432/db"
+
+	querier := func() *pgmocks.Querier {
+		return &pgmocks.Querier{
+			QueryFn: func(_ context.Context, _ uint, query string, _ ...any) (pglib.Rows, error) {
+				switch query {
+				case multiDimensionalColumnsQuery:
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return false },
+						ErrFn:   func() error { return nil },
+					}, nil
+				case "SELECT * FROM \"public\".\"test\" LIMIT 0":
+					return &pgmocks.Rows{
+						FieldDescriptionsFn: func() []pgconn.FieldDescription {
+							return []pgconn.FieldDescription{{Name: "id", DataTypeOID: pgtype.Int8OID}}
+						},
+						CloseFn: func() {},
+						ErrFn:   func() error { return nil },
+					}, nil
+				case uniqueIndexQuery:
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(uint) bool { return false },
+						ErrFn:   func() error { return nil },
+					}, nil
+				default:
+					return nil, fmt.Errorf("unexpected query: %s", query)
+				}
+			},
+		}
+	}
+
+	tests := []struct {
+		name            string
+		transformer     string
+		parameters      map[string]any
+		wantPostgresURL any
+	}{
+		{
+			name:            "lookup_choice without a url",
+			transformer:     "lookup_choice",
+			parameters:      map[string]any{"lookup_table": "public.countries", "lookup_column": "id"},
+			wantPostgresURL: sourceURL,
+		},
+		{
+			name:            "lookup_choice with its own url",
+			transformer:     "lookup_choice",
+			parameters:      map[string]any{"lookup_table": "public.countries", "lookup_column": "id", "postgres_url": "postgres://elsewhere"},
+			wantPostgresURL: "postgres://elsewhere",
+		},
+		{
+			name:            "pg_anonymizer without a url",
+			transformer:     "pg_anonymizer",
+			parameters:      map[string]any{"anon_function": "anon.fake_email()"},
+			wantPostgresURL: sourceURL,
+		},
+		{
+			name:            "a transformer that needs no connection is left alone",
+			transformer:     "string",
+			parameters:      nil,
+			wantPostgresURL: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var gotURL any
+			parser := PostgresTransformerParser{
+				conn:    querier(),
+				connURL: sourceURL,
+				builder: &transformermocks.TransformerBuilder{
+					NewFn: func(cfg *transformers.Config) (transformers.Transformer, error) {
+						gotURL = cfg.Parameters["postgres_url"]
+						return &transformermocks.Transformer{
+							CompatibleTypesFn: func() []transformers.SupportedDataType {
+								return []transformers.SupportedDataType{transformers.AllDataTypes}
+							},
+						}, nil
+					},
+				},
+				pgtypeMap:      pglib.NewMapper(querier()),
+				requiredTables: []string{"public.test"},
+			}
+
+			_, err := parser.ParseAndValidate(context.Background(), Rules{
+				ValidationMode: "relaxed",
+				Transformers: []TableRules{
+					{
+						Schema: "public",
+						Table:  "test",
+						ColumnRules: map[string]TransformerRules{
+							"id": {Name: tc.transformer, Parameters: tc.parameters},
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
+			require.Equal(t, tc.wantPostgresURL, gotURL)
+		})
+	}
+}
+
+func TestPostgresTransformerParser_ParseAndValidate_arrayColumns(t *testing.T) {
+	t.Parallel()
+
+	const (
+		citextOID      = uint32(1234)
+		citextArrayOID = uint32(2345)
+		fpeKeyHex      = "000102030405060708090a0b0c0d0e0f"
+	)
+
+	testQuerier := func(indexRows []string) *pgmocks.Querier {
+		return &pgmocks.Querier{
+			QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+				switch query {
+				case multiDimensionalColumnsQuery:
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return false },
+						ErrFn:   func() error { return nil },
+					}, nil
+				case "SELECT * FROM \"public\".\"test\" LIMIT 0":
+					return &pgmocks.Rows{
+						FieldDescriptionsFn: func() []pgconn.FieldDescription {
+							return []pgconn.FieldDescription{
+								{Name: "name", DataTypeOID: pgtype.TextOID},
+								{Name: "emails", DataTypeOID: pgtype.TextArrayOID},
+								{Name: "tags", DataTypeOID: citextArrayOID},
+								{Name: "scores", DataTypeOID: pgtype.Int4ArrayOID},
+							}
+						},
+						CloseFn: func() {},
+						ErrFn:   func() error { return nil },
+					}, nil
+				case uniqueIndexQuery:
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return int(i) <= len(indexRows) },
+						ScanFn: func(i uint, dest ...any) error {
+							require.Len(t, dest, 3)
+							indexName, ok := dest[0].(*string)
+							require.True(t, ok)
+							primary, ok := dest[1].(*bool)
+							require.True(t, ok)
+							columnName, ok := dest[2].(**string)
+							require.True(t, ok)
+							column := indexRows[i-1]
+							*indexName, *primary, *columnName = "test_emails_key", false, &column
+							return nil
+						},
+						ErrFn: func() error { return nil },
+					}, nil
+				default:
+					return nil, fmt.Errorf("unexpected query: %s", query)
+				}
+			},
+			QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+				if strings.Contains(query, "a.typcategory = 'A'") {
+					if args[0] != citextArrayOID {
+						return pglib.ErrNoRows
+					}
+					require.Len(t, dest, 2)
+					elementOID, ok := dest[0].(*uint32)
+					require.True(t, ok)
+					elementName, ok := dest[1].(*string)
+					require.True(t, ok)
+					*elementOID, *elementName = citextOID, citextTypeName
+					return nil
+				}
+				// citext is no enum, so the enum lookup finds nothing
+				if enumTypeQueryMatch(query) {
+					return pglib.ErrNoRows
+				}
+
+				require.Len(t, dest, 1)
+				typeName, ok := dest[0].(*string)
+				require.True(t, ok)
+				switch args[0] {
+				case citextOID:
+					*typeName = citextTypeName
+				case citextArrayOID:
+					*typeName = "_" + citextTypeName
+				default:
+					return fmt.Errorf("unexpected OID: %v", args[0])
+				}
+				return nil
+			},
+		}
+	}
+
+	intPtr := func(i int) *int { return &i }
+
+	tests := []struct {
+		name        string
+		columnRules map[string]TransformerRules
+		indexRows   []string
+		enforce     bool
+
+		wantUniqueness map[string]transformers.Uniqueness
+		wantErr        error
+		wantErrMsg     string
+	}{
+		{
+			name: "ok - a rule without array options maps over the elements",
+			columnRules: map[string]TransformerRules{
+				"emails": {Name: "fpe_ff1", Parameters: map[string]any{"key_hex": fpeKeyHex}},
+			},
+			// the map generator inherits the element transformer's guarantee
+			wantUniqueness: map[string]transformers.Uniqueness{"emails": transformers.UniquenessPreserved},
+		},
+		{
+			name: "ok - the random generator is lossy whatever it wraps",
+			columnRules: map[string]TransformerRules{
+				"emails": {
+					Name:         "fpe_ff1",
+					Parameters:   map[string]any{"key_hex": fpeKeyHex},
+					ArrayOptions: &ArrayOptions{Generator: "random", MinCount: intPtr(0), MaxCount: intPtr(12)},
+				},
+			},
+			wantUniqueness: map[string]transformers.Uniqueness{"emails": transformers.UniquenessLossy},
+		},
+		{
+			name: "ok - compatibility recurses into the element type",
+			columnRules: map[string]TransformerRules{
+				// email accepts citext, so it accepts citext[]
+				"tags": {Name: "email"},
+				// greenmask_integer accepts int4, so it accepts int4[]
+				"scores": {Name: "greenmask_integer", Parameters: map[string]any{"min_value": 1, "max_value": 100}},
+			},
+		},
+		{
+			name: "error - the element type is not compatible",
+			columnRules: map[string]TransformerRules{
+				"scores": {Name: "email"},
+			},
+			wantErrMsg: "transformer 'email' specified for column 'scores' in table \"public\".\"test\" does not support pg data type: _int4 with OID: 1007",
+		},
+		{
+			name: "error - array options on a scalar column",
+			columnRules: map[string]TransformerRules{
+				"name": {Name: "string", ArrayOptions: &ArrayOptions{Generator: "map"}},
+			},
+			wantErr: errArrayOptionsOnScalarColumn,
+		},
+		{
+			name: "error - counts under the map generator",
+			columnRules: map[string]TransformerRules{
+				"emails": {Name: "string", ArrayOptions: &ArrayOptions{MinCount: intPtr(1), MaxCount: intPtr(2)}},
+			},
+			wantErr: errArrayCountsNotAllowed,
+		},
+		{
+			name: "error - counts missing under the random generator",
+			columnRules: map[string]TransformerRules{
+				"emails": {Name: "string", ArrayOptions: &ArrayOptions{Generator: "random", MinCount: intPtr(1)}},
+			},
+			wantErr: errArrayCountsRequired,
+		},
+		{
+			name: "error - min count greater than max count",
+			columnRules: map[string]TransformerRules{
+				"emails": {Name: "string", ArrayOptions: &ArrayOptions{Generator: "random", MinCount: intPtr(4), MaxCount: intPtr(2)}},
+			},
+			wantErr:    transformers.ErrInvalidArrayOptions,
+			wantErrMsg: "column 'emails' in table \"public\".\"test\"",
+		},
+		{
+			name: "error - negative count",
+			columnRules: map[string]TransformerRules{
+				"emails": {Name: "string", ArrayOptions: &ArrayOptions{Generator: "random", MinCount: intPtr(-1), MaxCount: intPtr(2)}},
+			},
+			wantErr: transformers.ErrInvalidArrayOptions,
+		},
+		{
+			name: "error - unknown generator",
+			columnRules: map[string]TransformerRules{
+				"emails": {Name: "string", ArrayOptions: &ArrayOptions{Generator: "shuffle"}},
+			},
+			wantErr: transformers.ErrInvalidArrayOptions,
+		},
+		{
+			name: "ok - a mapped uniqueness preserving rule clears a unique index",
+			columnRules: map[string]TransformerRules{
+				"emails": {Name: "fpe_ff1", Parameters: map[string]any{"key_hex": fpeKeyHex}},
+			},
+			indexRows: []string{"emails"},
+			enforce:   true,
+		},
+		{
+			name: "error - a resampled rule breaks a unique index",
+			columnRules: map[string]TransformerRules{
+				"emails": {
+					Name:         "fpe_ff1",
+					Parameters:   map[string]any{"key_hex": fpeKeyHex},
+					ArrayOptions: &ArrayOptions{Generator: "random", MinCount: intPtr(0), MaxCount: intPtr(2)},
+				},
+			},
+			indexRows:  []string{"emails"},
+			enforce:    true,
+			wantErr:    ErrUniquenessNotPreserved,
+			wantErrMsg: `unique index "test_emails_key" (emails) is covered by a transformer that maps distinct values to the same output ("emails" uses "fpe_ff1")`,
+		},
+		{
+			name: "ok - allow_uniqueness_loss silences the resampled rule",
+			columnRules: map[string]TransformerRules{
+				"emails": {
+					Name:                "fpe_ff1",
+					Parameters:          map[string]any{"key_hex": fpeKeyHex},
+					AllowUniquenessLoss: true,
+					ArrayOptions:        &ArrayOptions{Generator: "random", MinCount: intPtr(0), MaxCount: intPtr(2)},
+				},
+			},
+			indexRows: []string{"emails"},
+			enforce:   true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			parser := PostgresTransformerParser{
+				conn:              testQuerier(tc.indexRows),
+				builder:           builder.NewTransformerBuilder(),
+				pgtypeMap:         pglib.NewMapper(testQuerier(tc.indexRows)),
+				enforceUniqueness: tc.enforce,
+			}
+
+			transformerMap, err := parser.ParseAndValidate(context.Background(), Rules{
+				ValidationMode: validationModeRelaxed,
+				Transformers: []TableRules{
+					{
+						Schema:         "public",
+						Table:          "test",
+						ValidationMode: validationModeRelaxed,
+						ColumnRules:    tc.columnRules,
+					},
+				},
+			})
+
+			if tc.wantErr != nil || tc.wantErrMsg != "" {
+				require.Error(t, err)
+				if tc.wantErr != nil {
+					require.ErrorIs(t, err, tc.wantErr)
+				}
+				if tc.wantErrMsg != "" {
+					require.Contains(t, err.Error(), tc.wantErrMsg)
+				}
+				return
+			}
+			require.NoError(t, err)
+
+			columnTransformers, found := transformerMap.GetActiveColumnTransformers("public", "test")
+			require.True(t, found)
+			for column, wantUniqueness := range tc.wantUniqueness {
+				// the map must hold the wrapper, not the element transformer,
+				// so that validation classifies the whole array transform
+				require.IsType(t, &transformers.ArrayTransformer{}, columnTransformers[column])
+				require.Equal(t, wantUniqueness, transformers.UniquenessOf(columnTransformers[column]))
+			}
+		})
+	}
+}
+
+// a column declared with more than one dimension cannot be transformed per
+// element, so the run must not start rather than fail on every row
+func TestPostgresTransformerParser_multiDimensionalColumnRejected(t *testing.T) {
+	t.Parallel()
+
+	querier := &pgmocks.Querier{
+		QueryFn: func(_ context.Context, _ uint, query string, _ ...any) (pglib.Rows, error) {
+			switch query {
+			case multiDimensionalColumnsQuery:
+				return &pgmocks.Rows{
+					CloseFn: func() {},
+					NextFn:  func(i uint) bool { return i == 1 },
+					ScanFn: func(i uint, dest ...any) error {
+						require.Len(t, dest, 1)
+						columnName, ok := dest[0].(*string)
+						require.True(t, ok)
+						*columnName = "grid"
+						return nil
+					},
+					ErrFn: func() error { return nil },
+				}, nil
+			case "SELECT * FROM \"public\".\"test\" LIMIT 0":
+				return &pgmocks.Rows{
+					FieldDescriptionsFn: func() []pgconn.FieldDescription {
+						return []pgconn.FieldDescription{{Name: "grid", DataTypeOID: pgtype.TextArrayOID}}
+					},
+					CloseFn: func() {},
+					ErrFn:   func() error { return nil },
+				}, nil
+			case uniqueIndexQuery:
+				return &pgmocks.Rows{
+					CloseFn: func() {},
+					NextFn:  func(i uint) bool { return false },
+					ErrFn:   func() error { return nil },
+				}, nil
+			default:
+				return nil, fmt.Errorf("unexpected query: %s", query)
+			}
+		},
+	}
+
+	parser := PostgresTransformerParser{
+		conn:           querier,
+		builder:        builder.NewTransformerBuilder(),
+		pgtypeMap:      pglib.NewMapper(querier),
+		requiredTables: []string{"public.test"},
+	}
+
+	_, err := parser.ParseAndValidate(context.Background(), Rules{
+		ValidationMode: "relaxed",
+		Transformers: []TableRules{
+			{
+				Schema:      "public",
+				Table:       "test",
+				ColumnRules: map[string]TransformerRules{"grid": {Name: "email"}},
+			},
+		},
+	})
+	require.ErrorIs(t, err, transformers.ErrMultiDimensionalArray)
+	require.ErrorContains(t, err, "table_transformers[0]")
+}
+
+// the two behaviours of an array column rule that its configuration does not
+// show
+func Test_arrayColumnWarnings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		transformerType  transformers.TransformerType
+		compatibleTypes  []transformers.SupportedDataType
+		wantWarningCount int
+		wantContains     []string
+	}{
+		{
+			name:             "an all types transformer applies per element",
+			transformerType:  transformers.LiteralString,
+			compatibleTypes:  []transformers.SupportedDataType{transformers.AllDataTypes},
+			wantWarningCount: 1,
+			wantContains:     []string{"each element", "table_transformers[3]", "'emails'"},
+		},
+		{
+			name:             "pg_anonymizer queries once per element",
+			transformerType:  transformers.PGAnonymizer,
+			compatibleTypes:  []transformers.SupportedDataType{transformers.AllDataTypes},
+			wantWarningCount: 2,
+			wantContains:     []string{"each element", "once for each element"},
+		},
+		{
+			name:             "a typed transformer warns about nothing",
+			transformerType:  transformers.TransformerType("email"),
+			compatibleTypes:  []transformers.SupportedDataType{transformers.StringDataType},
+			wantWarningCount: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			transformer := &transformermocks.Transformer{
+				TypeFn:            func() transformers.TransformerType { return tc.transformerType },
+				CompatibleTypesFn: func() []transformers.SupportedDataType { return tc.compatibleTypes },
+			}
+
+			warnings := arrayColumnWarnings(3, "public", "test", "emails", "_text", transformer)
+			require.Len(t, warnings, tc.wantWarningCount)
+			for _, want := range tc.wantContains {
+				require.Contains(t, strings.Join(warnings, "\n"), want)
+			}
+		})
+	}
+}
+
+// enumTypeQueryMatch reports whether a mocked querier is being asked the enum
+// lookup, without pinning the exact SQL text the mapper uses.
+func enumTypeQueryMatch(query string) bool {
+	return strings.Contains(query, "pg_enum")
+}
+
+// the enum wiring inside ParseAndValidate had no unit coverage: passing a nil
+// enum to either the compatibility check or the choice defaulting, and
+// swallowing the lookup error, all went unnoticed without a live database.
+func TestPostgresTransformerParser_ParseAndValidate_enumColumns(t *testing.T) {
+	t.Parallel()
+
+	const moodOID = uint32(16385)
+	errTest := errors.New("catalog unavailable")
+
+	// a querier whose only enum column is "mood"; enumErr, when set, is what
+	// the enum lookup fails with
+	newQuerier := func(enumErr error) *pgmocks.Querier {
+		return &pgmocks.Querier{
+			QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+				switch query {
+				case "SELECT * FROM \"public\".\"test\" LIMIT 0":
+					return &pgmocks.Rows{
+						FieldDescriptionsFn: func() []pgconn.FieldDescription {
+							return []pgconn.FieldDescription{
+								{Name: "mood", DataTypeOID: moodOID, TypeModifier: -1},
+							}
+						},
+						CloseFn: func() {},
+						ErrFn:   func() error { return nil },
+					}, nil
+				// the mocked column is a scalar enum, not a multi-dimensional
+				// array
+				case multiDimensionalColumnsQuery, uniqueIndexQuery:
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return false },
+						ErrFn:   func() error { return nil },
+					}, nil
+				default:
+					return nil, fmt.Errorf("unexpected query: %s", query)
+				}
+			},
+			QueryRowFn: func(ctx context.Context, dest []any, query string, args ...any) error {
+				// the mocked enum column is a scalar, so it names no array
+				if strings.Contains(query, "a.typcategory = 'A'") {
+					return pglib.ErrNoRows
+				}
+				if enumTypeQueryMatch(query) {
+					if enumErr != nil {
+						return enumErr
+					}
+					require.Len(t, dest, 2)
+					name, ok := dest[0].(*string)
+					require.True(t, ok)
+					*name = "mood"
+					labels, ok := dest[1].(*[]string)
+					require.True(t, ok)
+					*labels = []string{"sad", "ok", "happy"}
+					return nil
+				}
+				dataTypeName, ok := dest[0].(*string)
+				require.True(t, ok)
+				*dataTypeName = "mood"
+				return nil
+			},
+		}
+	}
+
+	tests := []struct {
+		name        string
+		rules       TransformerRules
+		enumErr     error
+		wantChoices []string
+		wantErr     error
+		wantErrMsg  string
+	}{
+		{
+			name:        "choices default to the enum labels",
+			rules:       TransformerRules{Name: "greenmask_choice"},
+			wantChoices: []string{"sad", "ok", "happy"},
+		},
+		{
+			name: "an explicit subset is kept",
+			rules: TransformerRules{Name: "greenmask_choice", Parameters: map[string]any{
+				"choices": []any{"ok"},
+			}},
+			wantChoices: []string{"ok"},
+		},
+		{
+			name: "a label the enum does not have names the column",
+			rules: TransformerRules{Name: "greenmask_choice", Parameters: map[string]any{
+				"choices": []any{"elated"},
+			}},
+			wantErr:    ErrInvalidEnumChoice,
+			wantErrMsg: `column 'mood' in table "public"."test"`,
+		},
+		{
+			name:       "a transformer that cannot produce a label is rejected",
+			rules:      TransformerRules{Name: "masking", Parameters: map[string]any{"type": "default"}},
+			wantErrMsg: "does not support pg data type: mood",
+		},
+		{
+			name:       "a failing enum lookup names the column",
+			rules:      TransformerRules{Name: "greenmask_choice"},
+			enumErr:    errTest,
+			wantErr:    errTest,
+			wantErrMsg: `column 'mood' in table "public"."test"`,
+		},
+		{
+			// the builder error used to arrive with no column or table
+			name:       "a rule with no choices on a non enum column names the column",
+			rules:      TransformerRules{Name: "greenmask_choice"},
+			enumErr:    pglib.ErrNoRows,
+			wantErrMsg: `column 'mood' in table "public"."test"`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			querier := newQuerier(tc.enumErr)
+			parser := PostgresTransformerParser{
+				conn:      querier,
+				builder:   builder.NewTransformerBuilder(),
+				pgtypeMap: pglib.NewMapper(querier),
+				logger:    loglib.NewNoopLogger(),
+			}
+
+			transformerMap, err := parser.ParseAndValidate(context.Background(), Rules{
+				Transformers: []TableRules{{
+					Schema:      "public",
+					Table:       "test",
+					ColumnRules: map[string]TransformerRules{"mood": tc.rules},
+				}},
+			})
+
+			if tc.wantErr != nil || tc.wantErrMsg != "" {
+				require.Error(t, err)
+				if tc.wantErr != nil {
+					require.ErrorIs(t, err, tc.wantErr)
+				}
+				require.Contains(t, err.Error(), tc.wantErrMsg)
+				return
+			}
+			require.NoError(t, err)
+			defer transformerMap.Close()
+
+			// the built transformer does not expose its choices, so exercise
+			// it until every configured one has come out
+			columnTransformers, found := transformerMap.GetActiveColumnTransformers("public", "test")
+			require.True(t, found)
+			seen := map[string]bool{}
+			for range 200 {
+				got, err := columnTransformers["mood"].Transform(context.Background(), transformers.NewValue("sad", "mood", nil))
+				require.NoError(t, err)
+				label, ok := got.(string)
+				require.True(t, ok, "expected a string label, got %T", got)
+				require.Contains(t, tc.wantChoices, label)
+				seen[label] = true
+			}
+			require.Len(t, seen, len(tc.wantChoices), "expected every choice to be reachable")
 		})
 	}
 }

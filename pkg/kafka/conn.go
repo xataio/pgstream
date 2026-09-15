@@ -17,7 +17,7 @@ import (
 // withConnection creates a connection that can be used by the kafka operation
 // passed in the parameters. This ensures the cleanup of all connection resources.
 func withConnection(config *ConnConfig, kafkaOperation func(conn *kafka.Conn) error) error {
-	dialer, err := buildDialer(&config.TLS)
+	dialer, err := buildDialer(config)
 	if err != nil {
 		return err
 	}
@@ -54,17 +54,23 @@ func withConnection(config *ConnConfig, kafkaOperation func(conn *kafka.Conn) er
 	return kafkaOperation(controllerConn)
 }
 
-func buildDialer(cfg *tlslib.Config) (*kafka.Dialer, error) {
+func buildDialer(cfg *ConnConfig) (*kafka.Dialer, error) {
 	timeout := 10 * time.Second
 
-	tlsConfig, err := tlslib.NewConfig(cfg)
+	tlsConfig, err := tlslib.NewConfig(&cfg.TLS)
 	if err != nil {
 		return nil, fmt.Errorf("loading TLS configuration: %w", err)
 	}
 
+	saslMechanism, err := cfg.SASL.mechanism()
+	if err != nil {
+		return nil, fmt.Errorf("loading SASL configuration: %w", err)
+	}
+
 	return &kafka.Dialer{
-		Timeout:   timeout,
-		DualStack: true,
-		TLS:       tlsConfig,
+		Timeout:       timeout,
+		DualStack:     true,
+		TLS:           tlsConfig,
+		SASLMechanism: saslMechanism,
 	}, nil
 }

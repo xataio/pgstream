@@ -29,6 +29,48 @@ func TestMapError_realPgxEncodeError(t *testing.T) {
 		"pgx encoding failures must map to ErrValueEncoding so the batch writer drops only the failing query")
 }
 
+// TestMapError_dataExceptionKeepsContext pins the postgres CONTEXT line to the
+// mapped error. During COPY the message names only the type that rejected the
+// value, so without the context a length overflow on one column reads as if
+// every column of that type were at fault, see issue #1170.
+func TestMapError_dataExceptionKeepsContext(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		err         *pgconn.PgError
+		wantDetails string
+	}{
+		{
+			name: "with context",
+			err: &pgconn.PgError{
+				Code:    "22001",
+				Message: "value too long for type character varying(50)",
+				Where:   "COPY ledger_line, line 1, column code",
+			},
+			wantDetails: "value too long for type character varying(50) (COPY ledger_line, line 1, column code)",
+		},
+		{
+			name: "without context",
+			err: &pgconn.PgError{
+				Code:    "22001",
+				Message: "value too long for type character varying(50)",
+			},
+			wantDetails: "value too long for type character varying(50)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var errDataException *ErrDataException
+			require.ErrorAs(t, MapError(tt.err), &errDataException)
+			require.Equal(t, tt.wantDetails, errDataException.Details)
+		})
+	}
+}
+
 func TestMapError(t *testing.T) {
 	tests := []struct {
 		name    string

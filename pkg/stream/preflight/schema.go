@@ -102,7 +102,7 @@ func (c *SchemaTypeCompatibilityCheck) Run(ctx context.Context) ([]Finding, erro
 		if _, ok := pgstreamSupportedTypes[row.TypeName]; ok {
 			continue
 		}
-		findings = append(findings, Finding{Message: unsupportedColumnTypeMessage(row)})
+		findings = append(findings, unsupportedColumnTypeFinding(row))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterating rows: %w", err)
@@ -139,16 +139,18 @@ func (r schemaColumnRow) isEnum() bool {
 	return r.TypeKind == "e" || r.ElemTypeKind == "e"
 }
 
-func unsupportedColumnTypeMessage(row schemaColumnRow) string {
+func unsupportedColumnTypeFinding(row schemaColumnRow) Finding {
 	col := postgres.QuoteIdentifier(row.Schema) + "." + postgres.QuoteIdentifier(row.Table) + "." + postgres.QuoteIdentifier(row.Column)
 	desc := fmt.Sprintf("type %q", row.TypeName)
 	if kind := typeKindLabel(row.TypeKind); kind != "" {
 		desc = fmt.Sprintf("%s %q", kind, row.TypeName)
 	}
-	return fmt.Sprintf(
-		"%s: %s unknown type; Cast the column to a supported type or exclude the table from the migration. To request support, open an issue in the repo: https://github.com/xataio/pgstream/issues/new",
-		col, desc,
-	)
+	return Finding{
+		ID:      FindingIDUnsupportedColumnType,
+		Title:   "A column uses a type pgstream does not support",
+		Detail:  fmt.Sprintf("The column %s uses the unknown %s. Cast the column to a supported type, or exclude the table from the migration. To request support, open an issue in the repo: https://github.com/xataio/pgstream/issues/new", col, desc),
+		Message: fmt.Sprintf("%s: %s unknown type; Cast the column to a supported type or exclude the table from the migration. To request support, open an issue in the repo: https://github.com/xataio/pgstream/issues/new", col, desc),
+	}
 }
 
 // PostgresRangeTypeCheck verifies that every in-scope range/multirange column
@@ -190,8 +192,8 @@ func (c *PostgresRangeTypeCheck) Run(ctx context.Context) ([]Finding, error) {
 		if !c.Selection.IsTableInScope(row.Schema, row.Table) {
 			continue
 		}
-		if msg := unsupportedRangeTypeMessage(row); msg != "" {
-			findings = append(findings, Finding{Message: msg})
+		if finding, found := unsupportedRangeTypeFinding(row); found {
+			findings = append(findings, finding)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -200,20 +202,22 @@ func (c *PostgresRangeTypeCheck) Run(ctx context.Context) ([]Finding, error) {
 	return findings, nil
 }
 
-func unsupportedRangeTypeMessage(row schemaColumnRow) string {
+func unsupportedRangeTypeFinding(row schemaColumnRow) (Finding, bool) {
 	switch row.TypeKind {
 	case "r", "m": // range, multirange
 	default:
-		return ""
+		return Finding{}, false
 	}
 	if _, ok := supportedPostgresRangeTypes[row.TypeName]; ok {
-		return ""
+		return Finding{}, false
 	}
 	col := postgres.QuoteIdentifier(row.Schema) + "." + postgres.QuoteIdentifier(row.Table) + "." + postgres.QuoteIdentifier(row.Column)
-	return fmt.Sprintf(
-		"%s: %s %q unknown type; pgstream only encodes int4range, int8range, and tstzrange values. Cast the column to a supported type or exclude the table from the migration. To request support, open an issue in the repo: https://github.com/xataio/pgstream/issues/new",
-		col, typeKindLabel(row.TypeKind), row.TypeName,
-	)
+	return Finding{
+		ID:      FindingIDUnsupportedRangeType,
+		Title:   "A column uses a range type pgstream does not support",
+		Detail:  fmt.Sprintf("The column %s uses the unknown %s %q. pgstream encodes int4range, int8range, and tstzrange values only. Cast the column to a supported type, or exclude the table from the migration. To request support, open an issue in the repo: https://github.com/xataio/pgstream/issues/new", col, typeKindLabel(row.TypeKind), row.TypeName),
+		Message: fmt.Sprintf("%s: %s %q unknown type; pgstream only encodes int4range, int8range, and tstzrange values. Cast the column to a supported type or exclude the table from the migration. To request support, open an issue in the repo: https://github.com/xataio/pgstream/issues/new", col, typeKindLabel(row.TypeKind), row.TypeName),
+	}, true
 }
 
 // SchemaExtensionCompatibilityCheck verifies that every extension installed on
@@ -271,7 +275,7 @@ func (c *SchemaExtensionCompatibilityCheck) Run(ctx context.Context) ([]Finding,
 	if len(missing) == 0 {
 		return nil, nil
 	}
-	return []Finding{{Message: missingExtensionsMessage(missing)}}, nil
+	return []Finding{missingExtensionsFinding(missing)}, nil
 }
 
 // Details exposes every extension installed on the source as a string array
@@ -311,9 +315,9 @@ type missingExtension struct {
 	schema string
 }
 
-// missingExtensionsMessage renders a single remediation covering every source
+// missingExtensionsFinding renders a single finding covering every source
 // extension absent from the target.
-func missingExtensionsMessage(missing []missingExtension) string {
+func missingExtensionsFinding(missing []missingExtension) Finding {
 	names := make([]string, len(missing))
 	stmts := make([]string, len(missing))
 	for i, ext := range missing {
@@ -324,10 +328,12 @@ func missingExtensionsMessage(missing []missingExtension) string {
 	if len(missing) > 1 {
 		noun = "extensions"
 	}
-	return fmt.Sprintf(
-		"%d %s installed on source but missing on the target: %s; run the following on the target before migrating, or the schema will fail to apply: %s",
-		len(missing), noun, strings.Join(names, ", "), strings.Join(stmts, " "),
-	)
+	return Finding{
+		ID:      FindingIDTargetExtensionMissing,
+		Title:   "The target does not have an extension the source has",
+		Detail:  fmt.Sprintf("The source has %d %s the target does not have: %s. Run the following on the target before you migrate, or the schema fails to apply: %s", len(missing), noun, strings.Join(names, ", "), strings.Join(stmts, " ")),
+		Message: fmt.Sprintf("%d %s installed on source but missing on the target: %s; run the following on the target before migrating, or the schema will fail to apply: %s", len(missing), noun, strings.Join(names, ", "), strings.Join(stmts, " ")),
+	}
 }
 
 func typeKindLabel(typtype string) string {

@@ -29,8 +29,10 @@ const (
 
 func NewReader(config ReaderConfig, logger loglib.Logger) (*Reader, error) {
 	logger.Info("creating kafka reader", loglib.Fields{
-		"kafka_servers": config.Conn.Servers,
-		"tls_enabled":   config.Conn.TLS.Enabled,
+		"kafka_servers":  config.Conn.Servers,
+		"tls_enabled":    config.Conn.TLS.Enabled,
+		"sasl_enabled":   config.Conn.SASL.Enabled,
+		"sasl_mechanism": config.Conn.SASL.Mechanism,
 	})
 
 	var startOffset int64
@@ -44,7 +46,7 @@ func NewReader(config ReaderConfig, logger loglib.Logger) (*Reader, error) {
 		return nil, fmt.Errorf("unsupported start offset [%s], must be one of [%s, %s]", config.ConsumerGroupStartOffset, earliestOffset, latestOffset)
 	}
 
-	dialer, err := buildDialer(&config.Conn.TLS)
+	dialer, err := buildDialer(&config.Conn)
 	if err != nil {
 		return nil, err
 	}

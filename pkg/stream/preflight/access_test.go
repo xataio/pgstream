@@ -603,68 +603,68 @@ func TestTargetCreateRolePrivilegeCheck_Name(t *testing.T) {
 	require.Equal(t, "target_createrole_privilege", (&TargetCreateRolePrivilegeCheck{}).Name())
 }
 
-func TestSourceTableSelectPrivilegeMessage(t *testing.T) {
+func TestSourceTableSelectPrivilegeFinding(t *testing.T) {
 	t.Parallel()
 
-	msg := sourceTableSelectPrivilegeMessage(sourceTableSelectPrivilegeRow{
+	msg := sourceTableSelectPrivilegeFinding(sourceTableSelectPrivilegeRow{
 		Role:   "pgstream_user",
 		Schema: "public",
 		Table:  "orders",
 	})
 
-	require.Contains(t, msg, `source role "pgstream_user"`)
-	require.Contains(t, msg, "lacks SELECT on public.orders;")
-	require.Contains(t, msg, `GRANT SELECT ON TABLE "public"."orders" TO "pgstream_user"`)
+	require.Contains(t, msg.Message, `source role "pgstream_user"`)
+	require.Contains(t, msg.Message, "lacks SELECT on public.orders;")
+	require.Contains(t, msg.Message, `GRANT SELECT ON TABLE "public"."orders" TO "pgstream_user"`)
 }
 
-func TestSourceTableSelectPrivilegeMessage_QuotesOnlyRemediation(t *testing.T) {
+func TestSourceTableSelectPrivilegeFinding_QuotesOnlyRemediation(t *testing.T) {
 	t.Parallel()
 
 	// Descriptive prose stays human-readable (unquoted); the GRANT statement
 	// gets postgres.QuoteIdentifier so it's executable on case-sensitive or
 	// special-character names.
-	msg := sourceTableSelectPrivilegeMessage(sourceTableSelectPrivilegeRow{
+	msg := sourceTableSelectPrivilegeFinding(sourceTableSelectPrivilegeRow{
 		Role:   "Replicator",
 		Schema: "Reporting",
 		Table:  "DailyRollup",
 	})
 
-	require.Contains(t, msg, "lacks SELECT on Reporting.DailyRollup;")
-	require.Contains(t, msg, `GRANT SELECT ON TABLE "Reporting"."DailyRollup" TO "Replicator"`)
+	require.Contains(t, msg.Message, "lacks SELECT on Reporting.DailyRollup;")
+	require.Contains(t, msg.Message, `GRANT SELECT ON TABLE "Reporting"."DailyRollup" TO "Replicator"`)
 }
 
-func TestSourceSequenceSelectPrivilegeMessage(t *testing.T) {
+func TestSourceSequenceSelectPrivilegeFinding(t *testing.T) {
 	t.Parallel()
 
-	msg := sourceSequenceSelectPrivilegeMessage(sourceSequenceSelectPrivilegeRow{
+	msg := sourceSequenceSelectPrivilegeFinding(sourceSequenceSelectPrivilegeRow{
 		Role:           "pgstream_user",
 		SequenceSchema: "public",
 		Sequence:       "orders_id_seq",
 	})
 
-	require.Contains(t, msg, `source role "pgstream_user"`)
-	require.Contains(t, msg, "lacks SELECT on sequence public.orders_id_seq;")
-	require.Contains(t, msg, `GRANT SELECT ON SEQUENCE "public"."orders_id_seq" TO "pgstream_user"`)
+	require.Contains(t, msg.Message, `source role "pgstream_user"`)
+	require.Contains(t, msg.Message, "lacks SELECT on sequence public.orders_id_seq;")
+	require.Contains(t, msg.Message, `GRANT SELECT ON SEQUENCE "public"."orders_id_seq" TO "pgstream_user"`)
 }
 
-func TestTargetCreateDBPrivilegeMessage(t *testing.T) {
+func TestTargetCreateDBPrivilegeFinding(t *testing.T) {
 	t.Parallel()
 
-	msg := targetCreateDBPrivilegeMessage("pgstreamtarget")
+	msg := targetCreateDBPrivilegeFinding("pgstreamtarget")
 
-	require.Contains(t, msg, `target role "pgstreamtarget"`)
-	require.Contains(t, msg, "lacks CREATEDB")
-	require.Contains(t, msg, `ALTER ROLE "pgstreamtarget" CREATEDB`)
+	require.Contains(t, msg.Message, `target role "pgstreamtarget"`)
+	require.Contains(t, msg.Message, "lacks CREATEDB")
+	require.Contains(t, msg.Message, `ALTER ROLE "pgstreamtarget" CREATEDB`)
 }
 
-func TestTargetCreateRolePrivilegeMessage(t *testing.T) {
+func TestTargetCreateRolePrivilegeFinding(t *testing.T) {
 	t.Parallel()
 
-	msg := targetCreateRolePrivilegeMessage("pgstreamtarget")
+	msg := targetCreateRolePrivilegeFinding("pgstreamtarget")
 
-	require.Contains(t, msg, `target role "pgstreamtarget"`)
-	require.Contains(t, msg, "lacks CREATEROLE")
-	require.Contains(t, msg, `ALTER ROLE "pgstreamtarget" CREATEROLE`)
+	require.Contains(t, msg.Message, `target role "pgstreamtarget"`)
+	require.Contains(t, msg.Message, "lacks CREATEROLE")
+	require.Contains(t, msg.Message, `ALTER ROLE "pgstreamtarget" CREATEROLE`)
 }
 
 func TestBuildAccessChecks(t *testing.T) {

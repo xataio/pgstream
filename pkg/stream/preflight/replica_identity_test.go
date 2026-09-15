@@ -21,7 +21,8 @@ func TestAssessReplicaIdentity(t *testing.T) {
 		name     string
 		row      replicaIdentityRow
 		wantHit  bool
-		wantSubs []string // substrings that must appear in the finding
+		wantID   string
+		wantSubs []string // substrings that must appear in the finding message
 	}{
 		{
 			name: "FULL is always OK",
@@ -35,12 +36,14 @@ func TestAssessReplicaIdentity(t *testing.T) {
 			name:     "default without PK is a finding",
 			row:      replicaIdentityRow{Schema: "public", Name: "audit_log", Relreplident: "d"},
 			wantHit:  true,
+			wantID:   FindingIDReplicaIdentityNoPrimaryKey,
 			wantSubs: []string{`"public"."audit_log"`, "REPLICA IDENTITY=default", "no PRIMARY KEY"},
 		},
 		{
 			name:     "nothing is a finding regardless of PK",
 			row:      replicaIdentityRow{Schema: "public", Name: "events", Relreplident: "n", HasPK: true},
 			wantHit:  true,
+			wantID:   FindingIDReplicaIdentityNothing,
 			wantSubs: []string{`"public"."events"`, "REPLICA IDENTITY=nothing"},
 		},
 		{
@@ -51,12 +54,14 @@ func TestAssessReplicaIdentity(t *testing.T) {
 			name:     "index with an invalid index is a finding",
 			row:      replicaIdentityRow{Schema: "public", Name: "t", Relreplident: "i"},
 			wantHit:  true,
+			wantID:   FindingIDReplicaIdentityIndexUnusable,
 			wantSubs: []string{`"public"."t"`, "REPLICA IDENTITY=index"},
 		},
 		{
 			name:     "unknown relreplident value is a finding",
 			row:      replicaIdentityRow{Schema: "public", Name: "t", Relreplident: "z"},
 			wantHit:  true,
+			wantID:   FindingIDReplicaIdentityUnknown,
 			wantSubs: []string{"unknown REPLICA IDENTITY"},
 		},
 	}
@@ -64,13 +69,17 @@ func TestAssessReplicaIdentity(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := assessReplicaIdentity(tc.row)
+			got, found := assessReplicaIdentity(tc.row)
+			require.Equal(t, tc.wantHit, found)
 			if !tc.wantHit {
-				require.Empty(t, got)
+				require.Equal(t, Finding{}, got)
 				return
 			}
+			require.Equal(t, tc.wantID, got.ID)
+			require.NotEmpty(t, got.Title)
+			require.NotEmpty(t, got.Detail)
 			for _, sub := range tc.wantSubs {
-				require.Contains(t, got, sub)
+				require.Contains(t, got.Message, sub)
 			}
 		})
 	}

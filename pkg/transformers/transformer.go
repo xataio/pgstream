@@ -81,6 +81,7 @@ const (
 	Hstore                 TransformerType = "hstore"
 	PGAnonymizer           TransformerType = "pg_anonymizer"
 	EncryptedAESSIV        TransformerType = "encrypted_aes_siv"
+	LookupChoice           TransformerType = "lookup_choice"
 	FPEFF1                 TransformerType = "fpe_ff1"
 )
 
@@ -108,6 +109,7 @@ const (
 	AllDataTypes           SupportedDataType = "all"
 	CitextDataType         SupportedDataType = "citext"
 	HstoreDataType         SupportedDataType = "hstore"
+	EnumDataType           SupportedDataType = "enum"
 )
 
 const (

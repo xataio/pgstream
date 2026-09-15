@@ -79,6 +79,9 @@ func (c *PostgresVersionCheck) Run(ctx context.Context) ([]Finding, error) {
 
 	if c.targetVersion.major() < c.sourceVersion.major() {
 		return []Finding{{
+			ID:     FindingIDTargetVersionOlderThanSource,
+			Title:  "The target runs an older PostgreSQL major version than the source",
+			Detail: fmt.Sprintf("The source runs PostgreSQL %s and the target runs PostgreSQL %s. A restore of a dump from a newer server into an older one is unsupported and can fail. Use a target that runs PostgreSQL %d or newer.", c.sourceVersion, c.targetVersion, c.sourceVersion.major()),
 			Message: fmt.Sprintf(
 				"source is PostgreSQL %s, target is PostgreSQL %s; restoring a dump from a newer server into an older one is unsupported and may fail. Use a target running PostgreSQL %d or newer.",
 				c.sourceVersion, c.targetVersion, c.sourceVersion.major(),

@@ -15,14 +15,16 @@ type AcquireFunc func(ctx context.Context) (Querier, error)
 // preflight check engine that runs checks one after another).
 type LazyConn struct {
 	url  string
+	opts []ConnOption
 	conn *Conn
 	err  error
 }
 
 // NewLazyConn returns a LazyConn that will open a connection to url on first
-// Acquire.
-func NewLazyConn(url string) *LazyConn {
-	return &LazyConn{url: url}
+// Acquire. The connection options are stored and applied on that first dial,
+// not at construction.
+func NewLazyConn(url string, opts ...ConnOption) *LazyConn {
+	return &LazyConn{url: url, opts: opts}
 }
 
 // Acquire returns the cached conn, opening it on the first call. A dial
@@ -32,7 +34,7 @@ func (l *LazyConn) Acquire(ctx context.Context) (Querier, error) {
 	if l.conn != nil || l.err != nil {
 		return l.conn, l.err
 	}
-	l.conn, l.err = NewConn(ctx, l.url)
+	l.conn, l.err = NewConn(ctx, l.url, l.opts...)
 	return l.conn, l.err
 }
 

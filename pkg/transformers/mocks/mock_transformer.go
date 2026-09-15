@@ -13,6 +13,7 @@ type Transformer struct {
 	IsDynamicFn       func() bool
 	CompatibleTypesFn func() []transformers.SupportedDataType
 	UniquenessFn      func() transformers.Uniqueness
+	TypeFn            func() transformers.TransformerType
 }
 
 func (m *Transformer) Transform(_ context.Context, val transformers.Value) (any, error) {
@@ -24,6 +25,9 @@ func (m *Transformer) CompatibleTypes() []transformers.SupportedDataType {
 }
 
 func (m *Transformer) Type() transformers.TransformerType {
+	if m.TypeFn != nil {
+		return m.TypeFn()
+	}
 	return transformers.TransformerType("mock")
 }
 
