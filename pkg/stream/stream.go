@@ -261,7 +261,7 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 		pgURL := config.SourcePostgresURL()
 		if pgURL != "" {
 			var parser transformer.ParseFn
-			parserOpts := []transformer.ParserOption{}
+			parserOpts := []transformer.ParserOption{transformer.WithParserLogger(logger)}
 			// only a postgres target enforces the source's unique indexes
 			if config.Processor.Postgres != nil {
 				parserOpts = append(parserOpts, transformer.WithUniquenessEnforcement())

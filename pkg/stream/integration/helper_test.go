@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xataio/pgstream/internal/log/zerolog"
 	pglib "github.com/xataio/pgstream/internal/postgres"
+	"github.com/xataio/pgstream/internal/testcontainers"
 	"github.com/xataio/pgstream/pkg/backoff"
 	kafkalib "github.com/xataio/pgstream/pkg/kafka"
 	loglib "github.com/xataio/pgstream/pkg/log"
@@ -43,6 +44,7 @@ var (
 	pgurl            string
 	targetPGURL      string
 	kafkaBrokers     []string
+	kafkaSASLBrokers []string
 	opensearchURL    string
 	elasticsearchURL string
 )
@@ -346,6 +348,31 @@ func testPostgresProcessorCfgWithTransformer(sourcePGURL string) stream.Processo
 		},
 		Transformer: &transformer.Config{
 			TransformerRules: testTransformationRules(),
+		},
+	}
+}
+
+// kafkaSASLUser is the only user the SASL enabled broker accepts, over any of
+// the supported mechanisms.
+var kafkaSASLUser = testcontainers.SASLUser{
+	Username: "pgstream",
+	Password: "pgstream-secret",
+}
+
+// testKafkaSASLCfg points at the SASL enabled broker, with a topic of its own
+// so that a run for one mechanism cannot read what a run for another wrote.
+func testKafkaSASLCfg(topic, mechanism string, user testcontainers.SASLUser) kafkalib.ConnConfig {
+	return kafkalib.ConnConfig{
+		Servers: kafkaSASLBrokers,
+		Topic: kafkalib.TopicConfig{
+			Name:       topic,
+			AutoCreate: true,
+		},
+		SASL: kafkalib.SASLConfig{
+			Enabled:   true,
+			Mechanism: mechanism,
+			Username:  user.Username,
+			Password:  user.Password,
 		},
 	}
 }

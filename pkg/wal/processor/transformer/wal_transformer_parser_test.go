@@ -39,6 +39,22 @@ func TestTransformerParser_parse(t *testing.T) {
 		wantErrMsg         string
 	}{
 		{
+			name: "error - array options require a postgres connection",
+			rules: []TableRules{
+				{
+					Schema: testSchema,
+					Table:  testTable,
+					ColumnRules: map[string]TransformerRules{
+						"column_1": {
+							Name:         "string",
+							ArrayOptions: &ArrayOptions{Generator: "map"},
+						},
+					},
+				},
+			},
+			wantErr: errArrayOptionsRequirePostgres,
+		},
+		{
 			name: "ok",
 			rules: []TableRules{
 				{

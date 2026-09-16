@@ -50,6 +50,8 @@ Each transformer declares how it behaves with respect to uniqueness:
 | `neosync_fullname`         | `lossy`          |
 | `neosync_lastname`         | `lossy`          |
 
+On an array column the classification describes the whole array transform, which depends on the configured generator. See [Array columns](#array-columns).
+
 When a source Postgres URL is configured, pgstream reads the unique indexes, unique constraints and primary keys of every table in the transformation rules and checks them against the configured transformers. Columns with no rule, or with a `noop` rule, keep their original value and are never flagged. Run the check on its own with:
 
 ```sh
@@ -85,6 +87,66 @@ Use `fpe_ff1` when the column must also keep its format. For example, a phone nu
 - **Exclusion constraints** with equality semantics (`EXCLUDE (email WITH =)`) are not treated as unique indexes.
 
 If a load fails with `duplicate key value violates unique constraint` on a transformed column, run `pgstream validate rules` against the source to see which rules the check flags.
+
+## Array columns
+
+A transformation rule on a one-dimensional array column applies the transformer to each element. The rule reads like a rule on a scalar column:
+
+```yaml
+column_transformers:
+  emails: # emails is varchar(500)[]
+    name: email
+    parameters:
+      replacement_domain: "@example.com.invalid"
+```
+
+pgstream decodes the array before it applies the transformer, so each element reaches the transformer as the value of the element type. An `int4[]` element reaches the transformer as an integer, not as text. The same rules apply to `text` and to `text[]`: a transformer accepts an array column if it accepts the element type. This covers extension types, so a transformer that accepts `citext` also accepts `citext[]`.
+
+Array columns need a source PostgreSQL connection, because pgstream reads the column type from the source catalog.
+
+### Generators
+
+The optional `array_options` block selects how the elements of the new array are produced:
+
+```yaml
+column_transformers:
+  emails:
+    name: email
+    array_options:
+      generator: random
+      min_count: 0
+      max_count: 12
+```
+
+| Generator | Behavior                                                                                                                                |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `map`     | Applies the transformer to each source element, in order. The array keeps its length. This is the default.                               |
+| `random`  | Emits between `min_count` and `max_count` elements. Each element is the transform of a source element selected at random, with repeats.  |
+
+`min_count` and `max_count` are required with the `random` generator. They must be non-negative, `min_count` must not be greater than `max_count`, and `max_count` must not be greater than 10000. The limit protects against a mistyped value, which pgstream would otherwise apply to every row. These parameters are not valid with the `map` generator. pgstream rejects the rules at startup if these conditions are not met, and names the schema, table and column.
+
+The `random` generator never invents a value. Each new element is the transform of a value that is in the row. An empty source array stays empty.
+
+### NULL values and errors
+
+- A NULL array stays NULL. pgstream does not call the transformer.
+- A NULL element stays NULL. pgstream does not call the transformer for that element.
+- A transformer that returns no value produces a NULL element in the same position. The array keeps its length.
+- The first element that fails makes the whole column fail. The `on_error` policy then applies to the whole column: `fail` stops the run, `null` sets the whole column to NULL, and `pass-through` restores the whole original array.
+
+### Limitations
+
+- **Multi-dimensional arrays are not supported.** pgstream rejects a rule at startup when the column is declared with more than one dimension. PostgreSQL does not enforce the declared number of dimensions, so a column declared as one-dimensional can still hold a multi-dimensional value. On the replication path this value is a per-row error, which the `on_error` policy handles. On the snapshot path pgstream cannot detect it, because the source driver returns the elements already flattened, and it writes a one-dimensional array to the target.
+- **`literal_string` and `pg_anonymizer` write into each element.** On an array column these transformers write into every element instead of into the column as a whole. This is different from the behaviour before pgstream supported array columns. `pgstream validate rules` reports a warning for each of these rules.
+- **`pg_anonymizer` sends one query for each element.** A wide array multiplies the queries that pgstream sends to the source database for the row. `pgstream validate rules` reports a warning for each rule that uses this transformer on an array column.
+- **Dynamic parameters are not paired element by element.** A `dynamic_parameters` sibling that is itself an array falls back to the parameter default.
+
+### Uniqueness
+
+The uniqueness check reads the classification of the whole array transform, not of the transformer the rule names:
+
+- With `map`, the array keeps the classification of the transformer. `fpe_ff1` on a `text[]` column stays `preserved`, because mapping a transformer that preserves uniqueness over an array of the same length also preserves uniqueness.
+- With `random`, the array is always `lossy`, whatever the transformer guarantees. Two different source arrays that share an element can produce the same output, and `min_count: 0` lets any row produce an empty array. On a PostgreSQL target this is an error. Set `allow_uniqueness_loss` on the column to override it.
 
 ## Supported transformers
 
@@ -263,14 +325,34 @@ transformations:
 
 **Uniqueness:** `lossy`. Any table with more rows than choices produces duplicates. Cannot be used on a column covered by a unique index. See [Uniqueness and unique indexes](#uniqueness-and-unique-indexes).
 
-| Supported PostgreSQL types          |
-| ----------------------------------- |
-| `text`, `varchar`, `char`, `bpchar` |
+| Supported PostgreSQL types                                                  |
+| --------------------------------------------------------------------------- |
+| `text`, `varchar`, `char`, `bpchar`, user-defined enum, and arrays of these |
 
-| Parameter | Type     | Default | Required | Values               |
-| --------- | -------- | ------- | -------- | -------------------- |
-| generator | string   | random  | No       | random,deterministic |
-| choices   | string[] | N/A     | Yes      | N/A                  |
+`choices` is optional for an enum column. If you do not set it, pgstream uses the labels of the enum. If you set it, pgstream compares each value with those labels. A wrong value stops the run at startup, not at each insert.
+
+A domain over an enum resolves to the enum. An array of an enum resolves to the enum too, so an array column receives the same choices and transforms each element.
+
+`greenmask_choice` is the only type-specific transformer for an enum column. It is the only one that you can limit to the values of the enum. `literal_string` and `pg_anonymizer` accept all types. They also apply to an enum column. For `literal_string`, use a literal that is a valid label.
+
+The default choices have three limits:
+
+- **A source Postgres URL is necessary.** Without it, pgstream does not validate the rules against a catalog. A rule without `choices` then stops the run at startup with the message `greenmask_choice: choices must not be empty`. Set `choices` for a pipeline that has no Postgres source, for example a pipeline with a Kafka source.
+- **pgstream reads the labels one time, at startup.** If you add or rename a label on the source, pgstream uses the new label only after a restart. Before the restart, a replicated `ALTER TYPE ... RENAME VALUE` makes pgstream write a label that the target refuses. At startup, pgstream writes the labels in use to the log for each column with default choices.
+- **The default is the full set of labels.** pgstream does not read a `CHECK` constraint on a domain or on a table. It does not apply such a constraint. Set `choices` for a column with a `CHECK` constraint.
+
+⚠️ The transformer can select the label that the source row already contains. It selects from all the choices and does not remove the source value from the set. With `generator: random`, approximately 1 row in N keeps its source value, where N is the number of choices. With `generator: deterministic`, each label maps to one fixed label, so a label that maps to itself keeps its value in every row. The transformers that select from a fixed dictionary, for example `greenmask_firstname`, operate in the same way.
+
+⚠️ Use `generator: random` for an enum column. The `deterministic` generator maps each label to one fixed label and uses no secret key. The target contains all labels of the enum. A person who reads the target can find the source label of each value. pgstream writes a warning to the log when a rule uses `deterministic` with default enum choices.
+
+ℹ️ The transformer writes the value as a string. This is a change for the Kafka, webhook, Elasticsearch and OpenSearch targets. Before this change, `greenmask_choice` wrote a byte array, and these targets encoded that byte array as base64 in JSON. Update the consumers that decode base64. A search index also contains base64 in the documents from before this change.
+
+| Parameter | Type     | Default                       | Required                   | Values               |
+| --------- | -------- | ----------------------------- | -------------------------- | -------------------- |
+| generator | string   | random                        | No                         | random,deterministic |
+| choices   | string[] | the enum's labels, if an enum | Yes, unless an enum column | N/A                  |
+
+`transformers-definition.json` shows `choices` as always required. This file describes the transformer, not the column that you configure it on.
 
 **Example Configuration:**
 
@@ -285,6 +367,9 @@ transformations:
           parameters:
             generator: random
             choices: ["pending", "shipped", "delivered", "cancelled"]
+        # an enum column does not need choices; pgstream uses the enum labels
+        mood:
+          name: greenmask_choice
 ```
 
 **Input-Output Examples:**
@@ -391,11 +476,12 @@ transformations:
 | Supported PostgreSQL types            |
 | ------------------------------------- |
 | `real`, `double precision`, `numeric` |
-⚠️ On a `numeric` column `min_value` and `max_value` are **required**. Their defaults span the whole `float32` range, which produces the same out-of-range constant for every row .
 
-A `numeric` value is converted to a `float64` before it seeds the generator, and the generated value is a `float64` too, so a `numeric` column is anonymized within float64's range: values beyond it are clamped, and values beyond float64's significand are rounded. Only the seed is affected, since the original is discarded.
+⚠️ Set `min_value` and `max_value` for a `numeric` column. These parameters are required there. The default range covers all `float32` values. With the default range, the transformer writes the same constant value in each row.
 
-On a `numeric(p,s)` column the configured range is checked against the column when the rules are validated, so a range that cannot fit fails the run. An unconstrained `numeric` accepts any value, so nothing is checked there beyond the bounds being set.
+The transformer converts the `numeric` value to a `float64` and uses that `float64` as the seed for the generator. The output is also a `float64`. If the source value has more digits than a `float64` holds, the transformer rounds it. If the source value is outside the `float64` range, the transformer uses the largest `float64` value. These changes apply to the seed only, because the transformer discards the source value.
+
+pgstream compares the range with the column when it validates the rules. If the range does not fit a `numeric(p,s)` column, the run stops. A `numeric` column without a precision holds any value. For such a column, pgstream checks only that you set both bounds.
 
 | Parameter | Type   | Default                                       | Required | Values               |
 | --------- | ------ | --------------------------------------------- | -------- | -------------------- |
@@ -721,6 +807,8 @@ transformations:
 | template  | string | N/A     | Yes      |
 
 This transformer can be used for any Postgres type as long as the given template produces a value with correct syntax for that column type. e.g It can be "5-10-2021" for a date column, or "3.14159265" for a double precision one.
+
+`.GetValue` renders the same text from a snapshot and from replication. During a snapshot the value is encoded as Postgres text for the column type, so a numeric renders as decimal text, a uuid as `a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11`, a date as `2024-02-29`, a bytea as `\xdeadbeef`, an array as `{a,b}`, and so on. Values from other columns, read with `.GetDynamicValue`, keep the Go `time.Time` type during a snapshot so the sprig date functions can format them.
 
 Template transformer supports a bunch of useful functions. Use `.GetValue` to refer to the value to be transformed. Use `.GetDynamicValue "<column_name>"` to refer to some other column. Other than the standard go template functions, there are many useful helper functions supported to be used with template transformer, thanks to `greenmask`'s huge set of [core functions](https://docs.greenmask.io/latest/built_in_transformers/advanced_transformers/custom_functions/core_functions/) including `masking` function by `go-masker` and various [random data generator functions](https://docs.greenmask.io/latest/built_in_transformers/advanced_transformers/custom_functions/faker_function/) powered by the open source library `faker`. Also, template transformer has support for the open source library [sprig](https://masterminds.github.io/sprig/) which has many useful helper functions.
 
@@ -1443,6 +1531,10 @@ transformations:
           allow_uniqueness_loss: false # Whether to allow a transformer that can produce duplicates on a column covered by a unique index. Defaults to false. See "Uniqueness and unique indexes"
           parameters: # Transformer parameters as defined in the supported transformers documentation
             <transformer_parameter>: <transformer_parameter_value>
+          array_options: # Only valid on an array column. If omitted, the transformer is applied to each element in order. See "Array columns"
+            generator: <map|random> # How the elements of the new array are produced. Defaults to map
+            min_count: <min_count> # Smallest number of elements to emit. Required with the random generator
+            max_count: <max_count> # Largest number of elements to emit. Required with the random generator
 ```
 
 When the `infer_from_security_labels` option is enabled, the table transformers will be parsed from the source Postgres [`SECURITY LABELS`](https://www.postgresql.org/docs/current/sql-security-label.html) for the [`anon` extension](https://postgresql-anonymizer.readthedocs.io/en/stable/declare_masking_rules/). If the option is not enabled, the table transformers need to be explicitly provided.

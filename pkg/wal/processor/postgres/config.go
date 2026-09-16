@@ -50,6 +50,9 @@ func (c *Config) retryPolicy() backoff.Config {
 	}
 }
 
+// EffectiveRetryPolicy returns the retry policy once the default is applied.
+func (c *Config) EffectiveRetryPolicy() backoff.Config { return c.retryPolicy() }
+
 func (c *Config) poolOptions() []pglib.PoolOption {
 	if c.MaxConnections == 0 {
 		return nil

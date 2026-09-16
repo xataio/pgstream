@@ -38,6 +38,7 @@ var (
 	choiceCompatibleTypes = []transformers.SupportedDataType{
 		transformers.StringDataType,
 		transformers.ByteArrayDataType,
+		transformers.EnumDataType,
 	}
 )
 
@@ -70,11 +71,19 @@ func NewChoiceTransformer(params transformers.ParameterValues) (*ChoiceTransform
 
 func (t *ChoiceTransformer) Transform(_ context.Context, value transformers.Value) (any, error) {
 	var toTransform []byte
+	// a choice is a label, not opaque bytes, so give it back as the same kind
+	// of value it arrived as. An enum column only accepts the string form:
+	// bound as bytes, the chosen label reaches postgres hex encoded and is
+	// rejected with "invalid input value for enum"
+	wasString := false
 	switch val := value.TransformValue.(type) {
 	case []byte:
 		toTransform = val
 	case string:
 		toTransform = []byte(val)
+		wasString = true
+	// greenmask's own value shape, which none of pgstream's decoders produce,
+	// so it cannot carry an enum label and keeps returning bytes
 	case *toolkit.RawValue:
 		toTransform = val.Data
 	default:
@@ -85,6 +94,9 @@ func (t *ChoiceTransformer) Transform(_ context.Context, value transformers.Valu
 		return nil, err
 	}
 
+	if wasString {
+		return string(ret.Data), nil
+	}
 	return ret.Data, nil
 }
 

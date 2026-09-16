@@ -44,10 +44,13 @@ func init() {
 func bindEnvVars() {
 	viper.BindEnv("PGSTREAM_METRICS_ENDPOINT")
 	viper.BindEnv("PGSTREAM_METRICS_COLLECTION_INTERVAL")
-	viper.BindEnv("PGSTREAM_TRACES_ENDPOINT")
-	viper.BindEnv("PGSTREAM_TRACES_SAMPLE_RATIO")
+	// Without these two, viper answers false and "" however the environment is
+	// set, so the documented Prometheus endpoint cannot be turned on at all and
+	// /metrics answers 404 for good.
 	viper.BindEnv("PGSTREAM_METRICS_PROMETHEUS_ENABLED")
 	viper.BindEnv("PGSTREAM_METRICS_PROMETHEUS_ENDPOINT")
+	viper.BindEnv("PGSTREAM_TRACES_ENDPOINT")
+	viper.BindEnv("PGSTREAM_TRACES_SAMPLE_RATIO")
 
 	viper.BindEnv("PGSTREAM_HEALTH_CHECK_ENABLED")
 	viper.BindEnv("PGSTREAM_HEALTH_CHECK_ADDRESS")
@@ -188,6 +191,10 @@ func bindEnvVars() {
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CA_CERT_FILE")
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CLIENT_CERT_FILE")
 	viper.BindEnv("PGSTREAM_KAFKA_TLS_CLIENT_KEY_FILE")
+	viper.BindEnv("PGSTREAM_KAFKA_SASL_ENABLED")
+	viper.BindEnv("PGSTREAM_KAFKA_SASL_MECHANISM")
+	viper.BindEnv("PGSTREAM_KAFKA_SASL_USER")
+	viper.BindEnv("PGSTREAM_KAFKA_SASL_PASSWORD")
 }
 
 func envToHealthConfig() *health.Config {
@@ -423,7 +430,8 @@ func parseKafkaReaderConfig(kafkaServers []string, kafkaTopic, consumerGroupID s
 			Topic: kafka.TopicConfig{
 				Name: kafkaTopic,
 			},
-			TLS: parseTLSConfig("PGSTREAM_KAFKA"),
+			TLS:  parseTLSConfig("PGSTREAM_KAFKA"),
+			SASL: parseSASLConfig("PGSTREAM_KAFKA"),
 		},
 		ConsumerGroupID:          consumerGroupID,
 		ConsumerGroupStartOffset: viper.GetString("PGSTREAM_KAFKA_READER_CONSUMER_GROUP_START_OFFSET"),
@@ -518,7 +526,8 @@ func parseKafkaWriterConfig(kafkaServers []string, kafkaTopic string) (*kafkapro
 				ReplicationFactor: viper.GetInt("PGSTREAM_KAFKA_TOPIC_REPLICATION_FACTOR"),
 				AutoCreate:        viper.GetBool("PGSTREAM_KAFKA_TOPIC_AUTO_CREATE"),
 			},
-			TLS: parseTLSConfig("PGSTREAM_KAFKA"),
+			TLS:  parseTLSConfig("PGSTREAM_KAFKA"),
+			SASL: parseSASLConfig("PGSTREAM_KAFKA"),
 		},
 		Batch: batch.Config{
 			BatchTimeout:     viper.GetDuration("PGSTREAM_KAFKA_WRITER_BATCH_TIMEOUT"),
@@ -740,6 +749,17 @@ func parseTLSConfig(prefix string) tls.Config {
 		CaCertFile:     viper.GetString(fmt.Sprintf("%s_TLS_CA_CERT_FILE", prefix)),
 		ClientCertFile: viper.GetString(fmt.Sprintf("%s_TLS_CLIENT_CERT_FILE", prefix)),
 		ClientKeyFile:  viper.GetString(fmt.Sprintf("%s_TLS_CLIENT_KEY_FILE", prefix)),
+	}
+}
+
+// parseSASLConfig reads the SASL authentication settings for the Kafka
+// connection from the environment.
+func parseSASLConfig(prefix string) kafka.SASLConfig {
+	return kafka.SASLConfig{
+		Enabled:   viper.GetBool(fmt.Sprintf("%s_SASL_ENABLED", prefix)),
+		Mechanism: viper.GetString(fmt.Sprintf("%s_SASL_MECHANISM", prefix)),
+		Username:  viper.GetString(fmt.Sprintf("%s_SASL_USER", prefix)),
+		Password:  viper.GetString(fmt.Sprintf("%s_SASL_PASSWORD", prefix)),
 	}
 }
 
