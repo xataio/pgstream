@@ -29,6 +29,17 @@ type Tx interface {
 	CopyFromReader(ctx context.Context, r io.Reader, sql string) (int64, error)
 }
 
+// ErrTxRollback ends a transaction without keeping what it did and without
+// reporting a failure. A function given to ExecInTx returns it when the
+// transaction was only there to learn something: the work is rolled back and
+// this sentinel reaches the caller unchanged.
+//
+// Every layer between that function and the caller has to let it through as
+// it is. It is an answer rather than a failure, so nothing may retry it:
+// running the same pass again costs the same round trips and returns the same
+// thing.
+var ErrTxRollback = errors.New("transaction rolled back on request")
+
 type TxIsolationLevel string
 
 const (

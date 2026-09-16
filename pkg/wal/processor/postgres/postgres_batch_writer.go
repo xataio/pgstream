@@ -357,13 +357,23 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 		return nil, err
 	}
 
+	// dropCause is what made droppedQuery undeliverable. A query the batch
+	// named comes with the server error that named it, so the batch failure is
+	// already the precise one.
+	dropCause := err
+
 	if err != nil && droppedQuery == nil && !w.isInternalError(err) {
 		// The batch failed with no query to blame. That happens when the
 		// failure belongs to a step pgx runs over the whole batch before it
 		// executes any of it, so a second pass runs the queries one at a time
 		// and lets the server name the one at fault.
-		if index := w.isolateFailingQuery(ctx, queries); index >= 0 {
-			w.logger.Error(err, "executing sql query", loglib.Fields{
+		if index, cause := w.isolateFailingQuery(ctx, queries); index >= 0 {
+			// Report what the isolated query failed with rather than the
+			// batch error that started this. The batch error says a step over
+			// the whole batch went wrong; this one names the column, the value
+			// or the constraint, which is what a dropped query has to record.
+			dropCause = cause
+			w.logger.Error(dropCause, "executing sql query", loglib.Fields{
 				"sql":  queries[index].sql,
 				"args": queries[index].args,
 			})
@@ -381,9 +391,9 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 
 	if err != nil && droppedQuery != nil {
 		if w.strictMode {
-			return nil, fmt.Errorf("strict mode: stopping on non-internal query failure: %w", err)
+			return nil, fmt.Errorf("strict mode: stopping on non-internal query failure: %w", dropCause)
 		}
-		w.recordDroppedQuery(droppedQuery, err)
+		w.recordDroppedQuery(droppedQuery, dropCause)
 	}
 
 	// if there were no errors or no internal errors in the tx, return the
@@ -392,15 +402,26 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 }
 
 // isolateFailingQuery returns the position of the first query the server
-// rejects, or -1 when every one of them is accepted.
+// rejects and the error it rejected it with, or -1 when every one of them is
+// accepted.
 //
 // The queries run one at a time rather than as a batch, because a batch tells
 // us only that something in it is wrong. Nothing is kept: the pass ends by
 // rolling the transaction back, so it answers the question without applying
 // anything. The caller drops the query it names and repeats the rest.
-func (w *BatchWriter) isolateFailingQuery(ctx context.Context, queries []*query) int {
+//
+// It stops at the first rejection because Postgres stops there too. A
+// statement the server rejects aborts its transaction, and every statement
+// after it fails with "current transaction is aborted" whatever it says, so a
+// single pass cannot name a second one. Naming them all would need a savepoint
+// around every query, which costs two more round trips each to find a fault
+// that a batch usually has once.
+func (w *BatchWriter) isolateFailingQuery(ctx context.Context, queries []*query) (int, error) {
 	failing := -1
+	var cause error
 	err := w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
+		failing, cause = -1, nil
+
 		if err := w.setReplicationRoleToReplica(ctx, tx); err != nil {
 			return err
 		}
@@ -409,22 +430,19 @@ func (w *BatchWriter) isolateFailingQuery(ctx context.Context, queries []*query)
 				if w.isInternalError(err) {
 					return err
 				}
-				failing = i
+				failing, cause = i, err
 				break
 			}
 		}
 		// Nothing this pass did is wanted, only what it learned.
-		return errIsolationDone
+		return pglib.ErrTxRollback
 	})
-	if err != nil && !errors.Is(err, errIsolationDone) {
+	if err != nil && !errors.Is(err, pglib.ErrTxRollback) {
 		w.logger.Warn(err, "isolating the failing query of a batch")
-		return -1
+		return -1, nil
 	}
-	return failing
+	return failing, cause
 }
-
-// errIsolationDone rolls back the isolation pass. It never reaches a caller.
-var errIsolationDone = errors.New("isolation pass complete")
 
 func (w *BatchWriter) isInternalError(err error) bool {
 	var errRelationDoesNotExist *pglib.ErrRelationDoesNotExist

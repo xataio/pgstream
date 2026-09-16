@@ -1089,3 +1089,93 @@ func TestBatchWriter_execQueries_pipelined(t *testing.T) {
 		})
 	}
 }
+
+// A batch failure that names no query is handed to the isolation pass, and
+// what the pass learns is what the writer reports. The batch error only says
+// that a step over the whole batch went wrong; the error the server gives the
+// query on its own names the column or the value, and that is what a dropped
+// query has to record.
+func TestBatchWriter_execQueries_isolation(t *testing.T) {
+	t.Parallel()
+
+	newQuery := func(name string) *query {
+		return &query{sql: "INSERT INTO test(name) VALUES($1)", args: []any{name}}
+	}
+	queries := []*query{newQuery("alice"), newQuery("bob"), newQuery("carol")}
+
+	// pgx encodes the arguments of the whole batch before it executes any of
+	// it, so a value it cannot encode surfaces on the first read whichever
+	// statement owns it, and carries no index.
+	batchErr := error(&pglib.ErrValueEncoding{Details: "failed to encode args[0]"})
+	// What the same value answers when its own statement runs on its own,
+	// which is the sentence that names it.
+	queryErr := error(&pglib.ErrValueEncoding{
+		Details: `failed to encode args[0] for "name": cannot find encode plan`,
+	})
+
+	const failing = 1
+
+	newWriter := func(strict bool, passes *int, rollback *bool) *BatchWriter {
+		return &BatchWriter{
+			Writer: &Writer{
+				strictMode: strict,
+				logger:     loglib.NewNoopLogger(),
+				pgConn: &pgmocks.Querier{
+					ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+						*passes++
+						first := *passes == 1
+						mockTx := pgmocks.Tx{
+							ExecBatchFn: func(ctx context.Context, qs []pglib.BatchQuery) error {
+								return batchErr
+							},
+							ExecFn: func(ctx context.Context, i uint, q string, args ...any) (pglib.CommandTag, error) {
+								// The isolation pass runs the queries one at a
+								// time. i counts the calls of this mock, and
+								// the pass opens with the replication role.
+								if !first && len(args) == 1 && args[0] == queries[failing].args[0] {
+									return pglib.CommandTag{}, queryErr
+								}
+								return pglib.CommandTag{}, nil
+							},
+						}
+						err := f(&mockTx)
+						if errors.Is(err, pglib.ErrTxRollback) {
+							*rollback = true
+						}
+						return err
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("the isolated query is dropped and the rest are retried", func(t *testing.T) {
+		t.Parallel()
+
+		passes, rollback := 0, false
+		w := newWriter(false, &passes, &rollback)
+
+		retry, err := w.execQueries(context.Background(), queries)
+		require.NoError(t, err)
+		require.Equal(t, 2, passes, "the batch is sent, then the queries are isolated")
+		require.True(t, rollback, "the isolation pass keeps nothing")
+		require.Equal(t, uint64(1), w.DroppedQueries())
+
+		gotRetry := []any{}
+		for _, q := range retry {
+			gotRetry = append(gotRetry, q.args[0])
+		}
+		require.Equal(t, []any{"alice", "carol"}, gotRetry)
+	})
+
+	t.Run("the reported cause is what the isolated query failed with", func(t *testing.T) {
+		t.Parallel()
+
+		passes, rollback := 0, false
+		w := newWriter(true, &passes, &rollback)
+
+		_, err := w.execQueries(context.Background(), queries)
+		require.ErrorIs(t, err, queryErr)
+		require.NotErrorIs(t, err, batchErr)
+	})
+}

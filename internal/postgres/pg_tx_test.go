@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 )
@@ -29,8 +30,14 @@ func newPreprocessingError(sql string, cause error) error {
 	return preprocessingError{sql: sql, cause: cause}
 }
 
-// The real type satisfies the same shape.
-var _ interface{ SQL() string } = preprocessingError{}
+// The real type satisfies the same shape. This assertion is the one that
+// matters: batchError reads the SQL through an interface, so a pgx release
+// that stops reporting it would turn that branch into dead code and leave
+// every preprocessing failure to the isolation pass, with nothing failing.
+var (
+	_ interface{ SQL() string } = preprocessingError{}
+	_ interface{ SQL() string } = pgx.ErrPreprocessingBatch{}
+)
 
 // A caller tells a query failure from a batch failure with errors.As, so the
 // wrapper has to carry the index and let the cause through.
