@@ -1161,7 +1161,7 @@ func TestBatchWriter_execQueries_isolation(t *testing.T) {
 		require.True(t, rollback, "the isolation pass keeps nothing")
 		require.Equal(t, uint64(1), w.DroppedQueries())
 
-		gotRetry := []any{}
+		gotRetry := make([]any, 0, len(retry))
 		for _, q := range retry {
 			gotRetry = append(gotRetry, q.args[0])
 		}
