@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 )
@@ -541,6 +542,10 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 			},
 		},
 		{
+			// pgx has no entry for the array of a user-defined enum, so the
+			// type name alone routes the batch to text-format COPY and the
+			// postgres array literal is kept for the target to parse, without
+			// the column having to be listed in enumColumns.
 			name: "insert with enum array using underscore prefix - for copy enabled",
 			walData: &wal.Data{
 				Action: "I",
@@ -559,11 +564,12 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 
 			wantQueries: []*query{
 				{
-					schema:      testSchema,
-					table:       testTable,
-					columnNames: []string{`"id"`, `"name"`, `"status_array"`},
-					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\", \"status_array\") OVERRIDING SYSTEM VALUE VALUES($1, $2, $3)", quotedTestTable),
-					args:        []any{1, "alice", []string{"EXAMPLE"}},
+					schema:        testSchema,
+					table:         testTable,
+					columnNames:   []string{`"id"`, `"name"`, `"status_array"`},
+					needsTextCopy: true,
+					sql:           fmt.Sprintf("INSERT INTO %s(\"id\", \"name\", \"status_array\") OVERRIDING SYSTEM VALUE VALUES($1, $2, $3)", quotedTestTable),
+					args:          []any{1, "alice", "{EXAMPLE}"},
 				},
 			},
 		},
@@ -926,44 +932,77 @@ func Test_needsTextCopyForColumns(t *testing.T) {
 		want bool
 	}{
 		{
+			// the names Mapper.TypeForOID resolves
 			name:        "no text-only columns",
 			columnNames: []string{`"id"`, `"name"`},
-			columnTypes: []string{"integer", "text"},
+			columnTypes: []string{"int4", "text"},
 			enumColumns: nil,
 			want:        false,
 		},
 		{
-			name:        "static text-only type",
+			name:        "text-only extension type",
 			columnNames: []string{`"id"`, `"location"`},
-			columnTypes: []string{"integer", "ltree"},
+			columnTypes: []string{"int4", "ltree"},
+			enumColumns: nil,
+			want:        true,
+		},
+		{
+			// regression for #1211: a PostGIS geometry reaches the writer as
+			// the hex EWKB text, and binary COPY made the target read its
+			// first character as the byte order flag
+			name:        "postgis geometry column",
+			columnNames: []string{`"id"`, `"geom"`},
+			columnTypes: []string{"int4", "geometry"},
+			enumColumns: nil,
+			want:        true,
+		},
+		{
+			name:        "array of an extension type",
+			columnNames: []string{`"id"`, `"geoms"`},
+			columnTypes: []string{"int4", "_geometry"},
+			enumColumns: nil,
+			want:        true,
+		},
+		{
+			name:        "extension type pgstream registers a binary codec for",
+			columnNames: []string{`"id"`, `"embedding"`, `"attrs"`},
+			columnTypes: []string{"int4", "vector", "hstore"},
+			enumColumns: nil,
+			want:        false,
+		},
+		{
+			// the snapshot never spells a type this way
+			name:        "format_type spelling falls back to text copy",
+			columnNames: []string{`"id"`, `"name"`},
+			columnTypes: []string{"int4", "character varying"},
 			enumColumns: nil,
 			want:        true,
 		},
 		{
 			name:        "timetz column",
 			columnNames: []string{`"id"`, `"start_at"`},
-			columnTypes: []string{"integer", "timetz"},
+			columnTypes: []string{"int4", "timetz"},
 			enumColumns: nil,
 			want:        true,
 		},
 		{
 			name:        "timetz column, format_type spelling",
 			columnNames: []string{`"id"`, `"start_at"`},
-			columnTypes: []string{"integer", "time with time zone"},
+			columnTypes: []string{"int4", "time with time zone"},
 			enumColumns: nil,
 			want:        true,
 		},
 		{
 			name:        "enum column",
 			columnNames: []string{`"id"`, `"mood"`},
-			columnTypes: []string{"integer", "mood"},
+			columnTypes: []string{"int4", "mood"},
 			enumColumns: map[string]enumColumn{`"mood"`: {enumType: "public.mood"}},
 			want:        true,
 		},
 		{
 			name:        "enum type present but column filtered out",
 			columnNames: []string{`"id"`},
-			columnTypes: []string{"integer"},
+			columnTypes: []string{"int4"},
 			enumColumns: map[string]enumColumn{`"mood"`: {enumType: "public.mood"}},
 			want:        false,
 		},
@@ -972,9 +1011,57 @@ func Test_needsTextCopyForColumns(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tc.want, needsTextCopyForColumns(tc.columnNames, tc.columnTypes, tc.enumColumns))
+			require.Equal(t, tc.want, newTestDMLAdapterForCopy(t).needsTextCopyForColumns(tc.columnNames, tc.columnTypes, tc.enumColumns))
 		})
 	}
+}
+
+func Test_needsTextCopyForType(t *testing.T) {
+	t.Parallel()
+
+	a := newTestDMLAdapterForCopy(t)
+
+	// pgx's static type map has no entry for these, so they reach the writer as
+	// their text representation and only text-format COPY can deliver them.
+	for _, colType := range []string{
+		"geometry", "geography", "_geometry", "citext", "money", "tsquery",
+		"cube", "ltree", "timetz", "my_composite",
+		// the snapshot never spells a type the way format_type prints it
+		"integer", "bigint", "character varying", "double precision",
+		"timestamp without time zone", "time with time zone", "character varying[]",
+	} {
+		require.Truef(t, a.needsTextCopyForType(colType), "expected text copy for %q", colType)
+	}
+
+	// built-in types, their format_type spellings, their array forms, and the
+	// extension types pgstream registers a binary codec for all stay on the
+	// faster binary COPY.
+	for _, colType := range []string{
+		"int4", "int8", "text", "varchar", "numeric", "uuid",
+		"jsonb", "tsvector", "int4range", "_text", "text[]",
+		"hstore", "vector", "halfvec",
+		// a column with no resolved type name keeps the binary path
+		"",
+	} {
+		require.Falsef(t, a.needsTextCopyForType(colType), "expected binary copy for %q", colType)
+	}
+}
+
+// Test_copyFormatSets_coverRegisteredExtensionTypes pins the COPY-format sets
+// to the registry of extension types pgstream teaches pgx about, so a new
+// registration cannot silently end up in neither set.
+func Test_copyFormatSets_coverRegisteredExtensionTypes(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range pglib.ExtensionTypeNames() {
+		_, textOnly := textOnlyCopyTypes[name]
+		_, binarySafe := binaryCopySafeTypes[name]
+		require.NotEqualf(t, textOnly, binarySafe,
+			"extension type %q must be either text-only or binary-copy safe", name)
+	}
+
+	require.Contains(t, textOnlyCopyTypes, "ltree")
+	require.Contains(t, binaryCopySafeTypes, "vector")
 }
 
 func Test_updateValueForCopy_enumArray(t *testing.T) {
@@ -990,6 +1077,11 @@ func Test_updateValueForCopy_enumArray(t *testing.T) {
 	// writes the postgres array literal verbatim — parsing it into a slice here
 	// would leave the text encoder with a value it cannot render.
 	require.Equal(t, "{happy,sad}", a.updateValueForCopy("{happy,sad}", "mood[]", true))
+
+	// The same holds for an array of an extension type pgx has no binary codec
+	// for, which the caller flags from the column type alone.
+	require.Equal(t, "{0101000000,0101000020}",
+		a.updateValueForCopy("{0101000000,0101000020}", "_geometry", a.needsTextCopyForType("_geometry")))
 }
 
 func Test_updateValueForCopy_arrayDimensions(t *testing.T) {

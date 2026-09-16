@@ -189,6 +189,13 @@ type extensionType struct {
 	// and sparsevec). Used by ExtensionTypeNames so callers see every type the
 	// entry covers.
 	extraNames []string
+	// textCopyOnly marks a type whose registered codec cannot produce the
+	// postgres binary wire format. pgtype.TextCodec answers both format codes
+	// with the value's text representation, so a binary COPY of such a column
+	// sends text bytes where the server expects the type's binary layout, and
+	// the server either rejects the row or misreads it. Callers that pick a
+	// COPY format consult TextCopyOnlyTypeNames.
+	textCopyOnly bool
 	// register is invoked with the resolved OID once the type has been found
 	// in pg_type. Implementations are free to register additional related types.
 	register func(ctx context.Context, conn *pgx.Conn, oid uint32) error
@@ -211,9 +218,17 @@ var extensionTypes = []extensionType{
 		}
 		return nil
 	}},
-	{name: "cube", register: registerWithCodec("cube", pgtype.TextCodec{})},
-	{name: "ltree", register: registerWithCodec("ltree", pgtype.TextCodec{})},
-	{name: "timetz", register: registerWithCodec("timetz", pgtype.TextCodec{})},
+	// The text-only codecs below decode correctly, but they cannot encode the
+	// binary format the type really has, hence textCopyOnly:
+	//   - cube: int32 dim+flags header followed by N float8 coordinates, so the
+	//     server reads the leading characters of the text rep as a dimension count
+	//   - ltree: 1-byte version followed by the path, so the server reads the
+	//     first character of the path as the version number
+	//   - timetz: int64 microseconds followed by an int32 UTC offset, so the
+	//     server reads the first 8 characters as the microsecond count
+	{name: "cube", textCopyOnly: true, register: registerWithCodec("cube", pgtype.TextCodec{})},
+	{name: "ltree", textCopyOnly: true, register: registerWithCodec("ltree", pgtype.TextCodec{})},
+	{name: "timetz", textCopyOnly: true, register: registerWithCodec("timetz", pgtype.TextCodec{})},
 }
 
 // ExtensionTypeNames returns the names of every postgres extension type
@@ -231,12 +246,40 @@ func ExtensionTypeNames() []string {
 	return names
 }
 
+// TextCopyOnlyTypeNames returns the names of the extension types pgstream
+// registers a codec for that has no binary format (see extensionTypes), so a
+// COPY of a table that has one of these columns must run in text format.
+func TextCopyOnlyTypeNames() []string {
+	return extensionTypeNamesWhere(true)
+}
+
+// BinaryCopySafeTypeNames returns the names of the extension types pgstream
+// registers a codec for that does produce the postgres binary format, so
+// binary COPY handles them correctly even though pgx's static type map has no
+// entry for them.
+func BinaryCopySafeTypeNames() []string {
+	return extensionTypeNamesWhere(false)
+}
+
+func extensionTypeNamesWhere(textCopyOnly bool) []string {
+	names := make([]string, 0, len(extensionTypes))
+	for _, ext := range extensionTypes {
+		if ext.textCopyOnly != textCopyOnly {
+			continue
+		}
+		names = append(names, ext.name)
+		names = append(names, ext.extraNames...)
+	}
+	return names
+}
+
 // registerTypesToConnMap teaches pgx about the postgres extension types
 // listed in extensionTypes for every new connection.
 //
 // To add a new extension type, append one entry to extensionTypes above:
 //   - Simple case (one OID, one codec): use registerWithCodec("name", codec).
-//     For COPY-safe text round-trip, pass pgtype.TextCodec{}.
+//     For COPY-safe text round-trip, pass pgtype.TextCodec{} and set
+//     textCopyOnly, so a COPY of such a column runs in text format.
 //   - Complex case (extension exposes several related types, or needs
 //     library-side setup): inline a register func; see the "vector" entry,
 //     which delegates to pgxvec.RegisterTypes.

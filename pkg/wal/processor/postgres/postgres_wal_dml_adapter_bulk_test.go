@@ -523,7 +523,7 @@ func TestBuildBulkInsertQueries_NeedsTextCopy(t *testing.T) {
 				Schema: "public",
 				Table:  "users",
 				Columns: []wal.Column{
-					{Name: "id", Type: "bigint", Value: float64(1)},
+					{Name: "id", Type: "int8", Value: float64(1)},
 					{Name: "mood", Type: moodType, Value: "happy"},
 				},
 			},
@@ -556,8 +556,15 @@ func TestBuildBulkInsertQueries_NeedsTextCopy(t *testing.T) {
 			wantNeedsTextCopy: false,
 		},
 		{
-			name:              "static text-only type",
+			name:              "text-only extension type",
 			events:            newEvents("ltree"),
+			enumColumns:       nil,
+			wantNeedsTextCopy: true,
+		},
+		{
+			// regression for #1211
+			name:              "type pgx has no binary codec for",
+			events:            newEvents("geometry"),
 			enumColumns:       nil,
 			wantNeedsTextCopy: true,
 		},

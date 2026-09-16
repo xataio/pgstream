@@ -213,7 +213,7 @@ func (w *BulkIngestWriter) copyFromInsertQueries(ctx context.Context, inserts []
 		return w.resetReplicationRole(ctx, tx)
 	})
 	if err != nil {
-		return fmt.Errorf("copy from: %w", err)
+		return fmt.Errorf("copy from %s: %w", pglib.QuoteQualifiedIdentifier(query.schema, query.table), err)
 	}
 	return nil
 }
