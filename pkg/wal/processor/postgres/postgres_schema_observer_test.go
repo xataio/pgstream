@@ -884,12 +884,15 @@ func TestPGSchemaObserver_getSequenceColumns(t *testing.T) {
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
 						ScanFn: func(_ uint, dest ...any) error {
-							require.Len(t, dest, 2)
+							require.Len(t, dest, 3)
 							colName, ok := dest[0].(*string)
 							require.True(t, ok, fmt.Sprintf("column name, expected *string, got %T", dest[0]))
-							seqName, ok := dest[1].(*string)
-							require.True(t, ok, fmt.Sprintf("sequence name, expected *string, got %T", dest[1]))
+							seqSchema, ok := dest[1].(*string)
+							require.True(t, ok, fmt.Sprintf("sequence schema, expected *string, got %T", dest[1]))
+							seqName, ok := dest[2].(*string)
+							require.True(t, ok, fmt.Sprintf("sequence name, expected *string, got %T", dest[2]))
 							*colName = idColumn
+							*seqSchema = testSchema
 							*seqName = idSequenceName
 							return nil
 						},
@@ -919,11 +922,14 @@ func TestPGSchemaObserver_getSequenceColumns(t *testing.T) {
 							return callCount <= 2
 						},
 						ScanFn: func(_ uint, dest ...any) error {
-							require.Len(t, dest, 2)
+							require.Len(t, dest, 3)
 							colName, ok := dest[0].(*string)
 							require.True(t, ok)
-							seqName, ok := dest[1].(*string)
+							seqSchema, ok := dest[1].(*string)
 							require.True(t, ok)
+							seqName, ok := dest[2].(*string)
+							require.True(t, ok)
+							*seqSchema = testSchema
 							if callCount == 1 {
 								*colName = idColumn
 								*seqName = "id_seq"
@@ -1238,12 +1244,15 @@ func TestPGSchemaObserver_queryTableSequences(t *testing.T) {
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
 						ScanFn: func(_ uint, dest ...any) error {
-							require.Len(t, dest, 2)
+							require.Len(t, dest, 3)
 							colName, ok := dest[0].(*string)
 							require.True(t, ok, fmt.Sprintf("column name, expected *string, got %T", dest[0]))
-							seqName, ok := dest[1].(*string)
-							require.True(t, ok, fmt.Sprintf("sequence name, expected *string, got %T", dest[1]))
+							seqSchema, ok := dest[1].(*string)
+							require.True(t, ok, fmt.Sprintf("sequence schema, expected *string, got %T", dest[1]))
+							seqName, ok := dest[2].(*string)
+							require.True(t, ok, fmt.Sprintf("sequence name, expected *string, got %T", dest[2]))
 							*colName = "id"
+							*seqSchema = "sequence_schema"
 							*seqName = "id_seq"
 							return nil
 						},
@@ -1251,7 +1260,7 @@ func TestPGSchemaObserver_queryTableSequences(t *testing.T) {
 					}, nil
 				},
 			},
-			wantSeqCols: map[string]string{`"id"`: `"test_schema"."id_seq"`},
+			wantSeqCols: map[string]string{`"id"`: `"sequence_schema"."id_seq"`},
 			wantErr:     nil,
 		},
 		{
@@ -1268,11 +1277,14 @@ func TestPGSchemaObserver_queryTableSequences(t *testing.T) {
 							return callCount <= 3
 						},
 						ScanFn: func(_ uint, dest ...any) error {
-							require.Len(t, dest, 2)
+							require.Len(t, dest, 3)
 							colName, ok := dest[0].(*string)
 							require.True(t, ok)
-							seqName, ok := dest[1].(*string)
+							seqSchema, ok := dest[1].(*string)
 							require.True(t, ok)
+							seqName, ok := dest[2].(*string)
+							require.True(t, ok)
+							*seqSchema = testSchema
 							switch callCount {
 							case 1:
 								*colName = "id"
@@ -1342,9 +1354,12 @@ func TestPGSchemaObserver_queryTableSequences(t *testing.T) {
 						ScanFn: func(_ uint, dest ...any) error {
 							colName, ok := dest[0].(*string)
 							require.True(t, ok)
-							seqName, ok := dest[1].(*string)
+							seqSchema, ok := dest[1].(*string)
+							require.True(t, ok)
+							seqName, ok := dest[2].(*string)
 							require.True(t, ok)
 							*colName = "id"
+							*seqSchema = testSchema
 							*seqName = "id_seq"
 							return nil
 						},

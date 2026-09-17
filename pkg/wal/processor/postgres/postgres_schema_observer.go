@@ -504,22 +504,47 @@ func (o *pgSchemaObserver) queryMaterializedViews(ctx context.Context, schemaNam
 	return mvNames, nil
 }
 
-const sequenceColumnQuery = `SELECT
-    a.attname AS column_name,
+const sequenceColumnQuery = `WITH table_columns AS (
+    SELECT t.oid AS table_oid,
+        a.attnum,
+        a.attname AS column_name,
+        a.attidentity,
+        ad.oid AS attrdef_oid,
+        pg_get_expr(ad.adbin, ad.adrelid) AS default_expr
+    FROM pg_class t
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    JOIN pg_attribute a ON a.attrelid = t.oid
+    LEFT JOIN pg_attrdef ad ON ad.adrelid = t.oid AND ad.adnum = a.attnum
+    WHERE t.relkind = 'r'
+        AND n.nspname = $1
+        AND t.relname = $2
+        AND a.attnum > 0
+        AND NOT a.attisdropped
+)
+SELECT tc.column_name,
+    sn.nspname AS sequence_schema,
     s.relname AS sequence_name
-FROM pg_class t
-JOIN pg_namespace n ON n.oid = t.relnamespace
-JOIN pg_attribute a ON a.attrelid = t.oid
-JOIN pg_attrdef ad ON ad.adrelid = t.oid AND ad.adnum = a.attnum
-JOIN pg_depend d ON d.refobjid = t.oid AND d.refobjsubid = a.attnum
-JOIN pg_class s ON s.oid = d.objid
-WHERE t.relkind = 'r'
-    AND s.relkind = 'S'
-    AND d.deptype = 'a'
-    AND n.nspname = $1
-    AND t.relname = $2
-    AND a.attnum > 0
-    AND NOT a.attisdropped;`
+FROM table_columns tc
+JOIN pg_depend d ON d.classid = 'pg_attrdef'::regclass
+    AND d.objid = tc.attrdef_oid
+    AND d.refclassid = 'pg_class'::regclass
+    AND d.deptype = 'n'
+JOIN pg_class s ON s.oid = d.refobjid AND s.relkind = 'S'
+JOIN pg_namespace sn ON sn.oid = s.relnamespace
+WHERE tc.default_expr = format('nextval(%L::regclass)', s.oid::regclass::text)
+UNION
+SELECT tc.column_name,
+    sn.nspname AS sequence_schema,
+    s.relname AS sequence_name
+FROM table_columns tc
+JOIN pg_depend d ON d.classid = 'pg_class'::regclass
+    AND d.refclassid = 'pg_class'::regclass
+    AND d.refobjid = tc.table_oid
+    AND d.refobjsubid = tc.attnum
+    AND d.deptype = 'i'
+JOIN pg_class s ON s.oid = d.objid AND s.relkind = 'S'
+JOIN pg_namespace sn ON sn.oid = s.relnamespace
+WHERE tc.attidentity <> '';`
 
 func (o *pgSchemaObserver) queryTableSequences(ctx context.Context, conn pglib.Querier, schemaName, tableName string) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, schemaQueryTimeout)
@@ -533,11 +558,11 @@ func (o *pgSchemaObserver) queryTableSequences(ctx context.Context, conn pglib.Q
 
 	seqColMap := make(map[string]string)
 	for rows.Next() {
-		var columnName, sequenceName string
-		if err := rows.Scan(&columnName, &sequenceName); err != nil {
+		var columnName, sequenceSchema, sequenceName string
+		if err := rows.Scan(&columnName, &sequenceSchema, &sequenceName); err != nil {
 			return nil, fmt.Errorf("scanning sequence column mapping: %w", err)
 		}
-		seqColMap[pglib.QuoteIdentifier(columnName)] = pglib.QuoteQualifiedIdentifier(schemaName, sequenceName)
+		seqColMap[pglib.QuoteIdentifier(columnName)] = pglib.QuoteQualifiedIdentifier(sequenceSchema, sequenceName)
 	}
 
 	if err := rows.Err(); err != nil {
