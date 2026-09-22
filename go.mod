@@ -4,7 +4,7 @@ go 1.26.6
 
 require (
 	github.com/Masterminds/sprig/v3 v3.3.0
-	github.com/bytedance/sonic v1.15.3
+	github.com/bytedance/sonic v1.15.4
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/docker/go-units v0.5.0
 	github.com/elastic/go-elasticsearch/v8 v8.19.7
