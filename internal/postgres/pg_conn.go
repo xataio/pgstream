@@ -129,13 +129,8 @@ func (c *Conn) CopyFrom(ctx context.Context, tableName string, columnNames []str
 		return -1, err
 	}
 
-	// sanitize the input, removing any added quotes. The CopyFrom will sanitize
-	// them and double quotes will cause errors.
-	for i, c := range columnNames {
-		columnNames[i] = removeQuotes(c)
-	}
-
-	return c.conn.CopyFrom(ctx, identifier, columnNames, pgx.CopyFromRows(srcRows))
+	// pgx quotes the names itself, so they have to arrive unquoted.
+	return c.conn.CopyFrom(ctx, identifier, unquoteIdentifiers(columnNames), pgx.CopyFromRows(srcRows))
 }
 
 func (c *Conn) Ping(ctx context.Context) error {

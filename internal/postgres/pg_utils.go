@@ -153,14 +153,22 @@ func newIdentifier(tableName string) (pgx.Identifier, error) {
 	// that will be called and will add quotes, so if there are existing ones,
 	// it will produce an invalid identifier name.
 	for i, part := range identifier {
-		identifier[i] = removeQuotes(part)
+		identifier[i] = UnquoteIdentifier(part)
 	}
 
 	return identifier, nil
 }
 
-func removeQuotes(s string) string {
-	return strings.Trim(s, `"`)
+// unquoteIdentifiers returns the names unquoted, in a new slice.
+//
+// The slice is new because the caller keeps the quoted names for the SQL it
+// builds, and a retry of the same statement has to find them unchanged.
+func unquoteIdentifiers(names []string) []string {
+	out := make([]string, len(names))
+	for i, name := range names {
+		out[i] = UnquoteIdentifier(name)
+	}
+	return out
 }
 
 func extractDatabase(url string) (string, error) {
