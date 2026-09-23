@@ -159,6 +159,13 @@ func (q *Querier) isRetriableError(err error) bool {
 // could succeed. Callers retrying at a coarser granularity than a single
 // query use it so their rule cannot drift from this one.
 func IsRetriableError(err error) bool {
+	// A rollback the caller asked for is the answer it wanted, not a failure.
+	// Repeating the transaction would run the same statements again and end
+	// the same way, and resetConn would rebuild the pool for each round.
+	if errors.Is(err, postgres.ErrTxRollback) {
+		return false
+	}
+
 	mappedErr := postgres.MapError(err)
 
 	permissionDenied := &postgres.ErrPermissionDenied{}
