@@ -153,20 +153,10 @@ func newIdentifier(tableName string) (pgx.Identifier, error) {
 	// that will be called and will add quotes, so if there are existing ones,
 	// it will produce an invalid identifier name.
 	for i, part := range identifier {
-		identifier[i] = removeQuotes(part)
+		identifier[i] = UnquoteIdentifier(part)
 	}
 
 	return identifier, nil
-}
-
-// removeQuotes reverses the quoting of one identifier.
-//
-// It has to reverse it exactly. A name that holds a double quote carries it
-// doubled inside the quoted form, so a trim of the outer quotes leaves the
-// doubling behind. pgx quotes what it is given, and postgres then answers
-// `column "a ""b" does not exist` and the whole COPY fails.
-func removeQuotes(s string) string {
-	return UnquoteIdentifier(s)
 }
 
 // unquoteIdentifiers returns the names unquoted, in a new slice.
