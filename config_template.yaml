@@ -62,6 +62,7 @@ source:
           # exclude_object_types: ["functions", "views", "triggers"] # exclude these object types from the schema snapshot
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
+      receive_timeout: "90s" # how long a single read on the replication connection waits before the stream is treated as gone. Defaults to 90s
       plugin:
         include_xids: false # whether to include transaction IDs in the replication stream events. Defaults to false.
   kafka:
