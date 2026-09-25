@@ -40,6 +40,10 @@ type InstrumentationConfig struct {
 type HealthConfig struct {
 	Enabled bool   `mapstructure:"enabled" yaml:"enabled"`
 	Address string `mapstructure:"address" yaml:"address"`
+	// StallTimeout is how long the pipeline may report no progress before
+	// /health answers 503, as a duration such as "5m". Zero leaves /health
+	// reporting only whether the process is up.
+	StallTimeout time.Duration `mapstructure:"stall_timeout" yaml:"stall_timeout"`
 }
 
 type MetricsConfig struct {
@@ -428,8 +432,9 @@ func (c *InstrumentationConfig) toHealthConfig() *health.Config {
 		return &health.Config{}
 	}
 	return &health.Config{
-		Enabled: c.Health.Enabled,
-		Address: c.Health.Address,
+		Enabled:      c.Health.Enabled,
+		Address:      c.Health.Address,
+		StallTimeout: c.Health.StallTimeout,
 	}
 }
 

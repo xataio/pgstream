@@ -30,6 +30,10 @@ const (
 type Config struct {
 	Enabled bool
 	Address string
+	// StallTimeout is how long the pipeline may report no progress before
+	// /health answers 503. Zero leaves /health reporting only whether the
+	// process is up.
+	StallTimeout time.Duration
 }
 
 // Server serves /health, /ready, and /status over HTTP.
@@ -38,6 +42,7 @@ type Server struct {
 	address        string
 	version        string
 	readinessCheck func(ctx context.Context) error
+	livenessCheck  func() error
 	phaseProvider  func() string
 	listener       net.Listener
 	httpServer     *http.Server
@@ -90,6 +95,16 @@ func WithVersion(v string) Option {
 func WithReadinessCheck(fn func(ctx context.Context) error) Option {
 	return func(s *Server) {
 		s.readinessCheck = fn
+	}
+}
+
+// WithLivenessCheck registers a function the /health handler invokes on every
+// request. A non-nil error answers 503, which lets an orchestrator restart a
+// process that is still running but no longer doing its work. Without it
+// /health answers 200 whenever the process is up.
+func WithLivenessCheck(fn func() error) Option {
+	return func(s *Server) {
+		s.livenessCheck = fn
 	}
 }
 
@@ -158,6 +173,18 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	if s.livenessCheck != nil {
+		if err := s.livenessCheck(); err != nil {
+			s.writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"status": "unhealthy",
+				"failures": []map[string]string{{
+					"component": "pipeline",
+					"error":     err.Error(),
+				}},
+			})
+			return
+		}
+	}
 	s.writeJSON(w, http.StatusOK, s.okPayload())
 }
 
