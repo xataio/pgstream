@@ -5,6 +5,8 @@ package wal
 import (
 	"errors"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -102,3 +104,42 @@ func (m Metadata) IsIDColumn(colID string) bool {
 
 // CommitPosition represents a position in the input stream
 type CommitPosition string
+
+// IdentityValue returns the value of a column as a row identity uses it: a
+// search document id, or a kafka message key.
+//
+// A numeric column carries its text, so that its digits survive the trip. That
+// text is not what a previous version produced here. It built an identity from
+// the float64 its decoder gave it, so a numeric(10,2) of 1.00 became "1". An
+// index and a topic written by that version must keep matching after an
+// upgrade, or an update writes a second document and a delete removes neither.
+//
+// The identity therefore keeps the old rendering, while the column value keeps
+// every digit. A numeric that a float64 cannot hold had a colliding identity
+// before this and still has one, which is a separate question from the value.
+func (c Column) IdentityValue() any {
+	if !isNumericType(c.Type) {
+		return c.Value
+	}
+	text, ok := c.Value.(string)
+	if !ok {
+		return c.Value
+	}
+	number, err := strconv.ParseFloat(text, 64)
+	if err != nil {
+		return c.Value
+	}
+	return number
+}
+
+// isNumericType answers whether the type name is postgres numeric, with or
+// without a precision and scale.
+func isNumericType(colType string) bool {
+	name, _, _ := strings.Cut(colType, "(")
+	switch strings.TrimSpace(name) {
+	case "numeric", "decimal":
+		return true
+	default:
+		return false
+	}
+}

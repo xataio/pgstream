@@ -236,6 +236,28 @@ func TestFloatTransformer_Transform(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			// a numeric carries its text on the replication path, so that a
+			// value a float64 cannot hold keeps its digits
+			name:  "ok - deterministic with numeric text from the CDC path",
+			value: "1234.5678",
+			params: map[string]any{
+				"generator": deterministic,
+				"min_value": 0.0,
+				"max_value": 1000.0,
+			},
+			wantErr: nil,
+		},
+		{
+			name:  "error - text that is not a number",
+			value: "not a number",
+			params: map[string]any{
+				"generator": deterministic,
+				"min_value": 0.0,
+				"max_value": 1000.0,
+			},
+			wantErr: transformers.ErrUnsupportedValueType,
+		},
+		{
 			name:  "ok - deterministic with a NaN numeric",
 			value: pgtype.Numeric{NaN: true, Valid: true},
 			params: map[string]any{
@@ -374,6 +396,12 @@ func TestFloatTransformer_Transform_int64MatchesNumeric(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	fromText, err := transformer.Transform(context.Background(), transformers.Value{
+		TransformValue: "1234",
+	})
+	require.NoError(t, err)
+
 	require.Equal(t, fromFloat, fromNumeric)
 	require.Equal(t, fromFloat, fromInt64)
+	require.Equal(t, fromFloat, fromText)
 }
