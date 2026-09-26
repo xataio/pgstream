@@ -225,6 +225,38 @@ func removeDatabaseFromDSN(dsn string) string {
 	return strings.Join(kept, " ")
 }
 
+// ErrRestoreStatement carries the statement pg_restore echoed after an error,
+// so that a caller can report what was not applied without taking the SQL back
+// out of a message.
+//
+// The message is unchanged: Error renders the wrapped error and the echo with
+// the same separator the fmt.Errorf it replaced used, and Unwrap keeps every
+// errors.As on the underlying type working, including the classification in
+// PGRestoreErrors.addError.
+type ErrRestoreStatement struct {
+	Err error
+	// Echo is the line as pg_restore printed it, redacted and truncated, with
+	// its "STATEMENT:" or "Command was:" prefix still on it.
+	Echo string
+}
+
+func (e *ErrRestoreStatement) Error() string {
+	return e.Err.Error() + ": " + e.Echo
+}
+
+func (e *ErrRestoreStatement) Unwrap() error {
+	return e.Err
+}
+
+// Statement returns the echoed SQL with the prefix removed, which is the form
+// worth showing an operator.
+func (e *ErrRestoreStatement) Statement() string {
+	if stmt, ok := stripStatementPrefix(e.Echo); ok {
+		return stmt
+	}
+	return e.Echo
+}
+
 func parsePgRestoreOutputErrs(out []byte) error {
 	if len(out) == 0 {
 		return nil
@@ -247,7 +279,7 @@ func parsePgRestoreOutputErrs(out []byte) error {
 				if isOwnershipError(currentErr) && isCommentStatement(line) {
 					currentErr = &ErrCommentOwnership{Details: currentErr.Error()}
 				}
-				currentErr = fmt.Errorf("%w: %s", currentErr, truncateStatement(redactSecrets(line)))
+				currentErr = &ErrRestoreStatement{Err: currentErr, Echo: truncateStatement(redactSecrets(line))}
 			}
 			inStatement = !endsStatement(line)
 		case isErrorLine(line):

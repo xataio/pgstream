@@ -245,7 +245,7 @@ STATEMENT:  COMMENT ON SCHEMA public IS 'standard public schema';`,
 
 			wantErrs: &PGRestoreErrors{
 				ignoredErrs: []error{
-					fmt.Errorf("%w: %s", &ErrCommentOwnership{Details: "ERROR:  must be owner of schema public"}, "STATEMENT:  COMMENT ON SCHEMA public IS 'standard public schema';"),
+					&ErrRestoreStatement{Err: &ErrCommentOwnership{Details: "ERROR:  must be owner of schema public"}, Echo: "STATEMENT:  COMMENT ON SCHEMA public IS 'standard public schema';"},
 				},
 			},
 		},
@@ -256,7 +256,7 @@ Command was: COMMENT ON EXTENSION plpgsql IS 'PL/pgSQL procedural language';`,
 
 			wantErrs: &PGRestoreErrors{
 				ignoredErrs: []error{
-					fmt.Errorf("%w: %s", &ErrCommentOwnership{Details: "pg_restore: error: could not execute query: ERROR:  must be owner of extension plpgsql"}, "Command was: COMMENT ON EXTENSION plpgsql IS 'PL/pgSQL procedural language';"),
+					&ErrRestoreStatement{Err: &ErrCommentOwnership{Details: "pg_restore: error: could not execute query: ERROR:  must be owner of extension plpgsql"}, Echo: "Command was: COMMENT ON EXTENSION plpgsql IS 'PL/pgSQL procedural language';"},
 				},
 			},
 		},
@@ -267,7 +267,7 @@ STATEMENT:  ALTER TABLE public.users OWNER TO admin;`,
 
 			wantErrs: &PGRestoreErrors{
 				criticalErrs: []error{
-					fmt.Errorf("%w: %s", errors.New("ERROR:  must be owner of table users"), "STATEMENT:  ALTER TABLE public.users OWNER TO admin;"),
+					&ErrRestoreStatement{Err: errors.New("ERROR:  must be owner of table users"), Echo: "STATEMENT:  ALTER TABLE public.users OWNER TO admin;"},
 				},
 			},
 		},
@@ -278,7 +278,7 @@ Command was: CREATE TABLE public.users (id integer);`,
 
 			wantErrs: &PGRestoreErrors{
 				ignoredErrs: []error{
-					fmt.Errorf("%w: %s", &ErrRelationAlreadyExists{Details: `pg_restore: error: could not execute query: ERROR:  relation "users" already exists`}, "Command was: CREATE TABLE public.users (id integer);"),
+					&ErrRestoreStatement{Err: &ErrRelationAlreadyExists{Details: `pg_restore: error: could not execute query: ERROR:  relation "users" already exists`}, Echo: "Command was: CREATE TABLE public.users (id integer);"},
 				},
 			},
 		},
@@ -289,7 +289,7 @@ STATEMENT:  COMMENT ON TABLE error_log IS 'ERROR entries';`,
 
 			wantErrs: &PGRestoreErrors{
 				ignoredErrs: []error{
-					fmt.Errorf("%w: %s", &ErrCommentOwnership{Details: "ERROR:  must be owner of table error_log"}, "STATEMENT:  COMMENT ON TABLE error_log IS 'ERROR entries';"),
+					&ErrRestoreStatement{Err: &ErrCommentOwnership{Details: "ERROR:  must be owner of table error_log"}, Echo: "STATEMENT:  COMMENT ON TABLE error_log IS 'ERROR entries';"},
 				},
 			},
 		},
@@ -305,7 +305,7 @@ STATEMENT:  CREATE TABLE public.t_multi(
 
 			wantErrs: &PGRestoreErrors{
 				criticalErrs: []error{
-					fmt.Errorf("%w: %s", errors.New("ERROR:  permission denied for schema public"), "STATEMENT:  CREATE TABLE public.t_multi("),
+					&ErrRestoreStatement{Err: errors.New("ERROR:  permission denied for schema public"), Echo: "STATEMENT:  CREATE TABLE public.t_multi("},
 				},
 			},
 		},
@@ -324,7 +324,7 @@ DETAIL: none';`,
 
 			wantErrs: &PGRestoreErrors{
 				ignoredErrs: []error{
-					fmt.Errorf("%w: %s", &ErrCommentOwnership{Details: "ERROR:  must be owner of schema public"}, "STATEMENT:  COMMENT ON SCHEMA public IS 'status codes:"),
+					&ErrRestoreStatement{Err: &ErrCommentOwnership{Details: "ERROR:  must be owner of schema public"}, Echo: "STATEMENT:  COMMENT ON SCHEMA public IS 'status codes:"},
 				},
 			},
 		},
@@ -338,8 +338,8 @@ STATEMENT:  CREATE TABLE public.users (id integer);`,
 
 			wantErrs: &PGRestoreErrors{
 				ignoredErrs: []error{
-					fmt.Errorf("%w: %s", &ErrCommentOwnership{Details: "ERROR:  must be owner of schema public"}, "STATEMENT:  COMMENT ON SCHEMA public IS 'first"),
-					fmt.Errorf("%w: %s", &ErrRelationAlreadyExists{Details: `ERROR:  relation "users" already exists`}, "STATEMENT:  CREATE TABLE public.users (id integer);"),
+					&ErrRestoreStatement{Err: &ErrCommentOwnership{Details: "ERROR:  must be owner of schema public"}, Echo: "STATEMENT:  COMMENT ON SCHEMA public IS 'first"},
+					&ErrRestoreStatement{Err: &ErrRelationAlreadyExists{Details: `ERROR:  relation "users" already exists`}, Echo: "STATEMENT:  CREATE TABLE public.users (id integer);"},
 				},
 			},
 		},
@@ -878,4 +878,68 @@ func TestTailOutput_redactsSecretsStraddlingTheCut(t *testing.T) {
 			require.NotContains(t, got, tc.mustNotHit)
 		})
 	}
+}
+
+func TestErrRestoreStatement(t *testing.T) {
+	t.Parallel()
+
+	inner := &ErrRelationDoesNotExist{Details: `ERROR:  relation "parent_idx" does not exist`}
+
+	tests := []struct {
+		name          string
+		echo          string
+		wantStatement string
+	}{
+		{
+			name:          "statement prefix",
+			echo:          "STATEMENT:  ALTER INDEX public.parent_idx ATTACH PARTITION public.child_idx;",
+			wantStatement: "ALTER INDEX public.parent_idx ATTACH PARTITION public.child_idx;",
+		},
+		{
+			name:          "pg_restore command prefix",
+			echo:          "Command was: CREATE INDEX child_idx ON public.child USING btree (id);",
+			wantStatement: "CREATE INDEX child_idx ON public.child USING btree (id);",
+		},
+		{
+			name: "no recognised prefix is returned whole",
+			// a truncated multi-line echo can lose its prefix, and the caller
+			// is better served by the text than by an empty string
+			echo:          "  ON public.child USING btree (id);",
+			wantStatement: "  ON public.child USING btree (id);",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := &ErrRestoreStatement{Err: inner, Echo: tc.echo}
+
+			// the message has to stay byte for byte what fmt.Errorf("%w: %s")
+			// produced, because it is what every existing log line shows
+			require.Equal(t, fmt.Errorf("%w: %s", inner, tc.echo).Error(), err.Error())
+
+			// and the classification in addError has to keep working through it
+			var doesNotExist *ErrRelationDoesNotExist
+			require.True(t, errors.As(error(err), &doesNotExist))
+			require.Equal(t, inner, doesNotExist)
+
+			require.Equal(t, tc.wantStatement, err.Statement())
+		})
+	}
+}
+
+func TestErrRestoreStatement_classifiedAsIgnored(t *testing.T) {
+	t.Parallel()
+
+	// the wrapper sits between addError and the type it switches on, so the
+	// bucket a wrapped error lands in is worth pinning
+	errs := &PGRestoreErrors{}
+	errs.addError(&ErrRestoreStatement{
+		Err:  &ErrRelationDoesNotExist{Details: `ERROR:  relation "parent_idx" does not exist`},
+		Echo: "STATEMENT:  ALTER INDEX public.parent_idx ATTACH PARTITION public.child_idx;",
+	})
+
+	require.Len(t, errs.GetIgnoredErrors(), 1)
+	require.False(t, errs.HasCriticalErrors())
 }

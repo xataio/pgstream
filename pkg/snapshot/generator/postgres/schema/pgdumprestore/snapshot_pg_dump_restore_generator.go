@@ -69,7 +69,30 @@ type SnapshotGenerator struct {
 	// UNIQUE INDEX statements are restored concurrently. Defaults to 1
 	// (sequential, unchanged behaviour).
 	indexRestoreWorkers uint
+	// ignoredMu guards the two fields below. The index and constraint pass
+	// restores blocks concurrently, so more than one goroutine reaches
+	// restoreDumpWithOptions at a time.
+	ignoredMu sync.Mutex
+	// ignoredByPhase collects, for one CreateSnapshot, every error a restore
+	// pass chose to ignore, keyed by the pass that produced it.
+	ignoredByPhase map[string][]error
+	// ignoredPhases keeps those keys in the order the passes ran, so the
+	// summary reads in the order the operator saw them happen.
+	ignoredPhases []string
 }
+
+// Restore passes, named for the summary that reports what each of them chose
+// to ignore.
+const (
+	phaseSchemas                 = "schemas"
+	phaseCleanup                 = "cleanup"
+	phaseRoles                   = "roles"
+	phaseSchema                  = "schema"
+	phaseSequenceData            = "sequence data"
+	phaseIndicesAndConstraints   = "indices and constraints"
+	phaseViews                   = "views"
+	phaseMaterializedViewRefresh = "materialized view refreshes"
+)
 
 type snapshotProgressTracker interface {
 	trackIndexesCreation(ctx context.Context)
@@ -322,6 +345,9 @@ func WithRestoreConflictTargetsBeforeData() Option {
 func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Snapshot) (err error) {
 	s.logger.Info("creating schema snapshot", loglib.Fields{"schemaTables": ss.SchemaTables, "schemaOnlyTables": ss.SchemaOnlyTables})
 
+	s.resetIgnored()
+	defer s.summariseIgnored()
+
 	// make sure any empty schemas are filtered out
 	dataSchemas := make(map[string][]string, len(ss.SchemaTables))
 	for schema, tables := range ss.SchemaTables {
@@ -393,20 +419,20 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 
 	if s.optionGenerator.cleanTargetDB {
 		s.logger.Info("restoring cleanup")
-		if err := s.restoreDump(ctx, dump.cleanupPart); err != nil {
+		if err := s.restoreDump(ctx, phaseCleanup, dump.cleanupPart); err != nil {
 			return err
 		}
 	}
 
 	if rolesDump != nil {
 		s.logger.Info("restoring roles")
-		if err := s.restoreDump(ctx, rolesDump); err != nil {
+		if err := s.restoreDump(ctx, phaseRoles, rolesDump); err != nil {
 			return err
 		}
 	}
 
 	s.logger.Info("restoring schema")
-	if err := s.restoreDump(ctx, dump.filtered); err != nil {
+	if err := s.restoreDump(ctx, phaseSchema, dump.filtered); err != nil {
 		return err
 	}
 
@@ -432,7 +458,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	// apply the sequences, indices and constraints when the wrapped generator has finished
 	if !s.objectTypeFilter.isCategoryExcluded("sequences") {
 		s.logger.Info("restoring sequence data", loglib.Fields{"schemaTables": ss.SchemaTables})
-		if err := s.restoreDump(ctx, sequenceDump); err != nil {
+		if err := s.restoreDump(ctx, phaseSequenceData, sequenceDump); err != nil {
 			return err
 		}
 	}
@@ -444,7 +470,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	}
 
 	s.logger.Info("restoring views")
-	if err := s.restoreDump(ctx, dump.views); err != nil {
+	if err := s.restoreDump(ctx, phaseViews, dump.views); err != nil {
 		return err
 	}
 
@@ -453,7 +479,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 	}
 
 	s.logger.Info("refreshing materialized views")
-	return s.restoreDump(ctx, dump.materializedViewRefreshes)
+	return s.restoreDump(ctx, phaseMaterializedViewRefresh, dump.materializedViewRefreshes)
 }
 
 func splitConflictTargetConstraints(d []byte) ([]byte, []byte) {
@@ -566,14 +592,14 @@ func (s *SnapshotGenerator) restoreIndices(ctx context.Context, opts pglib.PGRes
 // original relative order.
 func (s *SnapshotGenerator) restoreIndexDump(ctx context.Context, opts pglib.PGRestoreOptions, dump []byte) error {
 	if s.indexRestoreWorkers <= 1 {
-		return s.restoreDumpWithOptions(ctx, opts, dump)
+		return s.restoreDumpWithOptions(ctx, phaseIndicesAndConstraints, opts, dump)
 	}
 
 	connectBlocks, indexBlocks, otherBlocks := partitionDumpBlocks(dump, isIndexStatement)
 	if len(indexBlocks) <= 1 {
 		s.logger.Debug("restoring indices sequentially, too few index statements to parallelise",
 			loglib.Fields{"index_statements": len(indexBlocks)})
-		return s.restoreDumpWithOptions(ctx, opts, dump)
+		return s.restoreDumpWithOptions(ctx, phaseIndicesAndConstraints, opts, dump)
 	}
 
 	s.logger.Info("restoring indices concurrently", loglib.Fields{
@@ -593,7 +619,7 @@ func (s *SnapshotGenerator) restoreIndexDump(ctx context.Context, opts pglib.PGR
 		return errors.Join(indexErr, ctx.Err())
 	}
 
-	otherErr := s.restoreDumpWithOptions(ctx, opts, joinDumpBlocks(connectBlocks, otherBlocks))
+	otherErr := s.restoreDumpWithOptions(ctx, phaseIndicesAndConstraints, opts, joinDumpBlocks(connectBlocks, otherBlocks))
 	return pglib.MergePGRestoreErrors(indexErr, otherErr)
 }
 
@@ -624,7 +650,7 @@ func (s *SnapshotGenerator) restoreIndexBlocksInParallel(ctx context.Context, op
 			break
 		}
 		eg.Go(func() error {
-			err := s.restoreDumpWithOptions(ctx, opts, joinDumpBlocks(connectBlocks, []string{block}))
+			err := s.restoreDumpWithOptions(ctx, phaseIndicesAndConstraints, opts, joinDumpBlocks(connectBlocks, []string{block}))
 			if err != nil {
 				s.logger.Warn(err, "restoring index", loglib.Fields{"statement": block})
 				mutex.Lock()
@@ -882,14 +908,14 @@ func (s *SnapshotGenerator) restoreSchemas(ctx context.Context, schemaTables map
 		}
 	}
 
-	return s.restoreDump(ctx, []byte(schemaDump.String()))
+	return s.restoreDump(ctx, phaseSchemas, []byte(schemaDump.String()))
 }
 
-func (s *SnapshotGenerator) restoreDump(ctx context.Context, dump []byte) error {
-	return s.restoreDumpWithOptions(ctx, s.optionGenerator.pgrestoreOptions(), dump)
+func (s *SnapshotGenerator) restoreDump(ctx context.Context, phase string, dump []byte) error {
+	return s.restoreDumpWithOptions(ctx, phase, s.optionGenerator.pgrestoreOptions(), dump)
 }
 
-func (s *SnapshotGenerator) restoreDumpWithOptions(ctx context.Context, opts pglib.PGRestoreOptions, dump []byte) error {
+func (s *SnapshotGenerator) restoreDumpWithOptions(ctx context.Context, phase string, opts pglib.PGRestoreOptions, dump []byte) error {
 	if len(dump) == 0 {
 		return nil
 	}
@@ -903,6 +929,7 @@ func (s *SnapshotGenerator) restoreDumpWithOptions(ctx context.Context, opts pgl
 				return err
 			}
 			ignoredErrors := pgrestoreErr.GetIgnoredErrors()
+			s.recordIgnored(phase, ignoredErrors)
 			s.logger.Warn(err, fmt.Sprintf("restore: %d errors ignored", len(ignoredErrors)), loglib.Fields{"errors_ignored": ignoredErrors})
 		default:
 			return err
@@ -910,6 +937,106 @@ func (s *SnapshotGenerator) restoreDumpWithOptions(ctx context.Context, opts pgl
 	}
 
 	return nil
+}
+
+// recordIgnored keeps the errors one restore pass chose to ignore, so the
+// summary at the end of CreateSnapshot can report them together.
+func (s *SnapshotGenerator) recordIgnored(phase string, errs []error) {
+	if len(errs) == 0 {
+		return
+	}
+
+	s.ignoredMu.Lock()
+	defer s.ignoredMu.Unlock()
+
+	if s.ignoredByPhase == nil {
+		s.ignoredByPhase = make(map[string][]error)
+	}
+	if _, seen := s.ignoredByPhase[phase]; !seen {
+		s.ignoredPhases = append(s.ignoredPhases, phase)
+	}
+	s.ignoredByPhase[phase] = append(s.ignoredByPhase[phase], errs...)
+}
+
+func (s *SnapshotGenerator) resetIgnored() {
+	s.ignoredMu.Lock()
+	defer s.ignoredMu.Unlock()
+
+	s.ignoredByPhase = nil
+	s.ignoredPhases = nil
+}
+
+// summariseIgnored reports, once, what the restore passes left out.
+//
+// Each pass already logs how many errors it ignored, at the moment it ignores
+// them. That tells an operator that something was skipped, but not what, and
+// never the whole picture: the passes are minutes apart, the data load sits
+// between two of them, and nothing adds the counts up. Finding out whether the
+// target is complete means reading the raw error text of every pass and joining
+// it by hand.
+//
+// This reports and never fails. Which of these matter is a separate question,
+// and answering it needs to know what produced each error rather than what the
+// error says; nothing here moves an error out of the bucket the restore put it
+// in, and a restore that succeeds today still succeeds.
+func (s *SnapshotGenerator) summariseIgnored() {
+	s.ignoredMu.Lock()
+	defer s.ignoredMu.Unlock()
+
+	if len(s.ignoredPhases) == 0 {
+		return
+	}
+
+	total := 0
+	byPhase := make(map[string]int, len(s.ignoredPhases))
+	notApplied := make([]map[string]string, 0, len(s.ignoredPhases))
+	for _, phase := range s.ignoredPhases {
+		for _, err := range s.ignoredByPhase[phase] {
+			total++
+			byPhase[phase]++
+			entry := map[string]string{"phase": phase, "reason": ignoredReason(err)}
+			// The statement is what names the object, and it is the part an
+			// operator is otherwise digging out of the message by eye.
+			var stmtErr *pglib.ErrRestoreStatement
+			if errors.As(err, &stmtErr) {
+				entry["statement"] = stmtErr.Statement()
+			} else {
+				entry["detail"] = err.Error()
+			}
+			notApplied = append(notApplied, entry)
+		}
+	}
+
+	s.logger.Warn(nil, fmt.Sprintf("restore summary: %d statements were not applied", total), loglib.Fields{
+		"by_phase":    byPhase,
+		"not_applied": notApplied,
+	})
+}
+
+// ignoredReason names why the restore let an error pass, so the summary groups
+// by something shorter than the message.
+func ignoredReason(err error) string {
+	var (
+		alreadyExists *pglib.ErrRelationAlreadyExists
+		doesNotExist  *pglib.ErrRelationDoesNotExist
+		permission    *pglib.ErrPermissionDenied
+		constraint    *pglib.ErrConstraintViolation
+		commentOwner  *pglib.ErrCommentOwnership
+	)
+	switch {
+	case errors.As(err, &alreadyExists):
+		return "relation already exists"
+	case errors.As(err, &doesNotExist):
+		return "relation does not exist"
+	case errors.As(err, &permission):
+		return "permission denied"
+	case errors.As(err, &constraint):
+		return "constraint violation"
+	case errors.As(err, &commentOwner):
+		return "comment requires object ownership"
+	default:
+		return "unclassified"
+	}
 }
 
 func (s *SnapshotGenerator) parseDump(d []byte) *dump {
