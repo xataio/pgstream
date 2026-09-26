@@ -110,6 +110,14 @@ func TestMapError(t *testing.T) {
 			wantErr: &ErrRelationDoesNotExist{},
 		},
 		{
+			name: "3F000 invalid_schema_name",
+			err: &pgconn.PgError{
+				Code:    "3F000",
+				Message: "schema \"schema3\" does not exist",
+			},
+			wantErr: &ErrRelationDoesNotExist{},
+		},
+		{
 			name: "42703 undefined_column",
 			err: &pgconn.PgError{
 				Code:    "42703",

@@ -196,9 +196,14 @@ func (f *Filter) skipDDLTable(schema, table string) bool {
 }
 
 // skipDDLEvent skips the whole DDL event if ANY of the tables it references is
-// filtered out for DDL. DDL is replayed as a single raw statement on the
-// target, so it can't be partially applied; a statement mixing filtered and
-// unfiltered tables is dropped.
+// filtered out for DDL, or if ANY of its non-table objects (indexes, types,
+// functions...) belongs to a schema with no tables passing the filter. DDL is
+// replayed as a single raw statement on the target, so it can't be partially
+// applied; a statement mixing filtered and unfiltered tables is dropped.
+//
+// Non-table objects are only checked by schema: the event doesn't say which
+// table an index, constraint or trigger belongs to, so one on a filtered table
+// passes when another table in the same schema is kept.
 func (f *Filter) skipDDLEvent(event *wal.Event) bool {
 	ddlEvent, err := f.walEventToDDLEvent(event.Data)
 	if err != nil {
@@ -207,13 +212,36 @@ func (f *Filter) skipDDLEvent(event *wal.Event) bool {
 		return false
 	}
 
-	tableObjects := append(ddlEvent.GetTableObjects(), ddlEvent.GetTableColumnObjects()...)
-	for _, obj := range tableObjects {
-		table := obj.GetTable()
-		if f.skipDDLTable(obj.Schema, table) {
-			f.logger.Trace("skipping DDL event", loglib.Fields{"schema": obj.Schema, "table": table})
-			return true
+	for _, obj := range ddlEvent.Objects {
+		switch {
+		case obj.Type == "table" || obj.Type == "table column":
+			table := obj.GetTable()
+			if f.skipDDLTable(obj.Schema, table) {
+				f.logger.Trace("skipping DDL event", loglib.Fields{"schema": obj.Schema, "table": table})
+				return true
+			}
+		case obj.Schema != "":
+			if f.skipDDLSchema(obj.Schema) {
+				f.logger.Trace("skipping DDL event", loglib.Fields{"schema": obj.Schema, "object": obj.Identity})
+				return true
+			}
 		}
 	}
+	return false
+}
+
+// skipDDLSchema reports whether no table in the schema can pass the filter,
+// meaning none of the schema's objects are replicated to the target.
+func (f *Filter) skipDDLSchema(schema string) bool {
+	if f.excludeTableMap.ContainsWholeSchema(schema) {
+		return true
+	}
+	if len(f.schemaOnlyTableMap.GetSchemaTables(schema)) > 0 {
+		return false
+	}
+	if len(f.includeTableMap) > 0 {
+		return len(f.includeTableMap.GetSchemaTables(schema)) == 0
+	}
+
 	return false
 }
