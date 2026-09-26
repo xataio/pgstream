@@ -41,9 +41,9 @@ type pgSchemaObserver struct {
 	// type resolves to a user-defined enum, each with the catalog-resolved
 	// information needed to cast it (see enumColumn).
 	enumTableColumns *synclib.Map[string, map[string]enumColumn]
-	// enumCacheEpoch is bumped by every enum invalidation. Unlike its sibling
-	// caches, enumTableColumns is repopulated by a live query rather than from
-	// the DDL event payload, so a lookup that started before an invalidation
+	// enumCacheEpoch is bumped by every enum invalidation. The cache is
+	// repopulated by a live query rather than from the DDL event payload,
+	// so a lookup that started before an invalidation
 	// could otherwise write its stale answer back and outlive the eviction
 	// meant to drop it. Lookups record the epoch before querying and only
 	// cache the result if it has not moved.
@@ -246,22 +246,19 @@ func (o *pgSchemaObserver) update(ddlEvent *wal.DDLEvent) {
 }
 
 // updateGeneratedColumnNames will update the internal cache with the table
-// columns for the schema log on input. Identity columns are added to
-// generatedColumns via IsGenerated() (preserved historical behavior so live
-// INSERTs let the target auto-generate ids and the sequence increments
-// naturally). GENERATED ALWAYS AS IDENTITY columns are additionally tracked in
-// alwaysIdentityTableColumns so UPDATE SET clauses can drop them even on
-// cache paths where generatedColumns is empty (e.g. populated via SQL query).
+// columns for the schema log on input. Identity values must be preserved on
+// INSERT, just as on the catalog-query path. Only computed columns belong in
+// generatedColumns; ALWAYS identities are tracked separately for UPDATE SET.
 func (o *pgSchemaObserver) updateGeneratedColumnNames(tables []wal.DDLObject) {
 	for _, table := range tables {
-		key := pglib.QuoteQualifiedIdentifier(table.Schema, table.GetName())
+		key := pglib.QuoteQualifiedIdentifier(table.Schema, table.GetTable())
 		generatedColumns := make(map[string]struct{}, len(table.Columns))
 		alwaysIdentityColumns := make(map[string]struct{}, len(table.Columns))
 		for _, c := range table.Columns {
 			if c.IsAlwaysIdentity() {
 				alwaysIdentityColumns[pglib.QuoteIdentifier(c.Name)] = struct{}{}
 			}
-			if c.IsGenerated() {
+			if c.Generated {
 				generatedColumns[pglib.QuoteIdentifier(c.Name)] = struct{}{}
 			}
 		}
@@ -303,14 +300,12 @@ func (o *pgSchemaObserver) updateMaterializedViews(ddlEvent *wal.DDLEvent, mvs [
 
 func (o *pgSchemaObserver) updateColumnSequences(tables []wal.DDLObject) {
 	for _, table := range tables {
-		key := pglib.QuoteQualifiedIdentifier(table.Schema, table.GetName())
-		seqColMap := make(map[string]string)
-		for _, col := range table.Columns {
-			if col.HasSequence() {
-				seqColMap[pglib.QuoteIdentifier(col.Name)] = col.GetSequenceName()
-			}
-		}
-		o.columnTableSequences.Set(key, seqColMap)
+		// DDL column defaults cannot describe identity sequences. Invalidate
+		// instead of storing an incomplete map, and use the same target catalog
+		// lookup as initial discovery. The ordered batch writer resolves the
+		// next row's metadata only after the preceding DDL has been applied.
+		key := pglib.QuoteQualifiedIdentifier(table.Schema, table.GetTable())
+		o.columnTableSequences.Delete(key)
 	}
 }
 

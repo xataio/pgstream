@@ -89,11 +89,9 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) 
 		}
 	}()
 
-	walMsg, err := w.adapter.walEventToMessage(ctx, walEvent)
-	if err != nil {
-		return err
-	}
-
+	// Do not resolve metadata on the producer goroutine: earlier DDL may
+	// still be queued, and querying the target here would see its old schema.
+	walMsg := &walMessage{data: walEvent.Data, needsPreparation: true}
 	msg := batch.NewWALMessage(walMsg, walEvent.CommitPosition)
 	if err := w.batchSender.SendMessage(ctx, msg); err != nil {
 		return err
@@ -112,7 +110,17 @@ func (w *BatchWriter) Close() error {
 	return errors.Join(senderErr, w.close())
 }
 
-func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]) error {
+func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]) (err error) {
+	// Adapter work used to run under ProcessWALEvent's panic guard. Keep the
+	// same protection now that preparation runs on the ordered sender.
+	defer func() {
+		if r := recover(); r != nil {
+			w.logger.Panic("[PANIC] Panic while preparing replication batch", loglib.Fields{
+				"panic": r, "stack_trace": debug.Stack(),
+			})
+			err = fmt.Errorf("postgres writer: preparing batch: %w: %v", processor.ErrPanic, r)
+		}
+	}()
 	messages := b.GetMessages()
 	if len(messages) > 0 {
 		w.logger.Debug("sending batch", loglib.Fields{"batch_size": len(messages)})
@@ -144,6 +152,25 @@ func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]
 		for _, msg := range messages {
 			if msg.IsEmpty() {
 				continue
+			}
+			if msg.needsPreparation {
+				// Finish earlier writes before schema-event processing can
+				// replace metadata used by subsequent rows.
+				if msg.data.IsDDLEvent() {
+					if err := flushRun(); err != nil {
+						return err
+					}
+				}
+				prepared, err := w.adapter.walEventToMessage(ctx, &wal.Event{Data: msg.data})
+				if err != nil {
+					return fmt.Errorf("preparing WAL message: %w", err)
+				}
+				// Keep the queued event untouched so a retry resolves metadata
+				// again rather than reusing a partially prepared batch.
+				msg = prepared
+				if msg.IsEmpty() {
+					continue
+				}
 			}
 
 			if msg.isDDL {
