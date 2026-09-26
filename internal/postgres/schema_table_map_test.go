@@ -314,3 +314,60 @@ func TestSchemaTableMap_ContainsExactSchemaTable(t *testing.T) {
 		})
 	}
 }
+
+func TestSchemaTableMap_ContainsWholeSchema(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		schema       string
+		schemaMap    SchemaTableMap
+		wantContains bool
+	}{
+		{
+			name:         "schema wildcard",
+			schema:       "public",
+			schemaMap:    SchemaTableMap{"public": {"*": struct{}{}}},
+			wantContains: true,
+		},
+		{
+			name:         "global wildcard",
+			schema:       "public",
+			schemaMap:    SchemaTableMap{"*": {"*": struct{}{}}},
+			wantContains: true,
+		},
+		{
+			name:         "specific table only",
+			schema:       "public",
+			schemaMap:    SchemaTableMap{"public": {"users": struct{}{}}},
+			wantContains: false,
+		},
+		{
+			name:         "wildcard schema with specific table",
+			schema:       "public",
+			schemaMap:    SchemaTableMap{"*": {"users": struct{}{}}},
+			wantContains: false,
+		},
+		{
+			name:         "other schema wildcard",
+			schema:       "private",
+			schemaMap:    SchemaTableMap{"public": {"*": struct{}{}}},
+			wantContains: false,
+		},
+		{
+			name:         "nil SchemaTableMap",
+			schema:       "public",
+			schemaMap:    nil,
+			wantContains: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			contains := tc.schemaMap.ContainsWholeSchema(tc.schema)
+			require.Equal(t, tc.wantContains, contains)
+		})
+	}
+}
