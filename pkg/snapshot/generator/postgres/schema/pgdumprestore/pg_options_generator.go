@@ -17,6 +17,7 @@ type optionGenerator struct {
 	cleanTargetDB          bool
 	createTargetDB         bool
 	includeGlobalDBObjects bool
+	includeExtensions      bool
 	role                   string
 	rolesSnapshotMode      string
 	noOwner                bool
@@ -32,13 +33,14 @@ const (
 
 var postgresTempSchemaPatterns = []string{"pg_temp_*", "pg_toast_temp_*"}
 
-func newOptionGenerator(querier pglib.Querier, cfg *Config) *optionGenerator {
+func newOptionGenerator(querier pglib.Querier, cfg *Config, filter *objectTypeFilter) *optionGenerator {
 	return &optionGenerator{
 		sourceURL:              cfg.SourcePGURL,
 		targetURL:              cfg.TargetPGURL,
 		cleanTargetDB:          cfg.CleanTargetDB,
 		createTargetDB:         cfg.CreateTargetDB,
 		includeGlobalDBObjects: cfg.IncludeGlobalDBObjects,
+		includeExtensions:      !filter.isCategoryExcluded("extensions"),
 		role:                   cfg.Role,
 		rolesSnapshotMode:      cfg.RolesSnapshotMode,
 		noOwner:                cfg.NoOwner,
@@ -273,6 +275,42 @@ func (o *optionGenerator) pgdumpExcludedSchemas(ctx context.Context, includeSche
 	}
 
 	return excludeSchemas, nil
+}
+
+type extension struct {
+	name   string
+	schema string
+}
+
+const selectExtensionsQuery = "SELECT e.extname, n.nspname FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace WHERE e.extname != 'plpgsql' ORDER BY e.extname"
+
+// pg_dump only includes extensions on its own when the dump isn't filtered by
+// schema, so a schema filtered dump has to list them
+func (o *optionGenerator) scopedExtensions(ctx context.Context, opts *pglib.PGDumpOptions) ([]extension, error) {
+	if !o.includeExtensions || len(opts.Schemas) == 0 {
+		return nil, nil
+	}
+
+	rows, err := o.querier.Query(ctx, selectExtensionsQuery)
+	if err != nil {
+		return nil, fmt.Errorf("retrieving extensions: %w", err)
+	}
+	defer rows.Close()
+
+	extensions := []extension{}
+	for rows.Next() {
+		ext := extension{}
+		if err := rows.Scan(&ext.name, &ext.schema); err != nil {
+			return nil, fmt.Errorf("scanning extension: %w", err)
+		}
+		extensions = append(extensions, ext)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return extensions, nil
 }
 
 func (o *optionGenerator) discoverAllSchemas(ctx context.Context) ([]string, error) {

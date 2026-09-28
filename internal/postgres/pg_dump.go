@@ -24,6 +24,8 @@ type PGDumpOptions struct {
 	Tables []string
 	// Tables to be excluded from the dump, regex patterns supported
 	ExcludeTables []string
+	// Extensions to export. A schema filtered dump skips them otherwise
+	Extensions []string
 	// SchemaOnly if true, only schema will be exported (no data)
 	SchemaOnly bool
 	// DataOnly if true, only data will be exported (no schema)
@@ -77,6 +79,10 @@ func (opts *PGDumpOptions) ToArgs() []string {
 
 	for _, schema := range opts.ExcludeSchemas {
 		options = append(options, fmt.Sprintf("--exclude-schema=%v", schema))
+	}
+
+	for _, extension := range opts.Extensions {
+		options = append(options, fmt.Sprintf("--extension=%v", extension))
 	}
 
 	for _, table := range opts.Tables {
