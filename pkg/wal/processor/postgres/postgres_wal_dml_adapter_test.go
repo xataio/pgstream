@@ -225,6 +225,43 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 			},
 		},
 		{
+			// identity column learnt from a DDL event: the sequence name is
+			// unknown, so the target resolves the owned sequence.
+			name: "insert with identity sequence without name",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: float64(7)},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+			sequenceColumns: map[string]string{
+				`"id"`: "",
+			},
+			forCopy: false,
+
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: quotedColumnNames,
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2)", quotedTestTable),
+					args:        []any{float64(7), "alice"},
+				},
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    "SELECT setval(pg_get_serial_sequence($1, $2), $3::bigint, true)",
+					args:   []any{quotedTestTable, "id", int64(7)},
+				},
+			},
+		},
+		{
 			name: "insert with int64 sequence value preserves precision above 2^53",
 			walData: &wal.Data{
 				Action: "I",

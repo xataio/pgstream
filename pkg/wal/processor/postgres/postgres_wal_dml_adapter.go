@@ -141,12 +141,7 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 				})
 				continue
 			}
-			qs = append(qs, &query{
-				table:  d.Table,
-				schema: d.Schema,
-				sql:    "SELECT setval($1::regclass, $2::bigint, true)",
-				args:   []any{seqName, seqVal},
-			})
+			qs = append(qs, setSequenceQuery(d.Schema, d.Table, sequenceTarget{name: seqName, column: col.Name}, seqVal))
 		}
 	}
 
@@ -410,6 +405,31 @@ func scanRangeLiteral[T any](typeMap *pgtype.Map, oid uint32, literal string) (a
 		return nil, false
 	}
 	return r, true
+}
+
+// sequenceTarget identifies the sequence to move after an insert: by name, or
+// by its owning column when the name is unknown (identity column learnt from a
+// DDL event).
+type sequenceTarget struct {
+	name   string
+	column string
+}
+
+// setSequenceQuery returns the query that moves the sequence to value. Without
+// a sequence name, the target resolves the sequence owned by the column when
+// the query runs, after any preceding DDL has been applied.
+func setSequenceQuery(schema, table string, seq sequenceTarget, value int64) *query {
+	q := &query{table: table, schema: schema}
+	if seq.name != "" {
+		q.sql = "SELECT setval($1::regclass, $2::bigint, true)"
+		q.args = []any{seq.name, value}
+		return q
+	}
+	// pg_get_serial_sequence parses the table name as an identifier and takes
+	// the column name literally.
+	q.sql = "SELECT setval(pg_get_serial_sequence($1, $2), $3::bigint, true)"
+	q.args = []any{quotedTableName(schema, table), seq.column, value}
+	return q
 }
 
 func quotedTableName(schemaName, tableName string) string {

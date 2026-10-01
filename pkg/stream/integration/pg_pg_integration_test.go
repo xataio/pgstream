@@ -542,8 +542,82 @@ func Test_PostgresToPostgres_IdentityColumns(t *testing.T) {
 		return sourceSeqValue == 3 && targetSeqValue == 3
 	}, 20*time.Second, 200*time.Millisecond)
 
+	// An explicit id on the source must keep the same value on the target, and
+	// the target sequence must follow it.
+	execQuery(t, ctx, fmt.Sprintf("INSERT INTO %s(id, name) OVERRIDING SYSTEM VALUE VALUES(100, 'Dave')", testTable))
+
+	require.Eventually(t, func() bool {
+		var targetSeqValue int64
+		var name string
+		if err := targetConn.QueryRow(ctx, []any{&name}, fmt.Sprintf("SELECT name FROM %s WHERE id = 100", testTable)); err != nil {
+			return false
+		}
+		require.Equal(t, "Dave", name)
+
+		err := targetConn.QueryRow(ctx, []any{&targetSeqValue}, fmt.Sprintf("SELECT last_value FROM %s", sequenceName))
+		require.NoError(t, err)
+		return targetSeqValue == 100
+	}, 20*time.Second, 200*time.Millisecond)
+
 	// Clean up
 	execQuery(t, ctx, fmt.Sprintf("DROP TABLE %s", testTable))
+}
+
+// Test_PostgresToPostgres_IdentitySequenceOnExistingTable verifies that the
+// target identity sequence follows the replicated inserts when the table
+// exists on both sides before the stream starts (for example after a snapshot
+// or a restart). The stream receives no CREATE TABLE event, so the schema
+// observer reads the sequence columns from the target catalog.
+func Test_PostgresToPostgres_IdentitySequenceOnExistingTable(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	testTable := fmt.Sprintf("pg2pg_existing_identity_%d", time.Now().UnixNano())
+	for _, url := range []string{pgurl, targetPGURL} {
+		execQueryWithURL(t, ctx, url, fmt.Sprintf(
+			`CREATE TABLE %s (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name text)`, testTable))
+	}
+	t.Cleanup(func() {
+		// cleanup runs after the deferred cancel(), so it needs a live context.
+		for _, url := range []string{pgurl, targetPGURL} {
+			execQueryWithURL(t, context.Background(), url, fmt.Sprintf("DROP TABLE IF EXISTS %s", testTable))
+		}
+	})
+
+	// the replication slot is created after the table, so the stream does not
+	// receive the CREATE TABLE event.
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfg(t),
+		Processor: testPostgresProcessorCfg(),
+	}
+	runStream(t, ctx, cfg)
+
+	execQuery(t, ctx, fmt.Sprintf("INSERT INTO %s(name) VALUES('Alice'), ('Bob')", testTable))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	var sequenceName string
+	err = targetConn.QueryRow(ctx, []any{&sequenceName}, `SELECT pg_get_serial_sequence($1, 'id')`, testTable)
+	require.NoError(t, err)
+	require.NotEmpty(t, sequenceName)
+
+	require.Eventually(t, func() bool {
+		var lastValue int64
+		var isCalled bool
+		err := targetConn.QueryRow(ctx, []any{&lastValue, &isCalled}, fmt.Sprintf("SELECT last_value, is_called FROM %s", sequenceName))
+		require.NoError(t, err)
+		return lastValue == 2 && isCalled
+	}, 20*time.Second, 200*time.Millisecond)
+
+	// a write on the target uses the next identity value instead of a
+	// replicated one.
+	execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("INSERT INTO %s(name) VALUES('Charlie')", testTable))
 }
 
 // Test_PostgresToPostgres_AlwaysIdentityUpdate verifies that UPDATE events on a
