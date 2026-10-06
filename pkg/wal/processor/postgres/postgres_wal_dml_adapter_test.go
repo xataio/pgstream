@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -267,8 +268,8 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: float64(1)},
-					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(1), Name: "id", Value: float64(1), Type: "int4"},
+					{ID: columnID(2), Name: "name", Value: "alice", Type: "text"},
 				},
 				Metadata: wal.Metadata{
 					InternalColIDs: []string{columnID(1)},
@@ -325,8 +326,8 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: 1},
-					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(1), Name: "id", Value: 1, Type: "int4"},
+					{ID: columnID(2), Name: "name", Value: "alice", Type: "text"},
 					{ID: columnID(3), Name: "created_at", Value: pgtype.Infinity, Type: "timestamptz"},
 				},
 				Metadata: wal.Metadata{
@@ -352,8 +353,8 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: 1},
-					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(1), Name: "id", Value: 1, Type: "int4"},
+					{ID: columnID(2), Name: "name", Value: "alice", Type: "text"},
 					{ID: columnID(3), Name: "datetime_range", Value: pgtype.Range[any]{
 						Lower:     now.Add(-1 * time.Minute),
 						Upper:     now.Add(time.Minute),
@@ -391,8 +392,8 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: 1},
-					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(1), Name: "id", Value: 1, Type: "int4"},
+					{ID: columnID(2), Name: "name", Value: "alice", Type: "text"},
 					{ID: columnID(3), Name: "datetime_range", Value: pgtype.Range[any]{
 						Lower:     now.Add(-1 * time.Minute),
 						Upper:     nil,
@@ -430,8 +431,8 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: 1},
-					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(1), Name: "id", Value: 1, Type: "int4"},
+					{ID: columnID(2), Name: "name", Value: "alice", Type: "text"},
 					{ID: columnID(3), Name: "datetime_range", Value: pgtype.Range[any]{
 						Lower:     nil,
 						Upper:     now.Add(time.Minute),
@@ -469,7 +470,7 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(1), Name: "id", Value: 1, Type: "int4"},
 					{ID: columnID(2), Name: "search_vec", Value: []byte("'hello':1 'world':2"), Type: "tsvector"},
 				},
 				Metadata: wal.Metadata{
@@ -495,7 +496,7 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(1), Name: "id", Value: 1, Type: "int4"},
 					{ID: columnID(2), Name: "search_vec", Value: "'hello':1 'world':2", Type: "tsvector"},
 				},
 				Metadata: wal.Metadata{
@@ -521,8 +522,8 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: 1},
-					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(1), Name: "id", Value: 1, Type: "int4"},
+					{ID: columnID(2), Name: "name", Value: "alice", Type: "text"},
 					{ID: columnID(3), Name: "status_array", Value: "{EXAMPLE}", Type: "text[]"},
 				},
 				Metadata: wal.Metadata{
@@ -542,18 +543,16 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 			},
 		},
 		{
-			// pgx has no entry for the array of a user-defined enum, so the
-			// type name alone routes the batch to text-format COPY and the
-			// postgres array literal is kept for the target to parse, without
-			// the column having to be listed in enumColumns.
+			// the type name alone routes this to text COPY,
+			// without the column being in enumColumns
 			name: "insert with enum array using underscore prefix - for copy enabled",
 			walData: &wal.Data{
 				Action: "I",
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: 1},
-					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(1), Name: "id", Value: 1, Type: "int4"},
+					{ID: columnID(2), Name: "name", Value: "alice", Type: "text"},
 					{ID: columnID(3), Name: "status_array", Value: "{EXAMPLE}", Type: "_ExampleEnum"},
 				},
 				Metadata: wal.Metadata{
@@ -907,7 +906,7 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				logger:           log.NewNoopLogger(),
 				onConflictAction: tc.action,
 				forCopy:          tc.forCopy,
-				pgTypeMap:        pgtype.NewMap(),
+				pgTypeMap:        newWarmTypeMap(),
 			}
 			queries, err := a.walDataToQueries(tc.walData, schemaInfo{
 				generatedColumns:      tc.generatedColumns,
@@ -932,9 +931,9 @@ func Test_needsTextCopyForColumns(t *testing.T) {
 		want bool
 	}{
 		{
-			// the names Mapper.TypeForOID resolves
 			name:        "no text-only columns",
 			columnNames: []string{`"id"`, `"name"`},
+			// the names Mapper.TypeForOID resolves
 			columnTypes: []string{"int4", "text"},
 			enumColumns: nil,
 			want:        false,
@@ -947,9 +946,7 @@ func Test_needsTextCopyForColumns(t *testing.T) {
 			want:        true,
 		},
 		{
-			// regression for #1211: a PostGIS geometry reaches the writer as
-			// the hex EWKB text, and binary COPY made the target read its
-			// first character as the byte order flag
+			// regression for #1211: the writer gets hex EWKB text
 			name:        "postgis geometry column",
 			columnNames: []string{`"id"`, `"geom"`},
 			columnTypes: []string{"int4", "geometry"},
@@ -1021,35 +1018,30 @@ func Test_needsTextCopyForType(t *testing.T) {
 
 	a := newTestDMLAdapterForCopy(t)
 
-	// pgx's static type map has no entry for these, so they reach the writer as
-	// their text representation and only text-format COPY can deliver them.
+	// no codec encodes these, so they arrive as text
 	for _, colType := range []string{
 		"geometry", "geography", "_geometry", "citext", "money", "tsquery",
 		"cube", "ltree", "timetz", "my_composite",
 		// the snapshot never spells a type the way format_type prints it
 		"integer", "bigint", "character varying", "double precision",
 		"timestamp without time zone", "time with time zone", "character varying[]",
+		// an unresolved name takes the format that never corrupts
+		"", "unknown",
 	} {
 		require.Truef(t, a.needsTextCopyForType(colType), "expected text copy for %q", colType)
 	}
 
-	// built-in types, their format_type spellings, their array forms, and the
-	// extension types pgstream registers a binary codec for all stay on the
-	// faster binary COPY.
+	// these all keep the faster binary COPY
 	for _, colType := range []string{
 		"int4", "int8", "text", "varchar", "numeric", "uuid",
 		"jsonb", "tsvector", "int4range", "_text", "text[]",
 		"hstore", "vector", "halfvec",
-		// a column with no resolved type name keeps the binary path
-		"",
 	} {
 		require.Falsef(t, a.needsTextCopyForType(colType), "expected binary copy for %q", colType)
 	}
 }
 
-// Test_copyFormatSets_coverRegisteredExtensionTypes pins the COPY-format sets
-// to the registry of extension types pgstream teaches pgx about, so a new
-// registration cannot silently end up in neither set.
+// A new registration must not land in neither set.
 func Test_copyFormatSets_coverRegisteredExtensionTypes(t *testing.T) {
 	t.Parallel()
 
@@ -1078,10 +1070,9 @@ func Test_updateValueForCopy_enumArray(t *testing.T) {
 	// would leave the text encoder with a value it cannot render.
 	require.Equal(t, "{happy,sad}", a.updateValueForCopy("{happy,sad}", "mood[]", true))
 
-	// The same holds for an array of an extension type pgx has no binary codec
-	// for, which the caller flags from the column type alone.
+	// the same holds for an array no codec can encode
 	require.Equal(t, "{0101000000,0101000020}",
-		a.updateValueForCopy("{0101000000,0101000020}", "_geometry", a.needsTextCopyForType("_geometry")))
+		a.updateValueForCopy("{0101000000,0101000020}", "_geometry", false))
 }
 
 func Test_updateValueForCopy_arrayDimensions(t *testing.T) {
@@ -1265,4 +1256,46 @@ func TestDMLAdapter_filterRowColumns(t *testing.T) {
 			require.Equal(t, tc.wantValues, rowValues)
 		})
 	}
+}
+
+// The bulk writer shares one adapter across goroutines.
+// Every path that touches the shared pgtype.Map runs here,
+// so a lazy write inside pgx fails CI instead of production.
+// Only meaningful under -race.
+func Test_dmlAdapter_concurrentTypeMapUse(t *testing.T) {
+	t.Parallel()
+
+	a := newTestDMLAdapterForCopy(t)
+
+	// TypeForName, over names that hit and miss pgx's map
+	typeNames := []string{"int4", "text", "_text", "numeric", "geometry", "hstore", "mood", ""}
+	// SQLScanner, over several element types
+	arrays := map[string]string{"_text": "{a,b}", "_int4": "{1,2}", "_numeric": "{1.5,2.5}", "_bool": "{t,f}"}
+	// Scan, over every range type parseRangeLiteral instantiates
+	ranges := map[string]string{
+		"int4range": "[1,10)",
+		"int8range": "[1,10)",
+		"numrange":  "[1.5,2.5)",
+		"daterange": "[2024-01-01,2024-02-01)",
+		"tsrange":   "[2024-01-01 00:00:00,2024-02-01 00:00:00)",
+		"tstzrange": "[2024-01-01 00:00:00+00,2024-02-01 00:00:00+00)",
+	}
+
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, n := range typeNames {
+				a.needsTextCopyForType(n)
+			}
+			for colType, literal := range arrays {
+				require.NotNil(t, a.updateValueForCopy(literal, colType, false))
+			}
+			for colType, literal := range ranges {
+				require.NotEqual(t, literal, a.updateValueForCopy(literal, colType, false))
+			}
+		}()
+	}
+	wg.Wait()
 }

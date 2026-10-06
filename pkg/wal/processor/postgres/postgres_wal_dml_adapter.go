@@ -52,8 +52,16 @@ func newDMLAdapter(action string, forCopy bool, logger loglib.Logger) (*dmlAdapt
 		logger:           logger,
 		onConflictAction: oca,
 		forCopy:          forCopy,
-		pgTypeMap:        pgtype.NewMap(),
+		pgTypeMap:        newWarmTypeMap(),
 	}, nil
+}
+
+// buildReflectTypeToType rebuilds the whole index, lazily.
+// Concurrent ProcessWALEvent calls would race that write.
+func newWarmTypeMap() *pgtype.Map {
+	m := pgtype.NewMap()
+	m.TypeForValue("")
+	return m
 }
 
 func (a *dmlAdapter) walDataToQueries(d *wal.Data, schemaInfo schemaInfo) ([]*query, error) {
@@ -117,7 +125,7 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 			table:         d.Table,
 			schema:        d.Schema,
 			columnNames:   names,
-			needsTextCopy: a.needsTextCopyForColumns(names, types, schemaInfo.enumColumns),
+			needsTextCopy: a.forCopy && a.needsTextCopyForColumns(names, types, schemaInfo.enumColumns),
 			sql: fmt.Sprintf("INSERT INTO %s(%s) OVERRIDING SYSTEM VALUE VALUES(%s)%s",
 				quotedTableName(d.Schema, d.Table), strings.Join(names, ", "),
 				strings.Join(placeholders, ", "),
@@ -314,18 +322,16 @@ func (a *dmlAdapter) filterRowColumnsForAction(cols []wal.Column, schemaInfo sch
 
 		if a.forCopy {
 			_, isEnum := schemaInfo.enumColumns[quoted]
-			val = a.updateValueForCopy(val, c.Type, isEnum || a.needsTextCopyForType(c.Type))
+			val = a.updateValueForCopy(val, c.Type, isEnum)
 		}
 		rowValues = append(rowValues, val)
 	}
 	return rowColumns, rowTypes, rowValues
 }
 
-// updateValueForCopy adapts a value so the COPY encoder can render it.
-// textCopy reports whether the column's own type forces the batch onto
-// text-format COPY (see needsTextCopyForColumns), which changes what the
-// encoder can accept for an array value.
-func (a *dmlAdapter) updateValueForCopy(value any, colType string, textCopy bool) any {
+// updateValueForCopy adapts a value for the COPY encoder.
+// isEnum is passed because the type name can hide an enum.
+func (a *dmlAdapter) updateValueForCopy(value any, colType string, isEnum bool) any {
 	// For COPY, we might need to update the value for some data types,
 	// so that it will be able to be encoded into binary format correctly.
 
@@ -355,12 +361,9 @@ func (a *dmlAdapter) updateValueForCopy(value any, colType string, textCopy bool
 	// need to be converted to Go slices. The pgx COPY encoder expects proper Go types,
 	// not text representations.
 	if isArray(colType) {
-		// An array of a user-defined enum, or of any other type pgx has no
-		// binary codec for, never reaches binary COPY: the batch is routed to
-		// text-format COPY, which writes the postgres array literal verbatim.
-		// Parsing it into a Go slice here would hand the text encoder a type it
-		// cannot render back.
-		if textCopy {
+		// Text COPY writes the array literal verbatim.
+		// Asked here so only array columns pay for it.
+		if isEnum || a.needsTextCopyForType(colType) {
 			return value
 		}
 		// If the value is a string (PostgreSQL array literal like "{val1,val2}"),
@@ -542,17 +545,11 @@ func getTypedInt8Range(value any) any {
 	}
 }
 
-// textOnlyCopyTypes holds the extension types pgstream registers a text-only
-// codec for (see internal/postgres extensionTypes): pgx knows the name, and
-// will happily ask the codec for the binary format, but what it gets back is
-// the text representation. Bulk ingest must fall back to text-format COPY for
-// any batch that touches one of these columns.
+// These codecs answer binary with text bytes.
 var textOnlyCopyTypes = typeNameSet(pglib.TextCopyOnlyTypeNames())
 
-// binaryCopySafeTypes holds the extension types pgstream registers a
-// binary-capable codec for (hstore, the pgvector family). pgx's static type
-// map has no entry for them, so the unknown-type rule in needsTextCopyForType
-// would otherwise drag their batches onto the slower text-format COPY.
+// pgx's static map has no entry for these.
+// The unknown-type rule would otherwise force text.
 var binaryCopySafeTypes = typeNameSet(pglib.BinaryCopySafeTypeNames())
 
 func typeNameSet(names []string) map[string]struct{} {
@@ -572,25 +569,13 @@ func pgTypeName(colType string) string {
 	return colType
 }
 
-// needsTextCopyForType reports whether a column of the given postgres type must
-// be written with text-format COPY instead of pgx's binary COPY.
-//
-// pgx can only produce the binary wire format for the types in its static type
-// map, plus the extension types pgstream registers a binary-capable codec for.
-// Every other type — a PostGIS geometry or geography, citext, money, a
-// composite, a user-defined enum — is asked for in text format when the
-// snapshot reads it, because pgx has no codec for the OID, so it reaches the
-// writer as its text representation. Binary COPY would send those text bytes
-// as if they were the type's binary layout, and the server misreads them: for
-// geometry, postgres reads the first character of the hex EWKB as the byte
-// order flag and fails with "Invalid endian flag value encountered".
+// needsTextCopyForType reports whether a column needs text COPY.
+// Binary COPY would send text bytes as the binary layout.
 func (a *dmlAdapter) needsTextCopyForType(colType string) bool {
-	// A column with no type name keeps the binary COPY path. The bulk path is
-	// fed by the snapshot, which resolves a name for every column, so an empty
-	// one means the caller had none to give rather than that the type is one
-	// pgx cannot encode.
-	if colType == "" {
-		return false
+	// "unknown" is Mapper.TypeForOID's fallback name.
+	// Binary is the format that corrupts when wrong.
+	if colType == "" || colType == "unknown" {
+		return true
 	}
 
 	name := pgTypeName(colType)
@@ -613,12 +598,9 @@ func (a *dmlAdapter) needsTextCopy(columnTypes []string) bool {
 	return false
 }
 
-// needsTextCopyForColumns reports whether a batch covering the given columns
-// must fall back to text-format COPY instead of pgx's binary COPY. This is the
-// case when a column has a type pgx cannot encode in binary format (see
-// needsTextCopyForType) or a user-defined enum type, whose database-specific
-// OID pgx has no binary codec registered for. columnNames must be quoted to
-// match the enumColumns set.
+// needsTextCopyForColumns reports whether a batch needs text COPY.
+// An enum's OID has no binary codec either.
+// columnNames must be quoted to match enumColumns.
 func (a *dmlAdapter) needsTextCopyForColumns(columnNames, columnTypes []string, enumColumns map[string]enumColumn) bool {
 	if a.needsTextCopy(columnTypes) {
 		return true

@@ -574,7 +574,7 @@ func TestBuildBulkInsertQueries_NeedsTextCopy(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			queries := newTestDMLAdapter(t).buildBulkInsertQueries(tc.events, schemaInfo{
+			queries := newTestDMLAdapterForCopy(t).buildBulkInsertQueries(tc.events, schemaInfo{
 				generatedColumns: map[string]struct{}{},
 				sequenceColumns:  map[string]string{},
 				enumColumns:      tc.enumColumns,

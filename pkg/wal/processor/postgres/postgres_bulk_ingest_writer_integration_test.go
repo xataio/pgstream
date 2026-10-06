@@ -18,18 +18,10 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/batch"
 )
 
-// Test_BulkIngestWriter_PostGISColumns copies rows of a table with PostGIS
-// geometry and geography columns through the bulk ingest writer.
-//
-// Regression for #1211: pgx has no codec for the per-database OIDs of the
-// PostGIS types, so the snapshot reads such a column as text — the hex EWKB
-// string — and binary COPY sent those characters where the server expects the
-// binary layout. PostGIS read the first character of the hex as the byte order
-// flag and rejected every row with "Invalid endian flag value encountered".
-//
-// The source rows are read the way the snapshot reads them, through
-// rows.Values() and the type mapper, so the test pins the value shape the
-// writer actually receives rather than a hand-written approximation of it.
+// Regression for #1211: binary COPY of a geometry column
+// failed with "Invalid endian flag value encountered".
+// Rows are read as the snapshot reads them, so the
+// value shapes are the ones the writer really gets.
 func Test_BulkIngestWriter_PostGISColumns(t *testing.T) {
 	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
 		t.Skip("skipping integration test...")
@@ -52,28 +44,49 @@ func Test_BulkIngestWriter_PostGISColumns(t *testing.T) {
 	)
 
 	execQuery(t, ctx, conn, "CREATE EXTENSION IF NOT EXISTS postgis")
+	// One spatial column puts every column on the text encoder.
+	// The non-spatial ones are here to cover that.
 	execQuery(t, ctx, conn, fmt.Sprintf(`CREATE TABLE %s(
-		id     integer PRIMARY KEY,
-		point  geometry(Point, 4326) NOT NULL,
-		shape  geometry,
-		place  geography(Point, 4326),
-		labels text[])`, sourceTable))
-	execQuery(t, ctx, conn, fmt.Sprintf(`INSERT INTO %s(id, point, shape, place, labels) VALUES
+		id         integer PRIMARY KEY,
+		point      geometry(Point, 4326) NOT NULL,
+		shape      geometry,
+		place      geography(Point, 4326),
+		labels     text[],
+		notes      text,
+		created_at timestamptz,
+		amount     numeric(12,4),
+		payload    bytea,
+		uid        uuid,
+		doc        jsonb,
+		span       int4range,
+		booked     tstzrange,
+		flags      boolean[],
+		duration   interval)`, sourceTable))
+	// row 2 holds what breaks a naive text COPY:
+	// the structural bytes, and an infinite timestamp
+	execQuery(t, ctx, conn, fmt.Sprintf(`INSERT INTO %s VALUES
 		(1, ST_SetSRID(ST_MakePoint(-0.12, 51.5), 4326),
 		    ST_GeomFromText('POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))'),
 		    ST_SetSRID(ST_MakePoint(2.35, 48.85), 4326)::geography,
-		    ARRAY['london', 'uk']),
+		    ARRAY['london', 'uk'], 'plain note',
+		    '2024-03-01 12:34:56.789+00', 1234.5678, '\x00ff10'::bytea,
+		    '0b7f1d64-5e2a-4c3b-9f8e-1a2b3c4d5e6f', '{"a": [1, 2], "b": null}',
+		    '[1,10)', '[2024-01-01 00:00:00+00,2024-02-01 00:00:00+00)',
+		    ARRAY[true, false], '1 day 02:03:04'),
 		(2, ST_SetSRID(ST_MakePoint(13.4, 52.52), 4326),
 		    ST_GeomFromText('LINESTRING(0 0, 2 2)'),
 		    NULL,
-		    ARRAY[]::text[]),
-		(3, ST_SetSRID(ST_MakePoint(0, 0), 4326), NULL, NULL, NULL)`, sourceTable))
+		    ARRAY[]::text[], E'back\\slash\ttab\nnewline \\. {not,an,array}',
+		    'infinity', -0.0001, ''::bytea,
+		    '00000000-0000-0000-0000-000000000000', '"just a string"',
+		    'empty', 'empty', ARRAY[]::boolean[], '-00:00:01'),
+		(3, ST_SetSRID(ST_MakePoint(0, 0), 4326), NULL, NULL, NULL, NULL,
+		    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`, sourceTable))
 	execQuery(t, ctx, conn, fmt.Sprintf("CREATE TABLE %s(LIKE %s INCLUDING ALL)", targetTable, sourceTable))
 
 	events := snapshotEvents(t, ctx, conn, "public", sourceTable, targetTable)
 	require.Len(t, events, 3)
-	// the geometry value reaches the writer as the hex EWKB text, which is what
-	// binary COPY could not deliver
+	// the writer gets hex EWKB text, not bytes
 	require.Equal(t, "geometry", columnType(t, events[0], "point"))
 	require.IsType(t, "", columnValue(t, events[0], "point"))
 
@@ -83,8 +96,7 @@ func Test_BulkIngestWriter_PostGISColumns(t *testing.T) {
 			BatchTimeout: time.Second,
 			MaxBatchSize: 10,
 		},
-		// a COPY the target rejects is retried forever under the default
-		// policy, so a regression here would hang the test instead of failing
+		// the default policy retries forever, hanging a regression
 		RetryPolicy: backoff.Config{DisableRetries: true},
 	}, WithLogger(loglib.NewNoopLogger()))
 	require.NoError(t, err)
@@ -92,21 +104,20 @@ func Test_BulkIngestWriter_PostGISColumns(t *testing.T) {
 	for _, e := range events {
 		require.NoError(t, writer.ProcessWALEvent(ctx, e))
 	}
-	// closing the writer flushes the pending batch
+	// Close flushes the pending batch
 	require.NoError(t, writer.Close())
 
-	// compare the canonical text form of both tables so the assertion does not
-	// depend on how PostGIS renders the binary values
-	const columns = `id, ST_AsText(point), ST_AsEWKT(shape), ST_AsText(place::geometry), labels::text`
+	// canonical text, so PostGIS rendering cannot matter
+	const columns = `id, ST_AsText(point), ST_AsEWKT(shape), ST_AsText(place::geometry),
+		labels::text, notes, created_at::text, amount::text, payload::text, uid::text,
+		doc::text, span::text, booked::text, flags::text, duration::text`
 	want := fetchRows(t, ctx, conn, fmt.Sprintf("SELECT %s FROM %s ORDER BY id", columns, sourceTable))
 	got := fetchRows(t, ctx, conn, fmt.Sprintf("SELECT %s FROM %s ORDER BY id", columns, targetTable))
 	require.Equal(t, want, got)
 }
 
-// snapshotEvents reads every row of the given table the way the postgres
-// snapshot generator does — rows.Values() for the values, and the type mapper
-// for the postgres type name of each column — and returns them as insert
-// events addressed to targetTable.
+// snapshotEvents reads rows the way the snapshot generator does,
+// so the events carry the value shapes the writer receives.
 func snapshotEvents(t *testing.T, ctx context.Context, conn pglib.Querier, schema, sourceTable, targetTable string) []*wal.Event {
 	t.Helper()
 
@@ -128,8 +139,7 @@ func snapshotEvents(t *testing.T, ctx context.Context, conn pglib.Querier, schem
 		rowValues = append(rowValues, values)
 	}
 	require.NoError(t, rows.Err())
-	// the type names are resolved with a catalog query, which needs the
-	// connection back
+	// the catalog query below needs the connection back
 	rows.Close()
 
 	mapper := pglib.NewMapper(conn)
@@ -188,8 +198,7 @@ func execQuery(t *testing.T, ctx context.Context, conn pglib.Querier, query stri
 	require.NoError(t, err)
 }
 
-// fetchRows returns the rows of the given query as strings, with a NULL
-// rendered as "<null>" so it stays distinguishable from an empty value.
+// fetchRows renders a NULL distinguishably from an empty value.
 func fetchRows(t *testing.T, ctx context.Context, conn pglib.Querier, query string) [][]string {
 	t.Helper()
 
