@@ -698,3 +698,26 @@ func Test_SchemaTableColumns_ColumnsFor(t *testing.T) {
 		require.Nil(t, quoted.ColumnsFor("public", `"users"`))
 	})
 }
+
+func TestUnquoteIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	// A name that holds a double quote carries it doubled inside the quoted
+	// form. A trim of the outer quotes leaves the doubling behind, pgx quotes
+	// the result again, and postgres answers `column "a ""b" does not exist`.
+	quoted := []string{`"id"`, `"a ""b"""`, `plain`, `"Mixed Case"`}
+	got := unquoteIdentifiers(quoted)
+
+	require.Equal(t, []string{`id`, `a "b"`, `plain`, `Mixed Case`}, got)
+	// The caller keeps the quoted names for the SQL it builds, and a retry of
+	// the same statement has to find them unchanged.
+	require.Equal(t, []string{`"id"`, `"a ""b"""`, `plain`, `"Mixed Case"`}, quoted)
+}
+
+func TestUnquoteIdentifiers_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{`id`, `a "b"`, `Mixed Case`, `order`, `"`, `a""b`} {
+		require.Equal(t, name, UnquoteIdentifier(QuoteRawIdentifier(name)), name)
+	}
+}

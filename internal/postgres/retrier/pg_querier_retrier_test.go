@@ -564,6 +564,19 @@ func TestQuerier_isRetriableError(t *testing.T) {
 			wantIsRetriable: false,
 		},
 		{
+			// A rollback the caller asked for carries what it went to find
+			// out. Retrying it would repeat the transaction for as long as
+			// the policy allows and end the same way every time.
+			name:            "requested rollback",
+			err:             postgres.ErrTxRollback,
+			wantIsRetriable: false,
+		},
+		{
+			name:            "wrapped requested rollback",
+			err:             fmt.Errorf("isolating a batch: %w", postgres.ErrTxRollback),
+			wantIsRetriable: false,
+		},
+		{
 			// a value the target column cannot store fails the same way every
 			// time it is replayed. The default policy has no attempt or
 			// elapsed-time bound, so retrying here loops until the process is
@@ -627,4 +640,35 @@ type mockOperation struct {
 func (m *mockOperation) Do() error {
 	m.calls++
 	return m.op(m.calls)
+}
+
+// A transaction the caller rolls back on purpose runs once. The default writer
+// policy has no attempt bound, so a retriable sentinel would repeat the whole
+// transaction until the elapsed budget ran out, rebuilding the connection pool
+// between rounds, and only then return the answer it already had.
+func TestQuerier_ExecInTx_requestedRollbackRunsOnce(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	q := &Querier{
+		connBuilder: func(ctx context.Context) (postgres.Querier, error) {
+			t.Error("the connection was rebuilt for a rollback that was not a failure")
+			return nil, errors.New("unexpected")
+		},
+		querier: &mocks.Querier{
+			ExecInTxFn: func(ctx context.Context, fn func(tx postgres.Tx) error) error {
+				calls++
+				return fn(nil)
+			},
+		},
+		backoffProvider: newMockBackoffProvider(),
+		logger:          loglib.NewNoopLogger(),
+	}
+
+	err := q.ExecInTx(context.Background(), func(tx postgres.Tx) error {
+		return postgres.ErrTxRollback
+	})
+
+	require.ErrorIs(t, err, postgres.ErrTxRollback)
+	require.Equal(t, 1, calls)
 }

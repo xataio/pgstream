@@ -992,6 +992,27 @@ func Test_updateValueForCopy_enumArray(t *testing.T) {
 	require.Equal(t, "{happy,sad}", a.updateValueForCopy("{happy,sad}", "mood[]", true))
 }
 
+func Test_updateValueForCopy_arrayDimensions(t *testing.T) {
+	t.Parallel()
+
+	a := newTestDMLAdapterForCopy(t)
+
+	// An array of one dimension becomes a Go slice, which is what pgx's
+	// binary COPY encoder takes.
+	require.Equal(t, []string{"1", "2", "3"}, a.updateValueForCopy("{1,2,3}", "int4[]", false))
+
+	// An array of more than one dimension keeps its dimensions. A flat slice
+	// here writes {{1,2},{3,4}} to the target as {1,2,3,4}: the shape is gone,
+	// no error is raised, and nothing counts it.
+	nested, ok := a.updateValueForCopy("{{1,2},{3,4}}", "int4[]", false).(pgtype.Array[string])
+	require.True(t, ok, "a nested array has to keep a type that carries its dimensions")
+	require.Equal(t, []string{"1", "2", "3", "4"}, nested.Elements)
+	require.Equal(t, []pgtype.ArrayDimension{
+		{Length: 2, LowerBound: 1},
+		{Length: 2, LowerBound: 1},
+	}, nested.Dims)
+}
+
 func Test_updateValueForCopy_rangeLiteral(t *testing.T) {
 	t.Parallel()
 

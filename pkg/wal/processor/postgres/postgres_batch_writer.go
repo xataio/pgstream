@@ -319,18 +319,34 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 			return err
 		}
 
-		for i, q := range queries {
-			if _, err := tx.Exec(ctx, q.sql, q.args...); err != nil {
-				w.logger.Error(err, "executing sql query", loglib.Fields{
-					"sql":  q.sql,
-					"args": q.args,
-				})
-				// if a query returns an error, it will abort the tx. Remove it
-				// from the list of queries to be retried.
-				droppedQuery = q
-				retryQueries = removeIndex(queries, i)
+		// Send the queries as one pipeline. One round trip for the batch
+		// replaces one round trip for each query. A query the server rejects
+		// is reported with its index, which is the same index the loop found
+		// before.
+		batchQueries := make([]pglib.BatchQuery, 0, len(queries))
+		for _, q := range queries {
+			batchQueries = append(batchQueries, pglib.BatchQuery{SQL: q.sql, Args: q.args})
+		}
+
+		if err := tx.ExecBatch(ctx, batchQueries); err != nil {
+			var queryErr *pglib.BatchQueryError
+			if !errors.As(err, &queryErr) || queryErr.Index < 0 || queryErr.Index >= len(queries) {
+				// The failure belongs to the batch rather than to one of its
+				// queries: it never reached the server, or it broke once every
+				// query had answered. Dropping a query here would name one
+				// that did nothing wrong.
 				return err
 			}
+
+			w.logger.Error(err, "executing sql query", loglib.Fields{
+				"sql":  queries[queryErr.Index].sql,
+				"args": queries[queryErr.Index].args,
+			})
+			// if a query returns an error, it will abort the tx. Remove it
+			// from the list of queries to be retried.
+			droppedQuery = queries[queryErr.Index]
+			retryQueries = removeIndex(queries, queryErr.Index)
+			return err
 		}
 
 		return w.resetReplicationRole(ctx, tx)
@@ -341,16 +357,91 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 		return nil, err
 	}
 
+	// dropCause is what made droppedQuery undeliverable. A query the batch
+	// named comes with the server error that named it, so the batch failure is
+	// already the precise one.
+	dropCause := err
+
+	if err != nil && droppedQuery == nil && !w.isInternalError(err) {
+		// The batch failed with no query to blame. That happens when the
+		// failure belongs to a step pgx runs over the whole batch before it
+		// executes any of it, so a second pass runs the queries one at a time
+		// and lets the server name the one at fault.
+		if index, cause := w.isolateFailingQuery(ctx, queries); index >= 0 {
+			// Report what the isolated query failed with rather than the
+			// batch error that started this. The batch error says a step over
+			// the whole batch went wrong; this one names the column, the value
+			// or the constraint, which is what a dropped query has to record.
+			dropCause = cause
+			w.logger.Error(dropCause, "executing sql query", loglib.Fields{
+				"sql":  queries[index].sql,
+				"args": queries[index].args,
+			})
+			droppedQuery = queries[index]
+			retryQueries = removeIndex(queries, index)
+		}
+	}
+
+	if err != nil && droppedQuery == nil {
+		// The transaction failed with no query to blame. Returning the queries
+		// that were not dropped would return none of them, which loses the
+		// batch without a word, so the failure travels up instead.
+		return nil, err
+	}
+
 	if err != nil && droppedQuery != nil {
 		if w.strictMode {
-			return nil, fmt.Errorf("strict mode: stopping on non-internal query failure: %w", err)
+			return nil, fmt.Errorf("strict mode: stopping on non-internal query failure: %w", dropCause)
 		}
-		w.recordDroppedQuery(droppedQuery, err)
+		w.recordDroppedQuery(droppedQuery, dropCause)
 	}
 
 	// if there were no errors or no internal errors in the tx, return the
 	// queries to retry (none if the tx was successful)
 	return retryQueries, nil
+}
+
+// isolateFailingQuery returns the position of the first query the server
+// rejects and the error it rejected it with, or -1 when every one of them is
+// accepted.
+//
+// The queries run one at a time rather than as a batch, because a batch tells
+// us only that something in it is wrong. Nothing is kept: the pass ends by
+// rolling the transaction back, so it answers the question without applying
+// anything. The caller drops the query it names and repeats the rest.
+//
+// It stops at the first rejection because Postgres stops there too. A
+// statement the server rejects aborts its transaction, and every statement
+// after it fails with "current transaction is aborted" whatever it says, so a
+// single pass cannot name a second one. Naming them all would need a savepoint
+// around every query, which costs two more round trips each to find a fault
+// that a batch usually has once.
+func (w *BatchWriter) isolateFailingQuery(ctx context.Context, queries []*query) (int, error) {
+	failing := -1
+	var cause error
+	err := w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
+		failing, cause = -1, nil
+
+		if err := w.setReplicationRoleToReplica(ctx, tx); err != nil {
+			return err
+		}
+		for i, q := range queries {
+			if _, err := tx.Exec(ctx, q.sql, q.args...); err != nil {
+				if w.isInternalError(err) {
+					return err
+				}
+				failing, cause = i, err
+				break
+			}
+		}
+		// Nothing this pass did is wanted, only what it learned.
+		return pglib.ErrTxRollback
+	})
+	if err != nil && !errors.Is(err, pglib.ErrTxRollback) {
+		w.logger.Warn(err, "isolating the failing query of a batch")
+		return -1, nil
+	}
+	return failing, cause
 }
 
 func (w *BatchWriter) isInternalError(err error) bool {

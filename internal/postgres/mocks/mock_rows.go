@@ -5,6 +5,7 @@ package mocks
 import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Rows struct {
@@ -15,6 +16,7 @@ type Rows struct {
 	ScanFn              func(i uint, dest ...any) error
 	ValuesFn            func() ([]any, error)
 	RawValuesFn         func() [][]byte
+	TypeMapFn           func() *pgtype.Map
 	nextCalls           uint
 	scanCalls           uint
 }
@@ -53,7 +55,17 @@ func (m *Rows) Values() ([]any, error) {
 }
 
 func (m *Rows) RawValues() [][]byte {
+	if m.RawValuesFn == nil {
+		return nil
+	}
 	return m.RawValuesFn()
+}
+
+func (m *Rows) TypeMap() *pgtype.Map {
+	if m.TypeMapFn == nil {
+		return pgtype.NewMap()
+	}
+	return m.TypeMapFn()
 }
 
 func (m *Rows) Conn() *pgx.Conn {

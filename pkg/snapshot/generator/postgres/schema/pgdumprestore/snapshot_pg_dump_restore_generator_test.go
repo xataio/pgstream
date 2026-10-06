@@ -2392,11 +2392,17 @@ func TestCaptureScope(t *testing.T) {
 // captureLogger records Warn calls so a test can assert on advisory output.
 type captureLogger struct {
 	log.Logger
-	warnings []string
+	warnings   []string
+	warnFields []log.Fields
 }
 
 func (l *captureLogger) Warn(err error, msg string, fields ...log.Fields) {
 	l.warnings = append(l.warnings, msg)
+	if len(fields) > 0 {
+		l.warnFields = append(l.warnFields, fields[0])
+	} else {
+		l.warnFields = append(l.warnFields, nil)
+	}
 }
 
 func TestWarnOnCaptureDrift(t *testing.T) {
@@ -3041,4 +3047,113 @@ func TestSnapshotGenerator_restoreIndicesAndConstraints_parallel(t *testing.T) {
 	require.NoError(t, sg.restoreIndicesAndConstraints(context.Background(), dump, &snapshot.Snapshot{}))
 	// both indices on the first attempt, both again on the retry
 	require.Equal(t, int32(4), attempts.Load())
+}
+
+func TestSnapshotGenerator_summariseIgnored(t *testing.T) {
+	t.Parallel()
+
+	attach := &pglib.ErrRestoreStatement{
+		Err:  &pglib.ErrRelationDoesNotExist{Details: `ERROR:  relation "parent_idx" does not exist`},
+		Echo: "STATEMENT:  ALTER INDEX public.parent_idx ATTACH PARTITION public.child_idx;",
+	}
+	exists := &pglib.ErrRestoreStatement{
+		Err:  &pglib.ErrRelationAlreadyExists{Details: `ERROR:  relation "users" already exists`},
+		Echo: "Command was: CREATE TABLE public.users (id integer);",
+	}
+	// pg_restore does not always echo the statement, and the summary still has
+	// to say something useful about that error rather than leave a blank row
+	noEcho := &pglib.ErrPermissionDenied{Details: "ERROR:  permission denied for schema public"}
+
+	t.Run("nothing ignored says nothing", func(t *testing.T) {
+		t.Parallel()
+
+		logger := &captureLogger{Logger: log.NewNoopLogger()}
+		g := &SnapshotGenerator{logger: logger}
+
+		g.summariseIgnored()
+
+		require.Empty(t, logger.warnings)
+	})
+
+	t.Run("reports every pass together", func(t *testing.T) {
+		t.Parallel()
+
+		logger := &captureLogger{Logger: log.NewNoopLogger()}
+		g := &SnapshotGenerator{logger: logger}
+
+		g.recordIgnored(phaseSchema, []error{attach})
+		g.recordIgnored(phaseIndicesAndConstraints, []error{exists, noEcho})
+		g.summariseIgnored()
+
+		require.Equal(t, []string{"restore summary: 3 statements were not applied"}, logger.warnings)
+		require.Len(t, logger.warnFields, 1)
+
+		require.Equal(t,
+			map[string]int{phaseSchema: 1, phaseIndicesAndConstraints: 2},
+			logger.warnFields[0]["by_phase"])
+
+		require.Equal(t, []map[string]string{
+			{
+				"phase":     phaseSchema,
+				"reason":    "relation does not exist",
+				"statement": "ALTER INDEX public.parent_idx ATTACH PARTITION public.child_idx;",
+			},
+			{
+				"phase":     phaseIndicesAndConstraints,
+				"reason":    "relation already exists",
+				"statement": "CREATE TABLE public.users (id integer);",
+			},
+			{
+				"phase":  phaseIndicesAndConstraints,
+				"reason": "permission denied",
+				// the typed error renders its own kind ahead of the server text
+				"detail": "permission denied: ERROR:  permission denied for schema public",
+			},
+		}, logger.warnFields[0]["not_applied"])
+	})
+
+	t.Run("passes read in the order they ran", func(t *testing.T) {
+		t.Parallel()
+
+		logger := &captureLogger{Logger: log.NewNoopLogger()}
+		g := &SnapshotGenerator{logger: logger}
+
+		// the same pass reached twice keeps its first position, so the summary
+		// does not reorder itself around a retry
+		g.recordIgnored(phaseIndicesAndConstraints, []error{exists})
+		g.recordIgnored(phaseViews, []error{noEcho})
+		g.recordIgnored(phaseIndicesAndConstraints, []error{attach})
+		g.summariseIgnored()
+
+		entries, ok := logger.warnFields[0]["not_applied"].([]map[string]string)
+		require.True(t, ok)
+		require.Equal(t,
+			[]string{phaseIndicesAndConstraints, phaseIndicesAndConstraints, phaseViews},
+			[]string{entries[0]["phase"], entries[1]["phase"], entries[2]["phase"]})
+	})
+
+	t.Run("reset clears what an earlier snapshot recorded", func(t *testing.T) {
+		t.Parallel()
+
+		logger := &captureLogger{Logger: log.NewNoopLogger()}
+		g := &SnapshotGenerator{logger: logger}
+
+		g.recordIgnored(phaseSchema, []error{attach})
+		g.resetIgnored()
+		g.summariseIgnored()
+
+		require.Empty(t, logger.warnings)
+	})
+
+	t.Run("an empty slice does not open a pass", func(t *testing.T) {
+		t.Parallel()
+
+		logger := &captureLogger{Logger: log.NewNoopLogger()}
+		g := &SnapshotGenerator{logger: logger}
+
+		g.recordIgnored(phaseSchema, nil)
+		g.summariseIgnored()
+
+		require.Empty(t, logger.warnings)
+	})
 }
