@@ -222,8 +222,12 @@ type dump struct {
 	views                     []byte
 	materializedViewRefreshes []byte
 	sequences                 []string
-	roles                     map[string]role
-	eventTriggers             []byte
+	// identitySequences are the sequences of identity columns. pg_dump writes
+	// them inside the ALTER TABLE that adds the identity, not with CREATE
+	// SEQUENCE, and dumps their data only together with the table data.
+	identitySequences []string
+	roles             map[string]role
+	eventTriggers     []byte
 }
 
 const (
@@ -402,6 +406,11 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 		if err != nil {
 			return err
 		}
+		identitySequenceDump, err := s.dumpIdentitySequenceValues(ctx, dump.identitySequences)
+		if err != nil {
+			return err
+		}
+		sequenceDump = append(sequenceDump, identitySequenceDump...)
 	}
 
 	// the schema dump will not include the roles, so we need to dump them
@@ -859,6 +868,70 @@ func (s *SnapshotGenerator) dumpSequenceValues(ctx context.Context, sequences []
 	return d, nil
 }
 
+// identitySequenceValuesQuery returns one setval statement per sequence on
+// input, in the same form as the pg_dump sequence data. A sequence that was
+// never used keeps its start value with is_called false.
+const identitySequenceValuesQuery = `SELECT format('SELECT pg_catalog.setval(%L, %s, %s);',
+    format('%I.%I', n.nspname, c.relname),
+    COALESCE(pg_sequence_last_value(c.oid), s.seqstart),
+    -- ::text renders true/false; %s on a boolean renders t/f, which setval rejects as a column name
+    (pg_sequence_last_value(c.oid) IS NOT NULL)::text)
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_sequence s ON s.seqrelid = c.oid
+WHERE c.oid = ANY($1::regclass[])`
+
+// dumpIdentitySequenceValues reads the current values of the identity
+// sequences on the source. pg_dump dumps the data of an identity sequence only
+// together with the data of its table, so the data-only dump of the sequences
+// does not include them.
+func (s *SnapshotGenerator) dumpIdentitySequenceValues(ctx context.Context, sequences []string) ([]byte, error) {
+	if len(sequences) == 0 {
+		return nil, nil
+	}
+
+	s.logger.Debug("dumping identity sequence data", loglib.Fields{"sequences": sequences})
+	rows, err := s.sourceQuerier.Query(ctx, identitySequenceValuesQuery, sequences)
+	if err != nil {
+		return nil, fmt.Errorf("querying identity sequence values: %w", err)
+	}
+	defer rows.Close()
+
+	var d bytes.Buffer
+	for rows.Next() {
+		var statement string
+		if err := rows.Scan(&statement); err != nil {
+			return nil, fmt.Errorf("scanning identity sequence value: %w", err)
+		}
+		d.WriteString(statement)
+		d.WriteString("\n")
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading identity sequence values: %w", err)
+	}
+	return d.Bytes(), nil
+}
+
+// identitySequenceName returns the sequence name when line is the second line
+// of an identity column definition, which pg_dump splits over several lines:
+//
+//	ALTER TABLE public.t ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+//	    SEQUENCE NAME public.t_id_seq
+func identitySequenceName(alterTable, line string) (string, bool) {
+	if !strings.HasSuffix(alterTable, " AS IDENTITY (") {
+		return "", false
+	}
+	name, found := strings.CutPrefix(strings.TrimSpace(line), "SEQUENCE NAME ")
+	if !found {
+		return "", false
+	}
+	qualifiedName, err := pglib.NewQualifiedName(name)
+	if err != nil {
+		return "", false
+	}
+	return qualifiedName.String(), true
+}
+
 func (s *SnapshotGenerator) dumpRoles(ctx context.Context, rolesInSchemaDump map[string]role) ([]byte, error) {
 	opts := s.optionGenerator.pgdumpRolesOptions()
 	if opts == nil {
@@ -1047,6 +1120,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 	eventTriggersDump := strings.Builder{}
 	viewsDump := strings.Builder{}
 	sequenceNames := []string{}
+	identitySequenceNames := []string{}
 	dumpRoles := make(map[string]role)
 	connectStatements := []string{}
 	materializedViews := []string{}
@@ -1110,6 +1184,9 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 			// skip security labels if configured to do so for the specified providers
 			continue
 		case alterTable != "":
+			if name, ok := identitySequenceName(alterTable, line); ok {
+				identitySequenceNames = append(identitySequenceNames, name)
+			}
 			// check if the previous alter table line is split in two lines and matches a constraint
 			if strings.Contains(line, "ADD CONSTRAINT") || isClusterOnAlterTable(line) {
 				indicesAndConstraints.WriteString(alterTable)
@@ -1268,6 +1345,7 @@ func (s *SnapshotGenerator) parseDump(d []byte) *dump {
 		views:                     []byte(viewsDump.String()),
 		materializedViewRefreshes: materializedViewRefreshDump(connectStatements, materializedViews),
 		sequences:                 sequenceNames,
+		identitySequences:         identitySequenceNames,
 		roles:                     dumpRoles,
 		eventTriggers:             []byte(eventTriggersDump.String()),
 	}

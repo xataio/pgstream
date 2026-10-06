@@ -307,7 +307,7 @@ func (a *dmlAdapter) buildBulkInsertQueries(events []*wal.Data, si schemaInfo) [
 	queries := make([]*query, 0, numChunks+len(events))
 
 	// track max values for sequence columns across all events
-	seqMaxValues := make(map[string]int64) // seqName -> maxValue
+	seqMaxValues := make(map[sequenceTarget]int64)
 
 	for start := 0; start < len(events); start += rowsPerChunk {
 		end := min(start+rowsPerChunk, len(events))
@@ -338,8 +338,12 @@ func (a *dmlAdapter) buildBulkInsertQueries(events []*wal.Data, si schemaInfo) [
 							})
 							continue
 						}
-						if current, exists := seqMaxValues[seqName]; !exists || val > current {
-							seqMaxValues[seqName] = val
+						seq := sequenceTarget{name: seqName}
+						if seqName == "" {
+							seq.column = col.Name
+						}
+						if current, exists := seqMaxValues[seq]; !exists || val > current {
+							seqMaxValues[seq] = val
 						}
 					}
 				}
@@ -363,13 +367,8 @@ func (a *dmlAdapter) buildBulkInsertQueries(events []*wal.Data, si schemaInfo) [
 	}
 
 	// emit a single setval per sequence using the max value
-	for seqName, maxVal := range seqMaxValues {
-		queries = append(queries, &query{
-			table:  events[0].Table,
-			schema: events[0].Schema,
-			sql:    "SELECT setval($1::regclass, $2::bigint, true)",
-			args:   []any{seqName, maxVal},
-		})
+	for seq, maxVal := range seqMaxValues {
+		queries = append(queries, setSequenceQuery(events[0].Schema, events[0].Table, seq, maxVal))
 	}
 
 	return queries
