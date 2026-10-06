@@ -4,12 +4,14 @@ package postgres
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 )
@@ -266,8 +268,8 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: float64(1)},
-					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(1), Name: "id", Value: float64(1), Type: "int4"},
+					{ID: columnID(2), Name: "name", Value: "alice", Type: "text"},
 				},
 				Metadata: wal.Metadata{
 					InternalColIDs: []string{columnID(1)},
@@ -324,8 +326,8 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: 1},
-					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(1), Name: "id", Value: 1, Type: "int4"},
+					{ID: columnID(2), Name: "name", Value: "alice", Type: "text"},
 					{ID: columnID(3), Name: "created_at", Value: pgtype.Infinity, Type: "timestamptz"},
 				},
 				Metadata: wal.Metadata{
@@ -351,8 +353,8 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: 1},
-					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(1), Name: "id", Value: 1, Type: "int4"},
+					{ID: columnID(2), Name: "name", Value: "alice", Type: "text"},
 					{ID: columnID(3), Name: "datetime_range", Value: pgtype.Range[any]{
 						Lower:     now.Add(-1 * time.Minute),
 						Upper:     now.Add(time.Minute),
@@ -390,8 +392,8 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: 1},
-					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(1), Name: "id", Value: 1, Type: "int4"},
+					{ID: columnID(2), Name: "name", Value: "alice", Type: "text"},
 					{ID: columnID(3), Name: "datetime_range", Value: pgtype.Range[any]{
 						Lower:     now.Add(-1 * time.Minute),
 						Upper:     nil,
@@ -429,8 +431,8 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: 1},
-					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(1), Name: "id", Value: 1, Type: "int4"},
+					{ID: columnID(2), Name: "name", Value: "alice", Type: "text"},
 					{ID: columnID(3), Name: "datetime_range", Value: pgtype.Range[any]{
 						Lower:     nil,
 						Upper:     now.Add(time.Minute),
@@ -468,7 +470,7 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(1), Name: "id", Value: 1, Type: "int4"},
 					{ID: columnID(2), Name: "search_vec", Value: []byte("'hello':1 'world':2"), Type: "tsvector"},
 				},
 				Metadata: wal.Metadata{
@@ -494,7 +496,7 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: 1},
+					{ID: columnID(1), Name: "id", Value: 1, Type: "int4"},
 					{ID: columnID(2), Name: "search_vec", Value: "'hello':1 'world':2", Type: "tsvector"},
 				},
 				Metadata: wal.Metadata{
@@ -520,8 +522,8 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: 1},
-					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(1), Name: "id", Value: 1, Type: "int4"},
+					{ID: columnID(2), Name: "name", Value: "alice", Type: "text"},
 					{ID: columnID(3), Name: "status_array", Value: "{EXAMPLE}", Type: "text[]"},
 				},
 				Metadata: wal.Metadata{
@@ -541,14 +543,16 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 			},
 		},
 		{
+			// the type name alone routes this to text COPY,
+			// without the column being in enumColumns
 			name: "insert with enum array using underscore prefix - for copy enabled",
 			walData: &wal.Data{
 				Action: "I",
 				Schema: testSchema,
 				Table:  testTable,
 				Columns: []wal.Column{
-					{ID: columnID(1), Name: "id", Value: 1},
-					{ID: columnID(2), Name: "name", Value: "alice"},
+					{ID: columnID(1), Name: "id", Value: 1, Type: "int4"},
+					{ID: columnID(2), Name: "name", Value: "alice", Type: "text"},
 					{ID: columnID(3), Name: "status_array", Value: "{EXAMPLE}", Type: "_ExampleEnum"},
 				},
 				Metadata: wal.Metadata{
@@ -559,11 +563,12 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 
 			wantQueries: []*query{
 				{
-					schema:      testSchema,
-					table:       testTable,
-					columnNames: []string{`"id"`, `"name"`, `"status_array"`},
-					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\", \"status_array\") OVERRIDING SYSTEM VALUE VALUES($1, $2, $3)", quotedTestTable),
-					args:        []any{1, "alice", []string{"EXAMPLE"}},
+					schema:        testSchema,
+					table:         testTable,
+					columnNames:   []string{`"id"`, `"name"`, `"status_array"`},
+					needsTextCopy: true,
+					sql:           fmt.Sprintf("INSERT INTO %s(\"id\", \"name\", \"status_array\") OVERRIDING SYSTEM VALUE VALUES($1, $2, $3)", quotedTestTable),
+					args:          []any{1, "alice", "{EXAMPLE}"},
 				},
 			},
 		},
@@ -901,7 +906,7 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				logger:           log.NewNoopLogger(),
 				onConflictAction: tc.action,
 				forCopy:          tc.forCopy,
-				pgTypeMap:        pgtype.NewMap(),
+				pgTypeMap:        newWarmTypeMap(),
 			}
 			queries, err := a.walDataToQueries(tc.walData, schemaInfo{
 				generatedColumns:      tc.generatedColumns,
@@ -928,42 +933,73 @@ func Test_needsTextCopyForColumns(t *testing.T) {
 		{
 			name:        "no text-only columns",
 			columnNames: []string{`"id"`, `"name"`},
-			columnTypes: []string{"integer", "text"},
+			// the names Mapper.TypeForOID resolves
+			columnTypes: []string{"int4", "text"},
 			enumColumns: nil,
 			want:        false,
 		},
 		{
-			name:        "static text-only type",
+			name:        "text-only extension type",
 			columnNames: []string{`"id"`, `"location"`},
-			columnTypes: []string{"integer", "ltree"},
+			columnTypes: []string{"int4", "ltree"},
+			enumColumns: nil,
+			want:        true,
+		},
+		{
+			// regression for #1211: the writer gets hex EWKB text
+			name:        "postgis geometry column",
+			columnNames: []string{`"id"`, `"geom"`},
+			columnTypes: []string{"int4", "geometry"},
+			enumColumns: nil,
+			want:        true,
+		},
+		{
+			name:        "array of an extension type",
+			columnNames: []string{`"id"`, `"geoms"`},
+			columnTypes: []string{"int4", "_geometry"},
+			enumColumns: nil,
+			want:        true,
+		},
+		{
+			name:        "extension type pgstream registers a binary codec for",
+			columnNames: []string{`"id"`, `"embedding"`, `"attrs"`},
+			columnTypes: []string{"int4", "vector", "hstore"},
+			enumColumns: nil,
+			want:        false,
+		},
+		{
+			// the snapshot never spells a type this way
+			name:        "format_type spelling falls back to text copy",
+			columnNames: []string{`"id"`, `"name"`},
+			columnTypes: []string{"int4", "character varying"},
 			enumColumns: nil,
 			want:        true,
 		},
 		{
 			name:        "timetz column",
 			columnNames: []string{`"id"`, `"start_at"`},
-			columnTypes: []string{"integer", "timetz"},
+			columnTypes: []string{"int4", "timetz"},
 			enumColumns: nil,
 			want:        true,
 		},
 		{
 			name:        "timetz column, format_type spelling",
 			columnNames: []string{`"id"`, `"start_at"`},
-			columnTypes: []string{"integer", "time with time zone"},
+			columnTypes: []string{"int4", "time with time zone"},
 			enumColumns: nil,
 			want:        true,
 		},
 		{
 			name:        "enum column",
 			columnNames: []string{`"id"`, `"mood"`},
-			columnTypes: []string{"integer", "mood"},
+			columnTypes: []string{"int4", "mood"},
 			enumColumns: map[string]enumColumn{`"mood"`: {enumType: "public.mood"}},
 			want:        true,
 		},
 		{
 			name:        "enum type present but column filtered out",
 			columnNames: []string{`"id"`},
-			columnTypes: []string{"integer"},
+			columnTypes: []string{"int4"},
 			enumColumns: map[string]enumColumn{`"mood"`: {enumType: "public.mood"}},
 			want:        false,
 		},
@@ -972,9 +1008,52 @@ func Test_needsTextCopyForColumns(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tc.want, needsTextCopyForColumns(tc.columnNames, tc.columnTypes, tc.enumColumns))
+			require.Equal(t, tc.want, newTestDMLAdapterForCopy(t).needsTextCopyForColumns(tc.columnNames, tc.columnTypes, tc.enumColumns))
 		})
 	}
+}
+
+func Test_needsTextCopyForType(t *testing.T) {
+	t.Parallel()
+
+	a := newTestDMLAdapterForCopy(t)
+
+	// no codec encodes these, so they arrive as text
+	for _, colType := range []string{
+		"geometry", "geography", "_geometry", "citext", "money", "tsquery",
+		"cube", "ltree", "timetz", "my_composite",
+		// the snapshot never spells a type the way format_type prints it
+		"integer", "bigint", "character varying", "double precision",
+		"timestamp without time zone", "time with time zone", "character varying[]",
+		// an unresolved name takes the format that never corrupts
+		"", "unknown",
+	} {
+		require.Truef(t, a.needsTextCopyForType(colType), "expected text copy for %q", colType)
+	}
+
+	// these all keep the faster binary COPY
+	for _, colType := range []string{
+		"int4", "int8", "text", "varchar", "numeric", "uuid",
+		"jsonb", "tsvector", "int4range", "_text", "text[]",
+		"hstore", "vector", "halfvec",
+	} {
+		require.Falsef(t, a.needsTextCopyForType(colType), "expected binary copy for %q", colType)
+	}
+}
+
+// A new registration must not land in neither set.
+func Test_copyFormatSets_coverRegisteredExtensionTypes(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range pglib.ExtensionTypeNames() {
+		_, textOnly := textOnlyCopyTypes[name]
+		_, binarySafe := binaryCopySafeTypes[name]
+		require.NotEqualf(t, textOnly, binarySafe,
+			"extension type %q must be either text-only or binary-copy safe", name)
+	}
+
+	require.Contains(t, textOnlyCopyTypes, "ltree")
+	require.Contains(t, binaryCopySafeTypes, "vector")
 }
 
 func Test_updateValueForCopy_enumArray(t *testing.T) {
@@ -990,6 +1069,10 @@ func Test_updateValueForCopy_enumArray(t *testing.T) {
 	// writes the postgres array literal verbatim — parsing it into a slice here
 	// would leave the text encoder with a value it cannot render.
 	require.Equal(t, "{happy,sad}", a.updateValueForCopy("{happy,sad}", "mood[]", true))
+
+	// the same holds for an array no codec can encode
+	require.Equal(t, "{0101000000,0101000020}",
+		a.updateValueForCopy("{0101000000,0101000020}", "_geometry", false))
 }
 
 func Test_updateValueForCopy_arrayDimensions(t *testing.T) {
@@ -1173,4 +1256,46 @@ func TestDMLAdapter_filterRowColumns(t *testing.T) {
 			require.Equal(t, tc.wantValues, rowValues)
 		})
 	}
+}
+
+// The bulk writer shares one adapter across goroutines.
+// Every path that touches the shared pgtype.Map runs here,
+// so a lazy write inside pgx fails CI instead of production.
+// Only meaningful under -race.
+func Test_dmlAdapter_concurrentTypeMapUse(t *testing.T) {
+	t.Parallel()
+
+	a := newTestDMLAdapterForCopy(t)
+
+	// TypeForName, over names that hit and miss pgx's map
+	typeNames := []string{"int4", "text", "_text", "numeric", "geometry", "hstore", "mood", ""}
+	// SQLScanner, over several element types
+	arrays := map[string]string{"_text": "{a,b}", "_int4": "{1,2}", "_numeric": "{1.5,2.5}", "_bool": "{t,f}"}
+	// Scan, over every range type parseRangeLiteral instantiates
+	ranges := map[string]string{
+		"int4range": "[1,10)",
+		"int8range": "[1,10)",
+		"numrange":  "[1.5,2.5)",
+		"daterange": "[2024-01-01,2024-02-01)",
+		"tsrange":   "[2024-01-01 00:00:00,2024-02-01 00:00:00)",
+		"tstzrange": "[2024-01-01 00:00:00+00,2024-02-01 00:00:00+00)",
+	}
+
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, n := range typeNames {
+				a.needsTextCopyForType(n)
+			}
+			for colType, literal := range arrays {
+				require.NotNil(t, a.updateValueForCopy(literal, colType, false))
+			}
+			for colType, literal := range ranges {
+				require.NotEqual(t, literal, a.updateValueForCopy(literal, colType, false))
+			}
+		}()
+	}
+	wg.Wait()
 }

@@ -189,6 +189,9 @@ type extensionType struct {
 	// and sparsevec). Used by ExtensionTypeNames so callers see every type the
 	// entry covers.
 	extraNames []string
+	// pgtype.TextCodec answers binary with text.
+	// Binary COPY of such a column corrupts.
+	textCopyOnly bool
 	// register is invoked with the resolved OID once the type has been found
 	// in pg_type. Implementations are free to register additional related types.
 	register func(ctx context.Context, conn *pgx.Conn, oid uint32) error
@@ -211,9 +214,13 @@ var extensionTypes = []extensionType{
 		}
 		return nil
 	}},
-	{name: "cube", register: registerWithCodec("cube", pgtype.TextCodec{})},
-	{name: "ltree", register: registerWithCodec("ltree", pgtype.TextCodec{})},
-	{name: "timetz", register: registerWithCodec("timetz", pgtype.TextCodec{})},
+	// Each has a binary layout the codec cannot produce:
+	//   - cube: int32 header, then float8 coordinates
+	//   - ltree: 1-byte version, then the path
+	//   - timetz: int64 micros, then int32 offset
+	{name: "cube", textCopyOnly: true, register: registerWithCodec("cube", pgtype.TextCodec{})},
+	{name: "ltree", textCopyOnly: true, register: registerWithCodec("ltree", pgtype.TextCodec{})},
+	{name: "timetz", textCopyOnly: true, register: registerWithCodec("timetz", pgtype.TextCodec{})},
 }
 
 // ExtensionTypeNames returns the names of every postgres extension type
@@ -231,12 +238,35 @@ func ExtensionTypeNames() []string {
 	return names
 }
 
+// TextCopyOnlyTypeNames returns the extension types needing text COPY.
+func TextCopyOnlyTypeNames() []string {
+	return extensionTypeNamesWhere(true)
+}
+
+// BinaryCopySafeTypeNames returns the extension types binary COPY handles.
+// pgx's static map has no entry for them.
+func BinaryCopySafeTypeNames() []string {
+	return extensionTypeNamesWhere(false)
+}
+
+func extensionTypeNamesWhere(textCopyOnly bool) []string {
+	names := make([]string, 0, len(extensionTypes))
+	for _, ext := range extensionTypes {
+		if ext.textCopyOnly != textCopyOnly {
+			continue
+		}
+		names = append(names, ext.name)
+		names = append(names, ext.extraNames...)
+	}
+	return names
+}
+
 // registerTypesToConnMap teaches pgx about the postgres extension types
 // listed in extensionTypes for every new connection.
 //
 // To add a new extension type, append one entry to extensionTypes above:
 //   - Simple case (one OID, one codec): use registerWithCodec("name", codec).
-//     For COPY-safe text round-trip, pass pgtype.TextCodec{}.
+//     Pass pgtype.TextCodec{} with textCopyOnly for a text-only type.
 //   - Complex case (extension exposes several related types, or needs
 //     library-side setup): inline a register func; see the "vector" entry,
 //     which delegates to pgxvec.RegisterTypes.
