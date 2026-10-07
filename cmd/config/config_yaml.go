@@ -146,10 +146,9 @@ type PgDumpPgRestoreConfig struct {
 type ReplicationConfig struct {
 	ReplicationSlot string        `mapstructure:"replication_slot" yaml:"replication_slot"`
 	Plugin          *PluginConfig `mapstructure:"plugin" yaml:"plugin"`
-	// ReceiveTimeout bounds a single read on the replication connection, as a
-	// duration such as "90s". Zero takes the default, a negative value removes
-	// the bound.
-	ReceiveTimeout time.Duration `mapstructure:"receive_timeout" yaml:"receive_timeout"`
+	// ReceiveTimeout bounds a single read on the replication connection, in
+	// seconds. Zero takes the default, a negative value removes the bound.
+	ReceiveTimeout int `mapstructure:"receive_timeout" yaml:"receive_timeout"`
 }
 
 type PluginConfig struct {
@@ -546,7 +545,7 @@ func (c *YAMLConfig) parsePostgresListenerConfig() (*stream.PostgresListenerConf
 		pluginArgs := pgreplication.PluginArguments{}
 		if c.Source.Postgres.Replication != nil {
 			replicationSlotName = c.Source.Postgres.Replication.ReplicationSlot
-			receiveTimeout = c.Source.Postgres.Replication.ReceiveTimeout
+			receiveTimeout = time.Duration(c.Source.Postgres.Replication.ReceiveTimeout) * time.Second
 			if c.Source.Postgres.Replication.Plugin != nil {
 				pluginArgs.IncludeXIDs = c.Source.Postgres.Replication.Plugin.IncludeXIDs
 				pluginArgs.AddTables = c.Source.Postgres.Replication.Plugin.AddTables

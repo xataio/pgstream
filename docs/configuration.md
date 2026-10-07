@@ -67,7 +67,7 @@ source:
       disable_progress_tracking: false # whether to disable progress tracking for the snapshot. Defaults to false
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
-      receive_timeout: "90s" # how long a single read on the replication connection waits before the stream is treated as gone. Defaults to 90s. A negative value removes the bound.
+      receive_timeout: 90 # seconds a single read on the replication connection waits before the stream is treated as gone. Defaults to 90. A negative value removes the bound.
       plugin:
         include_xids: false # whether to include transaction IDs in the replication stream events. Defaults to false.
         add_tables: "public.*" # comma-separated list of tables to include in the wal2json output. Supports wildcards. Filters at the source decode level. Defaults to all tables.
