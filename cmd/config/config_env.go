@@ -54,6 +54,7 @@ func bindEnvVars() {
 
 	viper.BindEnv("PGSTREAM_HEALTH_CHECK_ENABLED")
 	viper.BindEnv("PGSTREAM_HEALTH_CHECK_ADDRESS")
+	viper.BindEnv("PGSTREAM_HEALTH_CHECK_STALL_TIMEOUT")
 
 	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_URL")
 	viper.BindEnv("PGSTREAM_POSTGRES_LISTENER_EXP_BACKOFF_INITIAL_INTERVAL")
@@ -199,8 +200,9 @@ func bindEnvVars() {
 
 func envToHealthConfig() *health.Config {
 	return &health.Config{
-		Enabled: viper.GetBool("PGSTREAM_HEALTH_CHECK_ENABLED"),
-		Address: viper.GetString("PGSTREAM_HEALTH_CHECK_ADDRESS"),
+		Enabled:      viper.GetBool("PGSTREAM_HEALTH_CHECK_ENABLED"),
+		Address:      viper.GetString("PGSTREAM_HEALTH_CHECK_ADDRESS"),
+		StallTimeout: viper.GetDuration("PGSTREAM_HEALTH_CHECK_STALL_TIMEOUT"),
 	}
 }
 

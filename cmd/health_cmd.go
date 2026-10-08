@@ -55,6 +55,9 @@ func startHealthServer(ctx context.Context, logger loglib.Logger, sourcePostgres
 		opts = append(opts, health.WithPhaseProvider(func() string {
 			return string(phaseTracker.Get())
 		}))
+		if cfg.StallTimeout > 0 {
+			opts = append(opts, health.WithLivenessCheck(stallCheck(phaseTracker, cfg.StallTimeout)))
+		}
 	}
 
 	var pool *pglib.Pool
@@ -95,4 +98,36 @@ func startHealthServer(ctx context.Context, logger loglib.Logger, sourcePostgres
 			}
 		}
 	}, nil
+}
+
+// progressTracker is the part of phase.Tracker that stallCheck reads.
+type progressTracker interface {
+	Get() phase.Phase
+	LastProgress() time.Time
+}
+
+// stallCheck reports the pipeline as unhealthy once it has been streaming and
+// has reported nothing for longer than the timeout.
+//
+// It applies to the replication phase only. A snapshot loads for hours without
+// a single WAL message, and failing liveness there would restart the load from
+// the beginning. Before the first report there is nothing to judge, so the
+// check passes.
+func stallCheck(tracker progressTracker, timeout time.Duration) func() error {
+	return func() error {
+		if tracker.Get() != phase.Replication {
+			return nil
+		}
+		last := tracker.LastProgress()
+		if last.IsZero() {
+			// the phase is set before anything is reported in it, so there is
+			// nothing to judge yet. Without this, time.Since(zero) would fail
+			// the check on the spot.
+			return nil
+		}
+		if since := time.Since(last); since > timeout {
+			return fmt.Errorf("no replication progress for %s", since.Truncate(time.Second))
+		}
+		return nil
+	}
 }

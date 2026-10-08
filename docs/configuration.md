@@ -506,7 +506,9 @@ One of exponential/constant/disable retries retry policies can be provided for t
 <details>
   <summary>Health endpoint</summary>
 
-Exposes `/health` (liveness, always 200), `/ready` (readiness, pings the source postgres database when configured), and `/status` (current pipeline phase: `snapshot` or `replication`). Only the `run` and `snapshot` commands start the server. Responses are JSON.
+Exposes `/health` (liveness), `/ready` (readiness, pings the source postgres database when configured), and `/status` (current pipeline phase: `snapshot` or `replication`). Only the `run` and `snapshot` commands start the server. Responses are JSON.
+
+`/health` answers 200 whenever the process is up, unless a stall timeout is configured. With `instrumentation.health.stall_timeout` (`PGSTREAM_HEALTH_CHECK_STALL_TIMEOUT`) set, it answers 503 once a pipeline that is replicating has reported nothing for longer than that, which lets an orchestrator restart a process that is running but no longer doing its work. The snapshot phase is exempt, since a load runs for a long time without a single WAL message.
 
 When `instrumentation.metrics.prometheus.enabled` (`PGSTREAM_METRICS_PROMETHEUS_ENABLED`) is true, the server also exposes a Prometheus scrape endpoint (default path `/metrics`, configurable via `instrumentation.metrics.prometheus.endpoint` / `PGSTREAM_METRICS_PROMETHEUS_ENDPOINT`). The endpoint returns `404` when Prometheus is disabled. This lets you scrape pgstream's metrics directly, without deploying an OTel collector.
 
@@ -514,6 +516,7 @@ When `instrumentation.metrics.prometheus.enabled` (`PGSTREAM_METRICS_PROMETHEUS_
 | ------------------------------ | ---------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
 | PGSTREAM_HEALTH_CHECK_ENABLED  | False            | No       | Enable the health endpoint server.                                                                           |
 | PGSTREAM_HEALTH_CHECK_ADDRESS  | localhost:9910   | No       | Address the health server listens on. Use `:9910` or `0.0.0.0:9910` to expose externally (e.g. in k8s pods). |
+| PGSTREAM_HEALTH_CHECK_STALL_TIMEOUT | 0           | No       | How long a replicating pipeline may report no progress before `/health` answers 503. Unset leaves `/health` reporting only whether the process is up. |
 
 </details>
 
