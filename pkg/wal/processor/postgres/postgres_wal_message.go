@@ -4,13 +4,16 @@ package postgres
 
 import "github.com/xataio/pgstream/pkg/wal"
 
-// walMessage wraps a wal.Data with pre-fetched schema information, deferring
-// query building to batch send time so that consecutive same-table DML events
-// can be coalesced into bulk SQL statements.
+// walMessage carries a queued WAL event or a prepared event with schema
+// information. Preparation and query building run in batch order, after any
+// preceding DDL, so catalog lookups cannot cache the pre-DDL target schema.
 type walMessage struct {
 	data       *wal.Data
 	schemaInfo schemaInfo
 	isDDL      bool
+	// needsPreparation is set on queued events. Adapter-produced messages
+	// already have metadata and leave it false.
+	needsPreparation bool
 }
 
 // walMessageOverhead is the approximate size of the walMessage struct itself
