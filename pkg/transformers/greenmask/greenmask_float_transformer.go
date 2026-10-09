@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"strconv"
 
 	greenmasktransformers "github.com/eminano/greenmask/pkg/generators/transformers"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -107,6 +108,16 @@ func (ft *FloatTransformer) Transform(_ context.Context, value transformers.Valu
 		toTransform = getBytesForFloat(float64(val))
 	case int:
 		toTransform = getBytesForFloat(float64(val))
+	// A numeric column carries its text on the replication path, so that a
+	// value wider than a float64 keeps its digits on the way to the target.
+	// The transformer produces a float64 whatever it is given, so the text is
+	// read as one here, as it was before it was text.
+	case string:
+		number, parseErr := strconv.ParseFloat(val, 64)
+		if parseErr != nil {
+			return nil, transformers.ErrUnsupportedValueType
+		}
+		toTransform = getBytesForFloat(number)
 	case []byte:
 		toTransform = val
 	default:

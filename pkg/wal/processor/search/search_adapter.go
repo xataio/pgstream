@@ -207,7 +207,9 @@ func (a *adapter) parseIDColumns(tableName string, idColumns []wal.Column, doc *
 
 	isCompositeID := len(idColumns) > 1
 	for _, col := range idColumns {
-		switch v := col.Value.(type) {
+		// IdentityValue keeps the rendering a previous version produced for a
+		// numeric column, so that an existing index keeps matching.
+		switch v := col.IdentityValue().(type) {
 		case string:
 			addToID(v)
 		case int32:
