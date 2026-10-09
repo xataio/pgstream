@@ -48,6 +48,14 @@ func (t SchemaTableMap) ContainsSchemaTable(schema, table string) bool {
 	return containsTable(t[schema]) || containsTable(t[wildcard])
 }
 
+// ContainsWholeSchema returns true if every table in the schema is listed,
+// either through a schema wildcard entry ("schema.*") or a global one ("*.*").
+func (t SchemaTableMap) ContainsWholeSchema(schema string) bool {
+	_, found := t[schema][wildcard]
+	_, globalFound := t[wildcard][wildcard]
+	return found || globalFound
+}
+
 // ContainsExactSchemaTable returns true only if the table is listed by its
 // exact name under the exact schema. Wildcard entries do not match.
 func (t SchemaTableMap) ContainsExactSchemaTable(schema, table string) bool {
