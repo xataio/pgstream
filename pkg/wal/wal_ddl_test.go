@@ -274,6 +274,37 @@ func TestDDLEvent_GetTableObjects(t *testing.T) {
 	require.Equal(t, "public.posts", tables[1].Identity)
 }
 
+func TestDDLEvent_StatementKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+		wantKey string
+	}{
+		{
+			name:    "statement identity",
+			content: `{"ddl": "ALTER TABLE t ADD COLUMN c int", "xid": 5011, "statement_timestamp": "2026-10-15T09:30:59.123456+00:00"}`,
+			wantKey: "5011/2026-10-15T09:30:59.123456+00:00",
+		},
+		{
+			name:    "event from an emit_ddl() without the statement identity",
+			content: `{"ddl": "ALTER TABLE t ADD COLUMN c int"}`,
+			wantKey: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ddlEvent, err := WalDataToDDLEvent(&Data{Action: LogicalMessageAction, Prefix: DDLPrefix, Content: tc.content})
+			require.NoError(t, err)
+			require.Equal(t, tc.wantKey, ddlEvent.StatementKey())
+		})
+	}
+}
+
 func TestDDLObject_GetName(t *testing.T) {
 	t.Parallel()
 
