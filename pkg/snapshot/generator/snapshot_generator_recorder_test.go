@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	snapshotstore "github.com/xataio/pgstream/pkg/snapshot/store"
 	snapshotstoremocks "github.com/xataio/pgstream/pkg/snapshot/store/mocks"
@@ -1006,4 +1007,84 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSnapshotRecorder_CreateSnapshot_repeatableReusesStaleRequest(t *testing.T) {
+	t.Parallel()
+
+	// a previous run was killed mid-snapshot and left a non-completed request
+	// behind, so creating a new one hits the partial unique index
+	dupErr := &pglib.ErrConstraintViolation{
+		Details: `duplicate key value violates unique constraint "schema_table_status_hash_unique_index"`,
+	}
+
+	var statuses []snapshot.Status
+	store := &snapshotstoremocks.Store{
+		CreateSnapshotRequestFn: func(ctx context.Context, r *snapshot.Request) error {
+			return fmt.Errorf("error creating snapshot request: %w", dupErr)
+		},
+		UpdateSnapshotRequestFn: func(ctx context.Context, _ uint, r *snapshot.Request) error {
+			statuses = append(statuses, r.Status)
+			return nil
+		},
+	}
+
+	generatorCalled := false
+	generator := &mockGenerator{
+		createSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
+			generatorCalled = true
+			return nil
+		},
+	}
+
+	sr := NewSnapshotRecorder(&Config{
+		RepeatableSnapshots: true,
+		SnapshotWorkers:     1,
+	}, store, generator)
+	defer sr.Close()
+
+	err := sr.CreateSnapshot(context.Background(), &snapshot.Snapshot{
+		SchemaTables: map[string][]string{"public": {"t1"}},
+	})
+	require.NoError(t, err)
+	require.True(t, generatorCalled)
+	require.Equal(t, []snapshot.Status{snapshot.StatusInProgress, snapshot.StatusCompleted}, statuses)
+}
+
+func TestSnapshotRecorder_CreateSnapshot_nonRepeatableConflictIsActionable(t *testing.T) {
+	t.Parallel()
+
+	dupErr := &pglib.ErrConstraintViolation{
+		Details: `duplicate key value violates unique constraint "schema_table_status_hash_unique_index"`,
+	}
+
+	store := &snapshotstoremocks.Store{
+		GetSnapshotRequestsBySchemaFn: func(ctx context.Context, s string) ([]*snapshot.Request, error) {
+			return []*snapshot.Request{}, nil
+		},
+		CreateSnapshotRequestFn: func(ctx context.Context, r *snapshot.Request) error {
+			return fmt.Errorf("error creating snapshot request: %w", dupErr)
+		},
+		UpdateSnapshotRequestFn: func(ctx context.Context, _ uint, r *snapshot.Request) error {
+			return fmt.Errorf("unexpected call to UpdateSnapshotRequestFn: %v", r)
+		},
+	}
+
+	generator := &mockGenerator{
+		createSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
+			return errors.New("unexpected call to CreateSnapshot")
+		},
+	}
+
+	sr := NewSnapshotRecorder(&Config{
+		RepeatableSnapshots: false,
+		SnapshotWorkers:     1,
+	}, store, generator)
+	defer sr.Close()
+
+	err := sr.CreateSnapshot(context.Background(), &snapshot.Snapshot{
+		SchemaTables: map[string][]string{"public": {"t1"}},
+	})
+	require.ErrorIs(t, err, dupErr)
+	require.ErrorContains(t, err, "pgstream.snapshot_requests")
 }

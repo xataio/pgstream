@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/backoff"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/snapshot"
@@ -160,7 +161,22 @@ func (s *SnapshotRecorder) markSnapshotInProgress(ctx context.Context, requests 
 	for _, req := range requests {
 		eg.Go(func() error {
 			if err := s.store.CreateSnapshotRequest(ctx, req); err != nil {
-				return err
+				conflictErr := &pglib.ErrConstraintViolation{}
+				if !errors.As(err, &conflictErr) {
+					return err
+				}
+				// a non-completed request for the same schema and tables
+				// already exists, usually left behind by a run that was
+				// killed mid-snapshot
+				if !s.repeatableSnapshots {
+					return fmt.Errorf("a non-completed snapshot request for schema %q already exists in %s.%s; if no snapshot is running, delete that row or mark it completed: %w", req.Schema, snapshotstore.SchemaName, snapshotstore.TableName, err)
+				}
+				// repeatable snapshots run again regardless of existing
+				// requests, so reuse the stale one instead of failing
+				s.logger.Warn(err, "reusing non-completed snapshot request left by a previous run", loglib.Fields{
+					"schema": req.Schema,
+					"mode":   req.GetMode(),
+				})
 			}
 			// the snapshot will start immediately
 			req.MarkInProgress()
