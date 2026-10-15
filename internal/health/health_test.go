@@ -211,3 +211,36 @@ func TestHandlePrometheusDisabled(t *testing.T) {
 
 	require.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+// A process that is up but no longer doing its work must fail liveness, so
+// that an orchestrator restarts it.
+func TestHandleHealth_LivenessCheck(t *testing.T) {
+	t.Parallel()
+
+	s := NewServer(Config{}, nil, WithVersion("v1.2.3"), WithLivenessCheck(func() error {
+		return errors.New("no replication progress for 5m0s")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	s.handleHealth(rec, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	body, _ := io.ReadAll(rec.Body)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(body, &got))
+	require.Equal(t, "unhealthy", got["status"])
+	require.Contains(t, string(body), "no replication progress")
+}
+
+func TestHandleHealth_LivenessCheckPasses(t *testing.T) {
+	t.Parallel()
+
+	s := NewServer(Config{}, nil, WithLivenessCheck(func() error { return nil }))
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	s.handleHealth(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+}
