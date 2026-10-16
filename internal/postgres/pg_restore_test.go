@@ -272,6 +272,42 @@ STATEMENT:  ALTER TABLE public.users OWNER TO admin;`,
 			},
 		},
 		{
+			name: "unavailable extension is ignorable",
+			output: `ERROR:  extension "pg_cron" is not available
+DETAIL:  Could not open extension control file "/usr/share/postgresql/17/extension/pg_cron.control": No such file or directory.
+HINT:  The extension must first be installed on the system where PostgreSQL is running.
+STATEMENT:  CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;`,
+
+			wantErrs: &PGRestoreErrors{
+				ignoredErrs: []error{
+					&ErrRestoreStatement{Err: &ErrExtensionNotCreated{Details: `ERROR:  extension "pg_cron" is not available: DETAIL:  Could not open extension control file "/usr/share/postgresql/17/extension/pg_cron.control": No such file or directory.`}, Echo: "STATEMENT:  CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;"},
+				},
+			},
+		},
+		{
+			name: "forbidden extension is ignorable",
+			output: `ERROR:  permission denied to create extension "pgsodium"
+HINT:  Must be superuser to create this extension.
+STATEMENT:  CREATE EXTENSION IF NOT EXISTS pgsodium WITH SCHEMA pgsodium;`,
+
+			wantErrs: &PGRestoreErrors{
+				ignoredErrs: []error{
+					&ErrRestoreStatement{Err: &ErrExtensionNotCreated{Details: `ERROR:  permission denied to create extension "pgsodium"`}, Echo: "STATEMENT:  CREATE EXTENSION IF NOT EXISTS pgsodium WITH SCHEMA pgsodium;"},
+				},
+			},
+		},
+		{
+			name: "transient error on create extension stays retryable",
+			output: `ERROR:  canceling statement due to lock timeout
+STATEMENT:  CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public;`,
+
+			wantErrs: &PGRestoreErrors{
+				retryableErrs: []error{
+					&ErrRestoreStatement{Err: &ErrTransientFailure{Details: "ERROR:  canceling statement due to lock timeout"}, Echo: "STATEMENT:  CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public;"},
+				},
+			},
+		},
+		{
 			name: "error with command was line from pg_restore",
 			output: `pg_restore: error: could not execute query: ERROR:  relation "users" already exists
 Command was: CREATE TABLE public.users (id integer);`,

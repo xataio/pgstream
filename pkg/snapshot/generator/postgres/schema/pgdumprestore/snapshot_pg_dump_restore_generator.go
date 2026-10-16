@@ -224,6 +224,7 @@ type dump struct {
 	sequences                 []string
 	roles                     map[string]role
 	eventTriggers             []byte
+	extensionSchemas          []string
 }
 
 const (
@@ -263,7 +264,7 @@ func NewSnapshotGenerator(ctx context.Context, c *Config, opts ...Option) (*Snap
 		excludedSecurityLabels:         c.ExcludedSecurityLabels,
 		roleSQLParser:                  &roleSQLParser{},
 		sourceQuerier:                  sourceConnPool,
-		optionGenerator:                newOptionGenerator(sourceConnPool, c),
+		optionGenerator:                newOptionGenerator(sourceConnPool, c, objTypeFilter),
 		refreshMaterializedViews:       c.RefreshMaterializedViews,
 		indexConstraintSessionSettings: c.IndexConstraintSessionSettings,
 		objectTypeFilter:               objTypeFilter,
@@ -327,6 +328,10 @@ func WithRestoreToWAL(processor processor.Processor) Option {
 		// so concurrency buys nothing and would emit the DDL events out of
 		// order
 		sg.indexRestoreWorkers = defaultIndexRestoreWorkers
+		// extensions only matter to a postgres target
+		if sg.optionGenerator != nil {
+			sg.optionGenerator.includeExtensions = false
+		}
 	}
 }
 
@@ -413,7 +418,7 @@ func (s *SnapshotGenerator) CreateSnapshot(ctx context.Context, ss *snapshot.Sna
 
 	// RESTORE
 
-	if err := s.restoreSchemas(ctx, dumpSchemas); err != nil {
+	if err := s.restoreSchemas(ctx, dumpSchemas, dump.extensionSchemas); err != nil {
 		return err
 	}
 
@@ -806,6 +811,16 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables, schema
 		return nil, fmt.Errorf("preparing pg_dump options: %w", err)
 	}
 
+	extensions, err := s.optionGenerator.scopedExtensions(ctx, pgdumpOpts)
+	if err != nil {
+		return nil, fmt.Errorf("preparing pg_dump options: %w", err)
+	}
+	extensionSchemas := make([]string, 0, len(extensions))
+	for _, ext := range extensions {
+		pgdumpOpts.Extensions = append(pgdumpOpts.Extensions, pglib.QuoteIdentifier(ext.name))
+		extensionSchemas = append(extensionSchemas, ext.schema)
+	}
+
 	// produce first the schema dump without the clean up statements
 	pgdumpOpts.Clean = false
 
@@ -818,6 +833,7 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables, schema
 	}
 
 	parsedDump := s.parseDump(d)
+	parsedDump.extensionSchemas = extensionSchemas
 	// remove the event triggers that reference functions from excluded schemas
 	parsedDump.filtered = append(parsedDump.filtered, s.filterTriggers(parsedDump.eventTriggers, pgdumpOpts.ExcludeSchemas)...)
 
@@ -837,6 +853,9 @@ func (s *SnapshotGenerator) dumpSchema(ctx context.Context, schemaTables, schema
 			return nil, fmt.Errorf("dumping schema: %w", err)
 		}
 		parsedDump.cleanupPart = s.objectTypeFilter.filterCleanupDump(getDumpsDiff(dumpWithCleanUp, d))
+		if len(pgdumpOpts.Extensions) > 0 {
+			parsedDump.cleanupPart = removeExtensionDrops(parsedDump.cleanupPart, extensionSchemas)
+		}
 		s.dumpToFile(s.getDumpFileName("-cleanup"), pgdumpOpts, parsedDump.cleanupPart)
 	}
 
@@ -900,12 +919,23 @@ func (s *SnapshotGenerator) dumpRoles(ctx context.Context, rolesInSchemaDump map
 // if we use table filtering in the pg_dump command, the schema creation will
 // not be dumped, so it needs to be created explicitly (except for public
 // schema)
-func (s *SnapshotGenerator) restoreSchemas(ctx context.Context, schemaTables map[string][]string) error {
+func (s *SnapshotGenerator) restoreSchemas(ctx context.Context, schemaTables map[string][]string, extensionSchemas []string) error {
 	schemaDump := strings.Builder{}
 	for schema, tables := range schemaTables {
 		if len(tables) > 0 && schema != publicSchema && schema != wildcard {
 			fmt.Fprintf(&schemaDump, "CREATE SCHEMA IF NOT EXISTS %s;\n", pglib.QuoteIdentifier(schema))
 		}
+	}
+
+	// CREATE EXTENSION ... WITH SCHEMA fails if the schema isn't there, and it
+	// can be outside the snapshot scope
+	seen := map[string]struct{}{}
+	for _, schema := range extensionSchemas {
+		if _, found := seen[schema]; found || schema == publicSchema || len(schemaTables[schema]) > 0 {
+			continue
+		}
+		seen[schema] = struct{}{}
+		fmt.Fprintf(&schemaDump, "CREATE SCHEMA IF NOT EXISTS %s;\n", pglib.QuoteIdentifier(schema))
 	}
 
 	return s.restoreDump(ctx, phaseSchemas, []byte(schemaDump.String()))
@@ -1022,6 +1052,7 @@ func ignoredReason(err error) string {
 		permission    *pglib.ErrPermissionDenied
 		constraint    *pglib.ErrConstraintViolation
 		commentOwner  *pglib.ErrCommentOwnership
+		extension     *pglib.ErrExtensionNotCreated
 	)
 	switch {
 	case errors.As(err, &alreadyExists):
@@ -1034,6 +1065,8 @@ func ignoredReason(err error) string {
 		return "constraint violation"
 	case errors.As(err, &commentOwner):
 		return "comment requires object ownership"
+	case errors.As(err, &extension):
+		return "extension could not be created"
 	default:
 		return "unclassified"
 	}
@@ -1604,6 +1637,21 @@ func mergeTables(t1, t2 []string) []string {
 
 func hasWildcardSchema(schemaTables map[string][]string) bool {
 	return schemaTables[wildcard] != nil
+}
+
+// cloud providers often preinstall extensions the target relies on, so a clean
+// target must not drop them, or the schemas they live in, which would fail on
+// the extension depending on it
+func removeExtensionDrops(cleanupDump []byte, extensionSchemas []string) []byte {
+	lines := strings.Split(string(cleanupDump), "\n")
+	lines = slices.DeleteFunc(lines, func(line string) bool {
+		if strings.HasPrefix(line, "DROP EXTENSION ") {
+			return true
+		}
+		schema, found := strings.CutPrefix(line, "DROP SCHEMA IF EXISTS ")
+		return found && slices.Contains(extensionSchemas, pglib.UnquoteIdentifier(strings.TrimSuffix(schema, ";")))
+	})
+	return []byte(strings.Join(lines, "\n"))
 }
 
 // returns all the lines of d1 that are not in d2
