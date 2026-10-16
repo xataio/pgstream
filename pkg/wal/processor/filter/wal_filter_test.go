@@ -228,6 +228,39 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 	multiTableDDLEventBytes, err := json.Marshal(multiTableDDLEvent)
 	require.NoError(t, err)
 
+	marshalDDLEvent := func(e *wal.DDLEvent) []byte {
+		b, err := json.Marshal(e)
+		require.NoError(t, err)
+		return b
+	}
+
+	indexDDLEventBytes := marshalDDLEvent(&wal.DDLEvent{
+		DDL:        "CREATE INDEX idx_test_table_name ON test_schema.test_table (name);",
+		SchemaName: testSchema,
+		CommandTag: "CREATE INDEX",
+		Objects: []wal.DDLObject{
+			{Type: "index", Identity: "test_schema.idx_test_table_name", Schema: testSchema},
+		},
+	})
+
+	typeDDLEventBytes := marshalDDLEvent(&wal.DDLEvent{
+		DDL:        "CREATE TYPE test_schema.test_type AS ENUM ('foo', 'bar');",
+		SchemaName: testSchema,
+		CommandTag: "CREATE TYPE",
+		Objects: []wal.DDLObject{
+			{Type: "type", Identity: "test_schema.test_type", Schema: testSchema},
+		},
+	})
+
+	extensionDDLEventBytes := marshalDDLEvent(&wal.DDLEvent{
+		DDL:        "CREATE EXTENSION pgcrypto;",
+		SchemaName: testSchema,
+		CommandTag: "CREATE EXTENSION",
+		Objects: []wal.DDLObject{
+			{Type: "extension", Identity: "pgcrypto"},
+		},
+	})
+
 	newDDLEvent := func(content []byte) *wal.Event {
 		return &wal.Event{
 			Data: &wal.Data{
@@ -680,6 +713,138 @@ func TestFilter_ProcessWALEvent(t *testing.T) {
 			},
 
 			wantProcessCalls: 0,
+			wantErr:          nil,
+		},
+		{
+			name:      "index DDL event filtered when its schema is not included",
+			event:     newDDLEvent(indexDDLEventBytes),
+			processor: &mocks.Processor{},
+			included: pglib.SchemaTableMap{
+				"other_schema": {"*": struct{}{}},
+			},
+
+			wantProcessCalls: 0,
+			wantErr:          nil,
+		},
+		{
+			name:      "type DDL event filtered when its schema is not included",
+			event:     newDDLEvent(typeDDLEventBytes),
+			processor: &mocks.Processor{},
+			included: pglib.SchemaTableMap{
+				"other_schema": {"*": struct{}{}},
+			},
+
+			wantProcessCalls: 0,
+			wantErr:          nil,
+		},
+		{
+			name:  "type DDL event passes when a table in its schema is included",
+			event: newDDLEvent(typeDDLEventBytes),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					require.Equal(t, string(typeDDLEventBytes), walEvent.Data.Content)
+					return nil
+				},
+			},
+			included: pglib.SchemaTableMap{
+				testSchema: {testTable: struct{}{}},
+			},
+
+			wantProcessCalls: 1,
+			wantErr:          nil,
+		},
+		{
+			name:  "type DDL event passes with included *.*",
+			event: newDDLEvent(typeDDLEventBytes),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					require.Equal(t, string(typeDDLEventBytes), walEvent.Data.Content)
+					return nil
+				},
+			},
+			included: pglib.SchemaTableMap{
+				"*": {"*": struct{}{}},
+			},
+
+			wantProcessCalls: 1,
+			wantErr:          nil,
+		},
+		{
+			name:  "type DDL event passes with included *.table",
+			event: newDDLEvent(typeDDLEventBytes),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					require.Equal(t, string(typeDDLEventBytes), walEvent.Data.Content)
+					return nil
+				},
+			},
+			included: pglib.SchemaTableMap{
+				"*": {testTable: struct{}{}},
+			},
+
+			wantProcessCalls: 1,
+			wantErr:          nil,
+		},
+		{
+			name:  "type DDL event passes when its schema has a schema-only table",
+			event: newDDLEvent(typeDDLEventBytes),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					require.Equal(t, string(typeDDLEventBytes), walEvent.Data.Content)
+					return nil
+				},
+			},
+			included: pglib.SchemaTableMap{
+				"other_schema": {"*": struct{}{}},
+			},
+			schemaOnly: pglib.SchemaTableMap{
+				testSchema: {testTable: struct{}{}},
+			},
+
+			wantProcessCalls: 1,
+			wantErr:          nil,
+		},
+		{
+			name:      "index DDL event filtered when its whole schema is excluded",
+			event:     newDDLEvent(indexDDLEventBytes),
+			processor: &mocks.Processor{},
+			excluded: pglib.SchemaTableMap{
+				testSchema: {"*": struct{}{}},
+			},
+
+			wantProcessCalls: 0,
+			wantErr:          nil,
+		},
+		{
+			name:  "index DDL event passes when only some tables in its schema are excluded",
+			event: newDDLEvent(indexDDLEventBytes),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					require.Equal(t, string(indexDDLEventBytes), walEvent.Data.Content)
+					return nil
+				},
+			},
+			excluded: pglib.SchemaTableMap{
+				testSchema: {"another_table": struct{}{}},
+			},
+
+			wantProcessCalls: 1,
+			wantErr:          nil,
+		},
+		{
+			name:  "DDL event for object without schema passes with included list",
+			event: newDDLEvent(extensionDDLEventBytes),
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					require.Equal(t, string(extensionDDLEventBytes), walEvent.Data.Content)
+					return nil
+				},
+			},
+			included: pglib.SchemaTableMap{
+				"other_schema": {"*": struct{}{}},
+			},
+
+			wantProcessCalls: 1,
 			wantErr:          nil,
 		},
 	}
