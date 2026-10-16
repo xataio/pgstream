@@ -35,7 +35,10 @@ type pgSchemaObserver struct {
 	alwaysIdentityTableColumns *synclib.Map[string, map[string]struct{}]
 	// materializedViews is a map of schema name to a set of materialized view names.
 	materializedViews *synclib.Map[string, map[string]struct{}]
-	// columnTableSequences is a map of schema.table to a map of sequence column names.
+	// columnTableSequences is a map of schema.table to a map of sequence column
+	// names to their sequence name. The sequence name is empty for an identity
+	// column learnt from a DDL event, which does not carry it: the target then
+	// resolves the owned sequence when the setval query runs.
 	columnTableSequences *synclib.Map[string, map[string]string]
 	// enumTableColumns is a map of schema.table to the quoted column names whose
 	// type resolves to a user-defined enum, each with the catalog-resolved
@@ -246,12 +249,12 @@ func (o *pgSchemaObserver) update(ddlEvent *wal.DDLEvent) {
 }
 
 // updateGeneratedColumnNames will update the internal cache with the table
-// columns for the schema log on input. Identity columns are added to
-// generatedColumns via IsGenerated() (preserved historical behavior so live
-// INSERTs let the target auto-generate ids and the sequence increments
-// naturally). GENERATED ALWAYS AS IDENTITY columns are additionally tracked in
-// alwaysIdentityTableColumns so UPDATE SET clauses can drop them even on
-// cache paths where generatedColumns is empty (e.g. populated via SQL query).
+// columns for the schema log on input. Identity columns are not generated
+// columns: INSERTs write the source value with OVERRIDING SYSTEM VALUE and then
+// move the target sequence with setval, so source and target ids stay the same.
+// This matches the columns queried from postgres (attgenerated only).
+// GENERATED ALWAYS AS IDENTITY columns are tracked in alwaysIdentityTableColumns
+// so UPDATE SET clauses can drop them.
 func (o *pgSchemaObserver) updateGeneratedColumnNames(tables []wal.DDLObject) {
 	for _, table := range tables {
 		key := pglib.QuoteQualifiedIdentifier(table.Schema, table.GetName())
@@ -261,7 +264,7 @@ func (o *pgSchemaObserver) updateGeneratedColumnNames(tables []wal.DDLObject) {
 			if c.IsAlwaysIdentity() {
 				alwaysIdentityColumns[pglib.QuoteIdentifier(c.Name)] = struct{}{}
 			}
-			if c.IsGenerated() {
+			if c.Generated {
 				generatedColumns[pglib.QuoteIdentifier(c.Name)] = struct{}{}
 			}
 		}
@@ -504,18 +507,24 @@ func (o *pgSchemaObserver) queryMaterializedViews(ctx context.Context, schemaNam
 	return mvNames, nil
 }
 
+// sequenceColumnQuery returns the sequences owned by the table columns: serial
+// columns (auto dependency) and identity columns (internal dependency). An
+// identity column has no pg_attrdef default, so the query must not require one.
+// An owned sequence cannot move to another schema, so it is always in the table
+// schema.
 const sequenceColumnQuery = `SELECT
     a.attname AS column_name,
     s.relname AS sequence_name
 FROM pg_class t
 JOIN pg_namespace n ON n.oid = t.relnamespace
 JOIN pg_attribute a ON a.attrelid = t.oid
-JOIN pg_attrdef ad ON ad.adrelid = t.oid AND ad.adnum = a.attnum
 JOIN pg_depend d ON d.refobjid = t.oid AND d.refobjsubid = a.attnum
 JOIN pg_class s ON s.oid = d.objid
 WHERE t.relkind = 'r'
     AND s.relkind = 'S'
-    AND d.deptype = 'a'
+    AND d.classid = 'pg_class'::regclass
+    AND d.refclassid = 'pg_class'::regclass
+    AND d.deptype IN ('a', 'i')
     AND n.nspname = $1
     AND t.relname = $2
     AND a.attnum > 0

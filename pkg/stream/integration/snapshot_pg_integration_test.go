@@ -1385,6 +1385,10 @@ func Test_SnapshotToPostgres_IdentityAndGeneratedColumns(t *testing.T) {
 			)`, testTable))
 		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
 			`INSERT INTO %s(id, name) VALUES (10, 'alpha'),(20, 'beta'),(30, 'gamma')`, testTable))
+		// move the identity sequence past the inserted ids: the target sequence
+		// must hold the source value after the snapshot, not the max id.
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`SELECT setval(pg_get_serial_sequence('%s', 'id'), 100)`, testTable))
 
 		cfg := &stream.Config{
 			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{testTable}),
@@ -1414,7 +1418,14 @@ func Test_SnapshotToPostgres_IdentityAndGeneratedColumns(t *testing.T) {
 				{id: 30, name: "gamma", username: "item_gamma"},
 			}
 			require.Equal(t, want, rows)
-			return true
+
+			// the sequence values are restored after the data
+			var lastValue int64
+			var isCalled bool
+			err := targetConn.QueryRow(ctx, []any{&lastValue, &isCalled},
+				fmt.Sprintf("SELECT last_value, is_called FROM %s_id_seq", testTable))
+			require.NoError(t, err)
+			return lastValue == 100 && isCalled
 		}
 
 		for {
