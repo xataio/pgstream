@@ -9,7 +9,6 @@ import (
 	"slices"
 	"time"
 
-	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/backoff"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/snapshot"
@@ -83,11 +82,24 @@ func (s *SnapshotRecorder) CreateSnapshot(ctx context.Context, ss *snapshot.Snap
 
 	requests := s.createRequests(ss)
 
+	// only one run at a time may work on a given schema and table list. A
+	// leftover non-completed request is reused below only while holding this
+	// lock: a live run would still hold it, since the lock is released only
+	// when that run ends or its process dies.
+	release, err := s.store.LockSnapshotRequests(ctx, requests)
+	if err != nil {
+		if errors.Is(err, snapshotstore.ErrSnapshotRequestLocked) {
+			return fmt.Errorf("another snapshot of the same schema and tables is running, wait for it to finish: %w", err)
+		}
+		return err
+	}
+	defer release()
+
 	if err := s.markSnapshotInProgress(ctx, requests); err != nil {
 		return err
 	}
 
-	err := s.wrapped.CreateSnapshot(ctx, ss)
+	err = s.wrapped.CreateSnapshot(ctx, ss)
 
 	return s.markSnapshotCompleted(ctx, requests, err)
 }
@@ -160,31 +172,51 @@ func (s *SnapshotRecorder) markSnapshotInProgress(ctx context.Context, requests 
 	// create one request per schema
 	for _, req := range requests {
 		eg.Go(func() error {
-			if err := s.store.CreateSnapshotRequest(ctx, req); err != nil {
-				conflictErr := &pglib.ErrConstraintViolation{}
-				if !errors.As(err, &conflictErr) {
-					return err
-				}
-				// a non-completed request for the same schema and tables
-				// already exists, usually left behind by a run that was
-				// killed mid-snapshot
-				if !s.repeatableSnapshots {
-					return fmt.Errorf("a non-completed snapshot request for schema %q already exists in %s.%s; if no snapshot is running, delete that row or mark it completed: %w", req.Schema, snapshotstore.SchemaName, snapshotstore.TableName, err)
-				}
-				// repeatable snapshots run again regardless of existing
-				// requests, so reuse the stale one instead of failing
-				s.logger.Warn(err, "reusing non-completed snapshot request left by a previous run", loglib.Fields{
-					"schema": req.Schema,
-					"mode":   req.GetMode(),
-				})
-			}
-			// the snapshot will start immediately
-			req.MarkInProgress()
-			return s.store.UpdateSnapshotRequest(ctx, req)
+			return s.startRequest(ctx, req)
 		})
 	}
 
 	return eg.Wait()
+}
+
+// startRequest records the request as in progress. A non-completed request
+// for the same schema and table list can only be left behind by a run that
+// has ended, since the caller holds the request lock. Repeatable snapshots
+// take it over, otherwise the conflict is reported.
+func (s *SnapshotRecorder) startRequest(ctx context.Context, req *snapshot.Request) error {
+	err := s.store.CreateSnapshotRequest(ctx, req)
+	if err == nil {
+		// the snapshot will start immediately
+		req.MarkInProgress()
+		return s.store.UpdateSnapshotRequest(ctx, req)
+	}
+	if !errors.Is(err, snapshotstore.ErrNonCompletedRequestExists) {
+		return err
+	}
+	if !s.repeatableSnapshots {
+		return fmt.Errorf("a non-completed snapshot request for schema %q already exists in %s.%s; if no snapshot is running, delete that row or mark it completed: %w", req.Schema, snapshotstore.SchemaName, snapshotstore.TableName, err)
+	}
+
+	resumed, resumeErr := s.store.ResumeSnapshotRequest(ctx, req)
+	if resumeErr != nil {
+		return resumeErr
+	}
+	if resumed {
+		s.logger.Warn(err, "reusing non-completed snapshot request left by a previous run", loglib.Fields{
+			"schema": req.Schema,
+			"mode":   req.GetMode(),
+		})
+		req.MarkInProgress()
+		return nil
+	}
+
+	// the leftover request was completed between the insert and the take
+	// over, so the insert can go through now
+	if err := s.store.CreateSnapshotRequest(ctx, req); err != nil {
+		return err
+	}
+	req.MarkInProgress()
+	return s.store.UpdateSnapshotRequest(ctx, req)
 }
 
 func (s *SnapshotRecorder) markSnapshotCompleted(ctx context.Context, requests []*snapshot.Request, err error) error {

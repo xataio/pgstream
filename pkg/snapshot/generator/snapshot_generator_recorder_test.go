@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	pglib "github.com/xataio/pgstream/internal/postgres"
 	"github.com/xataio/pgstream/pkg/snapshot"
 	snapshotstore "github.com/xataio/pgstream/pkg/snapshot/store"
 	snapshotstoremocks "github.com/xataio/pgstream/pkg/snapshot/store/mocks"
@@ -1009,82 +1008,163 @@ func TestSnapshotRecorder_filterOutExistingSnapshots(t *testing.T) {
 	}
 }
 
-func TestSnapshotRecorder_CreateSnapshot_repeatableReusesStaleRequest(t *testing.T) {
+// errStaleRequest is what the store returns when a non-completed request for
+// the same schema and tables is already recorded
+var errStaleRequest = fmt.Errorf("error creating snapshot request: %w: %w", snapshotstore.ErrNonCompletedRequestExists,
+	errors.New(`constraint violation: duplicate key value violates unique constraint "schema_table_status_hash_unique_index"`))
+
+func TestSnapshotRecorder_CreateSnapshot_staleRequest(t *testing.T) {
 	t.Parallel()
 
-	// a previous run was killed mid-snapshot and left a non-completed request
-	// behind, so creating a new one hits the partial unique index
-	dupErr := &pglib.ErrConstraintViolation{
-		Details: `duplicate key value violates unique constraint "schema_table_status_hash_unique_index"`,
+	errTest := errors.New("oh noes")
+
+	tests := []struct {
+		name        string
+		repeatable  bool
+		createErrs  []error
+		lockErr     error
+		resumed     bool
+		resumeErr   error
+		generateErr error
+
+		wantErr         error
+		wantErrContains string
+		wantCreates     int
+		wantResumes     int
+		wantGenerated   bool
+		wantStatuses    []snapshot.Status
+	}{
+		{
+			name:          "repeatable takes over the stale request",
+			repeatable:    true,
+			createErrs:    []error{errStaleRequest},
+			resumed:       true,
+			wantCreates:   1,
+			wantResumes:   1,
+			wantGenerated: true,
+			wantStatuses:  []snapshot.Status{snapshot.StatusCompleted},
+		},
+		{
+			name:          "repeatable inserts again when the stale request completed before the take over",
+			repeatable:    true,
+			createErrs:    []error{errStaleRequest, nil},
+			resumed:       false,
+			wantCreates:   2,
+			wantResumes:   1,
+			wantGenerated: true,
+			wantStatuses:  []snapshot.Status{snapshot.StatusInProgress, snapshot.StatusCompleted},
+		},
+		{
+			name:        "repeatable fails when the take over fails",
+			repeatable:  true,
+			createErrs:  []error{errStaleRequest},
+			resumeErr:   errTest,
+			wantErr:     errTest,
+			wantCreates: 1,
+			wantResumes: 1,
+		},
+		{
+			name:            "non repeatable conflict is actionable",
+			repeatable:      false,
+			createErrs:      []error{errStaleRequest},
+			wantErr:         snapshotstore.ErrNonCompletedRequestExists,
+			wantErrContains: "pgstream.snapshot_requests",
+			wantCreates:     1,
+		},
+		{
+			name:        "other constraint errors are not taken for a stale request",
+			repeatable:  true,
+			createErrs:  []error{errTest},
+			wantErr:     errTest,
+			wantCreates: 1,
+		},
+		{
+			name:            "another run holds the lock",
+			repeatable:      true,
+			lockErr:         fmt.Errorf("schema \"public\": %w", snapshotstore.ErrSnapshotRequestLocked),
+			wantErr:         snapshotstore.ErrSnapshotRequestLocked,
+			wantErrContains: "another snapshot of the same schema and tables is running",
+		},
+		{
+			name:          "lock is released when the snapshot fails",
+			repeatable:    true,
+			createErrs:    []error{nil},
+			generateErr:   errTest,
+			wantErr:       errTest,
+			wantCreates:   1,
+			wantGenerated: true,
+			wantStatuses:  []snapshot.Status{snapshot.StatusInProgress, snapshot.StatusCompleted},
+		},
 	}
 
-	var statuses []snapshot.Status
-	store := &snapshotstoremocks.Store{
-		CreateSnapshotRequestFn: func(ctx context.Context, r *snapshot.Request) error {
-			return fmt.Errorf("error creating snapshot request: %w", dupErr)
-		},
-		UpdateSnapshotRequestFn: func(ctx context.Context, _ uint, r *snapshot.Request) error {
-			statuses = append(statuses, r.Status)
-			return nil
-		},
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			creates, resumes, locks, releases := 0, 0, 0, 0
+			var statuses []snapshot.Status
+			store := &snapshotstoremocks.Store{
+				LockSnapshotRequestsFn: func(ctx context.Context, reqs []*snapshot.Request) (func(), error) {
+					locks++
+					require.Len(t, reqs, 1)
+					if tc.lockErr != nil {
+						return nil, tc.lockErr
+					}
+					return func() { releases++ }, nil
+				},
+				CreateSnapshotRequestFn: func(ctx context.Context, r *snapshot.Request) error {
+					creates++
+					require.LessOrEqual(t, creates, len(tc.createErrs))
+					return tc.createErrs[creates-1]
+				},
+				ResumeSnapshotRequestFn: func(ctx context.Context, r *snapshot.Request) (bool, error) {
+					resumes++
+					require.Equal(t, "public", r.Schema)
+					require.Equal(t, snapshot.RequestModeData, r.GetMode())
+					return tc.resumed, tc.resumeErr
+				},
+				UpdateSnapshotRequestFn: func(ctx context.Context, _ uint, r *snapshot.Request) error {
+					statuses = append(statuses, r.Status)
+					return nil
+				},
+				GetSnapshotRequestsBySchemaFn: func(ctx context.Context, s string) ([]*snapshot.Request, error) {
+					return []*snapshot.Request{}, nil
+				},
+			}
+
+			generated := false
+			generator := &mockGenerator{
+				createSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
+					generated = true
+					return tc.generateErr
+				},
+			}
+
+			sr := NewSnapshotRecorder(&Config{
+				RepeatableSnapshots: tc.repeatable,
+				SnapshotWorkers:     1,
+			}, store, generator)
+			defer sr.Close()
+
+			err := sr.CreateSnapshot(context.Background(), &snapshot.Snapshot{
+				SchemaTables: map[string][]string{"public": {"t1"}},
+			})
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			if tc.wantErrContains != "" {
+				require.ErrorContains(t, err, tc.wantErrContains)
+			}
+			require.Equal(t, 1, locks)
+			if tc.lockErr == nil {
+				require.Equal(t, 1, releases)
+			}
+			require.Equal(t, tc.wantCreates, creates)
+			require.Equal(t, tc.wantResumes, resumes)
+			require.Equal(t, tc.wantGenerated, generated)
+			require.Equal(t, tc.wantStatuses, statuses)
+		})
 	}
-
-	generatorCalled := false
-	generator := &mockGenerator{
-		createSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
-			generatorCalled = true
-			return nil
-		},
-	}
-
-	sr := NewSnapshotRecorder(&Config{
-		RepeatableSnapshots: true,
-		SnapshotWorkers:     1,
-	}, store, generator)
-	defer sr.Close()
-
-	err := sr.CreateSnapshot(context.Background(), &snapshot.Snapshot{
-		SchemaTables: map[string][]string{"public": {"t1"}},
-	})
-	require.NoError(t, err)
-	require.True(t, generatorCalled)
-	require.Equal(t, []snapshot.Status{snapshot.StatusInProgress, snapshot.StatusCompleted}, statuses)
-}
-
-func TestSnapshotRecorder_CreateSnapshot_nonRepeatableConflictIsActionable(t *testing.T) {
-	t.Parallel()
-
-	dupErr := &pglib.ErrConstraintViolation{
-		Details: `duplicate key value violates unique constraint "schema_table_status_hash_unique_index"`,
-	}
-
-	store := &snapshotstoremocks.Store{
-		GetSnapshotRequestsBySchemaFn: func(ctx context.Context, s string) ([]*snapshot.Request, error) {
-			return []*snapshot.Request{}, nil
-		},
-		CreateSnapshotRequestFn: func(ctx context.Context, r *snapshot.Request) error {
-			return fmt.Errorf("error creating snapshot request: %w", dupErr)
-		},
-		UpdateSnapshotRequestFn: func(ctx context.Context, _ uint, r *snapshot.Request) error {
-			return fmt.Errorf("unexpected call to UpdateSnapshotRequestFn: %v", r)
-		},
-	}
-
-	generator := &mockGenerator{
-		createSnapshotFn: func(ctx context.Context, ss *snapshot.Snapshot) error {
-			return errors.New("unexpected call to CreateSnapshot")
-		},
-	}
-
-	sr := NewSnapshotRecorder(&Config{
-		RepeatableSnapshots: false,
-		SnapshotWorkers:     1,
-	}, store, generator)
-	defer sr.Close()
-
-	err := sr.CreateSnapshot(context.Background(), &snapshot.Snapshot{
-		SchemaTables: map[string][]string{"public": {"t1"}},
-	})
-	require.ErrorIs(t, err, dupErr)
-	require.ErrorContains(t, err, "pgstream.snapshot_requests")
 }
