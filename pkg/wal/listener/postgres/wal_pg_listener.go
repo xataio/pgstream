@@ -54,7 +54,7 @@ func New(handler replicationHandler, processEvent listenerProcessWalEvent, opts 
 		logger:              loglib.NewNoopLogger(),
 		replicationHandler:  handler,
 		processEvent:        processEvent,
-		walDataDeserialiser: json.UnmarshalUseInt64,
+		walDataDeserialiser: json.UnmarshalUseNumber,
 		lsnParser:           handler.GetLSNParser(),
 	}
 
@@ -183,6 +183,7 @@ func (l *Listener) processWALEvent(ctx context.Context, msg *replication.Message
 		// site, and transformers then see the same []byte the snapshot path
 		// gives them instead of hex text.
 		decodeByteaColumns(event.Data)
+		decodeNumberColumns(event.Data)
 	}
 	event.CommitPosition = wal.CommitPosition(l.lsnParser.ToString(msg.LSN))
 	if isInternalPgstreamDML(event.Data) {
