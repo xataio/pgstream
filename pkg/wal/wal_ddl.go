@@ -16,6 +16,10 @@ type DDLEvent struct {
 	SchemaName string      `json:"schema_name"`
 	CommandTag string      `json:"command_tag"`
 	Objects    []DDLObject `json:"objects"`
+	// XID and StatementTimestamp identify the client query the event came
+	// from. Events emitted before emit_ddl() recorded them leave both unset.
+	XID                int64  `json:"xid,omitempty"`
+	StatementTimestamp string `json:"statement_timestamp,omitempty"`
 }
 
 // DDLObject represents an object affected by a DDL command
@@ -123,6 +127,18 @@ func (e *DDLEvent) GetTableObjectByName(schema, table string) *DDLObject {
 		}
 	}
 	return nil
+}
+
+// StatementKey identifies the client query that emitted the event, or returns
+// an empty string when the event does not carry one. The event triggers fire
+// once per DDL command but record the whole query text each time, so every
+// event from a query with several DDL commands has the same DDL and the same
+// key.
+func (e *DDLEvent) StatementKey() string {
+	if e.StatementTimestamp == "" {
+		return ""
+	}
+	return fmt.Sprintf("%d/%s", e.XID, e.StatementTimestamp)
 }
 
 func (e *DDLEvent) IsDropEvent() bool {
