@@ -636,6 +636,37 @@ func TestBuildBulkInsertQueries_WithSequence(t *testing.T) {
 	require.Equal(t, []any{"users_id_seq", int64(10)}, setvalQuery.args)
 }
 
+func TestBuildBulkInsertQueries_WithUnnamedIdentitySequence(t *testing.T) {
+	t.Parallel()
+
+	adapter := newTestDMLAdapter(t)
+	si := schemaInfo{
+		generatedColumns: map[string]struct{}{},
+		sequenceColumns:  map[string]string{`"id"`: ""},
+	}
+
+	events := []*wal.Data{
+		{
+			Action:  "I",
+			Schema:  "public",
+			Table:   "users",
+			Columns: []wal.Column{{Name: "id", Type: "bigint", Value: float64(10)}},
+		},
+		{
+			Action:  "I",
+			Schema:  "public",
+			Table:   "users",
+			Columns: []wal.Column{{Name: "id", Type: "bigint", Value: float64(4)}},
+		},
+	}
+
+	queries := adapter.buildBulkInsertQueries(events, si)
+	// 1 INSERT + 1 setval resolved on the target from the owning column
+	require.Len(t, queries, 2)
+	require.Equal(t, "SELECT setval(pg_get_serial_sequence($1, $2), $3::bigint, true)", queries[1].sql)
+	require.Equal(t, []any{`"public"."users"`, "id", int64(10)}, queries[1].args)
+}
+
 func TestBuildBulkInsertQueries_WithGeneratedColumns(t *testing.T) {
 	t.Parallel()
 
