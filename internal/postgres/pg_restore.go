@@ -279,6 +279,9 @@ func parsePgRestoreOutputErrs(out []byte) error {
 				if isOwnershipError(currentErr) && isCommentStatement(line) {
 					currentErr = &ErrCommentOwnership{Details: currentErr.Error()}
 				}
+				if isCreateExtensionStatement(line) && !isTransientError(currentErr) {
+					currentErr = &ErrExtensionNotCreated{Details: currentErr.Error()}
+				}
 				currentErr = &ErrRestoreStatement{Err: currentErr, Echo: truncateStatement(redactSecrets(line))}
 			}
 			inStatement = !endsStatement(line)
@@ -331,6 +334,19 @@ func isStatementLine(line string) bool {
 func isCommentStatement(line string) bool {
 	stmt, ok := stripStatementPrefix(line)
 	return ok && strings.HasPrefix(stmt, "COMMENT ON ")
+}
+
+// a missing package, a managed Postgres that forbids the extension or one that
+// needs preloading all fail differently, and none of them should stop the
+// restore of everything else
+func isCreateExtensionStatement(line string) bool {
+	stmt, ok := stripStatementPrefix(line)
+	return ok && strings.HasPrefix(stmt, "CREATE EXTENSION ")
+}
+
+func isTransientError(err error) bool {
+	var errTransient *ErrTransientFailure
+	return errors.As(err, &errTransient)
 }
 
 func endsStatement(line string) bool {
@@ -544,13 +560,15 @@ func (e *PGRestoreErrors) addError(err error) {
 	var errPermissionDenied *ErrPermissionDenied
 	var errDoesNotExist *ErrRelationDoesNotExist
 	var errCommentOwnership *ErrCommentOwnership
+	var errExtensionNotCreated *ErrExtensionNotCreated
 	var errTransient *ErrTransientFailure
 	switch {
 	case errors.As(err, &errAlreadyExists),
 		errors.As(err, &errConstraintViolation),
 		errors.As(err, &errPermissionDenied),
 		errors.As(err, &errDoesNotExist),
-		errors.As(err, &errCommentOwnership):
+		errors.As(err, &errCommentOwnership),
+		errors.As(err, &errExtensionNotCreated):
 		e.ignoredErrs = append(e.ignoredErrs, err)
 	case errors.As(err, &errTransient):
 		e.retryableErrs = append(e.retryableErrs, err)
