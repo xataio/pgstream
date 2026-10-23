@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 	pglib "github.com/xataio/pgstream/internal/postgres"
@@ -582,6 +583,163 @@ func TestStore_createTable(t *testing.T) {
 			}
 			err := store.createTable(context.Background())
 			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestStore_CreateSnapshotRequest_conflict(t *testing.T) {
+	t.Parallel()
+
+	req := &snapshot.Request{Schema: "public", Tables: []string{"t1"}}
+
+	tests := []struct {
+		name      string
+		execErr   error
+		wantStale bool
+	}{
+		{
+			name:      "unique violation on the non-completed request index",
+			execErr:   &pglib.ErrConstraintViolation{Details: `duplicate key value violates unique constraint "schema_table_status_hash_unique_index"`},
+			wantStale: true,
+		},
+		{
+			name:      "check constraint violation",
+			execErr:   &pglib.ErrConstraintViolation{Details: `new row for relation "snapshot_requests" violates check constraint "snapshot_requests_mode_check"`},
+			wantStale: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := &Store{
+				conn: &postgresmocks.Querier{
+					ExecFn: func(ctx context.Context, _ uint, _ string, _ ...any) (pglib.CommandTag, error) {
+						return pglib.CommandTag{}, tc.execErr
+					},
+				},
+			}
+			err := s.CreateSnapshotRequest(context.Background(), req)
+			require.ErrorIs(t, err, tc.execErr)
+			require.Equal(t, tc.wantStale, errors.Is(err, store.ErrNonCompletedRequestExists))
+		})
+	}
+}
+
+func TestStore_ResumeSnapshotRequest(t *testing.T) {
+	t.Parallel()
+
+	req := &snapshot.Request{Schema: "public", Tables: []string{"t1"}, Mode: snapshot.RequestModeSchemaOnly}
+	errTest := errors.New("oh noes")
+
+	tests := []struct {
+		name    string
+		tag     string
+		execErr error
+
+		wantResumed bool
+		wantErr     error
+	}{
+		{name: "takes over the leftover request", tag: "UPDATE 1", wantResumed: true},
+		{name: "no leftover request", tag: "UPDATE 0", wantResumed: false},
+		{name: "error", execErr: errTest, wantErr: errTest},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := &Store{
+				conn: &postgresmocks.Querier{
+					ExecFn: func(ctx context.Context, _ uint, q string, a ...any) (pglib.CommandTag, error) {
+						wantQuery := fmt.Sprintf(`UPDATE %s SET status = 'in progress', mode = $1, errors = NULL, updated_at = now()
+	WHERE schema_name = $2 and table_names = $3 and status != 'completed'`, snapshotsTable())
+						require.Equal(t, wantQuery, q)
+						require.Equal(t, []any{snapshot.RequestModeSchemaOnly, "public", pq.StringArray{"t1"}}, a)
+						return pglib.CommandTag{CommandTag: pgconn.NewCommandTag(tc.tag)}, tc.execErr
+					},
+				},
+			}
+			resumed, err := s.ResumeSnapshotRequest(context.Background(), req)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantResumed, resumed)
+		})
+	}
+}
+
+func TestStore_LockSnapshotRequests(t *testing.T) {
+	t.Parallel()
+
+	reqs := []*snapshot.Request{
+		{Schema: "b", Tables: []string{"t1"}},
+		{Schema: "a", Tables: []string{"t1"}},
+	}
+	errTest := errors.New("oh noes")
+
+	tests := []struct {
+		name      string
+		locked    []bool
+		queryErr  error
+		connErr   error
+		wantErr   error
+		wantCalls int
+	}{
+		{name: "all locks taken", locked: []bool{true, true}, wantCalls: 2},
+		{name: "second lock held by another run", locked: []bool{true, false}, wantErr: store.ErrSnapshotRequestLocked, wantCalls: 2},
+		{name: "lock query fails", queryErr: errTest, wantErr: errTest, wantCalls: 1},
+		{name: "lock connection fails", connErr: errTest, wantErr: errTest},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			calls, closes := 0, 0
+			var schemas []string
+			conn := &postgresmocks.Querier{
+				QueryRowFn: func(ctx context.Context, dest []any, q string, a ...any) error {
+					calls++
+					schema, ok := a[0].(string)
+					require.True(t, ok)
+					schemas = append(schemas, schema)
+					if tc.queryErr != nil {
+						return tc.queryErr
+					}
+					locked, ok := dest[0].(*bool)
+					require.True(t, ok)
+					*locked = tc.locked[calls-1]
+					return nil
+				},
+				CloseFn: func(context.Context) error {
+					closes++
+					return nil
+				},
+			}
+			s := &Store{
+				lockConnBuilder: func(context.Context) (pglib.Querier, error) {
+					if tc.connErr != nil {
+						return nil, tc.connErr
+					}
+					return conn, nil
+				},
+			}
+
+			release, err := s.LockSnapshotRequests(context.Background(), reqs)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantCalls, calls)
+			if tc.wantCalls > 0 {
+				// locks are taken in a fixed order
+				require.Equal(t, "a", schemas[0])
+			}
+			if err != nil {
+				require.Nil(t, release)
+				require.Equal(t, min(tc.wantCalls, 1), closes)
+				return
+			}
+			require.Equal(t, 0, closes)
+			release()
+			require.Equal(t, 1, closes)
 		})
 	}
 }
