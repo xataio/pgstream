@@ -205,6 +205,36 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - default with multi-byte characters",
+			params: ParameterValues{
+				"type": "default",
+			},
+			input:   "José Müller",
+			want:    "***********",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with mask indexes and multi-byte characters",
+			params: ParameterValues{
+				"type":       "custom",
+				"mask_begin": "2",
+				"mask_end":   "6",
+			},
+			input:   "東京都渋谷区神南",
+			want:    "東京****神南",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with unmask indexes and multi-byte characters",
+			params: ParameterValues{
+				"type":         "custom",
+				"unmask_begin": "50%",
+			},
+			input:   "ñandúñandú",
+			want:    "*****ñandú",
+			wantErr: nil,
+		},
+		{
 			name: "error - invalid input type",
 			params: ParameterValues{
 				"type": "default",
