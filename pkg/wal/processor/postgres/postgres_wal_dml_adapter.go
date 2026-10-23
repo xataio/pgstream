@@ -125,7 +125,7 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 			table:         d.Table,
 			schema:        d.Schema,
 			columnNames:   names,
-			needsTextCopy: a.forCopy && a.needsTextCopyForColumns(names, types, schemaInfo.enumColumns),
+			needsTextCopy: a.forCopy && a.needsTextCopyForColumns(names, types, schemaInfo),
 			sql: fmt.Sprintf("INSERT INTO %s(%s) OVERRIDING SYSTEM VALUE VALUES(%s)%s",
 				quotedTableName(d.Schema, d.Table), strings.Join(names, ", "),
 				strings.Join(placeholders, ", "),
@@ -321,8 +321,7 @@ func (a *dmlAdapter) filterRowColumnsForAction(cols []wal.Column, schemaInfo sch
 		val = getTypedRangeValue(c.Type, val)
 
 		if a.forCopy {
-			_, isEnum := schemaInfo.enumColumns[quoted]
-			val = a.updateValueForCopy(val, c.Type, isEnum)
+			val = a.updateValueForCopy(val, c.Type, schemaInfo.needsTextCopyForColumn(quoted))
 		}
 		rowValues = append(rowValues, val)
 	}
@@ -330,8 +329,8 @@ func (a *dmlAdapter) filterRowColumnsForAction(cols []wal.Column, schemaInfo sch
 }
 
 // updateValueForCopy adapts a value for the COPY encoder.
-// isEnum is passed because the type name can hide an enum.
-func (a *dmlAdapter) updateValueForCopy(value any, colType string, isEnum bool) any {
+// textCopy is passed because the type name can hide an enum or a composite.
+func (a *dmlAdapter) updateValueForCopy(value any, colType string, textCopy bool) any {
 	// For COPY, we might need to update the value for some data types,
 	// so that it will be able to be encoded into binary format correctly.
 
@@ -363,7 +362,7 @@ func (a *dmlAdapter) updateValueForCopy(value any, colType string, isEnum bool) 
 	if isArray(colType) {
 		// Text COPY writes the array literal verbatim.
 		// Asked here so only array columns pay for it.
-		if isEnum || a.needsTextCopyForType(colType) {
+		if textCopy || a.needsTextCopyForType(colType) {
 			return value
 		}
 		// If the value is a string (PostgreSQL array literal like "{val1,val2}"),
@@ -599,18 +598,28 @@ func (a *dmlAdapter) needsTextCopy(columnTypes []string) bool {
 }
 
 // needsTextCopyForColumns reports whether a batch needs text COPY.
-// An enum's OID has no binary codec either.
-// columnNames must be quoted to match enumColumns.
-func (a *dmlAdapter) needsTextCopyForColumns(columnNames, columnTypes []string, enumColumns map[string]enumColumn) bool {
+// An enum's or a composite's OID has no binary codec either.
+// columnNames must be quoted to match the schemaInfo sets.
+func (a *dmlAdapter) needsTextCopyForColumns(columnNames, columnTypes []string, si schemaInfo) bool {
 	if a.needsTextCopy(columnTypes) {
 		return true
 	}
 	for _, name := range columnNames {
-		if _, ok := enumColumns[name]; ok {
+		if si.needsTextCopyForColumn(name) {
 			return true
 		}
 	}
 	return false
+}
+
+// needsTextCopyForColumn reports whether the catalog says the column needs
+// text COPY, whatever its type name says. name must be quoted.
+func (si schemaInfo) needsTextCopyForColumn(name string) bool {
+	if _, isEnum := si.enumColumns[name]; isEnum {
+		return true
+	}
+	_, isComposite := si.compositeColumns[name]
+	return isComposite
 }
 
 // toInt64 converts a wal.Column.Value into an int64 if it represents an

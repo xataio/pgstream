@@ -817,3 +817,63 @@ func newTestDMLAdapterForCopy(t *testing.T) *dmlAdapter {
 	require.NoError(t, err)
 	return a
 }
+
+// Regression for #1235: binary COPY of a composite column failed with
+// "wrong number of columns" (SQLSTATE 42804). A composite may share its name
+// with a built-in type pgx encodes in binary, so the type name alone cannot
+// tell. The observer reports the column from the catalog instead.
+func TestBuildBulkInsertQueries_CompositeColumns(t *testing.T) {
+	t.Parallel()
+
+	events := []*wal.Data{
+		{
+			Action: "I",
+			Schema: "public",
+			Table:  "desks",
+			Columns: []wal.Column{
+				{Name: "id", Type: "int4", Value: int32(1)},
+				// the names Mapper.TypeForOID resolves for a composite "point"
+				{Name: "desk", Type: "point", Value: "(3,4)"},
+				{Name: "past", Type: "_point", Value: `{"(1,2)","(5,6)"}`},
+			},
+		},
+	}
+
+	tests := []struct {
+		name             string
+		compositeColumns map[string]struct{}
+
+		wantNeedsTextCopy bool
+		wantArgs          []any
+	}{
+		{
+			name:              "composite columns use text copy",
+			compositeColumns:  map[string]struct{}{`"desk"`: {}, `"past"`: {}},
+			wantNeedsTextCopy: true,
+			// text COPY writes the literals verbatim
+			wantArgs: []any{int32(1), "(3,4)", `{"(1,2)","(5,6)"}`},
+		},
+		{
+			// what the name alone decides: the case that corrupted
+			name:              "built-in types use binary copy",
+			compositeColumns:  nil,
+			wantNeedsTextCopy: false,
+			wantArgs:          []any{int32(1), "(3,4)", []string{"(1,2)", "(5,6)"}},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			queries := newTestDMLAdapterForCopy(t).buildBulkInsertQueries(events, schemaInfo{
+				generatedColumns: map[string]struct{}{},
+				sequenceColumns:  map[string]string{},
+				compositeColumns: tc.compositeColumns,
+			})
+			require.Len(t, queries, 1)
+			require.Equal(t, tc.wantNeedsTextCopy, queries[0].needsTextCopy)
+			require.Equal(t, tc.wantArgs, queries[0].args)
+		})
+	}
+}
