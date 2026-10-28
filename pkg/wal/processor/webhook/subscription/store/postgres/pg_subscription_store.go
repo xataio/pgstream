@@ -61,7 +61,7 @@ func (s *Store) CreateSubscription(ctx context.Context, subscription *subscripti
 }
 
 func (s *Store) DeleteSubscription(ctx context.Context, subscription *subscription.Subscription) error {
-	query := fmt.Sprintf(`DELETE FROM %s WHERE url=$1 AND schema_name=$2 AND table=$3;`, subscriptionsTable())
+	query := fmt.Sprintf(`DELETE FROM %s WHERE url=$1 AND schema_name=$2 AND table_name=$3;`, subscriptionsTable())
 	_, err := s.conn.Exec(ctx, query, subscription.URL, subscription.Schema, subscription.Table)
 	return err
 }
