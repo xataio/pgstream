@@ -14,6 +14,12 @@ type Pool struct {
 	*pgxpool.Pool
 }
 
+// ResetStatementCache closes the connections of the pool, so that the next one
+// prepares its statements again. See postgres.ResetStatementCache for why.
+func (c *Pool) ResetStatementCache() {
+	c.Reset()
+}
+
 type PoolOption func(*pgxpool.Config)
 
 // MaxConns is the default maximum number of connections in a Postgres
