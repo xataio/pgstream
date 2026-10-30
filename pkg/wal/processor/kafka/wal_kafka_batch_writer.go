@@ -175,6 +175,14 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) 
 					"table":     walEvent.Data.Table,
 					"schema":    walEvent.Data.Schema,
 				})
+			// The event is deliberately dropped by policy. Resolve its
+			// acknowledgement token so it cannot hold an otherwise complete
+			// source transaction open forever.
+			if w.checkpointer != nil && walEvent.PositionToCheckpoint() != "" {
+				if err := w.checkpointer(ctx, []wal.CommitPosition{walEvent.PositionToCheckpoint()}); err != nil {
+					w.logger.Warn(err, "kafka batch writer: error updating commit position for dropped event")
+				}
+			}
 			return nil
 		}
 
@@ -184,7 +192,7 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) 
 		}
 	}
 
-	msg := batch.NewWALMessage(kafkaMsg, walEvent.CommitPosition)
+	msg := batch.NewWALMessage(kafkaMsg, walEvent.PositionToCheckpoint())
 	return w.batchSender.SendMessage(ctx, msg)
 }
 

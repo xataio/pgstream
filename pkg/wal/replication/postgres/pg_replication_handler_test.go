@@ -408,6 +408,11 @@ func TestHandler_ReceiveMessage(t *testing.T) {
 	}
 }
 
+func TestDefaultPluginArgumentsIncludeTransactionBoundaries(t *testing.T) {
+	require.Contains(t, defaultPluginArguments, `"include-transaction" '1'`)
+	require.NotContains(t, defaultPluginArguments, `"include-transaction" '0'`)
+}
+
 func TestHandler_GetReplicationLag(t *testing.T) {
 	t.Parallel()
 

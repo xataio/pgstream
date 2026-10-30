@@ -94,7 +94,7 @@ func (w *BatchWriter) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) 
 		return err
 	}
 
-	msg := batch.NewWALMessage(walMsg, walEvent.CommitPosition)
+	msg := batch.NewWALMessage(walMsg, walEvent.PositionToCheckpoint())
 	if err := w.batchSender.SendMessage(ctx, msg); err != nil {
 		return err
 	}

@@ -133,16 +133,27 @@ func (i *BatchIndexer) ProcessWALEvent(ctx context.Context, event *wal.Event) (e
 	if err != nil {
 		if errors.Is(err, errNilIDValue) || errors.Is(err, errMetadataMissing) {
 			i.logger.Warn(err, "search batch indexer: invalid event, skipping message")
-			return nil
+			return i.checkpointSkippedEvent(ctx, event)
 		}
 		return fmt.Errorf("wal data to queue item: %w", err)
 	}
 
 	if msg == nil {
-		return nil
+		return i.checkpointSkippedEvent(ctx, event)
 	}
 
-	return i.batchSender.SendMessage(ctx, batch.NewWALMessage(msg, event.CommitPosition))
+	return i.batchSender.SendMessage(ctx, batch.NewWALMessage(msg, event.PositionToCheckpoint()))
+}
+
+func (i *BatchIndexer) checkpointSkippedEvent(ctx context.Context, event *wal.Event) error {
+	position := event.PositionToCheckpoint()
+	if i.checkpoint == nil || position == "" {
+		return nil
+	}
+	if err := i.checkpoint(ctx, []wal.CommitPosition{position}); err != nil {
+		return fmt.Errorf("checkpointing skipped event: %w", err)
+	}
+	return nil
 }
 
 func (i *BatchIndexer) Name() string {
