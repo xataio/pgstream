@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/ggwhite/go-masker"
 )
@@ -120,7 +121,7 @@ func NewMaskingTransformer(params ParameterValues) (*MaskingTransformer, error) 
 		}
 	case mDefault:
 		mf = func(v string) string {
-			return strings.Repeat("*", len(v))
+			return strings.Repeat("*", utf8.RuneCountInString(v))
 		}
 	default:
 		return nil, errInvalidMaskingType
@@ -232,7 +233,9 @@ func getCustomMaskingFn(params ParameterValues) (maskingFunction, error) {
 
 	return func(v string) string {
 		var beginIndex, endIndex int
-		length := len(v)
+		// index by characters, not bytes, so multi-byte characters are never split
+		chars := []rune(v)
+		length := len(chars)
 
 		if beginAbs {
 			beginIndex = getIntegerInRange(begin, 0, length)
@@ -250,9 +253,9 @@ func getCustomMaskingFn(params ParameterValues) (maskingFunction, error) {
 		}
 
 		if mask {
-			return v[:beginIndex] + strings.Repeat("*", endIndex-beginIndex) + v[endIndex:]
+			return string(chars[:beginIndex]) + strings.Repeat("*", endIndex-beginIndex) + string(chars[endIndex:])
 		}
-		return strings.Repeat("*", beginIndex) + v[beginIndex:endIndex] + strings.Repeat("*", length-endIndex)
+		return strings.Repeat("*", beginIndex) + string(chars[beginIndex:endIndex]) + strings.Repeat("*", length-endIndex)
 	}, nil
 }
 
