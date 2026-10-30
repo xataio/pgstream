@@ -28,6 +28,7 @@ type Message struct {
 	Data           []byte
 	ServerTime     time.Time
 	ReplyRequested bool
+	Generation     uint64
 }
 
 // LSNParser handles the LSN type conversion

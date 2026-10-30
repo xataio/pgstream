@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/xataio/pgstream/pkg/backoff"
@@ -17,6 +18,9 @@ type HandlerRetrier struct {
 	inner           replication.Handler
 	backoffProvider backoff.Provider
 	logger          loglib.Logger
+
+	resetMu    sync.Mutex
+	generation uint64
 }
 
 type Option func(*HandlerRetrier)
@@ -62,8 +66,22 @@ func (h *HandlerRetrier) ReceiveMessage(ctx context.Context) (*replication.Messa
 	var msg *replication.Message
 	var err error
 	op := func() error {
-		msg, err = h.inner.ReceiveMessage(ctx)
-		return err
+		for {
+			generation := h.currentGeneration()
+			msg, err = h.inner.ReceiveMessage(ctx)
+			currentGeneration := h.currentGeneration()
+
+			// A reset overlapped this receive. The message or error belongs to
+			// the old connection, so discard it and read from the new one.
+			if generation != currentGeneration && !errors.Is(err, context.Canceled) {
+				continue
+			}
+
+			if err == nil && msg != nil {
+				msg.Generation = generation
+			}
+			return err
+		}
 	}
 
 	if err := h.withRetry(ctx, op); err != nil {
@@ -87,7 +105,14 @@ func (h *HandlerRetrier) GetCurrentLSN(ctx context.Context) (replication.LSN, er
 }
 
 func (h *HandlerRetrier) ResetConnection(ctx context.Context) error {
-	return h.inner.ResetConnection(ctx)
+	h.resetMu.Lock()
+	defer h.resetMu.Unlock()
+
+	if err := h.inner.ResetConnection(ctx); err != nil {
+		return err
+	}
+	h.generation++
+	return nil
 }
 
 func (h *HandlerRetrier) GetLSNParser() replication.LSNParser {
@@ -119,7 +144,7 @@ func (h *HandlerRetrier) withRetry(ctx context.Context, operation func() error) 
 			return fmt.Errorf("%w: %w", err, backoff.ErrPermanent)
 		}
 
-		if connErr := h.inner.ResetConnection(ctx); connErr != nil {
+		if connErr := h.ResetConnection(ctx); connErr != nil {
 			return fmt.Errorf("unable to reset connection: %w", connErr)
 		}
 
@@ -134,6 +159,12 @@ func (h *HandlerRetrier) withRetry(ctx context.Context, operation func() error) 
 		h.logger.Info("retried replication handler operation succeeded")
 	}
 	return err
+}
+
+func (h *HandlerRetrier) currentGeneration() uint64 {
+	h.resetMu.Lock()
+	defer h.resetMu.Unlock()
+	return h.generation
 }
 
 func (h *HandlerRetrier) isRetriableError(err error) bool {

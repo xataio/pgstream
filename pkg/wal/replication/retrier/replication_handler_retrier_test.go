@@ -68,7 +68,8 @@ func TestHandlerRetrier_ReceiveMessage(t *testing.T) {
 			boProvider: newMockBackoffProvider(),
 
 			wantMsg: &replication.Message{
-				Data: []byte("test message"),
+				Data:       []byte("test message"),
+				Generation: 1,
 			},
 			wantErr: nil,
 		},
@@ -125,6 +126,52 @@ func TestHandlerRetrier_ReceiveMessage(t *testing.T) {
 			require.Equal(t, tc.wantMsg, msg)
 		})
 	}
+}
+
+func TestHandlerRetrier_ReceiveMessageDiscardsReceiveOverlappingReset(t *testing.T) {
+	receiveStarted := make(chan struct{})
+	releaseOldReceive := make(chan struct{})
+	handler := &mocks.Handler{
+		ReceiveMessageFn: func(_ context.Context, call uint64) (*replication.Message, error) {
+			switch call {
+			case 1:
+				close(receiveStarted)
+				<-releaseOldReceive
+				return &replication.Message{Data: []byte("old connection")}, nil
+			case 2:
+				return &replication.Message{Data: []byte("new connection")}, nil
+			default:
+				return nil, fmt.Errorf("unexpected receive call: %d", call)
+			}
+		},
+		ResetConnectionFn: func(context.Context) error { return nil },
+	}
+	retrier := HandlerRetrier{
+		inner:           handler,
+		backoffProvider: newMockBackoffProvider(),
+		logger:          log.NewNoopLogger(),
+	}
+
+	type result struct {
+		message *replication.Message
+		err     error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		message, err := retrier.ReceiveMessage(context.Background())
+		resultCh <- result{message: message, err: err}
+	}()
+
+	<-receiveStarted
+	require.NoError(t, retrier.ResetConnection(context.Background()))
+	close(releaseOldReceive)
+
+	got := <-resultCh
+	require.NoError(t, got.err)
+	require.Equal(t, &replication.Message{
+		Data:       []byte("new connection"),
+		Generation: 1,
+	}, got.message)
 }
 
 func TestHandlerRetrier_SyncLSN(t *testing.T) {
@@ -243,6 +290,32 @@ func TestHandlerRetrier_SyncLSN(t *testing.T) {
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
+}
+
+func TestHandlerRetrier_SyncResetAdvancesReceiveGeneration(t *testing.T) {
+	retriableErr := errors.New("retriable error")
+	handler := &mocks.Handler{
+		SyncLSNFn: func(_ context.Context, _ replication.LSN, call uint64) error {
+			if call <= 2 {
+				return retriableErr
+			}
+			return nil
+		},
+		ResetConnectionFn: func(context.Context) error { return nil },
+		ReceiveMessageFn: func(context.Context, uint64) (*replication.Message, error) {
+			return &replication.Message{Data: []byte("after reset")}, nil
+		},
+	}
+	retrier := HandlerRetrier{
+		inner:           handler,
+		backoffProvider: newMockBackoffProvider(),
+		logger:          log.NewNoopLogger(),
+	}
+
+	require.NoError(t, retrier.SyncLSN(context.Background(), 42))
+	message, err := retrier.ReceiveMessage(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), message.Generation)
 }
 
 // mock backoff provider runs the operation for up to 3 times until it succeeds

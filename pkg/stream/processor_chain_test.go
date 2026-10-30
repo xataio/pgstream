@@ -3,6 +3,7 @@
 package stream
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
@@ -10,9 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/otel"
+	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/processor"
 	"github.com/xataio/pgstream/pkg/wal/processor/filter"
+	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 	"github.com/xataio/pgstream/pkg/wal/processor/mocks"
+	"github.com/xataio/pgstream/pkg/wal/processor/transaction"
 	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 	"go.opentelemetry.io/otel/metric/noop"
 )
@@ -28,12 +32,19 @@ var targetFields = map[string]struct{}{
 	"Stdout":   {},
 }
 
-// wrap a layer around the writer
-var modifierFields = map[string]struct{}{
-	"Transformer": {},
-	"Injector":    {},
-	"Filter":      {},
-	"Sanitize":    {},
+// wrap a layer around the writer. The setup functions keep the transaction
+// boundary contract test in sync with every configurable modifier.
+var modifierFields = map[string]func(*ProcessorConfig){
+	"Transformer": func(c *ProcessorConfig) { c.Transformer = &transformer.Config{} },
+	"Injector": func(c *ProcessorConfig) {
+		c.Injector = &injector.Config{
+			// Creating a pgx pool is lazy. Transaction boundaries have no row
+			// data, so the injector must forward them without opening a connection.
+			URL: "postgres://test:test@localhost:5432/test?sslmode=disable",
+		}
+	},
+	"Filter":   func(c *ProcessorConfig) { c.Filter = &filter.Config{ExcludeTables: []string{"*"}} },
+	"Sanitize": func(c *ProcessorConfig) { c.Sanitize = &SanitizeConfig{StripNullCharBytes: true} },
 }
 
 // unclassified layers get bypassed
@@ -120,6 +131,45 @@ func TestAddProcessorModifiers_instrumentationIsRecordedButNotRowVisible(t *test
 
 	require.Equal(t, []modifier{modifierInstrumentation}, chain.applied)
 	require.False(t, chain.hasRowVisibleLayers())
+}
+
+func TestAddProcessorModifiers_preservesTransactionBoundaries(t *testing.T) {
+	t.Parallel()
+
+	var checkpointed []wal.CommitPosition
+	tracker := transaction.NewTracker(func(_ context.Context, positions []wal.CommitPosition) error {
+		checkpointed = append(checkpointed, positions...)
+		return nil
+	})
+	target := &mocks.Processor{
+		ProcessWALEventFn: func(context.Context, *wal.Event) error {
+			t.Error("transaction boundaries must be consumed before reaching the target")
+			return nil
+		},
+	}
+	txProcessor := transaction.NewProcessor(target, tracker)
+
+	var processorConfig ProcessorConfig
+	for _, enable := range modifierFields {
+		enable(&processorConfig)
+	}
+	config := &Config{Processor: processorConfig}
+	instrumentation := &otel.Instrumentation{Meter: noop.NewMeterProvider().Meter("test")}
+
+	chain, closer, err := addProcessorModifiers(t.Context(), config, loglib.NewNoopLogger(), txProcessor, instrumentation)
+	require.NoError(t, err)
+	defer closer()
+
+	require.NoError(t, chain.processor.ProcessWALEvent(t.Context(), &wal.Event{
+		Transaction: &wal.Transaction{ID: 1, Boundary: wal.TransactionBegin},
+	}))
+	require.NoError(t, chain.processor.ProcessWALEvent(t.Context(), &wal.Event{
+		CommitPosition: "0/42",
+		Transaction:    &wal.Transaction{ID: 1, Boundary: wal.TransactionCommit},
+	}))
+
+	require.Equal(t, []wal.CommitPosition{"0/42"}, checkpointed)
+	require.Zero(t, target.GetProcessCalls())
 }
 
 func TestProcessorChain_apply(t *testing.T) {
