@@ -65,6 +65,8 @@ From version 1 onwards, schema changes are captured using event triggers that em
 
 ![v1 schema replication](img/pgstream_v1_schema_replication.png)
 
+The event trigger emits the complete client statement once for each DDL command in it. A statement with several commands, such as a migration script, therefore arrives several times in the same transaction. Each copy has the schema of its own command. A Postgres target replays a DDL event with that schema first in the search path. When `include_xids` is enabled, the Postgres target replays each statement once per source transaction. It skips a copy when an earlier copy succeeded, or when an earlier copy failed because its objects already exist. If an earlier copy failed for another reason, the target replays the next copy. Without `include_xids`, the target replays every copy, and a copy can create unqualified objects in the schema of another command.
+
 The detailed SQL used for both versions can be found in the [migrations folder](https://github.com/xataio/pgstream/tree/main/migrations/postgres).
 
 The schema and data changes are part of the same linear stream - the downstream consumers always observe the schema changes as soon as they happen, before any data arrives that relies on the new schema. This prevents data loss and manual intervention.
