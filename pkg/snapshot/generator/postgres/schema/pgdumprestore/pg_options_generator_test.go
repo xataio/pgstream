@@ -45,7 +45,7 @@ func TestOptionsGenerator_pgdumpSequenceDataOptions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			og := newOptionGenerator(nil, &Config{SourcePGURL: "source-url"})
+			og := newOptionGenerator(nil, &Config{SourcePGURL: "source-url"}, nil)
 
 			got := og.pgdumpSequenceDataOptions(tc.sequences)
 			require.Equal(t, tc.wantOpts, got)
@@ -1073,4 +1073,202 @@ func TestOptionsGenerator_pgdumpExcludedSchemas(t *testing.T) {
 			require.Equal(t, tc.wantExcluded, excluded)
 		})
 	}
+}
+
+func TestOptionsGenerator_scopedExtensions(t *testing.T) {
+	t.Parallel()
+
+	errTest := errors.New("oh noes")
+
+	extensionsQuerier := &pglibmocks.Querier{
+		QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+			require.Equal(t, selectExtensionsQuery, query)
+			require.Empty(t, args)
+			extensions := []extension{
+				{name: "citext", schema: "public"},
+				{name: "pg_trgm", schema: "extensions"},
+			}
+			return &pglibmocks.Rows{
+				NextFn: func(i uint) bool { return int(i) <= len(extensions) },
+				ScanFn: func(i uint, dest ...any) error {
+					require.Len(t, dest, 2)
+					name, ok := dest[0].(*string)
+					require.True(t, ok)
+					*name = extensions[i-1].name
+					schema, ok := dest[1].(*string)
+					require.True(t, ok)
+					*schema = extensions[i-1].schema
+					return nil
+				},
+				ErrFn:   func() error { return nil },
+				CloseFn: func() {},
+			}, nil
+		},
+	}
+	unexpectedQuerier := &pglibmocks.Querier{
+		QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+			return nil, fmt.Errorf("unexpected query: %s", query)
+		},
+	}
+
+	tests := []struct {
+		name              string
+		includeExtensions bool
+		opts              *pglib.PGDumpOptions
+		conn              *pglibmocks.Querier
+
+		wantExtensions []extension
+		wantErr        error
+	}{
+		{
+			name:              "dump filtered by schema",
+			includeExtensions: true,
+			opts:              &pglib.PGDumpOptions{Schemas: []string{`"public"`}},
+			conn:              extensionsQuerier,
+
+			wantExtensions: []extension{
+				{name: "citext", schema: "public"},
+				{name: "pg_trgm", schema: "extensions"},
+			},
+		},
+		{
+			name:              "dump not filtered by schema already includes extensions",
+			includeExtensions: true,
+			opts:              &pglib.PGDumpOptions{ExcludeSchemas: []string{`"pgstream"`}},
+			conn:              unexpectedQuerier,
+
+			wantExtensions: nil,
+		},
+		{
+			name:              "extensions not included",
+			includeExtensions: false,
+			opts:              &pglib.PGDumpOptions{Schemas: []string{`"public"`}},
+			conn:              unexpectedQuerier,
+
+			wantExtensions: nil,
+		},
+		{
+			name:              "error querying extensions",
+			includeExtensions: true,
+			opts:              &pglib.PGDumpOptions{Schemas: []string{`"public"`}},
+			conn: &pglibmocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					return nil, errTest
+				},
+			},
+
+			wantErr: errTest,
+		},
+		{
+			name:              "error scanning extension",
+			includeExtensions: true,
+			opts:              &pglib.PGDumpOptions{Schemas: []string{`"public"`}},
+			conn: &pglibmocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					return &pglibmocks.Rows{
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn:  func(i uint, dest ...any) error { return errTest },
+						ErrFn:   func() error { return nil },
+						CloseFn: func() {},
+					}, nil
+				},
+			},
+
+			wantErr: errTest,
+		},
+		{
+			name:              "error from rows.Err",
+			includeExtensions: true,
+			opts:              &pglib.PGDumpOptions{Schemas: []string{`"public"`}},
+			conn: &pglibmocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					return &pglibmocks.Rows{
+						NextFn:  func(i uint) bool { return false },
+						ErrFn:   func() error { return errTest },
+						CloseFn: func() {},
+					}, nil
+				},
+			},
+
+			wantErr: errTest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			og := &optionGenerator{
+				includeExtensions: tc.includeExtensions,
+				querier:           tc.conn,
+			}
+
+			extensions, err := og.scopedExtensions(context.Background(), tc.opts)
+			require.ErrorIs(t, err, tc.wantErr)
+			if tc.wantErr != nil {
+				return
+			}
+			require.Equal(t, tc.wantExtensions, extensions)
+		})
+	}
+}
+
+func TestNewOptionGenerator_includeExtensions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		include []string
+		exclude []string
+
+		wantIncludeExtensions bool
+	}{
+		{
+			name:                  "no object type filter",
+			wantIncludeExtensions: true,
+		},
+		{
+			name:                  "extensions excluded",
+			exclude:               []string{"extensions"},
+			wantIncludeExtensions: false,
+		},
+		{
+			name:                  "other category excluded",
+			exclude:               []string{"event_triggers"},
+			wantIncludeExtensions: true,
+		},
+		{
+			name:                  "extensions included",
+			include:               []string{"tables", "extensions"},
+			wantIncludeExtensions: true,
+		},
+		{
+			name:                  "extensions not in the include list",
+			include:               []string{"tables"},
+			wantIncludeExtensions: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			filter, err := newObjectTypeFilter(tc.include, tc.exclude)
+			require.NoError(t, err)
+
+			og := newOptionGenerator(nil, &Config{}, filter)
+			require.Equal(t, tc.wantIncludeExtensions, og.includeExtensions)
+		})
+	}
+}
+
+func TestPGDumpOptions_ToArgs_extensions(t *testing.T) {
+	t.Parallel()
+
+	opts := &pglib.PGDumpOptions{
+		ConnectionString: "source-url",
+		Schemas:          []string{`"public"`},
+		Extensions:       []string{`"citext"`, `"pg_trgm"`},
+	}
+	require.Equal(t, []string{"source-url", `--schema="public"`, `--extension="citext"`, `--extension="pg_trgm"`}, opts.ToArgs())
 }

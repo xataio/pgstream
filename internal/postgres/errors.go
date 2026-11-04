@@ -41,6 +41,14 @@ func (e *ErrCommentOwnership) Error() string {
 	return fmt.Sprintf("comment not restored, requires object ownership: %s", e.Details)
 }
 
+type ErrExtensionNotCreated struct {
+	Details string
+}
+
+func (e *ErrExtensionNotCreated) Error() string {
+	return fmt.Sprintf("extension not created: %s", e.Details)
+}
+
 type ErrPermissionDenied struct {
 	Details string
 }

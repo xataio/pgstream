@@ -1590,6 +1590,104 @@ CREATE INDEX test_table_value_idx ON public.test_table USING btree (value);
 	require.Equal(t, []string{"schema", "conflict targets", "data", "remaining constraints"}, calls)
 }
 
+func TestSnapshotGenerator_CreateSnapshot_extensionsInSchemaFilteredDump(t *testing.T) {
+	t.Parallel()
+
+	schemaDump := []byte("CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public;\nCREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA extensions;\nCREATE TABLE app.test_table (value public.citext);\n")
+	cleanupDump := []byte("DROP TABLE IF EXISTS app.test_table;\nDROP EXTENSION IF EXISTS pg_trgm;\nDROP EXTENSION IF EXISTS pgcrypto;\nDROP EXTENSION IF EXISTS citext;\nDROP SCHEMA IF EXISTS extensions;\nDROP SCHEMA IF EXISTS app;\n")
+	wantSchemaCreateDump := "CREATE SCHEMA IF NOT EXISTS \"app\";\nCREATE SCHEMA IF NOT EXISTS \"extensions\";\n"
+	wantCleanupDump := "DROP TABLE IF EXISTS app.test_table;\nDROP SCHEMA IF EXISTS app;\n"
+	wantExtensions := []string{`"citext"`, `"pg_trgm"`, `"pgcrypto"`}
+
+	extensions := []extension{
+		{name: "citext", schema: "public"},
+		{name: "pg_trgm", schema: "extensions"},
+		{name: "pgcrypto", schema: "extensions"},
+	}
+	conn := &mocks.Querier{
+		QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+			if query != selectExtensionsQuery {
+				return nil, fmt.Errorf("unexpected query: %s", query)
+			}
+			return &mocks.Rows{
+				CloseFn: func() {},
+				NextFn:  func(i uint) bool { return int(i) <= len(extensions) },
+				ScanFn: func(i uint, dest ...any) error {
+					require.Len(t, dest, 2)
+					name, ok := dest[0].(*string)
+					require.True(t, ok)
+					*name = extensions[i-1].name
+					schema, ok := dest[1].(*string)
+					require.True(t, ok)
+					*schema = extensions[i-1].schema
+					return nil
+				},
+				ErrFn: func() error { return nil },
+			}, nil
+		},
+	}
+
+	restored := []string{}
+	sg := SnapshotGenerator{
+		sourceURL:     "source-url",
+		targetURL:     "target-url",
+		sourceQuerier: conn,
+		pgDumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
+			require.Equal(t, []string{`"app"`}, po.Schemas)
+			require.Equal(t, wantExtensions, po.Extensions)
+			switch i {
+			case 1:
+				require.False(t, po.Clean)
+				return schemaDump, nil
+			case 2:
+				require.True(t, po.Clean)
+				return append(slices.Clone(cleanupDump), schemaDump...), nil
+			default:
+				return nil, fmt.Errorf("unexpected call to pgdumpFn: %d", i)
+			}
+		}),
+		pgRestoreFn: newMockPgrestore(func(_ context.Context, i uint, po pglib.PGRestoreOptions, dump []byte) (string, error) {
+			restored = append(restored, string(dump))
+			return "", nil
+		}),
+		logger:        log.NewNoopLogger(),
+		roleSQLParser: &roleSQLParser{},
+		optionGenerator: &optionGenerator{
+			sourceURL:         "source-url",
+			targetURL:         "target-url",
+			cleanTargetDB:     true,
+			includeExtensions: true,
+			rolesSnapshotMode: roleSnapshotDisabled,
+			querier:           conn,
+		},
+	}
+
+	err := sg.CreateSnapshot(context.Background(), &snapshot.Snapshot{
+		SchemaTables: map[string][]string{
+			"app": {wildcard},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{wantSchemaCreateDump, wantCleanupDump, string(schemaDump)}, restored)
+}
+
+func TestWithRestoreToWAL_disablesExtensions(t *testing.T) {
+	t.Parallel()
+
+	sg := &SnapshotGenerator{
+		optionGenerator: &optionGenerator{includeExtensions: true},
+	}
+	WithRestoreToWAL(nil)(sg)
+	require.False(t, sg.optionGenerator.includeExtensions)
+}
+
+func TestRemoveExtensionDrops(t *testing.T) {
+	t.Parallel()
+
+	cleanupDump := []byte("DROP TABLE IF EXISTS public.test;\nDROP EXTENSION IF EXISTS citext;\nDROP SCHEMA IF EXISTS app;\nDROP SCHEMA IF EXISTS extensions;\nDROP SCHEMA IF EXISTS \"Ext Schema\";\n")
+	require.Equal(t, "DROP TABLE IF EXISTS public.test;\nDROP SCHEMA IF EXISTS app;\n", string(removeExtensionDrops(cleanupDump, []string{"public", "extensions", "Ext Schema"})))
+}
+
 func TestSnapshotGenerator_restoreIndicesAndConstraintsSessionSettings(t *testing.T) {
 	t.Parallel()
 
