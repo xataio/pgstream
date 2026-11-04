@@ -41,9 +41,9 @@ type pgSchemaObserver struct {
 	// type resolves to a user-defined enum, each with the catalog-resolved
 	// information needed to cast it (see enumColumn).
 	enumTableColumns *synclib.Map[string, map[string]enumColumn]
-	// enumCacheEpoch is bumped by every enum invalidation. Unlike its sibling
-	// caches, enumTableColumns is repopulated by a live query rather than from
-	// the DDL event payload, so a lookup that started before an invalidation
+	// enumCacheEpoch is bumped by every enum invalidation. The cache is
+	// repopulated by a live query rather than from the DDL event payload,
+	// so a lookup that started before an invalidation
 	// could otherwise write its stale answer back and outlive the eviction
 	// meant to drop it. Lookups record the epoch before querying and only
 	// cache the result if it has not moved.
@@ -246,22 +246,19 @@ func (o *pgSchemaObserver) update(ddlEvent *wal.DDLEvent) {
 }
 
 // updateGeneratedColumnNames will update the internal cache with the table
-// columns for the schema log on input. Identity columns are added to
-// generatedColumns via IsGenerated() (preserved historical behavior so live
-// INSERTs let the target auto-generate ids and the sequence increments
-// naturally). GENERATED ALWAYS AS IDENTITY columns are additionally tracked in
-// alwaysIdentityTableColumns so UPDATE SET clauses can drop them even on
-// cache paths where generatedColumns is empty (e.g. populated via SQL query).
+// columns for the schema log on input. Identity values must be preserved on
+// INSERT, just as on the catalog-query path. Only computed columns belong in
+// generatedColumns; ALWAYS identities are tracked separately for UPDATE SET.
 func (o *pgSchemaObserver) updateGeneratedColumnNames(tables []wal.DDLObject) {
 	for _, table := range tables {
-		key := pglib.QuoteQualifiedIdentifier(table.Schema, table.GetName())
+		key := pglib.QuoteQualifiedIdentifier(table.Schema, table.GetTable())
 		generatedColumns := make(map[string]struct{}, len(table.Columns))
 		alwaysIdentityColumns := make(map[string]struct{}, len(table.Columns))
 		for _, c := range table.Columns {
 			if c.IsAlwaysIdentity() {
 				alwaysIdentityColumns[pglib.QuoteIdentifier(c.Name)] = struct{}{}
 			}
-			if c.IsGenerated() {
+			if c.Generated {
 				generatedColumns[pglib.QuoteIdentifier(c.Name)] = struct{}{}
 			}
 		}
@@ -303,14 +300,12 @@ func (o *pgSchemaObserver) updateMaterializedViews(ddlEvent *wal.DDLEvent, mvs [
 
 func (o *pgSchemaObserver) updateColumnSequences(tables []wal.DDLObject) {
 	for _, table := range tables {
-		key := pglib.QuoteQualifiedIdentifier(table.Schema, table.GetName())
-		seqColMap := make(map[string]string)
-		for _, col := range table.Columns {
-			if col.HasSequence() {
-				seqColMap[pglib.QuoteIdentifier(col.Name)] = col.GetSequenceName()
-			}
-		}
-		o.columnTableSequences.Set(key, seqColMap)
+		// DDL column defaults cannot describe identity sequences. Invalidate
+		// instead of storing an incomplete map, and use the same target catalog
+		// lookup as initial discovery. The ordered batch writer resolves the
+		// next row's metadata only after the preceding DDL has been applied.
+		key := pglib.QuoteQualifiedIdentifier(table.Schema, table.GetTable())
+		o.columnTableSequences.Delete(key)
 	}
 }
 
@@ -504,22 +499,47 @@ func (o *pgSchemaObserver) queryMaterializedViews(ctx context.Context, schemaNam
 	return mvNames, nil
 }
 
-const sequenceColumnQuery = `SELECT
-    a.attname AS column_name,
+const sequenceColumnQuery = `WITH table_columns AS (
+    SELECT t.oid AS table_oid,
+        a.attnum,
+        a.attname AS column_name,
+        a.attidentity,
+        ad.oid AS attrdef_oid,
+        pg_get_expr(ad.adbin, ad.adrelid) AS default_expr
+    FROM pg_class t
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    JOIN pg_attribute a ON a.attrelid = t.oid
+    LEFT JOIN pg_attrdef ad ON ad.adrelid = t.oid AND ad.adnum = a.attnum
+    WHERE t.relkind = 'r'
+        AND n.nspname = $1
+        AND t.relname = $2
+        AND a.attnum > 0
+        AND NOT a.attisdropped
+)
+SELECT tc.column_name,
+    sn.nspname AS sequence_schema,
     s.relname AS sequence_name
-FROM pg_class t
-JOIN pg_namespace n ON n.oid = t.relnamespace
-JOIN pg_attribute a ON a.attrelid = t.oid
-JOIN pg_attrdef ad ON ad.adrelid = t.oid AND ad.adnum = a.attnum
-JOIN pg_depend d ON d.refobjid = t.oid AND d.refobjsubid = a.attnum
-JOIN pg_class s ON s.oid = d.objid
-WHERE t.relkind = 'r'
-    AND s.relkind = 'S'
-    AND d.deptype = 'a'
-    AND n.nspname = $1
-    AND t.relname = $2
-    AND a.attnum > 0
-    AND NOT a.attisdropped;`
+FROM table_columns tc
+JOIN pg_depend d ON d.classid = 'pg_attrdef'::regclass
+    AND d.objid = tc.attrdef_oid
+    AND d.refclassid = 'pg_class'::regclass
+    AND d.deptype = 'n'
+JOIN pg_class s ON s.oid = d.refobjid AND s.relkind = 'S'
+JOIN pg_namespace sn ON sn.oid = s.relnamespace
+WHERE tc.default_expr = format('nextval(%L::regclass)', s.oid::regclass::text)
+UNION
+SELECT tc.column_name,
+    sn.nspname AS sequence_schema,
+    s.relname AS sequence_name
+FROM table_columns tc
+JOIN pg_depend d ON d.classid = 'pg_class'::regclass
+    AND d.refclassid = 'pg_class'::regclass
+    AND d.refobjid = tc.table_oid
+    AND d.refobjsubid = tc.attnum
+    AND d.deptype = 'i'
+JOIN pg_class s ON s.oid = d.objid AND s.relkind = 'S'
+JOIN pg_namespace sn ON sn.oid = s.relnamespace
+WHERE tc.attidentity <> '';`
 
 func (o *pgSchemaObserver) queryTableSequences(ctx context.Context, conn pglib.Querier, schemaName, tableName string) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, schemaQueryTimeout)
@@ -533,11 +553,11 @@ func (o *pgSchemaObserver) queryTableSequences(ctx context.Context, conn pglib.Q
 
 	seqColMap := make(map[string]string)
 	for rows.Next() {
-		var columnName, sequenceName string
-		if err := rows.Scan(&columnName, &sequenceName); err != nil {
+		var columnName, sequenceSchema, sequenceName string
+		if err := rows.Scan(&columnName, &sequenceSchema, &sequenceName); err != nil {
 			return nil, fmt.Errorf("scanning sequence column mapping: %w", err)
 		}
-		seqColMap[pglib.QuoteIdentifier(columnName)] = pglib.QuoteQualifiedIdentifier(schemaName, sequenceName)
+		seqColMap[pglib.QuoteIdentifier(columnName)] = pglib.QuoteQualifiedIdentifier(sequenceSchema, sequenceName)
 	}
 
 	if err := rows.Err(); err != nil {

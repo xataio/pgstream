@@ -45,11 +45,8 @@ func TestBatchWriter_ProcessWALEvent(t *testing.T) {
 	}
 
 	testMessage := &walMessage{
-		data: testWalEvent.Data,
-		schemaInfo: schemaInfo{
-			generatedColumns: map[string]struct{}{},
-			sequenceColumns:  map[string]string{},
-		},
+		data:             testWalEvent.Data,
+		needsPreparation: true,
 	}
 
 	tests := []struct {
@@ -78,7 +75,7 @@ func TestBatchWriter_ProcessWALEvent(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:        "error - event to message",
+			name:        "ok - event conversion is deferred until send",
 			walEvent:    testWalEvent,
 			batchSender: batchmocks.NewBatchSender[*walMessage](),
 			adapter: &mockAdapter{
@@ -87,8 +84,8 @@ func TestBatchWriter_ProcessWALEvent(t *testing.T) {
 				},
 			},
 
-			wantMsgs: []*batch.WALMessage[*walMessage]{},
-			wantErr:  errTest,
+			wantMsgs: []*batch.WALMessage[*walMessage]{batch.NewWALMessage(testMessage, testCommitPosition)},
+			wantErr:  nil,
 		},
 		{
 			name:     "error - adding to batch",
@@ -109,9 +106,13 @@ func TestBatchWriter_ProcessWALEvent(t *testing.T) {
 			wantErr:  errTest,
 		},
 		{
-			name:        "error - panic recovery",
-			walEvent:    testWalEvent,
-			batchSender: batchmocks.NewBatchSender[*walMessage](),
+			name:     "error - panic recovery",
+			walEvent: testWalEvent,
+			batchSender: func() *batchmocks.BatchSender[*walMessage] {
+				s := batchmocks.NewBatchSender[*walMessage]()
+				s.SendMessageFn = func(context.Context, *batch.WALMessage[*walMessage]) error { panic(errTest) }
+				return s
+			}(),
 			adapter: &mockAdapter{
 				walEventToMessageFn: func(e *wal.Event) (*walMessage, error) {
 					panic(errTest)
