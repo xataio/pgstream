@@ -105,11 +105,11 @@ func schemaInfoFromDDLEvent(t *testing.T, schemaName, tableName string, columns 
 
 	observer := &pgSchemaObserver{
 		logger: loglib.NewNoopLogger(),
-		// the DDL event does not carry enum membership, so that lookup is the
-		// only one that still queries postgres
+		// the DDL event does not carry enum or composite membership, so those
+		// lookups are the only ones that still query postgres
 		pgConn: &pgmocks.Querier{
 			QueryFn: func(_ context.Context, _ uint, query string, _ ...any) (pglib.Rows, error) {
-				require.Equal(t, enumTableColumnsQuery, query)
+				require.Contains(t, []string{enumTableColumnsQuery, compositeTableColumnsQuery}, query)
 				return &pgmocks.Rows{
 					CloseFn: func() {},
 					NextFn:  func(uint) bool { return false },
@@ -122,6 +122,7 @@ func schemaInfoFromDDLEvent(t *testing.T, schemaName, tableName string, columns 
 		materializedViews:          synclib.NewMap[string, map[string]struct{}](),
 		columnTableSequences:       synclib.NewMap[string, map[string]string](),
 		enumTableColumns:           synclib.NewMap[string, map[string]enumColumn](),
+		compositeTableColumns:      synclib.NewMap[string, map[string]struct{}](),
 	}
 
 	observer.update(&wal.DDLEvent{
