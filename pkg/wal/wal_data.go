@@ -11,17 +11,61 @@ import (
 	"github.com/rs/xid"
 )
 
-// Event represents the WAL information. If the data is nil but there's a
-// commit position present, it represents a keep alive event that needs to be
-// checkpointed.
+// Event represents WAL information. Data can be nil for a keepalive or an
+// internal transaction boundary; Transaction distinguishes the latter.
 type Event struct {
 	Data           *Data
 	CommitPosition CommitPosition
+
+	// CheckpointPosition is an internal acknowledgement token. When empty,
+	// CommitPosition is used for checkpointing. Keeping the two values separate
+	// allows a target to retain the real source position in its payload while a
+	// transaction tracker correlates target acknowledgements without exposing
+	// its tokens externally.
+	CheckpointPosition CommitPosition `json:"-"`
+
+	// Transaction identifies a wal2json transaction boundary or one of its
+	// entries. It is internal pipeline metadata and is not serialised as part of
+	// Data.
+	Transaction *Transaction `json:"-"`
+
+	// Generation identifies the replication connection that produced the
+	// event. It lets the transaction tracker discard replayed connection state
+	// and ignore acknowledgements from older target batches.
+	Generation uint64 `json:"-"`
+}
+
+// PositionToCheckpoint returns the internal acknowledgement position when one
+// has been assigned, or the source commit position for regular events.
+func (e *Event) PositionToCheckpoint() CommitPosition {
+	if e == nil {
+		return ""
+	}
+	if e.CheckpointPosition != "" {
+		return e.CheckpointPosition
+	}
+	return e.CommitPosition
+}
+
+type TransactionBoundary uint8
+
+const (
+	TransactionEntry TransactionBoundary = iota
+	TransactionBegin
+	TransactionCommit
+)
+
+// Transaction contains internal transaction metadata derived from wal2json's
+// B and C records. ID is local to one listener lifetime; PostgreSQL XIDs are
+// not required because wal2json emits non-interleaved transaction records.
+type Transaction struct {
+	ID       uint64
+	Boundary TransactionBoundary
 }
 
 // Data contains the wal data properties identifying the table operation.
 type Data struct {
-	Action    string   `json:"action"`    // "I" -- insert, "U" -- update, "D" -- delete, "T" -- truncate, "M" -- logical message
+	Action    string   `json:"action"`    // "I" -- insert, "U" -- update, "D" -- delete, "T" -- truncate, "M" -- logical message, "B"/"C" -- transaction boundaries
 	Timestamp string   `json:"timestamp"` // ISO8601, i.e. 2019-12-29 04:58:34.806671
 	LSN       string   `json:"lsn"`
 	Schema    string   `json:"schema"`

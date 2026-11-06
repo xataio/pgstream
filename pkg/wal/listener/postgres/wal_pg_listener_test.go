@@ -568,3 +568,115 @@ func TestListener_Listen_PhaseTransitions(t *testing.T) {
 		require.Equal(t, phase.Replication, tracker.Get())
 	})
 }
+
+func TestListener_ProcessWALEvent_TransactionMetadata(t *testing.T) {
+	var events []*wal.Event
+	l := New(newMockReplicationHandler(), func(_ context.Context, event *wal.Event) error {
+		events = append(events, event)
+		return nil
+	})
+	l.lsnParser = &replicationmocks.LSNParser{
+		ToStringFn: func(lsn replication.LSN) string { return fmt.Sprintf("%d", lsn) },
+		FromStringFn: func(string) (replication.LSN, error) {
+			return 0, nil
+		},
+	}
+	l.walDataDeserialiser = func(data []byte, out any) error {
+		walData, ok := out.(*wal.Data)
+		if !ok {
+			return fmt.Errorf("unexpected wal data type: %T", out)
+		}
+		walData.Action = string(data)
+		return nil
+	}
+
+	for i, action := range []string{"B", "I", "C", "B", "U", "C"} {
+		err := l.processWALEvent(context.Background(), &replication.Message{
+			LSN:  replication.LSN(i + 10),
+			Data: []byte(action),
+		})
+		require.NoError(t, err)
+	}
+
+	require.Len(t, events, 6)
+	require.Nil(t, events[0].Data)
+	require.Equal(t, &wal.Transaction{ID: 1, Boundary: wal.TransactionBegin}, events[0].Transaction)
+	require.Equal(t, wal.CommitPosition("10"), events[0].CommitPosition)
+
+	require.Equal(t, "I", events[1].Data.Action)
+	require.Equal(t, &wal.Transaction{ID: 1, Boundary: wal.TransactionEntry}, events[1].Transaction)
+
+	require.Nil(t, events[2].Data)
+	require.Equal(t, &wal.Transaction{ID: 1, Boundary: wal.TransactionCommit}, events[2].Transaction)
+	require.Equal(t, wal.CommitPosition("12"), events[2].CommitPosition)
+
+	require.Equal(t, &wal.Transaction{ID: 2, Boundary: wal.TransactionBegin}, events[3].Transaction)
+	require.Equal(t, &wal.Transaction{ID: 2, Boundary: wal.TransactionEntry}, events[4].Transaction)
+	require.Equal(t, &wal.Transaction{ID: 2, Boundary: wal.TransactionCommit}, events[5].Transaction)
+}
+
+func TestListener_ProcessWALEvent_ResetsTransactionStateForNewGeneration(t *testing.T) {
+	var events []*wal.Event
+	l := New(newMockReplicationHandler(), func(_ context.Context, event *wal.Event) error {
+		events = append(events, event)
+		return nil
+	})
+	l.lsnParser = &replicationmocks.LSNParser{
+		ToStringFn:   func(lsn replication.LSN) string { return fmt.Sprintf("%d", lsn) },
+		FromStringFn: func(string) (replication.LSN, error) { return 0, nil },
+	}
+	l.walDataDeserialiser = func(data []byte, out any) error {
+		walData, ok := out.(*wal.Data)
+		if !ok {
+			return fmt.Errorf("unexpected wal data type: %T", out)
+		}
+		walData.Action = string(data)
+		return nil
+	}
+
+	// Generation zero is interrupted before its commit record arrives.
+	require.NoError(t, l.processWALEvent(context.Background(), &replication.Message{
+		LSN: 10, Data: []byte("B"), Generation: 0,
+	}))
+	require.NoError(t, l.processWALEvent(context.Background(), &replication.Message{
+		LSN: 11, Data: []byte("I"), Generation: 0,
+	}))
+
+	// The replayed B record starts a fresh local transaction instead of
+	// conflicting with the transaction left open by the previous connection.
+	require.NoError(t, l.processWALEvent(context.Background(), &replication.Message{
+		LSN: 10, Data: []byte("B"), Generation: 1,
+	}))
+	require.NoError(t, l.processWALEvent(context.Background(), &replication.Message{
+		LSN: 11, Data: []byte("I"), Generation: 1,
+	}))
+	require.NoError(t, l.processWALEvent(context.Background(), &replication.Message{
+		LSN: 12, Data: []byte("C"), Generation: 1,
+	}))
+
+	require.Len(t, events, 5)
+	require.Equal(t, uint64(0), events[0].Generation)
+	require.Equal(t, &wal.Transaction{ID: 1, Boundary: wal.TransactionBegin}, events[0].Transaction)
+	require.Equal(t, uint64(1), events[2].Generation)
+	require.Equal(t, &wal.Transaction{ID: 1, Boundary: wal.TransactionBegin}, events[2].Transaction)
+	require.Equal(t, &wal.Transaction{ID: 1, Boundary: wal.TransactionEntry}, events[3].Transaction)
+	require.Equal(t, &wal.Transaction{ID: 1, Boundary: wal.TransactionCommit}, events[4].Transaction)
+}
+
+func TestListener_ProcessWALEvent_StampsKeepaliveGeneration(t *testing.T) {
+	var event *wal.Event
+	l := New(newMockReplicationHandler(), func(_ context.Context, received *wal.Event) error {
+		event = received
+		return nil
+	})
+	l.lsnParser = newMockLSNParser()
+
+	require.NoError(t, l.processWALEvent(context.Background(), &replication.Message{
+		LSN:            testLSN,
+		ReplyRequested: true,
+		Generation:     3,
+	}))
+	require.NotNil(t, event)
+	require.Equal(t, uint64(3), event.Generation)
+	require.Nil(t, event.Data)
+}
