@@ -129,7 +129,7 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 			sql: fmt.Sprintf("INSERT INTO %s(%s) OVERRIDING SYSTEM VALUE VALUES(%s)%s",
 				quotedTableName(d.Schema, d.Table), strings.Join(names, ", "),
 				strings.Join(placeholders, ", "),
-				a.buildOnConflictQuery(d, names)),
+				a.buildOnConflictQuery(d, names, schemaInfo)),
 			args: values,
 		},
 	}
@@ -149,12 +149,7 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 				})
 				continue
 			}
-			qs = append(qs, &query{
-				table:  d.Table,
-				schema: d.Schema,
-				sql:    "SELECT setval($1::regclass, $2::bigint, true)",
-				args:   []any{seqName, seqVal},
-			})
+			qs = append(qs, setSequenceQuery(d.Schema, d.Table, sequenceTarget{name: seqName, column: col.Name}, seqVal))
 		}
 	}
 
@@ -236,7 +231,11 @@ func (a *dmlAdapter) buildSetQuery(cols []wal.Column, rowColumns []string, rowVa
 	return setQuery, setValues
 }
 
-func (a *dmlAdapter) buildOnConflictQuery(d *wal.Data, filteredColumnNames []string) string {
+// buildOnConflictQuery returns the ON CONFLICT clause of an insert. The SET
+// list of the "update" action leaves out GENERATED ALWAYS AS IDENTITY columns:
+// OVERRIDING SYSTEM VALUE covers the inserted values only, and postgres rejects
+// any other assignment than DEFAULT to these columns.
+func (a *dmlAdapter) buildOnConflictQuery(d *wal.Data, filteredColumnNames []string, schemaInfo schemaInfo) string {
 	switch a.onConflictAction {
 	case onConflictUpdate:
 		// on conflict do update requires a conflict target. If there are no
@@ -247,11 +246,19 @@ func (a *dmlAdapter) buildOnConflictQuery(d *wal.Data, filteredColumnNames []str
 			return ""
 		}
 
-		cols := make([]string, 0, len(d.Columns))
+		cols := make([]string, 0, len(filteredColumnNames))
 		for _, col := range filteredColumnNames {
+			if _, found := schemaInfo.alwaysIdentityColumns[col]; found {
+				continue
+			}
 			cols = append(cols, fmt.Sprintf("%[1]s = EXCLUDED.%[1]s", col))
 		}
-		return fmt.Sprintf(" ON CONFLICT (%s) DO UPDATE SET %s", strings.Join(primaryKeyCols, ","), strings.Join(cols, ", "))
+		conflictTarget := strings.Join(primaryKeyCols, ",")
+		if len(cols) == 0 {
+			// the conflicting row has no column left to update
+			return fmt.Sprintf(" ON CONFLICT (%s) DO NOTHING", conflictTarget)
+		}
+		return fmt.Sprintf(" ON CONFLICT (%s) DO UPDATE SET %s", conflictTarget, strings.Join(cols, ", "))
 	case onConflictDoNothing:
 		return " ON CONFLICT DO NOTHING"
 	default:
@@ -418,6 +425,31 @@ func scanRangeLiteral[T any](typeMap *pgtype.Map, oid uint32, literal string) (a
 		return nil, false
 	}
 	return r, true
+}
+
+// sequenceTarget identifies the sequence to move after an insert: by name, or
+// by its owning column when the name is unknown (identity column learnt from a
+// DDL event).
+type sequenceTarget struct {
+	name   string
+	column string
+}
+
+// setSequenceQuery returns the query that moves the sequence to value. Without
+// a sequence name, the target resolves the sequence owned by the column when
+// the query runs, after any preceding DDL has been applied.
+func setSequenceQuery(schema, table string, seq sequenceTarget, value int64) *query {
+	q := &query{table: table, schema: schema}
+	if seq.name != "" {
+		q.sql = "SELECT setval($1::regclass, $2::bigint, true)"
+		q.args = []any{seq.name, value}
+		return q
+	}
+	// pg_get_serial_sequence parses the table name as an identifier and takes
+	// the column name literally.
+	q.sql = "SELECT setval(pg_get_serial_sequence($1, $2), $3::bigint, true)"
+	q.args = []any{quotedTableName(schema, table), seq.column, value}
+	return q
 }
 
 func quotedTableName(schemaName, tableName string) string {
