@@ -15,6 +15,28 @@ import (
 	"github.com/xataio/pgstream/pkg/wal/processor/injector"
 )
 
+type sequenceState struct {
+	lastValue int64
+	isCalled  bool
+}
+
+// identitySequenceState returns the state of the sequence that backs the id
+// column of the table.
+func identitySequenceState(ctx context.Context, conn pglib.Querier, table string) (sequenceState, error) {
+	var sequenceName string
+	if err := conn.QueryRow(ctx, []any{&sequenceName}, "SELECT pg_get_serial_sequence($1, 'id')", table); err != nil {
+		return sequenceState{}, fmt.Errorf("resolving the sequence of %s.id: %w", table, err)
+	}
+
+	var state sequenceState
+	err := conn.QueryRow(ctx, []any{&state.lastValue, &state.isCalled},
+		fmt.Sprintf("SELECT last_value, is_called FROM %s", sequenceName))
+	if err != nil {
+		return sequenceState{}, fmt.Errorf("reading sequence %s: %w", sequenceName, err)
+	}
+	return state, nil
+}
+
 // Test_PostgresToPostgres_AlwaysIdentityOnConflictUpdate verifies that INSERT
 // events on a table with a GENERATED ALWAYS AS IDENTITY column are replicated
 // when the writer uses the "update" on conflict action.
