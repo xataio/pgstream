@@ -1038,6 +1038,149 @@ func Test_SnapshotToPostgres_TimetzColumns(t *testing.T) {
 	})
 }
 
+// Test_SnapshotToPostgres_CompositeColumns verifies that snapshot/restore
+// preserves user-defined composite type columns (#1235). pgx has no binary
+// codec for a composite OID, so binary COPY wrote the text form of the row
+// where the server expected the binary record layout, which starts with an
+// int32 field count, and the server rejected it with "wrong number of columns"
+// (SQLSTATE 42804).
+//
+// The desks table holds only a composite whose name is also a built-in type
+// name ("point"). pgx knows that name, so the column type alone looks binary
+// safe and nothing else in the table forces text COPY. It has to be detected
+// from the catalog.
+func Test_SnapshotToPostgres_CompositeColumns(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	var snapshotPGURL string
+	pgcleanup, err := testcontainers.SetupPostgresContainer(context.Background(), &snapshotPGURL, testcontainers.Postgres14, "config/postgresql.conf")
+	require.NoError(t, err)
+	defer pgcleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	run := func(suffix string, opts ...option) {
+		testSchema := fmt.Sprintf("composite_%s", suffix)
+		employeesTable := testSchema + ".employees"
+		desksTable := testSchema + ".desks"
+
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(`CREATE SCHEMA %s`, testSchema))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`CREATE TYPE %s.address AS (
+				street text,
+				city   text,
+				zip    character varying(10)
+			)`, testSchema))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`CREATE TYPE %s.point AS (x integer, y integer)`, testSchema))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`CREATE TABLE %s(
+				id   serial PRIMARY KEY,
+				name text NOT NULL,
+				home %[2]s.address,
+				work %[2]s.address,
+				past %[2]s.address[]
+			)`, employeesTable, testSchema))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`INSERT INTO %s(name, home, work, past) VALUES
+				('Alice', ROW('123 Main St', 'Springfield', '12345'), ROW('456 Corp Ave', 'Shelbyville', '67890'),
+				 ARRAY[ROW('1 Old Rd', 'Ogdenville', '00001')]::%[2]s.address[]),
+				('Bob',   ROW('789 Elm St',  'Shelbyville', '11111'), ROW('101 Office Blvd', 'Springfield', '22222'), '{}'),
+				('Carol', ROW('"quoted", street', NULL, ''), NULL, NULL)`,
+			employeesTable, testSchema))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`CREATE TABLE %s(id integer PRIMARY KEY, desk %s.point)`, desksTable, testSchema))
+		execQueryWithURL(t, ctx, snapshotPGURL, fmt.Sprintf(
+			`INSERT INTO %s(id, desk) VALUES (1, ROW(3, 4)), (2, NULL), (3, ROW(NULL, 7))`, desksTable))
+
+		cfg := &stream.Config{
+			Listener:  testPostgresListenerCfgWithSnapshot(snapshotPGURL, targetPGURL, []string{employeesTable, desksTable}),
+			Processor: testPostgresProcessorCfg(opts...),
+		}
+		initStream(t, ctx, snapshotPGURL)
+		runSnapshot(t, ctx, cfg)
+
+		targetConn, err := pglib.NewConn(ctx, targetPGURL)
+		require.NoError(t, err)
+		sourceConn, err := pglib.NewConn(ctx, snapshotPGURL)
+		require.NoError(t, err)
+
+		queries := []string{
+			fmt.Sprintf("SELECT id::text, name, home::text, work::text, past::text FROM %s ORDER BY id", employeesTable),
+			fmt.Sprintf("SELECT id::text, desk::text FROM %s ORDER BY id", desksTable),
+		}
+		// every column is selected as text, so a NULL is the only nil
+		fetch := func(conn pglib.Querier) ([][]*string, error) {
+			out := [][]*string{}
+			for _, query := range queries {
+				rows, err := conn.Query(ctx, query)
+				if err != nil {
+					return nil, err
+				}
+				for rows.Next() {
+					fields := len(rows.FieldDescriptions())
+					values := make([]*string, fields)
+					dest := make([]any, fields)
+					for i := range values {
+						dest[i] = &values[i]
+					}
+					if err := rows.Scan(dest...); err != nil {
+						rows.Close()
+						return nil, err
+					}
+					out = append(out, values)
+				}
+				rows.Close()
+				if err := rows.Err(); err != nil {
+					return nil, err
+				}
+			}
+			return out, nil
+		}
+
+		want, err := fetch(sourceConn)
+		require.NoError(t, err)
+		require.Len(t, want, 6)
+
+		timer := time.NewTimer(20 * time.Second)
+		defer timer.Stop()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		validation := func() bool {
+			got, err := fetch(targetConn)
+			if err != nil || len(got) != len(want) {
+				return false
+			}
+			require.Equal(t, want, got)
+			return true
+		}
+
+		for {
+			select {
+			case <-timer.C:
+				cancel()
+				t.Error("timeout waiting for postgres snapshot sync of composite columns")
+				return
+			case <-ticker.C:
+				if validation() {
+					return
+				}
+			}
+		}
+	}
+
+	t.Run("bulk ingest", func(t *testing.T) {
+		run("bulk", withBulkIngestionEnabled())
+	})
+	t.Run("batch writer", func(t *testing.T) {
+		run("batch")
+	})
+}
+
 // Test_SnapshotToPostgres_NumericColumnTransformer verifies that a numeric
 // column can be transformed end to end. numeric has no entry in the
 // transformer type compatibility map, so any rule on such a column used to be
