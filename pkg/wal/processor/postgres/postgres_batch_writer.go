@@ -32,6 +32,11 @@ type BatchWriter struct {
 
 	batchSender walMessageBatchSender
 	dmlAdapter  *dmlAdapter
+
+	// lastDDLStatement is the statement key of the last DDL event whose
+	// queries all ran. Batches are sent one at a time, in order, so no lock is
+	// needed.
+	lastDDLStatement string
 }
 
 const batchWriter = "postgres_batch_writer"
@@ -152,11 +157,20 @@ func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]
 					return err
 				}
 
+				statement := ddlStatementKey(msg.data)
+				// The DDL text is the whole query, so a query with several DDL
+				// commands has already run in full with its first event.
+				if statement != "" && statement == w.lastDDLStatement {
+					w.logger.Debug("skipping DDL event for a statement that already ran", loglib.Fields{"statement": statement})
+					continue
+				}
+
 				ddlQueries, err := w.adapter.walEventToQueries(ctx, &wal.Event{Data: msg.data})
 				if err != nil {
 					w.logger.Error(err, "converting DDL event to queries")
 					return err
 				}
+				allRan := true
 				for _, q := range ddlQueries {
 					if q.IsEmpty() {
 						continue
@@ -168,10 +182,14 @@ func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]
 								return fmt.Errorf("strict mode: stopping on non-internal DDL failure: %w", err)
 							}
 							w.recordDroppedQuery(q, err)
+							allRan = false
 							continue
 						}
 						return err
 					}
+				}
+				if allRan {
+					w.lastDDLStatement = statement
 				}
 				continue
 			}
@@ -472,4 +490,15 @@ func removeIndex(s []*query, index int) []*query {
 	ret := make([]*query, 0, len(s)-1)
 	ret = append(ret, s[:index]...)
 	return append(ret, s[index+1:]...)
+}
+
+// ddlStatementKey returns the statement key of a DDL event, or an empty string
+// when the event has none or cannot be parsed. The adapter reports a parse
+// error when it converts the event to queries.
+func ddlStatementKey(d *wal.Data) string {
+	ddlEvent, err := wal.WalDataToDDLEvent(d)
+	if err != nil {
+		return ""
+	}
+	return ddlEvent.StatementKey()
 }

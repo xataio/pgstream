@@ -403,6 +403,78 @@ func Test_PostgresToPostgres_UnqualifiedDDLUnderSearchPath(t *testing.T) {
 	}, 20*time.Second, 200*time.Millisecond, "expected the inserted row to be replicated")
 }
 
+// A query with several DDL commands emits one DDL event per command, each with
+// the whole query as its text. The target must run the query once: a second
+// run fails on the first command that is not idempotent, and strict mode stops
+// the stream there.
+func Test_PostgresToPostgres_MultiStatementDDL(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	processorCfg := testPostgresProcessorCfg()
+	processorCfg.Postgres.BatchWriter.StrictMode = true
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfg(t),
+		Processor: processorCfg,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runStream(t, ctx, cfg)
+
+	tableName := fmt.Sprintf("pg2pg_multi_statement_ddl_%d", time.Now().UnixNano())
+	defer execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("drop table if exists %s", tableName))
+	defer execQuery(t, ctx, fmt.Sprintf("drop table if exists %s", tableName))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	rowCount := func() int {
+		var count int
+		if err := targetConn.QueryRow(ctx, []any{&count}, fmt.Sprintf("select count(*) from %s", tableName)); err != nil {
+			return -1
+		}
+		return count
+	}
+
+	execQuery(t, ctx, fmt.Sprintf("create table %s (id int primary key)", tableName))
+	require.Eventually(t, func() bool {
+		exists, err := tableExists(ctx, targetConn, "public", tableName)
+		return err == nil && exists
+	}, 20*time.Second, 200*time.Millisecond, "expected the table to be replicated")
+
+	t.Run("one query with several DDL commands", func(t *testing.T) {
+		execQuery(t, ctx, fmt.Sprintf(`
+			alter table %[1]s add column provider text not null default 'vultr';
+			alter table %[1]s alter column provider set default 'boat';`, tableName))
+		execQuery(t, ctx, fmt.Sprintf("insert into %s (id) values (1)", tableName))
+
+		require.Eventually(t, func() bool { return rowCount() == 1 },
+			20*time.Second, 200*time.Millisecond, "expected the row after the DDL to be replicated")
+
+		var columnDefault string
+		require.NoError(t, targetConn.QueryRow(ctx, []any{&columnDefault},
+			"select column_default from information_schema.columns where table_name = $1 and column_name = 'provider'", tableName))
+		require.Equal(t, "'boat'::text", columnDefault)
+	})
+
+	t.Run("a DO block that runs several DDL commands", func(t *testing.T) {
+		execQuery(t, ctx, fmt.Sprintf(`
+			do $$
+			begin
+				execute 'alter table %[1]s add column region text';
+				execute 'alter table %[1]s add column zone text';
+			end
+			$$;`, tableName))
+		execQuery(t, ctx, fmt.Sprintf("insert into %s (id, region, zone) values (2, 'eu', 'a')", tableName))
+
+		require.Eventually(t, func() bool { return rowCount() == 2 },
+			20*time.Second, 200*time.Millisecond, "expected the row after the DDL to be replicated")
+	})
+}
+
 func Test_PostgresToPostgres_IdentityColumns(t *testing.T) {
 	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
 		t.Skip("skipping integration test...")

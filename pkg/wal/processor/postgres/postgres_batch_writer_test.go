@@ -594,6 +594,131 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 	}
 }
 
+func TestBatchWriter_sendBatch_ddlOncePerStatement(t *testing.T) {
+	t.Parallel()
+
+	// A query with several DDL commands emits one event per command, each
+	// with the whole query as its DDL.
+	const migration = "ALTER TABLE t ADD COLUMN c int; ALTER TABLE t ALTER COLUMN c SET DEFAULT 1;"
+	ddlMsg := func(ddl string, statement string) *walMessage {
+		content := fmt.Sprintf(`{"ddl": %q, "schema_name": "public", "command_tag": "ALTER TABLE", "objects": []}`, ddl)
+		if statement != "" {
+			content = fmt.Sprintf(`{"ddl": %q, "schema_name": "public", "command_tag": "ALTER TABLE", "objects": [], "xid": 5011, "statement_timestamp": %q}`, ddl, statement)
+		}
+		return &walMessage{
+			data:  &wal.Data{Action: wal.LogicalMessageAction, Prefix: wal.DDLPrefix, Content: content},
+			isDDL: true,
+		}
+	}
+
+	newWriter := func(strict bool, failFirst bool, ran *[]string) *BatchWriter {
+		return &BatchWriter{
+			Writer: &Writer{
+				strictMode: strict,
+				logger:     loglib.NewNoopLogger(),
+				pgConn: &pgmocks.Querier{
+					ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+						return f(&pgmocks.Tx{
+							ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
+								if sql == prependSearchPath {
+									return pglib.CommandTag{}, nil
+								}
+								*ran = append(*ran, sql)
+								if failFirst && len(*ran) == 1 {
+									return pglib.CommandTag{}, &pglib.ErrRelationAlreadyExists{Details: `column "c" of relation "t" already exists`}
+								}
+								return pglib.CommandTag{}, nil
+							},
+						})
+					},
+					CloseFn: func(ctx context.Context) error { return nil },
+				},
+				checkpointer: func(ctx context.Context, positions []wal.CommitPosition) error { return nil },
+				adapter: &mockAdapter{
+					walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
+						ddlEvent, err := wal.WalDataToDDLEvent(e.Data)
+						if err != nil {
+							return nil, err
+						}
+						return []*query{{schema: "public", table: "t", sql: ddlEvent.DDL, isDDL: true}}, nil
+					},
+				},
+			},
+			dmlAdapter:  mustNewDMLAdapter(t),
+			batchSender: batchmocks.NewBatchSender[*walMessage](),
+		}
+	}
+
+	t.Run("the events of one statement replay it once", func(t *testing.T) {
+		t.Parallel()
+
+		var ran []string
+		w := newWriter(true, false, &ran)
+		err := w.sendBatch(context.Background(), batch.NewBatch([]*walMessage{
+			ddlMsg(migration, "2026-10-15T09:30:59.123456+00:00"),
+			ddlMsg(migration, "2026-10-15T09:30:59.123456+00:00"),
+		}, []wal.CommitPosition{testCommitPosition}))
+		require.NoError(t, err)
+		require.Equal(t, []string{migration}, ran)
+	})
+
+	t.Run("the same text sent again as another statement replays again", func(t *testing.T) {
+		t.Parallel()
+
+		const drop = "DROP TABLE IF EXISTS t"
+		var ran []string
+		w := newWriter(true, false, &ran)
+		err := w.sendBatch(context.Background(), batch.NewBatch([]*walMessage{
+			ddlMsg(drop, "2026-10-15T09:30:59.000001+00:00"),
+			ddlMsg("CREATE TABLE t (id int)", "2026-10-15T09:30:59.000002+00:00"),
+			ddlMsg(drop, "2026-10-15T09:30:59.000003+00:00"),
+		}, []wal.CommitPosition{testCommitPosition}))
+		require.NoError(t, err)
+		require.Equal(t, []string{drop, "CREATE TABLE t (id int)", drop}, ran)
+	})
+
+	t.Run("a statement is remembered across batches", func(t *testing.T) {
+		t.Parallel()
+
+		var ran []string
+		w := newWriter(true, false, &ran)
+		for range 2 {
+			err := w.sendBatch(context.Background(), batch.NewBatch([]*walMessage{
+				ddlMsg(migration, "2026-10-15T09:30:59.123456+00:00"),
+			}, []wal.CommitPosition{testCommitPosition}))
+			require.NoError(t, err)
+		}
+		require.Equal(t, []string{migration}, ran)
+	})
+
+	t.Run("events without a statement identity all replay", func(t *testing.T) {
+		t.Parallel()
+
+		var ran []string
+		w := newWriter(false, false, &ran)
+		err := w.sendBatch(context.Background(), batch.NewBatch([]*walMessage{
+			ddlMsg(migration, ""),
+			ddlMsg(migration, ""),
+		}, []wal.CommitPosition{testCommitPosition}))
+		require.NoError(t, err)
+		require.Equal(t, []string{migration, migration}, ran)
+	})
+
+	t.Run("a statement whose replay failed is not remembered", func(t *testing.T) {
+		t.Parallel()
+
+		var ran []string
+		w := newWriter(false, true, &ran)
+		err := w.sendBatch(context.Background(), batch.NewBatch([]*walMessage{
+			ddlMsg(migration, "2026-10-15T09:30:59.123456+00:00"),
+			ddlMsg(migration, "2026-10-15T09:30:59.123456+00:00"),
+		}, []wal.CommitPosition{testCommitPosition}))
+		require.NoError(t, err)
+		require.Equal(t, []string{migration, migration}, ran)
+		require.Equal(t, uint64(1), w.DroppedQueries())
+	})
+}
+
 func TestBatchWriter_flushQueries(t *testing.T) {
 	t.Parallel()
 

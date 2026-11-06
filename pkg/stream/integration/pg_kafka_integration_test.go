@@ -151,7 +151,9 @@ func Test_PostgresToKafka(t *testing.T) {
 					if event.Data.Content != "" && tc.wantEvent.Data.Content != "" {
 						ddlEvent := &wal.DDLEvent{}
 						require.NoError(t, json.Unmarshal([]byte(event.Data.Content), ddlEvent))
+						require.NotEmpty(t, ddlEvent.StatementKey())
 						require.Empty(t, cmp.Diff(ddlEvent, testDDLEvent,
+							cmpopts.IgnoreFields(wal.DDLEvent{}, "XID", "StatementTimestamp"),
 							cmpopts.IgnoreFields(wal.DDLObject{}, "OID", "PgstreamID"),
 							cmpopts.SortSlices(func(a, b wal.DDLObject) bool { return a.Type < b.Type })))
 					}
