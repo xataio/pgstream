@@ -227,6 +227,43 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 			},
 		},
 		{
+			// identity column learnt from a DDL event: the sequence name is
+			// unknown, so the target resolves the owned sequence.
+			name: "insert with identity sequence without name",
+			walData: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Value: float64(7)},
+					{ID: columnID(2), Name: "name", Value: "alice"},
+				},
+				Metadata: wal.Metadata{
+					InternalColIDs: []string{columnID(1)},
+				},
+			},
+			sequenceColumns: map[string]string{
+				`"id"`: "",
+			},
+			forCopy: false,
+
+			wantQueries: []*query{
+				{
+					schema:      testSchema,
+					table:       testTable,
+					columnNames: quotedColumnNames,
+					sql:         fmt.Sprintf("INSERT INTO %s(\"id\", \"name\") OVERRIDING SYSTEM VALUE VALUES($1, $2)", quotedTestTable),
+					args:        []any{float64(7), "alice"},
+				},
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    "SELECT setval(pg_get_serial_sequence($1, $2), $3::bigint, true)",
+					args:   []any{quotedTestTable, "id", int64(7)},
+				},
+			},
+		},
+		{
 			name: "insert with int64 sequence value preserves precision above 2^53",
 			walData: &wal.Data{
 				Action: "I",
@@ -926,7 +963,7 @@ func Test_needsTextCopyForColumns(t *testing.T) {
 		name        string
 		columnNames []string
 		columnTypes []string
-		enumColumns map[string]enumColumn
+		schemaInfo  schemaInfo
 
 		want bool
 	}{
@@ -935,14 +972,12 @@ func Test_needsTextCopyForColumns(t *testing.T) {
 			columnNames: []string{`"id"`, `"name"`},
 			// the names Mapper.TypeForOID resolves
 			columnTypes: []string{"int4", "text"},
-			enumColumns: nil,
 			want:        false,
 		},
 		{
 			name:        "text-only extension type",
 			columnNames: []string{`"id"`, `"location"`},
 			columnTypes: []string{"int4", "ltree"},
-			enumColumns: nil,
 			want:        true,
 		},
 		{
@@ -950,21 +985,18 @@ func Test_needsTextCopyForColumns(t *testing.T) {
 			name:        "postgis geometry column",
 			columnNames: []string{`"id"`, `"geom"`},
 			columnTypes: []string{"int4", "geometry"},
-			enumColumns: nil,
 			want:        true,
 		},
 		{
 			name:        "array of an extension type",
 			columnNames: []string{`"id"`, `"geoms"`},
 			columnTypes: []string{"int4", "_geometry"},
-			enumColumns: nil,
 			want:        true,
 		},
 		{
 			name:        "extension type pgstream registers a binary codec for",
 			columnNames: []string{`"id"`, `"embedding"`, `"attrs"`},
 			columnTypes: []string{"int4", "vector", "hstore"},
-			enumColumns: nil,
 			want:        false,
 		},
 		{
@@ -972,35 +1004,62 @@ func Test_needsTextCopyForColumns(t *testing.T) {
 			name:        "format_type spelling falls back to text copy",
 			columnNames: []string{`"id"`, `"name"`},
 			columnTypes: []string{"int4", "character varying"},
-			enumColumns: nil,
 			want:        true,
 		},
 		{
 			name:        "timetz column",
 			columnNames: []string{`"id"`, `"start_at"`},
 			columnTypes: []string{"int4", "timetz"},
-			enumColumns: nil,
 			want:        true,
 		},
 		{
 			name:        "timetz column, format_type spelling",
 			columnNames: []string{`"id"`, `"start_at"`},
 			columnTypes: []string{"int4", "time with time zone"},
-			enumColumns: nil,
 			want:        true,
 		},
 		{
 			name:        "enum column",
 			columnNames: []string{`"id"`, `"mood"`},
 			columnTypes: []string{"int4", "mood"},
-			enumColumns: map[string]enumColumn{`"mood"`: {enumType: "public.mood"}},
+			schemaInfo:  schemaInfo{enumColumns: map[string]enumColumn{`"mood"`: {enumType: "public.mood"}}},
 			want:        true,
 		},
 		{
 			name:        "enum type present but column filtered out",
 			columnNames: []string{`"id"`},
 			columnTypes: []string{"int4"},
-			enumColumns: map[string]enumColumn{`"mood"`: {enumType: "public.mood"}},
+			schemaInfo:  schemaInfo{enumColumns: map[string]enumColumn{`"mood"`: {enumType: "public.mood"}}},
+			want:        false,
+		},
+		{
+			// regression for #1235: pgx has no binary codec for a composite OID
+			name:        "composite column",
+			columnNames: []string{`"id"`, `"home"`},
+			columnTypes: []string{"int4", "address"},
+			schemaInfo:  schemaInfo{compositeColumns: map[string]struct{}{`"home"`: {}}},
+			want:        true,
+		},
+		{
+			// the name pgx knows does not make the column binary safe
+			name:        "composite column named like a built-in type",
+			columnNames: []string{`"id"`, `"desk"`},
+			columnTypes: []string{"int4", "point"},
+			schemaInfo:  schemaInfo{compositeColumns: map[string]struct{}{`"desk"`: {}}},
+			want:        true,
+		},
+		{
+			name:        "array of a composite named like a built-in type",
+			columnNames: []string{`"id"`, `"desks"`},
+			columnTypes: []string{"int4", "_point"},
+			schemaInfo:  schemaInfo{compositeColumns: map[string]struct{}{`"desks"`: {}}},
+			want:        true,
+		},
+		{
+			name:        "composite type present but column filtered out",
+			columnNames: []string{`"id"`},
+			columnTypes: []string{"int4"},
+			schemaInfo:  schemaInfo{compositeColumns: map[string]struct{}{`"desk"`: {}}},
 			want:        false,
 		},
 	}
@@ -1008,7 +1067,7 @@ func Test_needsTextCopyForColumns(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tc.want, newTestDMLAdapterForCopy(t).needsTextCopyForColumns(tc.columnNames, tc.columnTypes, tc.enumColumns))
+			require.Equal(t, tc.want, newTestDMLAdapterForCopy(t).needsTextCopyForColumns(tc.columnNames, tc.columnTypes, tc.schemaInfo))
 		})
 	}
 }
@@ -1073,6 +1132,9 @@ func Test_updateValueForCopy_enumArray(t *testing.T) {
 	// the same holds for an array no codec can encode
 	require.Equal(t, "{0101000000,0101000020}",
 		a.updateValueForCopy("{0101000000,0101000020}", "_geometry", false))
+
+	// and for an array of composites, even one whose name pgx knows
+	require.Equal(t, `{"(1,2)","(3,4)"}`, a.updateValueForCopy(`{"(1,2)","(3,4)"}`, "_point", true))
 }
 
 func Test_updateValueForCopy_arrayDimensions(t *testing.T) {

@@ -363,6 +363,177 @@ func TestPGSchemaObserver_getEnumColumnNames_invalidatedWhileQuerying(t *testing
 	require.False(t, found, "result raced by an invalidation must not be cached")
 }
 
+func TestPGSchemaObserver_getCompositeColumnNames(t *testing.T) {
+	t.Parallel()
+
+	quotedQualifiedTableName := `"test_schema"."test_table"`
+	homeColumn := `"home"`
+
+	tests := []struct {
+		name         string
+		tableColumns map[string]map[string]struct{}
+		pgConn       pglib.Querier
+
+		wantColumns      map[string]struct{}
+		wantTableColumns map[string]map[string]struct{}
+		wantErr          error
+	}{
+		{
+			name:         "ok - queries and caches composite column",
+			tableColumns: map[string]map[string]struct{}{},
+			pgConn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, compositeTableColumnsQuery, query)
+					require.Equal(t, []any{testSchema, testTable}, args)
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(_ uint, dest ...any) error {
+							require.Len(t, dest, 1)
+							colName, ok := dest[0].(*string)
+							require.True(t, ok, fmt.Sprintf("column name, expected *string, got %T", dest[0]))
+							*colName = "home"
+							return nil
+						},
+						ErrFn: func() error { return nil },
+					}, nil
+				},
+			},
+
+			wantColumns: map[string]struct{}{homeColumn: {}},
+			wantTableColumns: map[string]map[string]struct{}{
+				quotedQualifiedTableName: {homeColumn: {}},
+			},
+			wantErr: nil,
+		},
+		{
+			name:         "ok - no composite columns, empty set cached",
+			tableColumns: map[string]map[string]struct{}{},
+			pgConn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					return &pgmocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return false },
+						ErrFn:   func() error { return nil },
+					}, nil
+				},
+			},
+
+			wantColumns: map[string]struct{}{},
+			wantTableColumns: map[string]map[string]struct{}{
+				quotedQualifiedTableName: {},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "ok - cache hit, no query",
+			tableColumns: map[string]map[string]struct{}{
+				quotedQualifiedTableName: {homeColumn: {}},
+			},
+			pgConn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					return nil, errors.New("unexpected call to QueryFn")
+				},
+			},
+
+			wantColumns: map[string]struct{}{homeColumn: {}},
+			wantTableColumns: map[string]map[string]struct{}{
+				quotedQualifiedTableName: {homeColumn: {}},
+			},
+			wantErr: nil,
+		},
+		{
+			name:         "error - querying composite columns",
+			tableColumns: map[string]map[string]struct{}{},
+			pgConn: &pgmocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					return nil, errTest
+				},
+			},
+
+			wantColumns:      nil,
+			wantTableColumns: map[string]map[string]struct{}{},
+			wantErr:          errTest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			o := &pgSchemaObserver{
+				pgConn:                tc.pgConn,
+				compositeTableColumns: synclib.NewMapFromMap(tc.tableColumns),
+				logger:                loglib.NewNoopLogger(),
+			}
+
+			colNames, err := o.getCompositeColumnNames(context.TODO(), "test_schema", "test_table")
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantColumns, colNames)
+			require.Equal(t, tc.wantTableColumns, o.compositeTableColumns.GetMap())
+		})
+	}
+}
+
+// A DDL that changes a column to or from a composite type must evict the
+// cached set, both for table and for table column objects.
+func TestPGSchemaObserver_update_invalidatesCompositeColumns(t *testing.T) {
+	t.Parallel()
+
+	quotedTable := `"test_schema"."test_table"`
+	quotedOtherTable := `"test_schema"."other_table"`
+
+	tests := []struct {
+		name    string
+		objects []wal.DDLObject
+
+		wantEvicted bool
+	}{
+		{
+			name:        "table object",
+			objects:     []wal.DDLObject{{Type: "table", Schema: "test_schema", Identity: "test_schema.test_table"}},
+			wantEvicted: true,
+		},
+		{
+			name:        "table column object",
+			objects:     []wal.DDLObject{{Type: "table column", Schema: "test_schema", Identity: "test_schema.test_table.home"}},
+			wantEvicted: true,
+		},
+		{
+			name:        "unrelated table",
+			objects:     []wal.DDLObject{{Type: "table", Schema: "test_schema", Identity: "test_schema.unrelated_table"}},
+			wantEvicted: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			o := &pgSchemaObserver{
+				generatedTableColumns:      synclib.NewMap[string, map[string]struct{}](),
+				alwaysIdentityTableColumns: synclib.NewMap[string, map[string]struct{}](),
+				columnTableSequences:       synclib.NewMap[string, map[string]string](),
+				enumTableColumns:           synclib.NewMap[string, map[string]enumColumn](),
+				compositeTableColumns: synclib.NewMapFromMap(map[string]map[string]struct{}{
+					quotedTable:      {`"home"`: {}},
+					quotedOtherTable: {`"work"`: {}},
+				}),
+				materializedViews: synclib.NewMap[string, map[string]struct{}](),
+				logger:            loglib.NewNoopLogger(),
+			}
+
+			o.update(&wal.DDLEvent{SchemaName: "test_schema", CommandTag: "ALTER TABLE", Objects: tc.objects})
+
+			_, found := o.compositeTableColumns.Get(quotedTable)
+			require.Equal(t, !tc.wantEvicted, found, "unexpected eviction state for the altered table")
+
+			_, found = o.compositeTableColumns.Get(quotedOtherTable)
+			require.True(t, found, "expected the untouched table's entry to survive")
+		})
+	}
+}
+
 func TestPGSchemaObserver_getSchemaInfo(t *testing.T) {
 	t.Parallel()
 
@@ -381,6 +552,8 @@ func TestPGSchemaObserver_getSchemaInfo(t *testing.T) {
 				map[string]struct{}{`"id"`: {}}),
 			columnTableSequences: newSeededSequenceMap(failing != "sequences"),
 			enumTableColumns:     newSeededMap(failing != "enum", map[string]enumColumn{`"mood"`: {enumType: "public.mood"}}),
+			compositeTableColumns: newSeededMap(failing != "composite",
+				map[string]struct{}{`"home"`: {}}),
 		}
 	}
 
@@ -400,6 +573,7 @@ func TestPGSchemaObserver_getSchemaInfo(t *testing.T) {
 				alwaysIdentityColumns: map[string]struct{}{`"id"`: {}},
 				sequenceColumns:       map[string]string{`"id"`: `"test_schema"."seq"`},
 				enumColumns:           map[string]enumColumn{`"mood"`: {enumType: "public.mood"}},
+				compositeColumns:      map[string]struct{}{`"home"`: {}},
 			},
 			wantErr: nil,
 		},
@@ -427,6 +601,13 @@ func TestPGSchemaObserver_getSchemaInfo(t *testing.T) {
 		{
 			name:    "error - enum columns",
 			failing: "enum",
+
+			wantInfo: schemaInfo{},
+			wantErr:  errTest,
+		},
+		{
+			name:    "error - composite columns",
+			failing: "composite",
 
 			wantInfo: schemaInfo{},
 			wantErr:  errTest,
@@ -498,32 +679,28 @@ func TestPGSchemaObserver_updateGeneratedColumnNames(t *testing.T) {
 			wantAlwaysIdentity: map[string]struct{}{},
 		},
 		{
-			// GENERATED ALWAYS AS IDENTITY lands in BOTH caches: filtered
-			// from all DML via generatedColumns (historical behavior — lets
-			// target sequence auto-increment on INSERT) and additionally
-			// tracked in alwaysIdentityColumns so UPDATE SET drops it even
-			// when generatedColumns is empty (e.g. SQL-query cache path).
+			// GENERATED ALWAYS AS IDENTITY is not a generated column: INSERTs
+			// keep the source value (OVERRIDING SYSTEM VALUE + setval). It is
+			// tracked in alwaysIdentityColumns so UPDATE SET drops it.
 			name: "always identity column",
 			cols: []wal.DDLColumn{
 				{Attnum: 1, Name: "id", Type: "bigint", Identity: &always},
 				{Attnum: 2, Name: "name", Type: "text"},
 			},
 
-			wantGenerated:      map[string]struct{}{`"id"`: {}},
+			wantGenerated:      map[string]struct{}{},
 			wantAlwaysIdentity: map[string]struct{}{`"id"`: {}},
 		},
 		{
-			// GENERATED BY DEFAULT AS IDENTITY also lands in generatedColumns
-			// via IsGenerated() (Identity != nil). It is NOT in the
-			// alwaysIdentity map since PG accepts explicit values for it in
-			// UPDATE SET.
+			// GENERATED BY DEFAULT AS IDENTITY is in neither map: PG accepts
+			// explicit values for it in INSERT and UPDATE SET.
 			name: "by-default identity column",
 			cols: []wal.DDLColumn{
 				{Attnum: 1, Name: "id", Type: "bigint", Identity: &byDefault},
 				{Attnum: 2, Name: "name", Type: "text"},
 			},
 
-			wantGenerated:      map[string]struct{}{`"id"`: {}},
+			wantGenerated:      map[string]struct{}{},
 			wantAlwaysIdentity: map[string]struct{}{},
 		},
 		{
@@ -535,7 +712,7 @@ func TestPGSchemaObserver_updateGeneratedColumnNames(t *testing.T) {
 				{Attnum: 4, Name: "name", Type: "text"},
 			},
 
-			wantGenerated:      map[string]struct{}{`"id"`: {}, `"request_id"`: {}, `"full_name"`: {}},
+			wantGenerated:      map[string]struct{}{`"full_name"`: {}},
 			wantAlwaysIdentity: map[string]struct{}{`"id"`: {}, `"request_id"`: {}},
 		},
 	}
@@ -1071,6 +1248,8 @@ func TestPGSchemaObserver_getSequenceColumns(t *testing.T) {
 func TestPGSchemaObserver_updateColumnSequences(t *testing.T) {
 	t.Parallel()
 
+	always := "ALWAYS"
+
 	defaultVal := func(seqName string) *string {
 		val := "nextval('" + seqName + "'::regclass)"
 		return &val
@@ -1149,6 +1328,33 @@ func TestPGSchemaObserver_updateColumnSequences(t *testing.T) {
 			columnTableSequences: map[string]map[string]string{},
 			wantColumnTableSequences: map[string]map[string]string{
 				`"test_schema"."test_table"`: {`"sequence_col"`: "seq"},
+			},
+		},
+		{
+			// the DDL event has no identity sequence name: the empty name
+			// makes the target resolve the owned sequence at setval time.
+			name: "table with identity column",
+			ddlEvent: &wal.DDLEvent{
+				DDL:        "CREATE TABLE test_table (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name TEXT);",
+				SchemaName: "test_schema",
+				CommandTag: "CREATE TABLE",
+				Objects: []wal.DDLObject{
+					{
+						Type:     "table",
+						Identity: `"test_schema"."test_table"`,
+						Schema:   "test_schema",
+						Columns: []wal.DDLColumn{
+							{Attnum: 1, Name: "id", Type: "bigint", Identity: &always},
+							{Attnum: 2, Name: "name", Type: "text", Nullable: true},
+						},
+						PrimaryKeyColumns: []string{"id"},
+					},
+				},
+			},
+
+			columnTableSequences: map[string]map[string]string{},
+			wantColumnTableSequences: map[string]map[string]string{
+				`"test_schema"."test_table"`: {`"id"`: ""},
 			},
 		},
 		{

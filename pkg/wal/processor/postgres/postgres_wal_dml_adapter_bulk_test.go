@@ -636,6 +636,37 @@ func TestBuildBulkInsertQueries_WithSequence(t *testing.T) {
 	require.Equal(t, []any{"users_id_seq", int64(10)}, setvalQuery.args)
 }
 
+func TestBuildBulkInsertQueries_WithUnnamedIdentitySequence(t *testing.T) {
+	t.Parallel()
+
+	adapter := newTestDMLAdapter(t)
+	si := schemaInfo{
+		generatedColumns: map[string]struct{}{},
+		sequenceColumns:  map[string]string{`"id"`: ""},
+	}
+
+	events := []*wal.Data{
+		{
+			Action:  "I",
+			Schema:  "public",
+			Table:   "users",
+			Columns: []wal.Column{{Name: "id", Type: "bigint", Value: float64(10)}},
+		},
+		{
+			Action:  "I",
+			Schema:  "public",
+			Table:   "users",
+			Columns: []wal.Column{{Name: "id", Type: "bigint", Value: float64(4)}},
+		},
+	}
+
+	queries := adapter.buildBulkInsertQueries(events, si)
+	// 1 INSERT + 1 setval resolved on the target from the owning column
+	require.Len(t, queries, 2)
+	require.Equal(t, "SELECT setval(pg_get_serial_sequence($1, $2), $3::bigint, true)", queries[1].sql)
+	require.Equal(t, []any{`"public"."users"`, "id", int64(10)}, queries[1].args)
+}
+
 func TestBuildBulkInsertQueries_WithGeneratedColumns(t *testing.T) {
 	t.Parallel()
 
@@ -816,4 +847,64 @@ func newTestDMLAdapterForCopy(t *testing.T) *dmlAdapter {
 	a, err := newDMLAdapter("", true, loglib.NewNoopLogger())
 	require.NoError(t, err)
 	return a
+}
+
+// Regression for #1235: binary COPY of a composite column failed with
+// "wrong number of columns" (SQLSTATE 42804). A composite may share its name
+// with a built-in type pgx encodes in binary, so the type name alone cannot
+// tell. The observer reports the column from the catalog instead.
+func TestBuildBulkInsertQueries_CompositeColumns(t *testing.T) {
+	t.Parallel()
+
+	events := []*wal.Data{
+		{
+			Action: "I",
+			Schema: "public",
+			Table:  "desks",
+			Columns: []wal.Column{
+				{Name: "id", Type: "int4", Value: int32(1)},
+				// the names Mapper.TypeForOID resolves for a composite "point"
+				{Name: "desk", Type: "point", Value: "(3,4)"},
+				{Name: "past", Type: "_point", Value: `{"(1,2)","(5,6)"}`},
+			},
+		},
+	}
+
+	tests := []struct {
+		name             string
+		compositeColumns map[string]struct{}
+
+		wantNeedsTextCopy bool
+		wantArgs          []any
+	}{
+		{
+			name:              "composite columns use text copy",
+			compositeColumns:  map[string]struct{}{`"desk"`: {}, `"past"`: {}},
+			wantNeedsTextCopy: true,
+			// text COPY writes the literals verbatim
+			wantArgs: []any{int32(1), "(3,4)", `{"(1,2)","(5,6)"}`},
+		},
+		{
+			// what the name alone decides: the case that corrupted
+			name:              "built-in types use binary copy",
+			compositeColumns:  nil,
+			wantNeedsTextCopy: false,
+			wantArgs:          []any{int32(1), "(3,4)", []string{"(1,2)", "(5,6)"}},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			queries := newTestDMLAdapterForCopy(t).buildBulkInsertQueries(events, schemaInfo{
+				generatedColumns: map[string]struct{}{},
+				sequenceColumns:  map[string]string{},
+				compositeColumns: tc.compositeColumns,
+			})
+			require.Len(t, queries, 1)
+			require.Equal(t, tc.wantNeedsTextCopy, queries[0].needsTextCopy)
+			require.Equal(t, tc.wantArgs, queries[0].args)
+		})
+	}
 }

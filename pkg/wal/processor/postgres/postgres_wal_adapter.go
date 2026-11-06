@@ -42,6 +42,12 @@ type schemaInfo struct {
 	// (see needsTextCopyForColumns), and the bulk delete path must bind their
 	// values as text[] and cast them back on the target (see bindAsText).
 	enumColumns map[string]enumColumn
+	// compositeColumns is the set of quoted column names whose type resolves to
+	// a composite (row) type. pgx has no binary codec for a composite OID, and
+	// the type name alone cannot tell: a composite may share its name with a
+	// built-in type pgx encodes in binary. Batches touching these columns use
+	// text-format COPY (see needsTextCopyForColumns).
+	compositeColumns map[string]struct{}
 }
 
 // enumColumn describes how to cast a column whose type resolves to a
