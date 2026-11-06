@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
+	"github.com/xataio/pgstream/internal/postgres/retrier"
+	"github.com/xataio/pgstream/pkg/backoff"
 	loglib "github.com/xataio/pgstream/pkg/log"
 	"github.com/xataio/pgstream/pkg/wal"
 	"github.com/xataio/pgstream/pkg/wal/checkpointer"
@@ -592,6 +594,55 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBatchWriter_execDDLQuery_commentedConcurrentDDL(t *testing.T) {
+	t.Parallel()
+
+	testQuerySQL := "-- Migration indexes\nCREATE INDEX CONCURRENTLY test_idx ON public.test (id)"
+	txCalls, execCalls := 0, 0
+	pgconn := &pgmocks.Querier{
+		ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+			txCalls++
+			mockTx := pgmocks.Tx{
+				ExecFn: func(ctx context.Context, i uint, sql string, args ...any) (pglib.CommandTag, error) {
+					if i == 1 {
+						require.Equal(t, prependSearchPath, sql)
+						return pglib.CommandTag{}, nil
+					}
+					require.Equal(t, testQuerySQL, sql)
+					return pglib.CommandTag{}, &pglib.ErrActiveSQLTransaction{
+						Details: "CREATE INDEX CONCURRENTLY cannot run inside a transaction block",
+					}
+				},
+			}
+			return f(&mockTx)
+		},
+		ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
+			execCalls++
+			require.Equal(t, testQuerySQL, sql)
+			return pglib.CommandTag{}, nil
+		},
+	}
+	ctx := context.Background()
+	logger := loglib.NewNoopLogger()
+	conn, err := retrier.NewQuerier(ctx, backoff.Config{
+		Constant: &backoff.ConstantConfig{MaxRetries: 1},
+	}, func(ctx context.Context) (pglib.Querier, error) {
+		return pgconn, nil
+	}, logger)
+	require.NoError(t, err)
+	writer := &BatchWriter{
+		Writer: &Writer{
+			logger: logger,
+			pgConn: conn,
+		},
+	}
+
+	err = writer.execDDLQuery(ctx, &query{schema: "public", sql: testQuerySQL, isDDL: true})
+	require.NoError(t, err)
+	require.Equal(t, 1, execCalls)
+	require.LessOrEqual(t, txCalls, 1, "transaction-unsafe DDL must not be retried inside a transaction")
 }
 
 func TestBatchWriter_flushQueries(t *testing.T) {
