@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pglogrepl"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 )
@@ -44,14 +45,10 @@ type IdentifySystemResult pglogrepl.IdentifySystemResult
 var ErrUnsupportedCopyDataMessage = errors.New("unsupported copy data message")
 
 func NewReplicationConn(ctx context.Context, url string) (*ReplicationConn, error) {
-	pgCfg, err := ParseConfig(url)
+	pgCfg, err := newReplicationConnConfig(url)
 	if err != nil {
-		return nil, fmt.Errorf("failed parsing postgres connection string: %w", err)
+		return nil, err
 	}
-
-	pgCfg.RuntimeParams["replication"] = "database"
-
-	configureTCPKeepalive(pgCfg)
 
 	conn, err := pgconn.ConnectConfig(context.Background(), &pgCfg.Config)
 	if err != nil {
@@ -61,6 +58,22 @@ func NewReplicationConn(ctx context.Context, url string) (*ReplicationConn, erro
 	return &ReplicationConn{
 		conn: conn,
 	}, nil
+}
+
+// newReplicationConnConfig builds the driver configuration of a replication
+// connection, with the same settings every other pgstream connection carries.
+func newReplicationConnConfig(url string) (*pgx.ConnConfig, error) {
+	pgCfg, err := ParseConfig(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed parsing postgres connection string: %w", err)
+	}
+
+	pgCfg.RuntimeParams["replication"] = "database"
+
+	configureTCPKeepalive(pgCfg)
+	configureLookupRetries(pgCfg)
+
+	return pgCfg, nil
 }
 
 func (c *ReplicationConn) IdentifySystem(ctx context.Context) (IdentifySystemResult, error) {
