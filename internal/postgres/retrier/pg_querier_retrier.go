@@ -195,3 +195,8 @@ func IsRetriableError(err error) bool {
 	// for now retry errors that are not context cancellation
 	return !errors.Is(err, context.Canceled)
 }
+
+// ResetStatementCache passes the request to the querier it wraps.
+func (q *Querier) ResetStatementCache() {
+	postgres.ResetStatementCache(q.querier)
+}

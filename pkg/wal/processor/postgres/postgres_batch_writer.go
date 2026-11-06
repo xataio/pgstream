@@ -209,6 +209,10 @@ func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]
 // transaction, so statements postgres refuses to run in one are replayed as
 // they were before, on the target's own search path.
 func (w *BatchWriter) execDDLQuery(ctx context.Context, q *query) error {
+	// Whatever the DDL did, the statements the connections remember can now
+	// describe the table as it was. Drop them before the next write goes out.
+	defer pglib.ResetStatementCache(w.pgConn)
+
 	if q.schema == "" {
 		_, err := w.pgConn.Exec(ctx, q.sql, q.args...)
 		return err

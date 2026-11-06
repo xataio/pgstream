@@ -20,6 +20,30 @@ type Querier interface {
 	Close(ctx context.Context) error
 }
 
+// StatementCacheResetter is implemented by a Querier that keeps prepared
+// statements, so that a caller can drop them after a schema change.
+type StatementCacheResetter interface {
+	ResetStatementCache()
+}
+
+// ResetStatementCache drops the prepared statements the querier keeps, when it
+// keeps any.
+//
+// pgx prepares a statement once for each connection and remembers the
+// parameter types it learned. After `ALTER TABLE ... ALTER COLUMN ... TYPE
+// ...` those types are wrong, and the next write with a value the old type
+// cannot hold fails in the client, before it reaches postgres:
+//
+//	failed to encode args[1] for int4 (OID 23)
+//
+// The writer then drops that row and moves the checkpoint past it, so the
+// replica loses it for good.
+func ResetStatementCache(q Querier) {
+	if resetter, ok := q.(StatementCacheResetter); ok {
+		resetter.ResetStatementCache()
+	}
+}
+
 type Row interface {
 	pgx.Row
 }
