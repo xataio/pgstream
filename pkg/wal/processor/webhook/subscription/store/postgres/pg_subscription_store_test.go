@@ -3,11 +3,64 @@
 package postgres
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	pglib "github.com/xataio/pgstream/internal/postgres"
+	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
+	"github.com/xataio/pgstream/pkg/wal/processor/webhook/subscription"
 )
+
+func TestStore_DeleteSubscription(t *testing.T) {
+	t.Parallel()
+
+	testSubscription := &subscription.Subscription{
+		URL:    "http://localhost:8080/webhook",
+		Schema: "test_schema",
+		Table:  "test_table",
+	}
+	errTest := errors.New("oh noes")
+
+	tests := []struct {
+		name    string
+		execErr error
+
+		wantErr error
+	}{
+		{
+			name:    "ok",
+			execErr: nil,
+			wantErr: nil,
+		},
+		{
+			name:    "error",
+			execErr: errTest,
+			wantErr: errTest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := &Store{
+				conn: &pgmocks.Querier{
+					ExecFn: func(_ context.Context, _ uint, query string, args ...any) (pglib.CommandTag, error) {
+						require.Equal(t, fmt.Sprintf(`DELETE FROM %s WHERE url=$1 AND schema_name=$2 AND table_name=$3;`, subscriptionsTable()), query)
+						require.Equal(t, []any{testSubscription.URL, testSubscription.Schema, testSubscription.Table}, args)
+						return pglib.CommandTag{}, tc.execErr
+					},
+				},
+			}
+
+			err := s.DeleteSubscription(context.Background(), testSubscription)
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
 
 func TestStore_buildGetQuery(t *testing.T) {
 	t.Parallel()

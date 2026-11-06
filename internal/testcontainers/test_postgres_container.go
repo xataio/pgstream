@@ -20,6 +20,7 @@ const (
 	Postgres14         PostgresImage = "debezium/postgres:14-alpine"
 	Postgres17         PostgresImage = "debezium/postgres:17-alpine"
 	PgvectorPostgres17 PostgresImage = "pgvector/pgvector:pg17"
+	PostgisPostgres17  PostgresImage = "postgis/postgis:17-3.5"
 )
 
 func SetupPostgresContainer(ctx context.Context, url *string, image PostgresImage, configFile ...string) (cleanup, error) {
