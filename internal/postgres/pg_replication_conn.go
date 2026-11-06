@@ -111,7 +111,7 @@ func (c *ReplicationConn) ReceiveMessage(ctx context.Context) (*ReplicationMessa
 			}
 
 			return &ReplicationMessage{
-				LSN:        uint64(xld.WALStart) + uint64(len(xld.WALData)),
+				LSN:        uint64(xld.WALStart),
 				ServerTime: xld.ServerTime,
 				WALData:    xld.WALData,
 			}, nil
