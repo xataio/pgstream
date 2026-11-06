@@ -235,6 +235,46 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - custom masking with mask indexes and invalid UTF-8 byte array",
+			params: ParameterValues{
+				"type":       "custom",
+				"mask_begin": "2",
+			},
+			input:   []byte{0xff, 0xfe, 'A', 'B'},
+			want:    "\xff\xfe**",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with unmask indexes and invalid UTF-8 byte array",
+			params: ParameterValues{
+				"type":       "custom",
+				"unmask_end": "2",
+			},
+			input:   []byte{0xff, 0xfe, 'A', 'B'},
+			want:    "\xff\xfe**",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with mask indexes and invalid UTF-8 string",
+			params: ParameterValues{
+				"type":     "custom",
+				"mask_end": "3",
+			},
+			input:   "caf\xe9 cr\xe8me",
+			want:    "***\xe9 cr\xe8me",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with an invalid byte between multi-byte characters",
+			params: ParameterValues{
+				"type":       "custom",
+				"mask_begin": "2",
+			},
+			input:   "東\xff京",
+			want:    "東\xff*",
+			wantErr: nil,
+		},
+		{
 			name: "error - invalid input type",
 			params: ParameterValues{
 				"type": "default",

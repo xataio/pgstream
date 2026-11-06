@@ -234,8 +234,7 @@ func getCustomMaskingFn(params ParameterValues) (maskingFunction, error) {
 	return func(v string) string {
 		var beginIndex, endIndex int
 		// index by characters, not bytes, so multi-byte characters are never split
-		chars := []rune(v)
-		length := len(chars)
+		length := utf8.RuneCountInString(v)
 
 		if beginAbs {
 			beginIndex = getIntegerInRange(begin, 0, length)
@@ -252,11 +251,30 @@ func getCustomMaskingFn(params ParameterValues) (maskingFunction, error) {
 			beginIndex, endIndex = endIndex, beginIndex
 		}
 
-		if mask {
-			return string(chars[:beginIndex]) + strings.Repeat("*", endIndex-beginIndex) + string(chars[endIndex:])
+		beginOffset, endOffset := beginIndex, endIndex
+		if length != len(v) {
+			beginOffset = runeByteOffset(v, beginIndex)
+			endOffset = beginOffset + runeByteOffset(v[beginOffset:], endIndex-beginIndex)
 		}
-		return strings.Repeat("*", beginIndex) + string(chars[beginIndex:endIndex]) + strings.Repeat("*", length-endIndex)
+
+		if mask {
+			return v[:beginOffset] + strings.Repeat("*", endIndex-beginIndex) + v[endOffset:]
+		}
+		return strings.Repeat("*", beginIndex) + v[beginOffset:endOffset] + strings.Repeat("*", length-endIndex)
 	}, nil
+}
+
+// runeByteOffset returns the byte offset of the character at index n. An
+// invalid UTF-8 byte counts as one character, so the offset never changes the
+// bytes of the input.
+func runeByteOffset(v string, n int) int {
+	for offset := range v {
+		if n == 0 {
+			return offset
+		}
+		n--
+	}
+	return len(v)
 }
 
 func masksNothing(mask bool, begin int, beginAbs bool, end int, endAbs bool) bool {
