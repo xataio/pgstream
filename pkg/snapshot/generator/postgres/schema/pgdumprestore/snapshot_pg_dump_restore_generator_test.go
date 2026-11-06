@@ -3157,3 +3157,265 @@ func TestSnapshotGenerator_summariseIgnored(t *testing.T) {
 		require.Empty(t, logger.warnings)
 	})
 }
+
+const identityTableDump = `CREATE TABLE public.test_table (
+    id bigint NOT NULL
+);
+CREATE SEQUENCE public.serial_seq
+    START WITH 1;
+ALTER TABLE public.test_table ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public."Test_table_id_seq"
+    START WITH 1
+    INCREMENT BY 1
+    CACHE 1
+);
+`
+
+func TestSnapshotGenerator_parseDumpCollectsIdentitySequences(t *testing.T) {
+	t.Parallel()
+
+	sg := &SnapshotGenerator{roleSQLParser: &roleSQLParser{}}
+	dump := sg.parseDump([]byte(identityTableDump))
+
+	// serial sequences stay on the pg_dump sequence data path
+	require.Equal(t, []string{`"public"."serial_seq"`}, dump.sequences)
+	require.Equal(t, []string{`"public"."Test_table_id_seq"`}, dump.identitySequences)
+	// the identity definition is restored with the schema, unchanged
+	require.Contains(t, string(dump.filtered), "ADD GENERATED ALWAYS AS IDENTITY (\n    SEQUENCE NAME public.\"Test_table_id_seq\"\n")
+}
+
+func TestSnapshotGenerator_dumpIdentitySequenceValues(t *testing.T) {
+	t.Parallel()
+
+	errTest := errors.New("oh noes")
+	sequences := []string{`"public"."test_table_id_seq"`}
+	setvalStatement := `SELECT pg_catalog.setval('public.test_table_id_seq', 42, true);`
+
+	tests := []struct {
+		name      string
+		sequences []string
+		querier   pglib.Querier
+
+		wantDump []byte
+		wantErr  error
+	}{
+		{
+			name:      "ok - no identity sequences",
+			sequences: nil,
+			querier: &mocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					return nil, errors.New("unexpected call to QueryFn")
+				},
+			},
+			wantDump: nil,
+		},
+		{
+			name:      "ok",
+			sequences: sequences,
+			querier: &mocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					require.Equal(t, identitySequenceValuesQuery(sequences), query)
+					require.Equal(t, []any{sequences[0]}, args)
+					return &mocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(_ uint, dest ...any) error {
+							require.Len(t, dest, 1)
+							statement, ok := dest[0].(*string)
+							require.True(t, ok)
+							*statement = setvalStatement
+							return nil
+						},
+						ErrFn: func() error { return nil },
+					}, nil
+				},
+			},
+			wantDump: []byte(setvalStatement + "\n"),
+		},
+		{
+			name:      "error - querying values",
+			sequences: sequences,
+			querier: &mocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					return nil, errTest
+				},
+			},
+			wantErr: errTest,
+		},
+		{
+			name:      "error - rows error",
+			sequences: sequences,
+			querier: &mocks.Querier{
+				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
+					return &mocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return false },
+						ErrFn:   func() error { return errTest },
+					}, nil
+				},
+			},
+			wantErr: errTest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sg := &SnapshotGenerator{sourceQuerier: tc.querier, logger: log.NewNoopLogger()}
+			d, err := sg.dumpIdentitySequenceValues(context.Background(), tc.sequences)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantDump, d)
+		})
+	}
+}
+
+func TestIdentitySequenceValuesQuery(t *testing.T) {
+	t.Parallel()
+
+	query := identitySequenceValuesQuery([]string{`"public"."a_id_seq"`, `"public"."B_id_seq"`})
+	require.Equal(t, `SELECT format('SELECT pg_catalog.setval(%L, %s, %s);', $1::text, last_value, is_called::text) FROM "public"."a_id_seq"
+UNION ALL
+SELECT format('SELECT pg_catalog.setval(%L, %s, %s);', $2::text, last_value, is_called::text) FROM "public"."B_id_seq"`, query)
+}
+
+func TestSnapshotGenerator_dumpIdentitySequenceValuesInBatches(t *testing.T) {
+	t.Parallel()
+
+	sequences := make([]string, 0, identitySequenceValuesBatchSize+1)
+	for i := range identitySequenceValuesBatchSize + 1 {
+		sequences = append(sequences, fmt.Sprintf(`"public"."t%d_id_seq"`, i))
+	}
+
+	batchSizes := []int{}
+	querier := &mocks.Querier{
+		QueryFn: func(_ context.Context, _ uint, _ string, args ...any) (pglib.Rows, error) {
+			batchSizes = append(batchSizes, len(args))
+			return &mocks.Rows{
+				CloseFn: func() {},
+				NextFn:  func(i uint) bool { return i <= uint(len(args)) },
+				ScanFn: func(i uint, dest ...any) error {
+					statement, ok := dest[0].(*string)
+					require.True(t, ok)
+					*statement = fmt.Sprintf("SELECT pg_catalog.setval('%s', 1, true);", args[i-1])
+					return nil
+				},
+				ErrFn: func() error { return nil },
+			}, nil
+		},
+	}
+
+	sg := &SnapshotGenerator{sourceQuerier: querier, logger: log.NewNoopLogger()}
+	d, err := sg.dumpIdentitySequenceValues(context.Background(), sequences)
+	require.NoError(t, err)
+	require.Equal(t, []int{identitySequenceValuesBatchSize, 1}, batchSizes)
+	require.Equal(t, len(sequences), strings.Count(string(d), "\n"))
+	require.Contains(t, string(d), sequences[len(sequences)-1])
+}
+
+func TestSnapshotGenerator_CreateSnapshotRestoresIdentitySequenceValues(t *testing.T) {
+	t.Parallel()
+
+	identitySequences := []string{`"public"."Test_table_id_seq"`}
+	setvalStatement := `SELECT pg_catalog.setval('public."Test_table_id_seq"', 42, true);`
+	serialSequenceDump := "SELECT pg_catalog.setval('public.serial_seq', 7, true);\n"
+
+	tests := []struct {
+		name               string
+		excludeObjectTypes []string
+
+		wantCalls []string
+	}{
+		{
+			name:      "identity sequence values restored after the data, with the serial ones",
+			wantCalls: []string{"data", "sequence data"},
+		},
+		{
+			name:               "sequences excluded",
+			excludeObjectTypes: []string{"sequences"},
+			wantCalls:          []string{"data"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			filter, err := newObjectTypeFilter(nil, tc.excludeObjectTypes)
+			require.NoError(t, err)
+
+			calls := []string{}
+			conn := &mocks.Querier{
+				ExecFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.CommandTag, error) {
+					return pglib.CommandTag{}, nil
+				},
+				QueryFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.Rows, error) {
+					if query != identitySequenceValuesQuery(identitySequences) {
+						return &mocks.Rows{
+							CloseFn: func() {},
+							NextFn:  func(i uint) bool { return false },
+							ErrFn:   func() error { return nil },
+						}, nil
+					}
+					require.Equal(t, []any{identitySequences[0]}, args)
+					return &mocks.Rows{
+						CloseFn: func() {},
+						NextFn:  func(i uint) bool { return i == 1 },
+						ScanFn: func(_ uint, dest ...any) error {
+							statement, ok := dest[0].(*string)
+							require.True(t, ok)
+							*statement = setvalStatement
+							return nil
+						},
+						ErrFn: func() error { return nil },
+					}, nil
+				},
+			}
+
+			sg := SnapshotGenerator{
+				sourceURL:     "source-url",
+				targetURL:     "target-url",
+				sourceQuerier: conn,
+				pgDumpFn: newMockPgdump(func(_ context.Context, i uint, po pglib.PGDumpOptions) ([]byte, error) {
+					if po.DataOnly {
+						// only the serial sequence goes through pg_dump
+						require.Equal(t, []string{`"public"."serial_seq"`}, po.Tables)
+						return []byte(serialSequenceDump), nil
+					}
+					return []byte(identityTableDump), nil
+				}),
+				pgRestoreFn: newMockPgrestore(func(_ context.Context, i uint, po pglib.PGRestoreOptions, dump []byte) (string, error) {
+					if strings.Contains(string(dump), "pg_catalog.setval") {
+						require.Equal(t, serialSequenceDump+setvalStatement+"\n", string(dump))
+						calls = append(calls, "sequence data")
+					}
+					return "", nil
+				}),
+				logger: log.NewNoopLogger(),
+				generator: &generatormocks.Generator{
+					CreateSnapshotFn: func(ctx context.Context, snapshot *snapshot.Snapshot) error {
+						calls = append(calls, "data")
+						return nil
+					},
+				},
+				roleSQLParser: &roleSQLParser{},
+				optionGenerator: &optionGenerator{
+					sourceURL:         "source-url",
+					targetURL:         "target-url",
+					noOwner:           true,
+					rolesSnapshotMode: roleSnapshotDisabled,
+					querier:           conn,
+				},
+				objectTypeFilter: filter,
+			}
+
+			err = sg.CreateSnapshot(context.Background(), &snapshot.Snapshot{
+				SchemaTables: map[string][]string{
+					publicSchema: {"test_table"},
+				},
+			})
+			require.NoError(t, err)
+			require.Equal(t, tc.wantCalls, calls)
+		})
+	}
+}
