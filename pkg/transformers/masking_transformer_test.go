@@ -235,6 +235,37 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - custom masking with percentage mask begin and multi-byte characters",
+			params: ParameterValues{
+				"type":       "custom",
+				"mask_begin": "50%",
+			},
+			input:   "東京都渋谷区神南",
+			want:    "東京都渋****",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with percentage mask end and multi-byte characters",
+			params: ParameterValues{
+				"type":     "custom",
+				"mask_end": "25%",
+			},
+			input:   "東京都渋谷区神南",
+			want:    "**都渋谷区神南",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with absolute unmask indexes and multi-byte characters",
+			params: ParameterValues{
+				"type":         "custom",
+				"unmask_begin": "1",
+				"unmask_end":   "3",
+			},
+			input:   "ñandú",
+			want:    "*an**",
+			wantErr: nil,
+		},
+		{
 			name: "ok - custom masking with mask indexes and invalid UTF-8 byte array",
 			params: ParameterValues{
 				"type":       "custom",
