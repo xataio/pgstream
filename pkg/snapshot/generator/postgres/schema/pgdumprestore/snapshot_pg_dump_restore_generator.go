@@ -868,18 +868,28 @@ func (s *SnapshotGenerator) dumpSequenceValues(ctx context.Context, sequences []
 	return d, nil
 }
 
-// identitySequenceValuesQuery returns one setval statement per sequence on
-// input, in the same form as the pg_dump sequence data. A sequence that was
-// never used keeps its start value with is_called false.
-const identitySequenceValuesQuery = `SELECT format('SELECT pg_catalog.setval(%L, %s, %s);',
-    format('%I.%I', n.nspname, c.relname),
-    COALESCE(pg_sequence_last_value(c.oid), s.seqstart),
-    -- ::text renders true/false; %s on a boolean renders t/f, which setval rejects as a column name
-    (pg_sequence_last_value(c.oid) IS NOT NULL)::text)
-FROM pg_class c
-JOIN pg_namespace n ON n.oid = c.relnamespace
-JOIN pg_sequence s ON s.seqrelid = c.oid
-WHERE c.oid = ANY($1::regclass[])`
+// identitySequenceValuesBatchSize is the number of sequences read in one
+// query. Each sequence takes a lock and a query parameter.
+const identitySequenceValuesBatchSize = 500
+
+// identitySequenceValuesQuery returns the query that produces one setval
+// statement per sequence on input, in the same form as the pg_dump sequence
+// data. The sequence names must be quoted identifiers.
+//
+// The query reads last_value and is_called from each sequence, as pg_dump
+// does. pg_sequence_last_value returns NULL for a sequence with is_called
+// false, which hides a sequence that was restarted and not used since.
+func identitySequenceValuesQuery(sequences []string) string {
+	selects := make([]string, 0, len(sequences))
+	for i, sequence := range sequences {
+		// ::text renders true/false; %s on a boolean renders t/f, which setval rejects as a column name
+		selects = append(selects, fmt.Sprintf(
+			"SELECT format('SELECT pg_catalog.setval(%%L, %%s, %%s);', $%d::text, last_value, is_called::text) FROM %s",
+			i+1, sequence,
+		))
+	}
+	return strings.Join(selects, "\nUNION ALL\n")
+}
 
 // dumpIdentitySequenceValues reads the current values of the identity
 // sequences on the source. pg_dump dumps the data of an identity sequence only
@@ -891,25 +901,39 @@ func (s *SnapshotGenerator) dumpIdentitySequenceValues(ctx context.Context, sequ
 	}
 
 	s.logger.Debug("dumping identity sequence data", loglib.Fields{"sequences": sequences})
-	rows, err := s.sourceQuerier.Query(ctx, identitySequenceValuesQuery, sequences)
+	var d bytes.Buffer
+	for batch := range slices.Chunk(sequences, identitySequenceValuesBatchSize) {
+		if err := s.writeIdentitySequenceValues(ctx, &d, batch); err != nil {
+			return nil, err
+		}
+	}
+	return d.Bytes(), nil
+}
+
+func (s *SnapshotGenerator) writeIdentitySequenceValues(ctx context.Context, d *bytes.Buffer, sequences []string) error {
+	args := make([]any, 0, len(sequences))
+	for _, sequence := range sequences {
+		args = append(args, sequence)
+	}
+
+	rows, err := s.sourceQuerier.Query(ctx, identitySequenceValuesQuery(sequences), args...)
 	if err != nil {
-		return nil, fmt.Errorf("querying identity sequence values: %w", err)
+		return fmt.Errorf("querying identity sequence values: %w", err)
 	}
 	defer rows.Close()
 
-	var d bytes.Buffer
 	for rows.Next() {
 		var statement string
 		if err := rows.Scan(&statement); err != nil {
-			return nil, fmt.Errorf("scanning identity sequence value: %w", err)
+			return fmt.Errorf("scanning identity sequence value: %w", err)
 		}
 		d.WriteString(statement)
 		d.WriteString("\n")
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("reading identity sequence values: %w", err)
+		return fmt.Errorf("reading identity sequence values: %w", err)
 	}
-	return d.Bytes(), nil
+	return nil
 }
 
 // identitySequenceName returns the sequence name when line is the second line

@@ -3214,8 +3214,8 @@ func TestSnapshotGenerator_dumpIdentitySequenceValues(t *testing.T) {
 			sequences: sequences,
 			querier: &mocks.Querier{
 				QueryFn: func(ctx context.Context, _ uint, query string, args ...any) (pglib.Rows, error) {
-					require.Equal(t, identitySequenceValuesQuery, query)
-					require.Equal(t, []any{sequences}, args)
+					require.Equal(t, identitySequenceValuesQuery(sequences), query)
+					require.Equal(t, []any{sequences[0]}, args)
 					return &mocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
@@ -3270,9 +3270,53 @@ func TestSnapshotGenerator_dumpIdentitySequenceValues(t *testing.T) {
 	}
 }
 
+func TestIdentitySequenceValuesQuery(t *testing.T) {
+	t.Parallel()
+
+	query := identitySequenceValuesQuery([]string{`"public"."a_id_seq"`, `"public"."B_id_seq"`})
+	require.Equal(t, `SELECT format('SELECT pg_catalog.setval(%L, %s, %s);', $1::text, last_value, is_called::text) FROM "public"."a_id_seq"
+UNION ALL
+SELECT format('SELECT pg_catalog.setval(%L, %s, %s);', $2::text, last_value, is_called::text) FROM "public"."B_id_seq"`, query)
+}
+
+func TestSnapshotGenerator_dumpIdentitySequenceValuesInBatches(t *testing.T) {
+	t.Parallel()
+
+	sequences := make([]string, 0, identitySequenceValuesBatchSize+1)
+	for i := range identitySequenceValuesBatchSize + 1 {
+		sequences = append(sequences, fmt.Sprintf(`"public"."t%d_id_seq"`, i))
+	}
+
+	batchSizes := []int{}
+	querier := &mocks.Querier{
+		QueryFn: func(_ context.Context, _ uint, _ string, args ...any) (pglib.Rows, error) {
+			batchSizes = append(batchSizes, len(args))
+			return &mocks.Rows{
+				CloseFn: func() {},
+				NextFn:  func(i uint) bool { return i <= uint(len(args)) },
+				ScanFn: func(i uint, dest ...any) error {
+					statement, ok := dest[0].(*string)
+					require.True(t, ok)
+					*statement = fmt.Sprintf("SELECT pg_catalog.setval('%s', 1, true);", args[i-1])
+					return nil
+				},
+				ErrFn: func() error { return nil },
+			}, nil
+		},
+	}
+
+	sg := &SnapshotGenerator{sourceQuerier: querier, logger: log.NewNoopLogger()}
+	d, err := sg.dumpIdentitySequenceValues(context.Background(), sequences)
+	require.NoError(t, err)
+	require.Equal(t, []int{identitySequenceValuesBatchSize, 1}, batchSizes)
+	require.Equal(t, len(sequences), strings.Count(string(d), "\n"))
+	require.Contains(t, string(d), sequences[len(sequences)-1])
+}
+
 func TestSnapshotGenerator_CreateSnapshotRestoresIdentitySequenceValues(t *testing.T) {
 	t.Parallel()
 
+	identitySequences := []string{`"public"."Test_table_id_seq"`}
 	setvalStatement := `SELECT pg_catalog.setval('public."Test_table_id_seq"', 42, true);`
 	serialSequenceDump := "SELECT pg_catalog.setval('public.serial_seq', 7, true);\n"
 
@@ -3306,14 +3350,14 @@ func TestSnapshotGenerator_CreateSnapshotRestoresIdentitySequenceValues(t *testi
 					return pglib.CommandTag{}, nil
 				},
 				QueryFn: func(ctx context.Context, i uint, query string, args ...any) (pglib.Rows, error) {
-					if query != identitySequenceValuesQuery {
+					if query != identitySequenceValuesQuery(identitySequences) {
 						return &mocks.Rows{
 							CloseFn: func() {},
 							NextFn:  func(i uint) bool { return false },
 							ErrFn:   func() error { return nil },
 						}, nil
 					}
-					require.Equal(t, []any{[]string{`"public"."Test_table_id_seq"`}}, args)
+					require.Equal(t, []any{identitySequences[0]}, args)
 					return &mocks.Rows{
 						CloseFn: func() {},
 						NextFn:  func(i uint) bool { return i == 1 },
