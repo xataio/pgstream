@@ -205,6 +205,107 @@ func TestMaskingTransformer_Transform(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - default with multi-byte characters",
+			params: ParameterValues{
+				"type": "default",
+			},
+			input:   "José Müller",
+			want:    "***********",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with mask indexes and multi-byte characters",
+			params: ParameterValues{
+				"type":       "custom",
+				"mask_begin": "2",
+				"mask_end":   "6",
+			},
+			input:   "東京都渋谷区神南",
+			want:    "東京****神南",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with unmask indexes and multi-byte characters",
+			params: ParameterValues{
+				"type":         "custom",
+				"unmask_begin": "50%",
+			},
+			input:   "ñandúñandú",
+			want:    "*****ñandú",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with percentage mask begin and multi-byte characters",
+			params: ParameterValues{
+				"type":       "custom",
+				"mask_begin": "50%",
+			},
+			input:   "東京都渋谷区神南",
+			want:    "東京都渋****",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with percentage mask end and multi-byte characters",
+			params: ParameterValues{
+				"type":     "custom",
+				"mask_end": "25%",
+			},
+			input:   "東京都渋谷区神南",
+			want:    "**都渋谷区神南",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with absolute unmask indexes and multi-byte characters",
+			params: ParameterValues{
+				"type":         "custom",
+				"unmask_begin": "1",
+				"unmask_end":   "3",
+			},
+			input:   "ñandú",
+			want:    "*an**",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with mask indexes and invalid UTF-8 byte array",
+			params: ParameterValues{
+				"type":       "custom",
+				"mask_begin": "2",
+			},
+			input:   []byte{0xff, 0xfe, 'A', 'B'},
+			want:    "\xff\xfe**",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with unmask indexes and invalid UTF-8 byte array",
+			params: ParameterValues{
+				"type":       "custom",
+				"unmask_end": "2",
+			},
+			input:   []byte{0xff, 0xfe, 'A', 'B'},
+			want:    "\xff\xfe**",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with mask indexes and invalid UTF-8 string",
+			params: ParameterValues{
+				"type":     "custom",
+				"mask_end": "3",
+			},
+			input:   "caf\xe9 cr\xe8me",
+			want:    "***\xe9 cr\xe8me",
+			wantErr: nil,
+		},
+		{
+			name: "ok - custom masking with an invalid byte between multi-byte characters",
+			params: ParameterValues{
+				"type":       "custom",
+				"mask_begin": "2",
+			},
+			input:   "東\xff京",
+			want:    "東\xff*",
+			wantErr: nil,
+		},
+		{
 			name: "error - invalid input type",
 			params: ParameterValues{
 				"type": "default",
