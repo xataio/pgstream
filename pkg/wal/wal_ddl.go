@@ -185,10 +185,15 @@ func (c *DDLColumn) GetColumnPgstreamID(tablePgstreamID string) string {
 	return fmt.Sprintf("%s-%d", tablePgstreamID, c.Attnum)
 }
 
+// HasSequence reports whether the column is backed by a sequence: a serial
+// column (nextval() default) or an identity column.
 func (c *DDLColumn) HasSequence() bool {
-	return c.GetSequenceName() != ""
+	return c.Identity != nil || c.GetSequenceName() != ""
 }
 
+// GetSequenceName returns the sequence name of a nextval() default. It returns
+// an empty string for an identity column: the DDL event does not carry the
+// name of its sequence.
 func (c *DDLColumn) GetSequenceName() string {
 	if c.Default == nil {
 		return ""
@@ -203,10 +208,6 @@ func (c *DDLColumn) GetSequenceName() string {
 	}
 
 	return ""
-}
-
-func (c *DDLColumn) IsGenerated() bool {
-	return c.Generated || c.Identity != nil
 }
 
 // IsAlwaysIdentity reports whether the column is defined as

@@ -455,3 +455,33 @@ func TestDDLEvent_GetTableObjectByName(t *testing.T) {
 		})
 	}
 }
+
+func TestDDLColumn_HasSequence(t *testing.T) {
+	t.Parallel()
+
+	nextval := "nextval('public.t_id_seq'::regclass)"
+	now := "now()"
+	always := "ALWAYS"
+
+	tests := []struct {
+		name string
+		col  DDLColumn
+
+		wantHasSequence  bool
+		wantSequenceName string
+	}{
+		{name: "serial column", col: DDLColumn{Default: &nextval}, wantHasSequence: true, wantSequenceName: "public.t_id_seq"},
+		// the DDL event does not carry the name of an identity sequence
+		{name: "identity column", col: DDLColumn{Identity: &always}, wantHasSequence: true, wantSequenceName: ""},
+		{name: "other default", col: DDLColumn{Default: &now}, wantHasSequence: false, wantSequenceName: ""},
+		{name: "no default", col: DDLColumn{}, wantHasSequence: false, wantSequenceName: ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.wantHasSequence, tc.col.HasSequence())
+			require.Equal(t, tc.wantSequenceName, tc.col.GetSequenceName())
+		})
+	}
+}
