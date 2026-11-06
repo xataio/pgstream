@@ -79,6 +79,10 @@ func (r *Reader) Listen(ctx context.Context) error {
 				return fmt.Errorf("reading from kafka: %w", err)
 			}
 
+			// the tracker is read by a liveness check, which sees this reader
+			// in the replication phase and would otherwise judge it silent.
+			r.phaseTracker.MarkProgress()
+
 			if r.logger.IsTraceEnabled() {
 				r.logger.Trace("received", loglib.Fields{
 					"topic":     msg.Topic,
