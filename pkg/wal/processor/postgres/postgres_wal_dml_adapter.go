@@ -121,7 +121,7 @@ func (a *dmlAdapter) buildInsertQueries(d *wal.Data, schemaInfo schemaInfo) []*q
 			sql: fmt.Sprintf("INSERT INTO %s(%s) OVERRIDING SYSTEM VALUE VALUES(%s)%s",
 				quotedTableName(d.Schema, d.Table), strings.Join(names, ", "),
 				strings.Join(placeholders, ", "),
-				a.buildOnConflictQuery(d, names)),
+				a.buildOnConflictQuery(d, names, schemaInfo)),
 			args: values,
 		},
 	}
@@ -223,7 +223,11 @@ func (a *dmlAdapter) buildSetQuery(cols []wal.Column, rowColumns []string, rowVa
 	return setQuery, setValues
 }
 
-func (a *dmlAdapter) buildOnConflictQuery(d *wal.Data, filteredColumnNames []string) string {
+// buildOnConflictQuery returns the ON CONFLICT clause of an insert. The SET
+// list of the "update" action leaves out GENERATED ALWAYS AS IDENTITY columns:
+// OVERRIDING SYSTEM VALUE covers the inserted values only, and postgres rejects
+// any other assignment than DEFAULT to these columns.
+func (a *dmlAdapter) buildOnConflictQuery(d *wal.Data, filteredColumnNames []string, schemaInfo schemaInfo) string {
 	switch a.onConflictAction {
 	case onConflictUpdate:
 		// on conflict do update requires a conflict target. If there are no
@@ -234,11 +238,19 @@ func (a *dmlAdapter) buildOnConflictQuery(d *wal.Data, filteredColumnNames []str
 			return ""
 		}
 
-		cols := make([]string, 0, len(d.Columns))
+		cols := make([]string, 0, len(filteredColumnNames))
 		for _, col := range filteredColumnNames {
+			if _, found := schemaInfo.alwaysIdentityColumns[col]; found {
+				continue
+			}
 			cols = append(cols, fmt.Sprintf("%[1]s = EXCLUDED.%[1]s", col))
 		}
-		return fmt.Sprintf(" ON CONFLICT (%s) DO UPDATE SET %s", strings.Join(primaryKeyCols, ","), strings.Join(cols, ", "))
+		conflictTarget := strings.Join(primaryKeyCols, ",")
+		if len(cols) == 0 {
+			// the conflicting row has no column left to update
+			return fmt.Sprintf(" ON CONFLICT (%s) DO NOTHING", conflictTarget)
+		}
+		return fmt.Sprintf(" ON CONFLICT (%s) DO UPDATE SET %s", conflictTarget, strings.Join(cols, ", "))
 	case onConflictDoNothing:
 		return " ON CONFLICT DO NOTHING"
 	default:

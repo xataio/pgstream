@@ -143,3 +143,35 @@ func schemaInfoFromDDLEvent(t *testing.T, schemaName, tableName string, columns 
 	require.NoError(t, err)
 	return info
 }
+
+// TestDMLAdapter_onConflictUpdate_onlyAlwaysIdentityColumn pins that the upsert
+// does nothing on conflict when the always-identity column is the only column
+// of the row: the SET list would be empty, which is not valid SQL.
+func TestDMLAdapter_onConflictUpdate_onlyAlwaysIdentityColumn(t *testing.T) {
+	t.Parallel()
+
+	adapter := &dmlAdapter{
+		logger:           loglib.NewNoopLogger(),
+		onConflictAction: onConflictUpdate,
+		pgTypeMap:        pgtype.NewMap(),
+	}
+
+	queries, err := adapter.walDataToQueries(&wal.Data{
+		Action: "I",
+		Schema: "test_schema",
+		Table:  "test_table",
+		Columns: []wal.Column{
+			{ID: "table-1", Name: "id", Type: "int8", Value: int64(1)},
+		},
+		Metadata: wal.Metadata{
+			InternalColIDs: []string{"table-1"},
+		},
+	}, schemaInfo{
+		alwaysIdentityColumns: map[string]struct{}{`"id"`: {}},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, queries)
+	require.Equal(t,
+		`INSERT INTO "test_schema"."test_table"("id") OVERRIDING SYSTEM VALUE VALUES($1) ON CONFLICT ("id") DO NOTHING`,
+		queries[0].sql)
+}

@@ -354,7 +354,7 @@ func (a *dmlAdapter) buildBulkInsertQueries(events []*wal.Data, si schemaInfo) [
 			quotedTableName(events[0].Schema, events[0].Table),
 			strings.Join(names, ", "),
 			strings.Join(valueTuples, ","),
-			a.buildOnConflictQuery(events[0], names))
+			a.buildOnConflictQuery(events[0], names, si))
 
 		queries = append(queries, &query{
 			schema:        events[0].Schema,
