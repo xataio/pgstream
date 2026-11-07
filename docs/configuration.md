@@ -199,6 +199,7 @@ modifiers:
   injector:
     enabled: true # whether to inject pgstream metadata into the WAL events. Defaults to false
     source_url: "postgres://postgres:postgres@localhost:5432?sslmode=disable" # optional for postgres sources (defaults to source URL), required for non-postgres sources
+  # pgstream filters DDL for objects other than tables (indexes, types, functions, views) by schema. It skips the DDL when no table in the schema passes the filter. This also applies when an included table depends on the object, for example a column of a type in a filtered schema. To keep the DDL of a schema without its data, add the schema to `schema_only_tables`, for example `shared.*`. pgstream does not skip an index, constraint or trigger on a filtered table when another table in the same schema passes the filter.
   filter: # one of include_tables or exclude_tables; schema_only_tables can be combined with either
     include_tables: # list of tables for which events should be allowed. Tables should be schema qualified. If no schema is provided, the public schema will be assumed. Wildcards "*" are supported.
       - "test"
@@ -467,6 +468,8 @@ One of exponential/constant/disable retries retry policies can be provided for t
 | PGSTREAM_FILTER_INCLUDE_TABLES | N/A     | No       | List of schema qualified tables for which the WAL events should be processed. If no schema is provided, `public` schema will be assumed. Wildcards are supported. |
 | PGSTREAM_FILTER_EXCLUDE_TABLES | N/A     | No       | List of schema qualified tables for which the WAL events should be skipped. If no schema is provided, `public` schema will be assumed. Wildcards are supported.   |
 | PGSTREAM_FILTER_SCHEMA_ONLY_TABLES | N/A     | No       | List of schema qualified tables for which DDL (schema change) events are processed but data (DML) events are skipped. If no schema is provided, `public` schema will be assumed. Wildcards are supported. Can be combined with either the include or the exclude list. |
+
+pgstream filters DDL for objects other than tables (indexes, types, functions, views) by schema. It skips the DDL when no table in the schema passes the filter. This also applies when an included table depends on the object, for example a column of a type in a filtered schema. To keep the DDL of a schema without its data, add the schema to `schema_only_tables`, for example `shared.*`. pgstream does not skip an index, constraint or trigger on a filtered table when another table in the same schema passes the filter.
 
 </details>
 
