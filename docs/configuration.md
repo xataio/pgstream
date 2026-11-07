@@ -232,6 +232,8 @@ Here's a list of all the environment variables that can be used to configure the
 
 > Byte-size variables (those ending in `_BYTES`) accept either a plain integer or a human-readable size such as `64MiB` or `1GiB`. Units are case-insensitive and interpreted as binary multiples (`1MiB` = 1048576 bytes). The same applies to the equivalent fields in the YAML configuration.
 
+> pgstream retries a transient host name resolution failure on every Postgres connection it opens. A resolver timeout, or a temporary resolver failure, is retried with exponential backoff up to 3 times, over at most 30 seconds. A host name that does not exist is not retried, because the answer does not change. These retries are not configurable, and they are separate from the retry policies in the tables below.
+
 ### Sources
 
 <details>

@@ -55,6 +55,7 @@ func newConnPoolConfig(url string, opts ...PoolOption) (*pgxpool.Config, error) 
 	pgCfg.AfterConnect = registerTypesToConnMap
 
 	configureTCPKeepalive(pgCfg.ConnConfig)
+	configureLookupRetries(pgCfg.ConnConfig)
 
 	for _, opt := range opts {
 		opt(pgCfg)

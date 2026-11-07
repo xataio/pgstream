@@ -56,6 +56,9 @@ func WithDialFunc(dial DialFunc) ConnOption {
 
 // WithLookupFunc resolves host names through lookup instead of through the
 // system resolver. It applies to every connection target, fallbacks included.
+// A transient failure it reports is retried on the same terms as one reported
+// by the system resolver, so replacing the resolver does not cost the
+// connection its resolution retries.
 //
 // A nil lookup leaves the resolver unchanged.
 func WithLookupFunc(lookup LookupFunc) ConnOption {
@@ -63,9 +66,9 @@ func WithLookupFunc(lookup LookupFunc) ConnOption {
 		if lookup == nil {
 			return
 		}
-		cfg.LookupFunc = func(ctx context.Context, host string) ([]string, error) {
+		cfg.LookupFunc = retryTransientLookupFailures(func(ctx context.Context, host string) ([]string, error) {
 			return lookup(ctx, host)
-		}
+		}, lookupRetryConfig())
 	}
 }
 
@@ -76,6 +79,7 @@ func NewConn(ctx context.Context, url string, opts ...ConnOption) (*Conn, error)
 	}
 
 	configureTCPKeepalive(pgCfg)
+	configureLookupRetries(pgCfg)
 	for _, opt := range opts {
 		opt(pgCfg)
 	}
