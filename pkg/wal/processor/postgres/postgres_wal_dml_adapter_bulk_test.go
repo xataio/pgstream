@@ -31,6 +31,7 @@ func TestPgArrayType(t *testing.T) {
 		{"character varying", "text[]"},
 		{"varchar", "text[]"},
 		{"boolean", "boolean[]"},
+		{"json", "jsonb[]"},
 	}
 
 	for _, tc := range tests {
@@ -327,6 +328,47 @@ func TestBuildBulkDeleteQuery_CompositePK_NoEnumUnchanged(t *testing.T) {
 	require.Len(t, queries, 1)
 	require.Equal(t,
 		`DELETE FROM "public"."orders" WHERE ("user_id","order_id") IN (SELECT * FROM unnest($1::int8[],$2::int8[]))`,
+		queries[0].sql)
+}
+
+func TestBuildBulkDeleteQuery_SinglePK_JSON(t *testing.T) {
+	t.Parallel()
+
+	adapter := newTestDMLAdapter(t)
+
+	events := []*wal.Data{
+		deleteEvent("public", "events", "payload", "json", map[string]any{"a": 1}),
+		deleteEvent("public", "events", "payload", "json", map[string]any{"a": 2}),
+	}
+
+	queries, err := adapter.buildBulkDeleteQuery(events, schemaInfo{})
+	require.NoError(t, err)
+	require.Len(t, queries, 1)
+	require.Equal(t,
+		`DELETE FROM "public"."events" WHERE "payload"::jsonb = ANY($1::jsonb[])`,
+		queries[0].sql)
+}
+
+func TestBuildBulkDeleteQuery_CompositePK_JSON(t *testing.T) {
+	t.Parallel()
+
+	adapter := newTestDMLAdapter(t)
+
+	events := []*wal.Data{
+		{
+			Action: "D", Schema: "public", Table: "events",
+			Identity: []wal.Column{
+				{Name: "id", Type: "integer", Value: float64(1)},
+				{Name: "payload", Type: "json", Value: map[string]any{"a": 1}},
+			},
+		},
+	}
+
+	queries, err := adapter.buildBulkDeleteQuery(events, schemaInfo{})
+	require.NoError(t, err)
+	require.Len(t, queries, 1)
+	require.Equal(t,
+		`DELETE FROM "public"."events" WHERE ("id","payload"::jsonb) IN (SELECT * FROM unnest($1::int4[],$2::jsonb[]))`,
 		queries[0].sql)
 }
 

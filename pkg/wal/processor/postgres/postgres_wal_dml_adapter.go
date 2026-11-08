@@ -29,6 +29,8 @@ const (
 	int4rangeType = "int4range"
 	int8rangeType = "int8range"
 	tstzrangeType = "tstzrange"
+	jsonType      = "json"
+	jsonbType     = "jsonb"
 )
 
 var (
@@ -211,11 +213,18 @@ func (a *dmlAdapter) buildWhereQuery(d *wal.Data, placeholderOffset int) (string
 		}
 
 		placeholderIdx++
-		whereQuery = fmt.Sprintf("%s %s = $%d", whereQuery, pglib.QuoteIdentifier(c.Name), placeholderIdx)
+		whereQuery = fmt.Sprintf("%s %s = $%d", whereQuery, identityComparisonColumn(pglib.QuoteIdentifier(c.Name), c.Type), placeholderIdx)
 		whereValues = append(whereValues, serializeJSONBValue(c.Type, c.Value))
 
 	}
 	return whereQuery, whereValues, nil
+}
+
+func identityComparisonColumn(colName, colType string) string {
+	if colType == jsonType {
+		return fmt.Sprintf("%s::%s", colName, jsonbType)
+	}
+	return colName
 }
 
 func (a *dmlAdapter) buildSetQuery(cols []wal.Column, rowColumns []string, rowValues []any) (string, []any) {
