@@ -154,6 +154,28 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 			},
 		},
 		{
+			name: "delete - full identity and json column",
+			walData: &wal.Data{
+				Action: "D",
+				Schema: testSchema,
+				Table:  testTable,
+				Identity: []wal.Column{
+					{ID: columnID(1), Name: "id", Type: "integer", Value: 1},
+					{ID: columnID(2), Name: "payload", Type: "json", Value: map[string]any{"a": 1}},
+				},
+				Metadata: wal.Metadata{},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    fmt.Sprintf("DELETE FROM %s WHERE \"id\" = $1 AND \"payload\"::jsonb = $2", quotedTestTable),
+					args:   []any{1, []byte(`{"a":1}`)},
+				},
+			},
+		},
+		{
 			name: "error - delete",
 			walData: &wal.Data{
 				Action:   "D",
@@ -782,6 +804,32 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 					table:  testTable,
 					sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"name\" = $2 WHERE \"id\" = $3 AND \"name\" = $4", quotedTestTable),
 					args:   []any{1, "alice", 1, "a"},
+				},
+			},
+		},
+		{
+			name: "update - full identity and json column",
+			walData: &wal.Data{
+				Action: "U",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{ID: columnID(1), Name: "id", Type: "integer", Value: 1},
+					{ID: columnID(2), Name: "payload", Type: "json", Value: map[string]any{"a": 2}},
+				},
+				Identity: []wal.Column{
+					{ID: columnID(1), Name: "id", Type: "integer", Value: 1},
+					{ID: columnID(2), Name: "payload", Type: "json", Value: map[string]any{"a": 1}},
+				},
+				Metadata: wal.Metadata{},
+			},
+
+			wantQueries: []*query{
+				{
+					schema: testSchema,
+					table:  testTable,
+					sql:    fmt.Sprintf("UPDATE %s SET \"id\" = $1, \"payload\" = $2 WHERE \"id\" = $3 AND \"payload\"::jsonb = $4", quotedTestTable),
+					args:   []any{1, []byte(`{"a":2}`), 1, []byte(`{"a":1}`)},
 				},
 			},
 		},
