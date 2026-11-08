@@ -360,6 +360,60 @@ func TestTransformer_ProcessWALEvent(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "ok - with transformers for schema table and replica identity",
+			event: &wal.Event{
+				CommitPosition: "1",
+				Data: &wal.Data{
+					Action: "U",
+					Schema: testSchema,
+					Table:  testTable,
+					Columns: []wal.Column{
+						{Name: "column_1", Type: "text", Value: "two"},
+						{Name: "column_2", Type: "int", Value: 1},
+					},
+					Identity: []wal.Column{
+						{Name: "column_1", Type: "text", Value: "one"},
+						{Name: "column_2", Type: "int", Value: 1},
+					},
+				},
+			},
+			processor: &mocks.Processor{
+				ProcessWALEventFn: func(ctx context.Context, walEvent *wal.Event) error {
+					wantEvent := &wal.Event{
+						CommitPosition: "1",
+						Data: &wal.Data{
+							Action: "U",
+							Schema: testSchema,
+							Table:  testTable,
+							Columns: []wal.Column{
+								{Name: "column_1", Type: "text", Value: "masked_two"},
+								{Name: "column_2", Type: "int", Value: 1},
+							},
+							Identity: []wal.Column{
+								{Name: "column_1", Type: "text", Value: "masked_one"},
+								{Name: "column_2", Type: "int", Value: 1},
+							},
+						},
+					}
+					require.Equal(t, wantEvent, walEvent)
+					return nil
+				},
+			},
+			transformerMap: &TransformerMap{
+				activeTransformerMap: map[string]ColumnTransformers{
+					testKey: {
+						"column_1": &transformermocks.Transformer{
+							TransformFn: func(a transformers.Value) (any, error) {
+								return fmt.Sprintf("masked_%v", a.TransformValue), nil
+							},
+						},
+					},
+				},
+			},
+
+			wantErr: nil,
+		},
+		{
 			name: "ok - nil column value",
 			event: newTestEvent([]wal.Column{
 				{Name: "column_1", Type: "text", Value: nil},
