@@ -632,7 +632,7 @@ func TestBuildBulkInsertQueries_WithSequence(t *testing.T) {
 
 	// the setval should use the max value (10)
 	setvalQuery := queries[1]
-	require.Equal(t, "SELECT setval($1::regclass, $2::bigint, true)", setvalQuery.sql)
+	require.Equal(t, setSequenceByNameSQL, setvalQuery.sql)
 	require.Equal(t, []any{"users_id_seq", int64(10)}, setvalQuery.args)
 }
 
@@ -663,7 +663,7 @@ func TestBuildBulkInsertQueries_WithUnnamedIdentitySequence(t *testing.T) {
 	queries := adapter.buildBulkInsertQueries(events, si)
 	// 1 INSERT + 1 setval resolved on the target from the owning column
 	require.Len(t, queries, 2)
-	require.Equal(t, "SELECT setval(pg_get_serial_sequence($1, $2), $3::bigint, true)", queries[1].sql)
+	require.Equal(t, setSequenceByColumnSQL, queries[1].sql)
 	require.Equal(t, []any{`"public"."users"`, "id", int64(10)}, queries[1].args)
 }
 
@@ -908,3 +908,8 @@ func TestBuildBulkInsertQueries_CompositeColumns(t *testing.T) {
 		})
 	}
 }
+
+var (
+	setSequenceByNameSQL   = fmt.Sprintf(setSequenceSQL, "$1::regclass", "$2")
+	setSequenceByColumnSQL = fmt.Sprintf(setSequenceSQL, "pg_get_serial_sequence($1, $2)::regclass", "$3")
+)
