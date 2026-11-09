@@ -908,3 +908,59 @@ func TestBuildBulkInsertQueries_CompositeColumns(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildBulkTruncateQuery(t *testing.T) {
+	t.Parallel()
+
+	truncateEvent := func(schema, table string) *wal.Data {
+		return &wal.Data{Action: "T", Schema: schema, Table: table}
+	}
+
+	tests := []struct {
+		name   string
+		events []*wal.Data
+
+		wantSQL string
+	}{
+		{
+			name:    "single table",
+			events:  []*wal.Data{truncateEvent("public", "users")},
+			wantSQL: `TRUNCATE "public"."users"`,
+		},
+		{
+			name: "several tables in one statement",
+			events: []*wal.Data{
+				truncateEvent("public", "parent"),
+				truncateEvent("public", "child"),
+			},
+			wantSQL: `TRUNCATE "public"."parent", "public"."child"`,
+		},
+		{
+			name: "same table twice is truncated once",
+			events: []*wal.Data{
+				truncateEvent("public", "parent"),
+				truncateEvent("public", "child"),
+				truncateEvent("public", "parent"),
+			},
+			wantSQL: `TRUNCATE "public"."parent", "public"."child"`,
+		},
+		{
+			name: "tables of different schemas",
+			events: []*wal.Data{
+				truncateEvent("public", "users"),
+				truncateEvent("Audit Log", "select"),
+			},
+			wantSQL: `TRUNCATE "public"."users", "Audit Log"."select"`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			q := newTestDMLAdapter(t).buildBulkTruncateQuery(tc.events)
+			require.Equal(t, tc.wantSQL, q.sql)
+			require.Empty(t, q.args)
+		})
+	}
+}
