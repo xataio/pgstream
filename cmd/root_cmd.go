@@ -189,6 +189,10 @@ func withSignalWatcher(fn func(ctx context.Context) error) func(cmd *cobra.Comma
 }
 
 func watchLogLevelReloads(ctx context.Context, logger *rszerolog.Logger) {
+	watchSIGHUPReloads(ctx, logger, nil)
+}
+
+func watchSIGHUPReloads(ctx context.Context, logger *rszerolog.Logger, transformerReloadRequests chan<- struct{}) {
 	reloads := logLevelReloads(ctx)
 	if reloads == nil {
 		return
@@ -200,12 +204,24 @@ func watchLogLevelReloads(ctx context.Context, logger *rszerolog.Logger) {
 			case <-ctx.Done():
 				return
 			case <-reloads:
-				if err := reloadLogLevel(logger); err != nil {
-					logger.WithLevel(rszerolog.NoLevel).Err(err).Msg("failed to reload log level after SIGHUP")
-				}
+				handleSIGHUPReload(logger, transformerReloadRequests)
 			}
 		}
 	}()
+}
+
+func handleSIGHUPReload(logger *rszerolog.Logger, transformerReloadRequests chan<- struct{}) {
+	if err := reloadLogLevel(logger); err != nil {
+		logger.WithLevel(rszerolog.NoLevel).Err(err).Msg("failed to reload log level after SIGHUP")
+	}
+
+	if transformerReloadRequests == nil {
+		return
+	}
+	select {
+	case transformerReloadRequests <- struct{}{}:
+	default:
+	}
 }
 
 func logLevelReloads(ctx context.Context) <-chan os.Signal {
