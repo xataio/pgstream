@@ -1585,4 +1585,29 @@ transformations:
 ```
 
 Validation mode can be set to `strict` or `relaxed` for all tables at once. Or it can be determined for each table individually, by setting the higher level `validation_mode` parameter to `table_level`. When it is set to strict, pgstream will throw an error if any of the columns in the table do not have a transformer defined. When set to relaxed, pgstream will skip any columns that do not have a transformer defined. Also in strict mode, all snapshot tables must be provided in the transformation config.
+
+### Reloading transformation rules
+
+In replication mode, pgstream can reload the transformation rules without restarting. Send `SIGHUP` to the running process:
+
+```sh
+kill -HUP <pgstream-pid>
+```
+
+The rules are read from the same source used at startup: the inline `modifiers.transformations` configuration in a YAML file, or the file named by `PGSTREAM_TRANSFORMER_RULES_FILE`. The reload is not periodic and is not triggered by schema changes. Publish the updated file and send `SIGHUP`.
+
+Before a reload is installed, the complete candidate is parsed and, when a source Postgres connection is available, validated against the source schema. If loading, validation, or transformer construction fails, the running rules stay active and the error is logged. Validation modes can change together with the rules, as long as the complete candidate is valid; their defaults are unchanged.
+
+Only the transformation layer used for replication is reloaded. The standalone `snapshot` command and an initial snapshot keep the rules they started with. `SIGHUP` also reloads the log level, and an invalid log level does not prevent the transformation reload.
+
+These settings are fixed for the lifetime of the process and must not change in a reloaded file:
+
+- `infer_from_security_labels`
+- `dump_inferred_rules`
+- `on_error`
+
+Reload applies to subsequently processed events, not to rows already written to the target. If the previous transformers cannot be closed after a successful reload, the new rules remain active and the cleanup error is logged; the process may need a restart to release the remaining resources.
+
+Schema changes do not reload the rules. In strict mode, a DDL event that adds a table or column without a matching rule still stops the pipeline. Rules for a column that does not exist yet are rejected during validation, so a rule for a newly added column can only be installed after the column exists; plan the schema change and reload ordering accordingly.
+
 For details on how to use and configure the transformer, check the [transformer tutorial](tutorials/postgres_transformer.md).
