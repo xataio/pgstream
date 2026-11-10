@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -996,6 +997,129 @@ func TestBatchWriter_execQueries_strictMode(t *testing.T) {
 		require.Nil(t, retry)
 		require.Equal(t, uint64(0), bw.DroppedQueries())
 	})
+}
+
+func TestBatchWriter_sendBatch_coalescedRunRejectedRow(t *testing.T) {
+	t.Parallel()
+
+	// rejectedID is the id the target refuses, as it would for a row it
+	// already has.
+	const rejectedID = 2
+
+	// mentionsRejected reports whether a statement carries the rejected id,
+	// either as a plain argument or inside an array argument.
+	mentionsRejected := func(args []any) bool {
+		for _, arg := range args {
+			rv := reflect.ValueOf(arg)
+			if rv.Kind() == reflect.Slice {
+				for i := range rv.Len() {
+					if rv.Index(i).Interface() == any(float64(rejectedID)) {
+						return true
+					}
+				}
+				continue
+			}
+			if arg == any(float64(rejectedID)) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// newConn mimics a transaction that applies nothing when one of its
+	// statements fails. The statements that were accepted are recorded.
+	newConn := func(accepted *[]string) *pgmocks.Querier {
+		return &pgmocks.Querier{
+			ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+				var staged []string
+				mockTx := pgmocks.Tx{
+					ExecFn: func(ctx context.Context, _ uint, sql string, args ...any) (pglib.CommandTag, error) {
+						return pglib.CommandTag{}, nil
+					},
+					ExecBatchFn: func(ctx context.Context, qs []pglib.BatchQuery) error {
+						for i, q := range qs {
+							if mentionsRejected(q.Args) {
+								return &pglib.BatchQueryError{Index: i, Err: &pglib.ErrConstraintViolation{}}
+							}
+							staged = append(staged, q.SQL)
+						}
+						return nil
+					},
+				}
+				if err := f(&mockTx); err != nil {
+					return err
+				}
+				*accepted = append(*accepted, staged...)
+				return nil
+			},
+			CloseFn: func(ctx context.Context) error { return nil },
+		}
+	}
+
+	insert := func(id int) *walMessage {
+		return &walMessage{
+			data: &wal.Data{
+				Action: "I",
+				Schema: testSchema,
+				Table:  testTable,
+				Columns: []wal.Column{
+					{Name: "id", Type: "bigint", Value: float64(id)},
+					{Name: "name", Type: "text", Value: "name"},
+				},
+			},
+		}
+	}
+	del := func(id int) *walMessage {
+		return &walMessage{
+			data: &wal.Data{
+				Action:   "D",
+				Schema:   testSchema,
+				Table:    testTable,
+				Identity: []wal.Column{{Name: "id", Type: "bigint", Value: float64(id)}},
+			},
+		}
+	}
+
+	tests := []struct {
+		name         string
+		messages     []*walMessage
+		wantAccepted int
+	}{
+		{
+			name:         "insert run keeps the rows around the rejected one",
+			messages:     []*walMessage{insert(1), insert(2), insert(3)},
+			wantAccepted: 2,
+		},
+		{
+			name:         "delete run keeps the rows around the rejected one",
+			messages:     []*walMessage{del(1), del(2), del(3)},
+			wantAccepted: 2,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var accepted []string
+			writer := &BatchWriter{
+				Writer: &Writer{
+					logger:  loglib.NewNoopLogger(),
+					pgConn:  newConn(&accepted),
+					adapter: &mockAdapter{},
+				},
+				dmlAdapter:  mustNewDMLAdapter(t),
+				batchSender: batchmocks.NewBatchSender[*walMessage](),
+			}
+			defer writer.Close()
+
+			err := writer.sendBatch(context.Background(), batch.NewBatch(tc.messages, []wal.CommitPosition{testCommitPosition}))
+			require.NoError(t, err)
+			require.Len(t, accepted, tc.wantAccepted)
+			// only the rejected row is dropped
+			require.Equal(t, uint64(1), writer.DroppedQueries())
+		})
+	}
 }
 
 func Test_isConcurrentDDL(t *testing.T) {

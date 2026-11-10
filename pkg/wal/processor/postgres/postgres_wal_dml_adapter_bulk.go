@@ -118,6 +118,7 @@ func (a *dmlAdapter) buildBulkDeleteQuery(events []*wal.Data, si schemaInfo) ([]
 		if err != nil {
 			return nil, err
 		}
+		q.split = a.splitDeletes(normalEvents)
 		queries = append(queries, q)
 	} else {
 		// composite PK: use unnest of one array per PK column
@@ -125,10 +126,31 @@ func (a *dmlAdapter) buildBulkDeleteQuery(events []*wal.Data, si schemaInfo) ([]
 		if err != nil {
 			return nil, err
 		}
+		q.split = a.splitDeletes(normalEvents)
 		queries = append(queries, q)
 	}
 
 	return queries, nil
+}
+
+// splitDeletes returns a function that rebuilds the given events as one DELETE
+// each. It returns nil when there is a single event, since there is nothing to
+// split.
+func (a *dmlAdapter) splitDeletes(events []*wal.Data) func() ([]*query, error) {
+	if len(events) < 2 {
+		return nil
+	}
+	return func() ([]*query, error) {
+		queries := make([]*query, 0, len(events))
+		for _, e := range events {
+			q, err := a.buildDeleteQuery(e)
+			if err != nil {
+				return nil, err
+			}
+			queries = append(queries, q)
+		}
+		return queries, nil
+	}
 }
 
 // bindAsText reports whether the identity values for the given column must be
@@ -356,14 +378,28 @@ func (a *dmlAdapter) buildBulkInsertQueries(events []*wal.Data, si schemaInfo) [
 			strings.Join(valueTuples, ","),
 			a.buildOnConflictQuery(events[0], names, si))
 
-		queries = append(queries, &query{
+		q := &query{
 			schema:        events[0].Schema,
 			table:         events[0].Table,
 			columnNames:   names,
 			needsTextCopy: a.forCopy && a.needsTextCopyForColumns(names, types, si),
 			sql:           sql,
 			args:          args,
-		})
+		}
+		if len(chunk) > 1 {
+			q.split = func() ([]*query, error) {
+				queries := make([]*query, 0, len(chunk))
+				for _, e := range chunk {
+					// only the insert itself, the sequences are already
+					// updated by the coalesced queries.
+					if qs := a.buildInsertQueries(e, si); len(qs) > 0 {
+						queries = append(queries, qs[0])
+					}
+				}
+				return queries, nil
+			}
+		}
+		queries = append(queries, q)
 	}
 
 	// emit a single setval per sequence using the max value
