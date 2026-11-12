@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/xataio/pgstream/internal/phase"
 	"github.com/xataio/pgstream/pkg/kafka"
 	kafkamocks "github.com/xataio/pgstream/pkg/kafka/mocks"
 	loglib "github.com/xataio/pgstream/pkg/log"
@@ -194,4 +195,39 @@ func TestReader_Listen(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A liveness check reads the phase tracker and sees this reader in the
+// replication phase, so a message has to count as progress. Without that a
+// kafka source doing its work reads as a stalled one.
+func TestReader_Listen_MarksProgress(t *testing.T) {
+	t.Parallel()
+
+	tracker := phase.NewTracker()
+	var beforeFetch time.Time
+
+	r := &Reader{
+		logger: loglib.NewNoopLogger(),
+		reader: &kafkamocks.Reader{
+			FetchMessageFn: func(ctx context.Context) (*kafka.Message, error) {
+				// Listen marks the phase before it fetches, so the reading to
+				// compare against is the one taken here. The pause puts the
+				// two marks apart by more than any clock granularity.
+				beforeFetch = tracker.LastProgress()
+				time.Sleep(5 * time.Millisecond)
+				return &kafka.Message{Topic: "test-topic", Value: []byte("test-value")}, nil
+			},
+		},
+		unmarshaler: func(b []byte, a any) error { return nil },
+		offsetParser: &kafkamocks.OffsetParser{
+			ToStringFn: func(o *kafka.Offset) string { return "test-topic/0/1" },
+		},
+		phaseTracker:  tracker,
+		processRecord: func(ctx context.Context, e *wal.Event) error { return context.Canceled },
+	}
+
+	err := r.Listen(context.Background())
+	require.ErrorIs(t, err, context.Canceled)
+	require.False(t, beforeFetch.IsZero(), "the phase mark must land before the fetch")
+	require.True(t, tracker.LastProgress().After(beforeFetch))
 }
