@@ -311,7 +311,9 @@ func primaryKeyMessageKey(walData *wal.Data) []byte {
 		if !found {
 			return nil
 		}
-		values = append(values, keyValueEscaper.Replace(fmt.Sprintf("%v", col.Value)))
+		// IdentityValue keeps the rendering a previous version produced for a
+		// numeric column, so that the key of an existing topic does not move.
+		values = append(values, keyValueEscaper.Replace(fmt.Sprintf("%v", col.IdentityValue())))
 	}
 
 	return fmt.Appendf(tableMessageKey(walData), ":%s", strings.Join(values, ","))
