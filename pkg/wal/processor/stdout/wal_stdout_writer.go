@@ -83,8 +83,9 @@ func (w *Writer) ProcessWALEvent(ctx context.Context, walEvent *wal.Event) (retE
 		}
 	}
 
-	if w.checkpointer != nil && walEvent.CommitPosition != "" {
-		if err := w.checkpointer(ctx, []wal.CommitPosition{walEvent.CommitPosition}); err != nil {
+	checkpointPosition := walEvent.PositionToCheckpoint()
+	if w.checkpointer != nil && checkpointPosition != "" {
+		if err := w.checkpointer(ctx, []wal.CommitPosition{checkpointPosition}); err != nil {
 			w.logger.Warn(err, "stdout writer: error updating commit position")
 		}
 	}

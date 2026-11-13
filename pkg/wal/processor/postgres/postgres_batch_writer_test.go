@@ -53,6 +53,9 @@ func TestBatchWriter_ProcessWALEvent(t *testing.T) {
 			sequenceColumns:  map[string]string{},
 		},
 	}
+	testCheckpointPosition := wal.CommitPosition("transaction-entry-1")
+	trackedWalEvent := *testWalEvent
+	trackedWalEvent.CheckpointPosition = testCheckpointPosition
 
 	tests := []struct {
 		name        string
@@ -76,6 +79,22 @@ func TestBatchWriter_ProcessWALEvent(t *testing.T) {
 
 			wantMsgs: []*batch.WALMessage[*walMessage]{
 				batch.NewWALMessage(testMessage, testCommitPosition),
+			},
+			wantErr: nil,
+		},
+		{
+			name:        "ok - internal checkpoint position",
+			walEvent:    &trackedWalEvent,
+			batchSender: batchmocks.NewBatchSender[*walMessage](),
+			adapter: &mockAdapter{
+				walEventToMessageFn: func(e *wal.Event) (*walMessage, error) {
+					require.Equal(t, &trackedWalEvent, e)
+					return testMessage, nil
+				},
+			},
+
+			wantMsgs: []*batch.WALMessage[*walMessage]{
+				batch.NewWALMessage(testMessage, testCheckpointPosition),
 			},
 			wantErr: nil,
 		},

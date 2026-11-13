@@ -65,6 +65,9 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 	require.NoError(t, err)
 
 	testCommitPosition := wal.CommitPosition(testLSNStr)
+	testCheckpointPosition := wal.CommitPosition("transaction-entry-1")
+	trackedWalEvent := *testWalEvent
+	trackedWalEvent.CheckpointPosition = testCheckpointPosition
 
 	testBytes := []byte("test")
 	mockMarshaler := func(any) ([]byte, error) { return testBytes, nil }
@@ -89,6 +92,19 @@ func TestBatchKafkaWriter_ProcessWALEvent(t *testing.T) {
 					Key:   []byte(testSchema),
 					Value: testBytes,
 				}, testCommitPosition),
+			},
+			wantErr: nil,
+		},
+		{
+			name:        "ok - internal checkpoint position",
+			walEvent:    &trackedWalEvent,
+			batchSender: batchmocks.NewBatchSender[kafka.Message](),
+
+			wantMsgs: []*batch.WALMessage[kafka.Message]{
+				batch.NewWALMessage(kafka.Message{
+					Key:   []byte(testSchema),
+					Value: testBytes,
+				}, testCheckpointPosition),
 			},
 			wantErr: nil,
 		},
