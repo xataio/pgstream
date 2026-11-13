@@ -311,9 +311,11 @@ func (w *BatchWriter) flushQueries(ctx context.Context, queries []*query) error 
 func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*query, error) {
 	retryQueries := []*query{}
 	var droppedQuery *query
+	droppedIndex := -1
 	err := w.pgConn.ExecInTx(ctx, func(tx pglib.Tx) error {
 		retryQueries = []*query{}
 		droppedQuery = nil
+		droppedIndex = -1
 
 		if err := w.setReplicationRoleToReplica(ctx, tx); err != nil {
 			return err
@@ -345,6 +347,7 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 			// if a query returns an error, it will abort the tx. Remove it
 			// from the list of queries to be retried.
 			droppedQuery = queries[queryErr.Index]
+			droppedIndex = queryErr.Index
 			retryQueries = removeIndex(queries, queryErr.Index)
 			return err
 		}
@@ -378,6 +381,7 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 				"args": queries[index].args,
 			})
 			droppedQuery = queries[index]
+			droppedIndex = index
 			retryQueries = removeIndex(queries, index)
 		}
 	}
@@ -392,6 +396,21 @@ func (w *BatchWriter) execQueries(ctx context.Context, queries []*query) ([]*que
 	if err != nil && droppedQuery != nil {
 		if w.strictMode {
 			return nil, fmt.Errorf("strict mode: stopping on non-internal query failure: %w", dropCause)
+		}
+		// A statement that coalesces several rows fails as a whole when the
+		// server rejects one of them. Replace it with one query per row, so
+		// the retry drops only the rejected row.
+		if droppedQuery.split != nil {
+			if rows, splitErr := droppedQuery.split(); splitErr == nil && len(rows) > 0 {
+				w.logger.Warn(dropCause, "splitting rejected multi-row query", loglib.Fields{
+					"schema": droppedQuery.schema, "table": droppedQuery.table, "rows": len(rows),
+				})
+				split := make([]*query, 0, len(retryQueries)+len(rows))
+				split = append(split, retryQueries[:droppedIndex]...)
+				split = append(split, rows...)
+				split = append(split, retryQueries[droppedIndex:]...)
+				return split, nil
+			}
 		}
 		w.recordDroppedQuery(droppedQuery, dropCause)
 	}
