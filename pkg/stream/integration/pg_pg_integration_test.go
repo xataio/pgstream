@@ -1284,3 +1284,55 @@ func Test_PostgresToPostgres_EnumPrimaryKeyDelete(t *testing.T) {
 		waitForCount(t, domainTable, 0)
 	})
 }
+
+func Test_PostgresToPostgres_TriggerDDL(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfg(t),
+		Processor: testPostgresProcessorCfg(),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runStream(t, ctx, cfg)
+
+	suffix := time.Now().UnixNano()
+	tableName := fmt.Sprintf("pg2pg_trigger_tbl_%d", suffix)
+	funcName := fmt.Sprintf("pg2pg_trigger_fn_%d", suffix)
+	triggerName := fmt.Sprintf("pg2pg_trigger_%d", suffix)
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	triggerExists := func() bool {
+		exists, err := catalogExists(ctx, targetConn,
+			`SELECT EXISTS(
+				SELECT 1 FROM pg_trigger tg
+				JOIN pg_class c ON c.oid = tg.tgrelid
+				JOIN pg_namespace n ON n.oid = c.relnamespace
+				WHERE n.nspname = 'public' AND c.relname = $1 AND tg.tgname = $2
+			)`, tableName, triggerName)
+		require.NoError(t, err)
+		return exists
+	}
+
+	execQuery(t, ctx, fmt.Sprintf("create table public.%s (id int primary key)", tableName))
+	defer execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("drop table if exists public.%s cascade", tableName))
+	defer execQuery(t, ctx, fmt.Sprintf("drop table if exists public.%s cascade", tableName))
+	execQuery(t, ctx, fmt.Sprintf("create function public.%s() returns trigger language plpgsql as $$ begin return new; end $$", funcName))
+	defer execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("drop function if exists public.%s() cascade", funcName))
+	defer execQuery(t, ctx, fmt.Sprintf("drop function if exists public.%s() cascade", funcName))
+
+	execQuery(t, ctx, fmt.Sprintf("create trigger %s before insert on public.%s for each row execute function public.%s()",
+		triggerName, tableName, funcName))
+	require.Eventually(t, triggerExists, 20*time.Second, 200*time.Millisecond,
+		"expected the trigger to be created on the target")
+
+	execQuery(t, ctx, fmt.Sprintf("drop trigger %s on public.%s", triggerName, tableName))
+	require.Eventually(t, func() bool { return !triggerExists() }, 20*time.Second, 200*time.Millisecond,
+		"expected the trigger to be dropped on the target")
+}
