@@ -217,7 +217,11 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 		}
 	}
 
-	var runBoundarySQL, updateRunSQL []string
+	truncateMsg := func(table string) *walMessage {
+		return newDMLMsg("T", testSchema, table, nil)
+	}
+
+	var runBoundarySQL, updateRunSQL, truncateRunSQL, truncateBoundarySQL []string
 
 	tests := []struct {
 		name         string
@@ -382,6 +386,48 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 					require.Contains(t, sql, "UPDATE")
 					require.Contains(t, sql, "WHERE")
 				}
+			},
+			wantErr: nil,
+		},
+		{
+			// postgres refuses to truncate a table a foreign key references
+			// unless the referencing table is truncated by the same
+			// statement, so the events of a multi table TRUNCATE must not be
+			// split per table
+			name:       "ok - truncates of different tables are one statement",
+			pgconn:     recordingConn(&truncateRunSQL),
+			adapter:    &mockAdapter{},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
+				truncateMsg("parent"),
+				truncateMsg("child"),
+			}, []wal.CommitPosition{testCommitPosition}),
+
+			assert: func(t *testing.T) {
+				require.Equal(t, []string{
+					fmt.Sprintf("TRUNCATE %s, %s", quotedTableName(testSchema, "parent"), quotedTableName(testSchema, "child")),
+				}, truncateRunSQL)
+			},
+			wantErr: nil,
+		},
+		{
+			name:       "ok - a change of action flushes the pending truncates",
+			pgconn:     recordingConn(&truncateBoundarySQL),
+			adapter:    &mockAdapter{},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
+				truncateMsg("parent"),
+				truncateMsg("child"),
+				insertMsg(float64(1), "a"),
+				truncateMsg("parent"),
+			}, []wal.CommitPosition{testCommitPosition}),
+
+			assert: func(t *testing.T) {
+				require.Len(t, truncateBoundarySQL, 3)
+				require.Contains(t, truncateBoundarySQL[0], "TRUNCATE")
+				require.Contains(t, truncateBoundarySQL[0], "child")
+				require.Contains(t, truncateBoundarySQL[1], "INSERT INTO")
+				require.Equal(t, fmt.Sprintf("TRUNCATE %s", quotedTableName(testSchema, "parent")), truncateBoundarySQL[2])
 			},
 			wantErr: nil,
 		},
