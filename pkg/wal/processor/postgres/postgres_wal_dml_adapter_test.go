@@ -221,7 +221,7 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				{
 					schema: testSchema,
 					table:  testTable,
-					sql:    "SELECT setval($1::regclass, $2::bigint, true)",
+					sql:    setSequenceByNameSQL,
 					args:   []any{`"id_seq"`, int64(1)},
 				},
 			},
@@ -258,7 +258,7 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				{
 					schema: testSchema,
 					table:  testTable,
-					sql:    "SELECT setval(pg_get_serial_sequence($1, $2), $3::bigint, true)",
+					sql:    setSequenceByColumnSQL,
 					args:   []any{quotedTestTable, "id", int64(7)},
 				},
 			},
@@ -293,7 +293,7 @@ func TestDMLAdapter_walDataToQueries(t *testing.T) {
 				{
 					schema: testSchema,
 					table:  testTable,
-					sql:    "SELECT setval($1::regclass, $2::bigint, true)",
+					sql:    setSequenceByNameSQL,
 					args:   []any{`"id_seq"`, int64(9007199254740993)},
 				},
 			},
