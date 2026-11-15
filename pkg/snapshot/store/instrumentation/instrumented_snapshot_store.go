@@ -43,6 +43,21 @@ func (i *Store) UpdateSnapshotRequest(ctx context.Context, req *snapshot.Request
 	return i.inner.UpdateSnapshotRequest(ctx, req)
 }
 
+func (i *Store) LockSnapshotRequests(ctx context.Context, reqs []*snapshot.Request) (release func(), err error) {
+	ctx, span := otel.StartSpan(ctx, i.tracer, "snapshotStore.LockSnapshotRequests",
+		trace.WithAttributes(attribute.KeyValue{Key: "requests", Value: attribute.IntValue(len(reqs))}))
+	defer otel.CloseSpan(span, err)
+
+	return i.inner.LockSnapshotRequests(ctx, reqs)
+}
+
+func (i *Store) ResumeSnapshotRequest(ctx context.Context, req *snapshot.Request) (resumed bool, err error) {
+	ctx, span := otel.StartSpan(ctx, i.tracer, "snapshotStore.ResumeSnapshotRequest", trace.WithAttributes(i.requestAttributes(req)...))
+	defer otel.CloseSpan(span, err)
+
+	return i.inner.ResumeSnapshotRequest(ctx, req)
+}
+
 func (i *Store) GetSnapshotRequestsByStatus(ctx context.Context, status snapshot.Status) (req []*snapshot.Request, err error) {
 	ctx, span := otel.StartSpan(ctx, i.tracer, "snapshotStore.GetSnapshotRequestsByStatus",
 		trace.WithAttributes(attribute.KeyValue{Key: "status", Value: attribute.StringValue(string(status))}))
