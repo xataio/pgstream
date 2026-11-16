@@ -97,12 +97,12 @@ func (m *mockWebhookServer) close() {
 	m.Close()
 }
 
-func runStream(t *testing.T, ctx context.Context, cfg *stream.Config) {
+func runStream(t *testing.T, ctx context.Context, cfg *stream.Config, opts ...stream.InitOption) {
 	t.Helper()
 
 	done := make(chan error, 1)
 	go func() {
-		done <- stream.Run(ctx, testLogger(), cfg, false, nil)
+		done <- stream.Run(ctx, testLogger(), cfg, false, nil, opts...)
 	}()
 
 	t.Cleanup(func() {

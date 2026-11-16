@@ -29,6 +29,11 @@ import (
 type Config struct {
 	Listener  ListenerConfig
 	Processor ProcessorConfig
+
+	// TransformerConfigLoader and TransformerReloadRequests are populated by
+	// stream.Run from its runtime options; they are not file configuration.
+	TransformerConfigLoader   transformer.LoadConfigFn
+	TransformerReloadRequests <-chan struct{}
 }
 
 type ListenerConfig struct {
