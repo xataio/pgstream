@@ -177,7 +177,7 @@ func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]
 			}
 
 			// check if this message continues the current run
-			if len(currentRun) > 0 && (msg.data.Schema != runSchema || msg.data.Table != runTable || msg.data.Action != runAction) {
+			if len(currentRun) > 0 && !continuesRun(msg.data, runSchema, runTable, runAction) {
 				if err := flushRun(); err != nil {
 					return err
 				}
@@ -257,6 +257,17 @@ func isConcurrentDDL(sql string) bool {
 	return concurrentDDL.MatchString(sql)
 }
 
+// continuesRun reports whether the event can join the pending run. Truncates
+// join across tables: postgres refuses to truncate a table that a foreign key
+// references unless the referencing tables are truncated by the same statement,
+// and the source reports a multi table TRUNCATE as one event per table.
+func continuesRun(data *wal.Data, schema, table, action string) bool {
+	if data.Action != action {
+		return false
+	}
+	return action == "T" || (data.Schema == schema && data.Table == table)
+}
+
 func (w *BatchWriter) buildCoalescedQueries(run []*walMessage) ([]*query, error) {
 	if len(run) == 0 {
 		return nil, nil
@@ -276,8 +287,14 @@ func (w *BatchWriter) buildCoalescedQueries(run []*walMessage) ([]*query, error)
 			events[i] = m.data
 		}
 		return w.dmlAdapter.buildBulkInsertQueries(events, run[0].schemaInfo), nil
+	case "T":
+		events := make([]*wal.Data, len(run))
+		for i, m := range run {
+			events[i] = m.data
+		}
+		return []*query{w.dmlAdapter.buildBulkTruncateQuery(events)}, nil
 	default:
-		// UPDATE, TRUNCATE, and anything else: individual queries
+		// UPDATE and anything else: individual queries
 		queries := make([]*query, 0, len(run))
 		for _, m := range run {
 			qs, err := w.dmlAdapter.walDataToQueries(m.data, m.schemaInfo)

@@ -95,6 +95,27 @@ func (a *dmlAdapter) buildTruncateQuery(d *wal.Data) *query {
 	}
 }
 
+// buildBulkTruncateQuery truncates the tables of all the events in one
+// statement, each table once.
+func (a *dmlAdapter) buildBulkTruncateQuery(events []*wal.Data) *query {
+	tables := make([]string, 0, len(events))
+	seen := make(map[string]struct{}, len(events))
+	for _, e := range events {
+		name := quotedTableName(e.Schema, e.Table)
+		if _, found := seen[name]; found {
+			continue
+		}
+		seen[name] = struct{}{}
+		tables = append(tables, name)
+	}
+
+	return &query{
+		table:  events[0].Table,
+		schema: events[0].Schema,
+		sql:    fmt.Sprintf("TRUNCATE %s", strings.Join(tables, ", ")),
+	}
+}
+
 func (a *dmlAdapter) buildDeleteQuery(d *wal.Data) (*query, error) {
 	whereQuery, whereValues, err := a.buildWhereQuery(d, 0)
 	if err != nil {
