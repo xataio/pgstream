@@ -434,19 +434,34 @@ type sequenceTarget struct {
 	column string
 }
 
+// setSequenceSQL moves a sequence to a value only when that moves it forward
+// (backwards for a descending one). Rows reach the target in commit order, which
+// is not the order of their ids: a transaction that took a lower id can commit
+// later, and a row can be inserted with an explicit id. Moving the sequence to
+// whatever id the last row has would put it below ids that already exist.
+// pg_sequence_last_value is NULL for a sequence nothing was drawn from yet.
+const setSequenceSQL = `SELECT setval(t.seq, t.val, true)
+FROM (SELECT %s AS seq, %s::bigint AS val) t
+JOIN pg_catalog.pg_sequence s ON s.seqrelid = t.seq
+WHERE pg_catalog.pg_sequence_last_value(t.seq) IS NULL
+OR CASE WHEN s.seqincrement > 0
+	THEN t.val > pg_catalog.pg_sequence_last_value(t.seq)
+	ELSE t.val < pg_catalog.pg_sequence_last_value(t.seq)
+END`
+
 // setSequenceQuery returns the query that moves the sequence to value. Without
 // a sequence name, the target resolves the sequence owned by the column when
 // the query runs, after any preceding DDL has been applied.
 func setSequenceQuery(schema, table string, seq sequenceTarget, value int64) *query {
 	q := &query{table: table, schema: schema}
 	if seq.name != "" {
-		q.sql = "SELECT setval($1::regclass, $2::bigint, true)"
+		q.sql = fmt.Sprintf(setSequenceSQL, "$1::regclass", "$2")
 		q.args = []any{seq.name, value}
 		return q
 	}
 	// pg_get_serial_sequence parses the table name as an identifier and takes
 	// the column name literally.
-	q.sql = "SELECT setval(pg_get_serial_sequence($1, $2), $3::bigint, true)"
+	q.sql = fmt.Sprintf(setSequenceSQL, "pg_get_serial_sequence($1, $2)::regclass", "$3")
 	q.args = []any{quotedTableName(schema, table), seq.column, value}
 	return q
 }
