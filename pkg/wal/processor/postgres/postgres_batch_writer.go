@@ -32,6 +32,7 @@ type BatchWriter struct {
 
 	batchSender walMessageBatchSender
 	dmlAdapter  *dmlAdapter
+	ddlReplays  ddlReplayLog
 }
 
 const batchWriter = "postgres_batch_writer"
@@ -161,6 +162,12 @@ func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]
 					if q.IsEmpty() {
 						continue
 					}
+					if w.ddlReplays.done(msg.data.XID, q.sql) {
+						w.logger.Debug("skipping DDL already replayed in this transaction", loglib.Fields{
+							"xid": msg.data.XID, "schema": q.schema, "query_sql": q.sql,
+						})
+						continue
+					}
 					if err := w.execDDLQuery(ctx, q); err != nil {
 						w.logger.Error(err, "running DDL query", loglib.Fields{"query_sql": q.sql, "query_args": q.args})
 						if !w.isInternalError(err) {
@@ -168,10 +175,21 @@ func (w *BatchWriter) sendBatch(ctx context.Context, b *batch.Batch[*walMessage]
 								return fmt.Errorf("strict mode: stopping on non-internal DDL failure: %w", err)
 							}
 							w.recordDroppedQuery(q, err)
+							// Objects that already exist mean the target has
+							// this statement's work, typically from a delivery
+							// before a restart. A later copy would fail the
+							// same way, or apply it again in another schema.
+							// After any other failure a later copy, with
+							// another search path, may still succeed.
+							var errAlreadyExists *pglib.ErrRelationAlreadyExists
+							if errors.As(err, &errAlreadyExists) {
+								w.ddlReplays.record(msg.data.XID, q.sql)
+							}
 							continue
 						}
 						return err
 					}
+					w.ddlReplays.record(msg.data.XID, q.sql)
 				}
 				continue
 			}
