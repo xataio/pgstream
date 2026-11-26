@@ -1,6 +1,6 @@
 module github.com/xataio/pgstream
 
-go 1.26.6
+go 1.26.10
 
 require (
 	github.com/Masterminds/sprig/v3 v3.3.0
