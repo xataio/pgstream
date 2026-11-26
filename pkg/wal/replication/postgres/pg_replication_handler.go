@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
@@ -31,6 +32,10 @@ type Handler struct {
 	lsnParser replication.LSNParser
 
 	pluginArguments []string
+
+	// receiveTimeout bounds a single read on the replication connection. Zero
+	// leaves the read unbounded.
+	receiveTimeout time.Duration
 }
 
 type Config struct {
@@ -50,6 +55,11 @@ type Config struct {
 	// PluginArguments are arguments to be passed to the logical decoding plugin
 	// (wal2json).
 	PluginArguments PluginArguments
+	// ReceiveTimeout bounds how long a single read on the replication
+	// connection waits. Zero takes the default. A negative value removes the
+	// bound, which suits a source that sends no keepalives
+	// (wal_sender_timeout = 0).
+	ReceiveTimeout time.Duration
 }
 
 type PluginArguments struct {
@@ -59,6 +69,25 @@ type PluginArguments struct {
 }
 
 type Option func(h *Handler)
+
+// defaultReceiveTimeout bounds a read on the replication connection when the
+// configuration does not. Postgres sends a keepalive every
+// wal_sender_timeout/2, which is 30s with the default of 60s, so silence for
+// longer than this means the stream is gone rather than idle.
+const defaultReceiveTimeout = 90 * time.Second
+
+// normalizeReceiveTimeout turns a configured value into the bound the handler
+// applies.
+func normalizeReceiveTimeout(d time.Duration) time.Duration {
+	switch {
+	case d == 0:
+		return defaultReceiveTimeout
+	case d < 0:
+		return 0
+	default:
+		return d
+	}
+}
 
 const (
 	logLSNPosition = "position"
@@ -111,6 +140,7 @@ func NewHandler(ctx context.Context, cfg Config, opts ...Option) (*Handler, erro
 		pgReplicationConn:        pgReplicationConn,
 		pgReplicationSlotName:    replicationSlotName,
 		pgConnBuilder:            connBuilder,
+		receiveTimeout:           normalizeReceiveTimeout(cfg.ReceiveTimeout),
 		pgReplicationConnBuilder: replicationConnBuilder,
 		lsnParser:                &LSNParser{},
 		logFields: loglib.Fields{
@@ -225,13 +255,30 @@ func (h *Handler) StartReplicationFromLSN(ctx context.Context, lsn replication.L
 
 // ReceiveMessage will listen for messages from the WAL. It returns an error if
 // an unexpected message is received.
+//
+// The read is bounded. pgx waits on the socket for as long as the context
+// lives, and the listener's context lives as long as the process, so a
+// walsender that goes away while the connection stays open holds this call
+// forever. The caller's retry loop waits inside it and never runs. A bounded
+// read turns that silence into ErrConnTimeout, which the retrier answers with
+// a fresh connection and a new StartReplication.
 func (h *Handler) ReceiveMessage(ctx context.Context) (*replication.Message, error) {
+	if h.receiveTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, h.receiveTimeout)
+		defer cancel()
+	}
+
 	pgMsg, err := h.pgReplicationConn.ReceiveMessage(ctx)
 	if err != nil {
 		switch {
 		case h.isExcludedTableError(err):
 			// ignore errors for excluded tables
 			return nil, nil
+		case errors.Is(err, context.DeadlineExceeded):
+			// the bound expired. The connection reports nothing, so the error
+			// arrives as the deadline rather than as a postgres error.
+			return nil, replication.ErrConnTimeout
 		default:
 			return nil, h.mapPostgresError(err)
 		}
