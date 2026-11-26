@@ -146,6 +146,10 @@ func (l *Listener) listen(ctx context.Context) error {
 				return fmt.Errorf("receiving message: %w", err)
 			}
 
+			// A keepalive carries no data and still proves the stream is
+			// there, which is what a liveness check needs to know.
+			l.phaseTracker.MarkProgress()
+
 			if msg == nil {
 				continue
 			}
