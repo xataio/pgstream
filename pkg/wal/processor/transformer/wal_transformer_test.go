@@ -183,7 +183,8 @@ func TestTransformer_New(t *testing.T) {
 
 			diff := cmp.Diff(tc.wantTransformer, transformer,
 				cmp.AllowUnexported(Transformer{}, TransformerMap{}),
-				cmpopts.IgnoreFields(Transformer{}, "parser", "processor", "logger", "walDataToDDLEvent", "ddlEventToSchemaDiff"))
+				cmpopts.IgnoreFields(Transformer{}, "parser", "processor", "logger", "walDataToDDLEvent", "ddlEventToSchemaDiff",
+					"loader", "lastConfig", "reloadMu", "stateMu", "closed"))
 			require.Empty(t, diff)
 		})
 	}

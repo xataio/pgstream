@@ -44,7 +44,6 @@ const (
 func run(ctx context.Context) error {
 	logger := zerolog.NewLogger(loggerConfigFromViper())
 	zerolog.SetGlobalLogger(logger)
-	watchLogLevelReloads(ctx, logger)
 
 	if isSnapshotMode() {
 		return fmt.Errorf("cannot use the 'run' command in snapshot-only mode; please use the 'snapshot' command instead")
@@ -54,6 +53,16 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("parsing stream config: %w", err)
 	}
+
+	var transformerReloadRequests chan struct{}
+	transformerConfigLoader := config.NewTransformerConfigLoader(
+		viper.GetViper().ConfigFileUsed(),
+		viper.GetString("PGSTREAM_TRANSFORMER_RULES_FILE"),
+	)
+	if streamConfig.Processor.Transformer != nil && transformerConfigLoader != nil {
+		transformerReloadRequests = make(chan struct{}, 1)
+	}
+	watchSIGHUPReloads(ctx, logger, transformerReloadRequests)
 
 	provider, err := newInstrumentationProvider()
 	if err != nil {
@@ -69,6 +78,12 @@ func run(ctx context.Context) error {
 	var opts []stream.InitOption
 	if upgradeFlag {
 		opts = append(opts, stream.WithUpgrade())
+	}
+	if transformerReloadRequests != nil {
+		opts = append(opts,
+			stream.WithTransformerConfigLoader(transformerConfigLoader),
+			stream.WithTransformerReloadRequests(transformerReloadRequests),
+		)
 	}
 
 	stdLogger := zerolog.NewStdLogger(logger)

@@ -35,6 +35,8 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 
 	initConfig := config.GetInitConfig(opts...)
 	phaseTracker := initConfig.PhaseTracker
+	config.TransformerConfigLoader = initConfig.TransformerConfigLoader
+	config.TransformerReloadRequests = initConfig.TransformerReloadRequests
 
 	if err := registerPhaseMetric(instrumentation, phaseTracker); err != nil {
 		return fmt.Errorf("registering pipeline phase metric: %w", err)
@@ -123,6 +125,14 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 	if err != nil {
 		return err
 	}
+
+	stopTransformerReloads := startTransformerReloadWorker(
+		ctx,
+		replicationChain.transformerReloader,
+		config.TransformerReloadRequests,
+		logger,
+	)
+	defer stopTransformerReloads()
 
 	// Listener
 

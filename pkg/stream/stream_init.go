@@ -12,6 +12,7 @@ import (
 	"github.com/xataio/pgstream/internal/phase"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	loglib "github.com/xataio/pgstream/pkg/log"
+	"github.com/xataio/pgstream/pkg/wal/processor/transformer"
 
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/jackc/pgerrcode"
@@ -28,6 +29,10 @@ type InitConfig struct {
 	Upgrade                   bool
 	// PhaseTracker is optional runtime state for stream.Run; Init/Destroy ignore it.
 	PhaseTracker *phase.Tracker
+	// TransformerConfigLoader and TransformerReloadRequests are optional
+	// runtime state for stream.Run; Init/Destroy ignore them.
+	TransformerConfigLoader   transformer.LoadConfigFn
+	TransformerReloadRequests <-chan struct{}
 	// Logger is optional. Init uses it to report progress that would otherwise
 	// be invisible, such as a replication slot creation that is blocked rather
 	// than slow. Defaults to a no-op logger.
@@ -66,6 +71,22 @@ func WithUpgrade() InitOption {
 func WithPhaseTracker(t *phase.Tracker) InitOption {
 	return func(cfg *InitConfig) {
 		cfg.PhaseTracker = t
+	}
+}
+
+// WithTransformerConfigLoader supplies the loader used by SIGHUP-triggered
+// transformation reloads. Used by stream.Run; ignored by Init/Destroy.
+func WithTransformerConfigLoader(load transformer.LoadConfigFn) InitOption {
+	return func(cfg *InitConfig) {
+		cfg.TransformerConfigLoader = load
+	}
+}
+
+// WithTransformerReloadRequests supplies the request channel consumed by the
+// transformation reload worker. Used by stream.Run; ignored by Init/Destroy.
+func WithTransformerReloadRequests(requests <-chan struct{}) InitOption {
+	return func(cfg *InitConfig) {
+		cfg.TransformerReloadRequests = requests
 	}
 }
 

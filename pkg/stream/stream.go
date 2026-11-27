@@ -205,8 +205,15 @@ var (
 // it. It records which layers were applied, so a fast path that bypasses the
 // chain can tell whether bypassing it is safe.
 type processorChain struct {
-	processor processor.Processor
-	applied   []modifier
+	processor           processor.Processor
+	applied             []modifier
+	transformerReloader transformerReloader
+}
+
+// transformerReloader is the reload capability exposed by the transformer
+// layer.
+type transformerReloader interface {
+	Reload(context.Context) (bool, error)
 }
 
 // apply wraps the current processor in a new layer and records it. It is the
@@ -257,6 +264,9 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 		transformerBuilder := builder.NewTransformerBuilder(builderOpts...)
 
 		opts := []transformer.Option{transformer.WithLogger(logger)}
+		if config.TransformerConfigLoader != nil {
+			opts = append(opts, transformer.WithConfigLoader(config.TransformerConfigLoader))
+		}
 		// if a source pg url is provided, use it to validate the transformer
 		pgURL := config.SourcePostgresURL()
 		if pgURL != "" {
@@ -296,12 +306,19 @@ func addProcessorModifiers(ctx context.Context, config *Config, logger loglib.Lo
 
 			opts = append(opts, transformer.WithParser(parser))
 		}
+		var reloader transformerReloader
 		if err := chain.apply(modifierTransformer, func(p processor.Processor) (processor.Processor, error) {
-			return transformer.New(ctx, config.Processor.Transformer, p, transformerBuilder, opts...)
+			tr, err := transformer.New(ctx, config.Processor.Transformer, p, transformerBuilder, opts...)
+			if err != nil {
+				return nil, err
+			}
+			reloader = tr
+			return tr, nil
 		}); err != nil {
 			logger.Error(err, "creating transformer layer")
 			return nil, nil, err
 		}
+		chain.transformerReloader = reloader
 	}
 
 	if config.Processor.Injector != nil {
