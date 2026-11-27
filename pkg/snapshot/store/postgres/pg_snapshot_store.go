@@ -4,7 +4,10 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/lib/pq"
 	"github.com/xataio/pgstream/internal/postgres"
@@ -14,9 +17,17 @@ import (
 
 type Store struct {
 	conn postgres.Querier
+	// lockConnBuilder opens the dedicated connection that holds the request
+	// locks. Session level advisory locks belong to one connection, so they
+	// can't be taken through the pool.
+	lockConnBuilder func(context.Context) (postgres.Querier, error)
 }
 
-const queryLimit = 1000
+const (
+	queryLimit = 1000
+
+	uniqueIndexName = "schema_table_status_hash_unique_index"
+)
 
 func New(ctx context.Context, url string) (*Store, error) {
 	conn, err := postgres.NewConnPool(ctx, url)
@@ -26,6 +37,9 @@ func New(ctx context.Context, url string) (*Store, error) {
 
 	s := &Store{
 		conn: conn,
+		lockConnBuilder: func(ctx context.Context) (postgres.Querier, error) {
+			return postgres.NewConn(ctx, url)
+		},
 	}
 
 	// create snapshots table if it doesn't exist
@@ -45,10 +59,77 @@ func (s *Store) CreateSnapshotRequest(ctx context.Context, req *snapshot.Request
 	VALUES($1, $2, now(), now(),'requested', $3)`, snapshotsTable())
 	_, err := s.conn.Exec(ctx, query, req.Schema, pq.StringArray(req.Tables), req.GetMode())
 	if err != nil {
+		if isNonCompletedRequestConflict(err) {
+			return fmt.Errorf("error creating snapshot request: %w: %w", store.ErrNonCompletedRequestExists, err)
+		}
 		return fmt.Errorf("error creating snapshot request: %w", err)
 	}
 
 	return nil
+}
+
+// isNonCompletedRequestConflict reports whether err is the unique violation
+// on the index that allows one non-completed request per schema and table
+// list. Other integrity errors (check or not null constraints) are not.
+func isNonCompletedRequestConflict(err error) bool {
+	constraintErr := &postgres.ErrConstraintViolation{}
+	return errors.As(err, &constraintErr) && strings.Contains(constraintErr.Details, uniqueIndexName)
+}
+
+// LockSnapshotRequests takes a session level advisory lock per request, keyed
+// like the unique index on the schema name and the table names hash (mode is
+// not part of the key). The locks live on a dedicated connection, so they are
+// released when release closes it, or by the server when the process dies and
+// its connection drops.
+func (s *Store) LockSnapshotRequests(ctx context.Context, reqs []*snapshot.Request) (func(), error) {
+	conn, err := s.lockConnBuilder(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("opening snapshot request lock connection: %w", err)
+	}
+	release := func() {
+		conn.Close(context.Background())
+	}
+
+	// take the locks in a fixed order so two runs over the same scopes
+	// contend on the same first lock
+	sorted := slices.Clone(reqs)
+	slices.SortFunc(sorted, func(a, b *snapshot.Request) int {
+		return strings.Compare(lockKey(a), lockKey(b))
+	})
+
+	query := fmt.Sprintf(`SELECT pg_try_advisory_lock(hashtextextended($1::text || '/' || %s.snapshot_table_names_hash($2::text[]), 0))`, store.SchemaName)
+	for _, req := range sorted {
+		var locked bool
+		if err := conn.QueryRow(ctx, []any{&locked}, query, req.Schema, pq.StringArray(req.Tables)); err != nil {
+			release()
+			return nil, fmt.Errorf("locking snapshot request for schema %q: %w", req.Schema, err)
+		}
+		if !locked {
+			release()
+			return nil, fmt.Errorf("schema %q tables %v: %w", req.Schema, req.Tables, store.ErrSnapshotRequestLocked)
+		}
+	}
+
+	return release, nil
+}
+
+func lockKey(req *snapshot.Request) string {
+	return req.Schema + "/" + strings.Join(req.Tables, ",")
+}
+
+// ResumeSnapshotRequest takes over the non-completed request matching the
+// unique index key (schema name and table names, any mode), marks it in
+// progress and records the mode on input, so later updates keyed on mode
+// match it.
+func (s *Store) ResumeSnapshotRequest(ctx context.Context, req *snapshot.Request) (bool, error) {
+	query := fmt.Sprintf(`UPDATE %s SET status = 'in progress', mode = $1, errors = NULL, updated_at = now()
+	WHERE schema_name = $2 and table_names = $3 and status != 'completed'`, snapshotsTable())
+	tag, err := s.conn.Exec(ctx, query, req.GetMode(), req.Schema, pq.StringArray(req.Tables))
+	if err != nil {
+		return false, fmt.Errorf("error resuming snapshot request: %w", err)
+	}
+
+	return tag.RowsAffected() > 0, nil
 }
 
 func (s *Store) UpdateSnapshotRequest(ctx context.Context, req *snapshot.Request) error {
