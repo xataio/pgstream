@@ -63,7 +63,7 @@ source:
     replication: # when mode is replication or snapshot_and_replication
       replication_slot: "pgstream_mydatabase_slot"
       plugin:
-        include_xids: false # whether to include transaction IDs in the replication stream events. Defaults to false.
+        include_xids: false # whether to include transaction IDs in the replication stream events. A Postgres target uses them to replay each DDL statement once per transaction. Defaults to false.
   kafka:
     servers: ["localhost:9092"]
     topic:

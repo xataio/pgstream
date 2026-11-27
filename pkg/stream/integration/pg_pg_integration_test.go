@@ -403,6 +403,67 @@ func Test_PostgresToPostgres_UnqualifiedDDLUnderSearchPath(t *testing.T) {
 	}, 20*time.Second, 200*time.Millisecond, "expected the inserted row to be replicated")
 }
 
+// A statement with commands in two schemas reaches the target once per
+// command, each copy with the schema of its own command. Replaying the copy
+// for the second schema with that schema first in the search path would create
+// the unqualified table there as well.
+func Test_PostgresToPostgres_MultiSchemaStatementReplaysOnce(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	listener := testPostgresListenerCfg(t)
+	listener.Postgres.Replication.PluginArguments.IncludeXIDs = true
+	cfg := &stream.Config{
+		Listener:  listener,
+		Processor: testPostgresProcessorCfg(),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runStream(t, ctx, cfg)
+
+	suffix := time.Now().UnixNano()
+	schemaName := fmt.Sprintf("pg2pg_once_%d", suffix)
+	tableName := fmt.Sprintf("pg2pg_once_t_%d", suffix)
+	otherTableName := fmt.Sprintf("pg2pg_once_u_%d", suffix)
+
+	// CREATE SCHEMA does not replicate, so create it twice.
+	execQuery(t, ctx, fmt.Sprintf("create schema %s", schemaName))
+	execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("create schema %s", schemaName))
+	defer execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("drop schema if exists %s cascade", schemaName))
+	defer execQuery(t, ctx, fmt.Sprintf("drop schema if exists %s cascade", schemaName))
+	defer execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("drop table if exists public.%s", tableName))
+	defer execQuery(t, ctx, fmt.Sprintf("drop table if exists public.%s", tableName))
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	// One statement, two commands: an unqualified table in public, then a
+	// table in the other schema.
+	execQuery(t, ctx, fmt.Sprintf(
+		"create table %s (id int primary key); create table if not exists %s.%s (id int primary key)",
+		tableName, schemaName, otherTableName))
+
+	// The stream is ordered, so once this row arrives both copies have been
+	// processed.
+	execQuery(t, ctx, fmt.Sprintf("insert into public.%s values (1)", tableName))
+	require.Eventually(t, func() bool {
+		var count int
+		err := targetConn.QueryRow(ctx, []any{&count}, fmt.Sprintf("select count(*) from public.%s", tableName))
+		return err == nil && count == 1
+	}, 20*time.Second, 200*time.Millisecond, "expected the statement and the row to be replicated")
+
+	otherExists, err := tableExists(ctx, targetConn, schemaName, otherTableName)
+	require.NoError(t, err)
+	require.True(t, otherExists, "expected the other schema's table on the target")
+
+	strayExists, err := tableExists(ctx, targetConn, schemaName, tableName)
+	require.NoError(t, err)
+	require.False(t, strayExists, "expected the unqualified table only in public, not in %s", schemaName)
+}
+
 func Test_PostgresToPostgres_IdentityColumns(t *testing.T) {
 	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
 		t.Skip("skipping integration test...")
