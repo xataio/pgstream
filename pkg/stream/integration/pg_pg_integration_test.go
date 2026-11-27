@@ -350,9 +350,7 @@ func Test_PostgresToPostgres_UnqualifiedDDLUnderSearchPath(t *testing.T) {
 	tableName := fmt.Sprintf("pg2pg_unqualified_%d", suffix)
 	domainName := fmt.Sprintf("pg2pg_code_%d", suffix)
 
-	// CREATE SCHEMA does not replicate, so create it twice.
 	execQuery(t, ctx, fmt.Sprintf("create schema %s", schemaName))
-	execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("create schema %s", schemaName))
 	defer execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("drop schema if exists %s cascade", schemaName))
 	defer execQuery(t, ctx, fmt.Sprintf("drop schema if exists %s cascade", schemaName))
 
@@ -401,6 +399,59 @@ func Test_PostgresToPostgres_UnqualifiedDDLUnderSearchPath(t *testing.T) {
 			fmt.Sprintf("select count(*) from %s.%s", schemaName, tableName))
 		return err == nil && count == 1
 	}, 20*time.Second, 200*time.Millisecond, "expected the inserted row to be replicated")
+}
+
+// Test_PostgresToPostgres_SchemaDDL checks that schema DDL replicates, so the
+// objects created in a new schema replicate too, see issue #1301.
+func Test_PostgresToPostgres_SchemaDDL(t *testing.T) {
+	if os.Getenv("PGSTREAM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test...")
+	}
+
+	cfg := &stream.Config{
+		Listener:  testPostgresListenerCfg(t),
+		Processor: testPostgresProcessorCfg(),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runStream(t, ctx, cfg)
+
+	suffix := time.Now().UnixNano()
+	schemaName := fmt.Sprintf("pg2pg_new_schema_%d", suffix)
+	tableName := fmt.Sprintf("pg2pg_schema_table_%d", suffix)
+
+	targetConn, err := pglib.NewConn(ctx, targetPGURL)
+	require.NoError(t, err)
+	defer targetConn.Close(ctx)
+
+	schemaExists := func() (bool, error) {
+		var exists bool
+		err := targetConn.QueryRow(ctx, []any{&exists},
+			"select exists(select 1 from pg_namespace where nspname = $1)", schemaName)
+		return exists, err
+	}
+
+	defer execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("drop schema if exists %s cascade", schemaName))
+	defer execQuery(t, ctx, fmt.Sprintf("drop schema if exists %s cascade", schemaName))
+
+	execQuery(t, ctx, fmt.Sprintf("create schema %s", schemaName))
+	execQuery(t, ctx, fmt.Sprintf("create table %s.%s (id int primary key)", schemaName, tableName))
+	execQuery(t, ctx, fmt.Sprintf("insert into %s.%s values (1)", schemaName, tableName))
+
+	require.Eventually(t, func() bool {
+		var count int
+		err := targetConn.QueryRow(ctx, []any{&count},
+			fmt.Sprintf("select count(*) from %s.%s", schemaName, tableName))
+		return err == nil && count == 1
+	}, 20*time.Second, 200*time.Millisecond, "expected the schema, table and row to be replicated")
+
+	execQuery(t, ctx, fmt.Sprintf("drop schema %s cascade", schemaName))
+
+	require.Eventually(t, func() bool {
+		exists, err := schemaExists()
+		return err == nil && !exists
+	}, 20*time.Second, 200*time.Millisecond, "expected the schema to be dropped on the target")
 }
 
 func Test_PostgresToPostgres_IdentityColumns(t *testing.T) {
