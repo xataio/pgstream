@@ -145,7 +145,14 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 		return nil
 	}
 
-	columns := event.Data.Columns
+	if err := t.transformColumns(ctx, event.Data, columnTransformers, event.Data.Columns); err != nil {
+		return err
+	}
+
+	return t.transformColumns(ctx, event.Data, columnTransformers, event.Data.Identity)
+}
+
+func (t *Transformer) transformColumns(ctx context.Context, data *wal.Data, columnTransformers ColumnTransformers, columns []wal.Column) error {
 	for i, col := range columns {
 		// do not transform nil column values for now
 		if col.Value == nil {
@@ -159,20 +166,20 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 
 		var dynamicValues map[string]any
 		if columnTransformer.IsDynamic() {
-			dynamicValues = t.getDynamicColumnValues(col.Name, event.Data.Columns)
+			dynamicValues = t.getDynamicColumnValues(col.Name, columns)
 		}
 
 		newValue, err := columnTransformer.Transform(ctx, transformers.NewValue(col.Value, col.Type, dynamicValues))
 		if err != nil {
 			switch t.onError {
 			case OnErrorFail:
-				return fmt.Errorf("transforming column %q in %s.%s: %w", col.Name, event.Data.Schema, event.Data.Table, err)
+				return fmt.Errorf("transforming column %q in %s.%s: %w", col.Name, data.Schema, data.Table, err)
 			case OnErrorPassThrough:
 				t.logger.Warn(err, "transforming column, passing through original value", loglib.Fields{
 					"on_error":    OnErrorPassThrough,
 					"column_name": col.Name,
-					"schema":      event.Data.Schema,
-					"table":       event.Data.Table,
+					"schema":      data.Schema,
+					"table":       data.Table,
 				})
 				newValue = col.Value
 			default:
@@ -180,8 +187,8 @@ func (t *Transformer) applyTransformations(ctx context.Context, event *wal.Event
 					"severity":    "DATALOSS",
 					"on_error":    OnErrorNull,
 					"column_name": col.Name,
-					"schema":      event.Data.Schema,
-					"table":       event.Data.Table,
+					"schema":      data.Schema,
+					"table":       data.Table,
 				})
 				newValue = nil
 			}
