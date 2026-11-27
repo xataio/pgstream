@@ -350,9 +350,9 @@ func Test_PostgresToPostgres_UnqualifiedDDLUnderSearchPath(t *testing.T) {
 	tableName := fmt.Sprintf("pg2pg_unqualified_%d", suffix)
 	domainName := fmt.Sprintf("pg2pg_code_%d", suffix)
 
-	// CREATE SCHEMA does not replicate, so create it twice.
+	// CREATE SCHEMA replicates, so the schema has to exist on the target only
+	// once the create has been processed from the stream.
 	execQuery(t, ctx, fmt.Sprintf("create schema %s", schemaName))
-	execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("create schema %s", schemaName))
 	defer execQueryWithURL(t, ctx, targetPGURL, fmt.Sprintf("drop schema if exists %s cascade", schemaName))
 	defer execQuery(t, ctx, fmt.Sprintf("drop schema if exists %s cascade", schemaName))
 
