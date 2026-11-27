@@ -40,7 +40,7 @@ func newNotifyMsg(event *wal.Event, subscriptions []*subscription.Subscription, 
 		urls:           urls,
 		payload:        payload,
 		lsn:            lsn,
-		commitPosition: event.CommitPosition,
+		commitPosition: event.PositionToCheckpoint(),
 	}, nil
 }
 

@@ -27,6 +27,10 @@ type Listener struct {
 	processEvent listenerProcessWalEvent
 
 	walDataDeserialiser func([]byte, any) error
+
+	nextLocalTxID   uint64
+	activeLocalTxID uint64
+	generation      uint64
 }
 
 type replicationHandler interface {
@@ -166,13 +170,15 @@ func (l *Listener) listen(ctx context.Context) error {
 }
 
 func (l *Listener) processWALEvent(ctx context.Context, msg *replication.Message) error {
+	l.startGeneration(msg.Generation)
+
 	// if there's no data, it's a keep alive. If a reply is not requested,
 	// no need to process this message.
 	if msg.Data == nil && !msg.ReplyRequested {
 		return nil
 	}
 
-	event := &wal.Event{}
+	event := &wal.Event{Generation: msg.Generation}
 	if msg.Data != nil {
 		event.Data = &wal.Data{}
 		if err := l.walDataDeserialiser(msg.Data, event.Data); err != nil {
@@ -185,6 +191,9 @@ func (l *Listener) processWALEvent(ctx context.Context, msg *replication.Message
 		decodeByteaColumns(event.Data)
 	}
 	event.CommitPosition = wal.CommitPosition(l.lsnParser.ToString(msg.LSN))
+	if err := l.addTransactionMetadata(event); err != nil {
+		return err
+	}
 	if isInternalPgstreamDML(event.Data) {
 		l.logger.Trace("skipping pgstream internal DML event", loglib.Fields{
 			"schema": event.Data.Schema,
@@ -195,6 +204,61 @@ func (l *Listener) processWALEvent(ctx context.Context, msg *replication.Message
 	}
 
 	return l.processEvent(ctx, event)
+}
+
+func (l *Listener) addTransactionMetadata(event *wal.Event) error {
+	if event.Data == nil {
+		return nil
+	}
+
+	switch event.Data.Action {
+	case "B":
+		if l.activeLocalTxID != 0 {
+			return fmt.Errorf("received transaction begin while transaction %d is active", l.activeLocalTxID)
+		}
+		l.nextLocalTxID++
+		l.activeLocalTxID = l.nextLocalTxID
+
+		event.Transaction = &wal.Transaction{
+			ID:       l.activeLocalTxID,
+			Boundary: wal.TransactionBegin,
+		}
+		// Transaction boundaries are control records, they don't have data.
+		event.Data = nil
+	case "C":
+		if l.activeLocalTxID == 0 {
+			return errors.New("received transaction commit without an active transaction")
+		}
+		event.Transaction = &wal.Transaction{
+			ID:       l.activeLocalTxID,
+			Boundary: wal.TransactionCommit,
+		}
+		l.activeLocalTxID = 0
+		// Transaction boundaries are control records, they don't have data.
+		event.Data = nil
+	default:
+		if l.activeLocalTxID != 0 {
+			event.Transaction = &wal.Transaction{
+				ID:       l.activeLocalTxID,
+				Boundary: wal.TransactionEntry,
+			}
+		}
+	}
+
+	return nil
+}
+
+// startGeneration resets listener-local transaction metadata when the
+// replication connection changes. It is called only by the listener goroutine,
+// so reconnects cannot race with transaction parsing.
+func (l *Listener) startGeneration(generation uint64) {
+	if generation == l.generation {
+		return
+	}
+
+	l.generation = generation
+	l.nextLocalTxID = 0
+	l.activeLocalTxID = 0
 }
 
 func isInternalPgstreamDML(data *wal.Data) bool {

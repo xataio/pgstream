@@ -18,6 +18,7 @@ import (
 	kafkalistener "github.com/xataio/pgstream/pkg/wal/listener/kafka"
 	pglistener "github.com/xataio/pgstream/pkg/wal/listener/postgres"
 	snapshotbuilder "github.com/xataio/pgstream/pkg/wal/listener/snapshot/builder"
+	"github.com/xataio/pgstream/pkg/wal/processor/transaction"
 	"github.com/xataio/pgstream/pkg/wal/replication"
 	replicationinstrumentation "github.com/xataio/pgstream/pkg/wal/replication/instrumentation"
 	pgreplication "github.com/xataio/pgstream/pkg/wal/replication/postgres"
@@ -118,7 +119,19 @@ func Run(ctx context.Context, logger loglib.Logger, config *Config, init bool, i
 
 	// Processor
 
-	replicationChain, closer, err := newProcessor(ctx, logger, config, checkpoint, processorTypeReplication, instrumentation)
+	// PostgreSQL transaction records are tracked independently of target batch
+	// boundaries. Targets acknowledge ephemeral entry tokens; the tracker invokes
+	// the real source checkpointer only for the contiguous prefix of fully
+	// acknowledged transactions.
+	replicationCheckpoint := checkpoint
+	var transactionTracker *transaction.Tracker
+	if config.Listener.Postgres != nil {
+		transactionTracker = transaction.NewTracker(checkpoint)
+		replicationCheckpoint = transactionTracker.Checkpoint
+	}
+
+	replicationChain, closer, err := newProcessor(ctx, logger, config, replicationCheckpoint, processorTypeReplication, instrumentation,
+		withTransactionTracker(transactionTracker))
 	defer closer()
 	if err != nil {
 		return err
@@ -198,10 +211,30 @@ var noopCloser func() error = func() error {
 	return nil
 }
 
-func newProcessor(ctx context.Context, logger loglib.Logger, config *Config, checkpoint checkpointer.Checkpoint, processorType processorType, instrumentation *otel.Instrumentation) (*processorChain, closerFn, error) {
+type newProcessorConfig struct {
+	transactionTracker *transaction.Tracker
+}
+
+type newProcessorOption func(*newProcessorConfig)
+
+func withTransactionTracker(tracker *transaction.Tracker) newProcessorOption {
+	return func(config *newProcessorConfig) {
+		config.transactionTracker = tracker
+	}
+}
+
+func newProcessor(ctx context.Context, logger loglib.Logger, config *Config, checkpoint checkpointer.Checkpoint, processorType processorType, instrumentation *otel.Instrumentation, opts ...newProcessorOption) (*processorChain, closerFn, error) {
+	processorConfig := &newProcessorConfig{}
+	for _, opt := range opts {
+		opt(processorConfig)
+	}
+
 	target, err := buildProcessor(ctx, logger, &config.Processor, checkpoint, processorType, instrumentation)
 	if err != nil {
 		return nil, noopCloser, err
+	}
+	if processorType == processorTypeReplication && processorConfig.transactionTracker != nil {
+		target = transaction.NewProcessor(target, processorConfig.transactionTracker)
 	}
 	chain, closer, err := addProcessorModifiers(ctx, config, logger, target, instrumentation)
 	if err != nil {

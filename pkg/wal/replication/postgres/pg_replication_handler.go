@@ -76,7 +76,7 @@ var defaultPluginArguments = []string{
 	`"format-version" '2'`,
 	`"write-in-chunks" '1'`,
 	`"include-lsn" '1'`,
-	`"include-transaction" '0'`,
+	`"include-transaction" '1'`,
 }
 
 // NewHandler returns a new postgres replication handler for the database on input.
