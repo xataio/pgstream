@@ -10,6 +10,10 @@ type query struct {
 	args          []any
 	isDDL         bool
 	needsTextCopy bool
+	// split returns one query per row for a statement that coalesces several
+	// rows. It is nil for statements that carry a single row. It lets the writer
+	// drop only the rejected row when the coalesced statement fails.
+	split func() ([]*query, error)
 }
 
 const (
