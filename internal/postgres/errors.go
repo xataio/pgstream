@@ -157,12 +157,13 @@ func MapError(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
-		case "42703", "42883", "42P01", "42P02", "42704":
+		case "42703", "42883", "42P01", "42P02", "42704", "3F000":
 			// 42703 	undefined_column
 			// 42883 	undefined_function
 			// 42P01 	undefined_table
 			// 42P02 	undefined_parameter
 			// 42704 	undefined_object
+			// 3F000 	invalid_schema_name
 			return &ErrRelationDoesNotExist{
 				Details: pgErr.Message,
 			}

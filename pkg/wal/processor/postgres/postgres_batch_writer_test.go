@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 	pglib "github.com/xataio/pgstream/internal/postgres"
 	pgmocks "github.com/xataio/pgstream/internal/postgres/mocks"
@@ -218,6 +219,7 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 	}
 
 	var runBoundarySQL, updateRunSQL []string
+	var missingSchemaCheckpointed bool
 
 	tests := []struct {
 		name         string
@@ -522,6 +524,51 @@ func TestBatchWriter_sendBatch(t *testing.T) {
 			batch: batch.NewBatch([]*walMessage{
 				{data: &wal.Data{Action: "M", Prefix: "pgstream.ddl", Schema: testSchema, Table: testTable}, isDDL: true},
 			}, []wal.CommitPosition{testCommitPosition}),
+
+			wantErr: nil,
+		},
+		{
+			// a schema the target is missing must not stop replication: the
+			// DDL is dropped and the checkpoint advances, see issue #1301.
+			name: "ok - DDL in a schema missing on the target is dropped",
+			pgconn: &pgmocks.Querier{
+				ExecInTxFn: func(ctx context.Context, f func(tx pglib.Tx) error) error {
+					mockTx := pgmocks.Tx{
+						ExecFn: func(ctx context.Context, i uint, sql string, args ...any) (pglib.CommandTag, error) {
+							if i == 1 {
+								return pglib.CommandTag{}, nil
+							}
+							return pglib.CommandTag{}, pglib.MapError(&pgconn.PgError{
+								Code:    "3F000",
+								Message: `schema "new_schema" does not exist`,
+							})
+						},
+					}
+					return f(&mockTx)
+				},
+				CloseFn: func(ctx context.Context) error { return nil },
+			},
+			adapter: &mockAdapter{
+				walEventToQueriesFn: func(e *wal.Event) ([]*query, error) {
+					return []*query{{
+						schema: "new_schema",
+						table:  "t",
+						sql:    "CREATE TABLE new_schema.t (id int)",
+						isDDL:  true,
+					}}, nil
+				},
+			},
+			dmlAdapter: mustNewDMLAdapter(t),
+			batch: batch.NewBatch([]*walMessage{
+				{data: &wal.Data{Action: "M", Prefix: "pgstream.ddl", Schema: "new_schema", Table: "t"}, isDDL: true},
+			}, []wal.CommitPosition{testCommitPosition}),
+			checkpointer: func(ctx context.Context, positions []wal.CommitPosition) error {
+				missingSchemaCheckpointed = true
+				return nil
+			},
+			assert: func(t *testing.T) {
+				require.True(t, missingSchemaCheckpointed, "the batch must be checkpointed after the DDL is dropped")
+			},
 
 			wantErr: nil,
 		},
