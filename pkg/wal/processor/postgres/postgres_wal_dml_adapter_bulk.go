@@ -29,6 +29,8 @@ func pgArrayType(colType string) string {
 		return "uuid[]"
 	case "character varying", "varchar":
 		return "text[]"
+	case jsonType:
+		return jsonbType + "[]"
 	default:
 		return colType + "[]"
 	}
@@ -184,7 +186,7 @@ func (a *dmlAdapter) buildBulkDeleteSinglePK(events []*wal.Data, refCol wal.Colu
 	if enumCol, isEnum := bindAsText(colName, si); isEnum {
 		sql = fmt.Sprintf("DELETE FROM %s WHERE %s", tableName, enumComparison(colName, enumCol, "$1"))
 	} else {
-		sql = fmt.Sprintf("DELETE FROM %s WHERE %s = ANY($1::%s)", tableName, colName, pgArrayType(refCol.Type))
+		sql = fmt.Sprintf("DELETE FROM %s WHERE %s = ANY($1::%s)", tableName, identityComparisonColumn(colName, refCol.Type), pgArrayType(refCol.Type))
 	}
 
 	return &query{
@@ -230,6 +232,7 @@ func (a *dmlAdapter) buildBulkDeleteCompositePK(events []*wal.Data, numPKCols in
 		enumCol, isEnum := bindAsText(colNames[i], si)
 		switch {
 		case !isEnum:
+			colNames[i] = identityComparisonColumn(colNames[i], c.Type)
 			unnestArgs[i] = fmt.Sprintf("$%d::%s", i+1, pgArrayType(c.Type))
 			selectItems[i] = unnestAliases[i]
 		default:
